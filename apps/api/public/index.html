@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BioAssetPro — Phase 1 Control Panel</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1e222b; --line: #2a2f3a;
+    --text: #e6e9ef; --muted: #9aa4b6; --accent: #4ea3ff; --ok: #3ddc97;
+    --bad: #ff6b6b; --warn: #ffb454; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f7f9; --panel:#fff; --panel-2:#f0f2f5; --line:#dde1e8;
+            --text:#141821; --muted:#5c6675; --accent:#0b62d0; --ok:#0a8f5b;
+            --bad:#c62828; --warn:#a86400; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { padding:20px 24px; border-bottom:1px solid var(--line); background:var(--panel);
+           display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:17px; letter-spacing:.2px; }
+  .sub { color:var(--muted); font-size:12.5px; }
+  main { padding:20px 24px 60px; max-width:1180px; margin:0 auto; }
+  .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .card > h2 { margin:0; padding:12px 16px; font-size:12px; text-transform:uppercase;
+               letter-spacing:.09em; color:var(--muted); border-bottom:1px solid var(--line);
+               background:var(--panel-2); font-weight:600; }
+  .card > .body { padding:14px 16px; }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; }
+  td.num, th.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  tr:last-child td { border-bottom:none; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11.5px;
+          font-weight:600; letter-spacing:.02em; }
+  .pill.ok { background:color-mix(in srgb,var(--ok) 18%,transparent); color:var(--ok); }
+  .pill.bad { background:color-mix(in srgb,var(--bad) 18%,transparent); color:var(--bad); }
+  .pill.warn{ background:color-mix(in srgb,var(--warn) 18%,transparent); color:var(--warn); }
+  .pill.mut { background:var(--panel-2); color:var(--muted); }
+  button { font:inherit; font-size:13px; padding:7px 12px; border-radius:7px; cursor:pointer;
+           border:1px solid var(--line); background:var(--panel-2); color:var(--text); }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .row + .row { margin-top:10px; }
+  .label { font-size:11.5px; color:var(--muted); text-transform:uppercase;
+           letter-spacing:.06em; margin:14px 0 7px; font-weight:600; }
+  .label:first-child { margin-top:0; }
+  #log { font-family:var(--mono); font-size:12px; background:var(--panel-2);
+         border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+         max-height:230px; overflow:auto; margin-top:12px; }
+  #log div { padding:2px 0; border-bottom:1px solid var(--line); }
+  #log div:last-child { border-bottom:none; }
+  .lg { color:var(--ok); } .le { color:var(--bad); } .li { color:var(--muted); }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:4px 14px; font-size:13px; }
+  .kv dt { color:var(--muted); } .kv dd { margin:0; font-family:var(--mono); }
+  .tree { font-family:var(--mono); font-size:12.5px; max-height:260px; overflow:auto; }
+  .tree div { padding:1px 0; color:var(--muted); }
+  .tree b { color:var(--text); font-weight:600; }
+  .jrn { border:1px solid var(--line); border-radius:8px; margin-bottom:10px; }
+  .jrn > .h { padding:8px 12px; background:var(--panel-2); display:flex;
+              justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; }
+  .jrn .n { font-family:var(--mono); font-weight:600; }
+  .muted { color:var(--muted); }
+  .foot { margin-top:22px; color:var(--muted); font-size:12px; }
+  code { font-family:var(--mono); background:var(--panel-2); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BioAssetPro</h1>
+  <span class="sub">Phase 1 — Core Platform · every posting below goes through the real <code>PostingService</code></span>
+</header>
+
+<main>
+  <div class="grid">
+
+    <section class="card">
+      <h2>Company context</h2>
+      <div class="body"><dl class="kv" id="ctx"><dd class="muted">Loading…</dd></dl></div>
+    </section>
+
+    <section class="card">
+      <h2>Trial balance control</h2>
+      <div class="body">
+        <div id="tbState"><span class="pill mut">Loading…</span></div>
+        <div class="scroll"><table id="tbTable"></table></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Post through the pipeline</h2>
+      <div class="body">
+        <div class="label">Valid posting</div>
+        <div class="row">
+          <button class="primary" data-post="material-issue">Material issue · ₦195,500.00</button>
+          <button data-post="replay">Replay same idempotency key</button>
+        </div>
+
+        <div class="label">Rule violations — each must be refused</div>
+        <div class="row">
+          <button data-post="unbalanced">Unbalanced by ₦1</button>
+          <button data-post="missing-cost-centre">Missing cost centre</button>
+          <button data-post="summary-account">Post to summary account</button>
+        </div>
+
+        <div class="label">Period status gate (§8)</div>
+        <div class="row">
+          <button data-period="OPEN">Open</button>
+          <button data-period="SOFT_CLOSED">Soft close</button>
+          <button data-period="CLOSED">Close</button>
+        </div>
+
+        <div class="label">Immutability (Rule 2)</div>
+        <div class="row">
+          <button id="tamperBtn">Tamper with latest journal (raw SQL)</button>
+          <button id="reverseBtn">Reverse latest journal</button>
+        </div>
+
+        <div class="label">Sandbox</div>
+        <div class="row"><button id="resetBtn">Clear journals &amp; audit</button></div>
+
+        <div id="log"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Cost centre hierarchy</h2>
+      <div class="body"><div class="tree" id="tree">Loading…</div></div>
+    </section>
+
+    <section class="card" style="grid-column:1/-1">
+      <h2>General ledger — posted journals</h2>
+      <div class="body" id="journals"><span class="muted">No journals yet.</span></div>
+    </section>
+
+    <section class="card" style="grid-column:1/-1">
+      <h2>Audit trail — append-only (Rule 9)</h2>
+      <div class="body scroll"><table id="auditTable"></table></div>
+    </section>
+
+  </div>
+
+  <p class="foot">
+    Money is stored as integer kobo throughout. Immutability and the balance
+    assertion are enforced by PostgreSQL triggers, so the tamper button fails at
+    the database rather than in application code.
+  </p>
+</main>
+
+<script>
+const API = '/api';
+const fmt = (k) => {
+  const n = BigInt(k ?? '0');
+  const neg = n < 0n, a = neg ? -n : n;
+  const major = a / 100n, minor = (a % 100n).toString().padStart(2,'0');
+  return (neg ? '-' : '') + '₦' + major.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + minor;
+};
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function log(msg, kind='li') {
+  const d = document.createElement('div');
+  d.className = kind;
+  d.textContent = new Date().toLocaleTimeString() + '  ' + msg;
+  el('log').prepend(d);
+}
+
+async function api(path, opts) {
+  const res = await fetch(API + path, {
+    headers: { 'content-type': 'application/json' },
+    ...opts,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const e = new Error(body?.message || res.statusText);
+    e.payload = body;
+    throw e;
+  }
+  return body;
+}
+
+let latestJournalId = null;
+
+async function loadContext() {
+  const c = await api('/demo/context');
+  if (!c.seeded) { el('ctx').innerHTML = '<dd class="muted">Not seeded.</dd>'; return; }
+  el('ctx').innerHTML = `
+    <dt>Company</dt><dd>${esc(c.company.code)} — ${esc(c.company.name)}</dd>
+    <dt>Branch</dt><dd>${esc(c.branch?.code)}</dd>
+    <dt>Farm</dt><dd>${esc(c.farm?.code)}</dd>
+    <dt>Currency</dt><dd>${esc(c.currency)}</dd>
+    <dt>Period</dt><dd>${esc(c.period?.name)} <span class="pill ${c.period?.status==='OPEN'?'ok':c.period?.status==='SOFT_CLOSED'?'warn':'bad'}">${esc(c.period?.status)}</span></dd>
+    <dt>Accounts</dt><dd>${c.accounts.length}</dd>
+    <dt>Cost centres</dt><dd>${c.costCentres.length}</dd>`;
+
+  const byParent = {};
+  c.costCentres.forEach(cc => {
+    const k = cc.parent?.code ?? '__root';
+    (byParent[k] ||= []).push(cc);
+  });
+  const render = (code, depth) => (byParent[code] || []).map(cc =>
+    `<div>${'│  '.repeat(depth)}<b>${esc(cc.code)}</b> ${esc(cc.name)}</div>` + render(cc.code, depth+1)
+  ).join('');
+  el('tree').innerHTML = render('__root', 0) || '<div>none</div>';
+}
+
+async function loadTrialBalance() {
+  const tb = await api('/demo/trial-balance');
+  el('tbState').innerHTML = tb.rows.length === 0
+    ? '<span class="pill mut">No postings yet</span>'
+    : (tb.balanced
+        ? `<span class="pill ok">TB BALANCED</span> <span class="muted">Dr ${fmt(tb.totalDebitKobo)} = Cr ${fmt(tb.totalCreditKobo)}</span>`
+        : `<span class="pill bad">TB ERROR</span>`);
+
+  el('tbTable').innerHTML = tb.rows.length === 0 ? '' :
+    `<thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead><tbody>` +
+    tb.rows.map(r => `<tr>
+      <td>${esc(r.accountNumber)} ${esc(r.accountName)}</td>
+      <td class="num">${fmt(r.totalDebitKobo)}</td>
+      <td class="num">${fmt(r.totalCreditKobo)}</td>
+      <td class="num">${fmt(r.displayedBalanceKobo)}</td></tr>`).join('') +
+    `<tr><td><b>Total</b></td><td class="num"><b>${fmt(tb.totalDebitKobo)}</b></td>
+     <td class="num"><b>${fmt(tb.totalCreditKobo)}</b></td><td></td></tr></tbody>`;
+}
+
+async function loadJournals() {
+  const js = await api('/demo/journals');
+  latestJournalId = js[0]?.id ?? null;
+  el('journals').innerHTML = js.length === 0
+    ? '<span class="muted">No journals yet.</span>'
+    : js.map(j => `
+      <div class="jrn">
+        <div class="h">
+          <span><span class="n">${esc(j.journalNumber)}</span>
+            <span class="muted"> · ${esc(j.narration)}</span>
+            ${j.reversalOfId ? '<span class="pill warn">REVERSAL</span>' : ''}</span>
+          <span class="pill ok">${esc(j.status)}</span>
+        </div>
+        <div class="scroll"><table>
+          <thead><tr><th>#</th><th>Account</th><th>Cost centre</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>
+          <tbody>${j.lines.map(l => `<tr>
+            <td>${l.lineNumber}</td><td>${esc(l.account)}</td>
+            <td>${l.costCentre ? esc(l.costCentre) : '<span class="muted">—</span>'}</td>
+            <td class="num">${l.debitKobo === '0' ? '' : fmt(l.debitKobo)}</td>
+            <td class="num">${l.creditKobo === '0' ? '' : fmt(l.creditKobo)}</td></tr>`).join('')}
+          </tbody></table></div>
+      </div>`).join('');
+}
+
+async function loadAudit() {
+  const rows = await api('/demo/audit');
+  el('auditTable').innerHTML = rows.length === 0
+    ? '<tbody><tr><td class="muted">No audit records yet.</td></tr></tbody>'
+    : `<thead><tr><th>Time</th><th>Action</th><th>Module</th><th>Entity</th><th>Status</th><th>User</th><th>Detail</th></tr></thead><tbody>` +
+      rows.map(r => `<tr>
+        <td>${new Date(r.occurredAt).toLocaleTimeString()}</td>
+        <td><span class="pill ${r.action==='REVERSE'?'warn':'ok'}">${esc(r.action)}</span></td>
+        <td>${esc(r.module)}</td><td>${esc(r.entityType)}</td>
+        <td>${esc(r.status)}</td><td>${esc(r.user)}</td>
+        <td class="muted">${esc(r.metadata?.journalNumber ?? '')}</td></tr>`).join('') + '</tbody>';
+}
+
+async function refresh() {
+  await Promise.all([loadContext(), loadTrialBalance(), loadJournals(), loadAudit()]);
+}
+
+document.querySelectorAll('[data-post]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const variant = btn.dataset.post;
+    try {
+      const r = await api('/demo/post', { method:'POST', body: JSON.stringify({ variant }) });
+      log(r.replayed
+        ? `REPLAYED ${r.journalNumber} — idempotency key already used, nothing new posted`
+        : `POSTED ${r.journalNumber} — Dr ${fmt(r.totalDebitKobo)} / Cr ${fmt(r.totalCreditKobo)}`, 'lg');
+    } catch (e) {
+      const p = e.payload || {};
+      log(`REFUSED [${p.rule ?? 'error'}] ${p.message ?? e.message}`, 'le');
+    }
+    await refresh();
+  });
+});
+
+document.querySelectorAll('[data-period]').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const status = btn.dataset.period;
+    const r = await api('/demo/period-status', { method:'POST', body: JSON.stringify({ status }) });
+    log(`Period ${r.period} → ${r.status}`, 'li');
+    await refresh();
+  });
+});
+
+el('tamperBtn').addEventListener('click', async () => {
+  if (!latestJournalId) { log('No journal to tamper with — post one first.', 'li'); return; }
+  try {
+    const r = await api('/demo/tamper', { method:'POST', body: JSON.stringify({ journalEntryId: latestJournalId }) });
+    if (r.blocked) log(`BLOCKED BY POSTGRES — ${r.message}`, 'lg');
+    else log(`UPDATE SUCCEEDED — immutability is broken! ${r.message}`, 'le');
+  } catch (e) {
+    log(`Error — ${e.payload?.message ?? e.message}`, 'le');
+  }
+  await refresh();
+});
+
+el('reverseBtn').addEventListener('click', async () => {
+  if (!latestJournalId) { log('No journal to reverse — post one first.', 'li'); return; }
+  try {
+    const r = await api('/demo/reverse', { method:'POST', body: JSON.stringify({ journalEntryId: latestJournalId }) });
+    log(`REVERSED via ${r.journalNumber} — original untouched`, 'lg');
+  } catch (e) {
+    log(`REFUSED — ${e.payload?.message ?? e.message}`, 'le');
+  }
+  await refresh();
+});
+
+el('resetBtn').addEventListener('click', async () => {
+  await api('/demo/reset', { method:'POST' });
+  log('Journals, idempotency log and audit trail cleared.', 'li');
+  await refresh();
+});
+
+refresh().then(() => log('Ready. Every button posts through the real PostingService.', 'li'));
+</script>
+</body>
+</html>

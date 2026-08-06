@@ -1,0 +1,42 @@
+{
+  "name": "bioassetpro",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "npm@11.16.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "npm run generate -w @bioassetpro/database",
+    "db:push": "npm run push -w @bioassetpro/database",
+    "db:seed": "npm run seed -w @bioassetpro/database",
+    "db:start": "node scripts/pg-dev-server.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.4",
+    "@electric-sql/pglite-socket": "^0.0.9",
+    "@types/node": "^22.10.2",
+    "embedded-postgres": "^17.10.0-beta.17",
+    "tsx": "^4.23.9",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "@nestjs/core@10.4.22": true,
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.1": true,
+    "esbuild@0.21.5": true,
+    "prisma@6.19.3": true,
+    "@embedded-postgres/windows-x64@17.10.0-beta.17": true
+  }
+}
