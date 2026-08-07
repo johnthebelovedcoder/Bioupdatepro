@@ -293,6 +293,7 @@ async function main(): Promise<void> {
 
   await seedWorkflow(company.id);
   await seedTax(company.id, accountIds);
+  await seedMasters(company.id, accountIds);
 
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +
@@ -641,6 +642,296 @@ async function seedTax(companyId: string, accounts: Record<string, string>) {
     `Seeded tax: ${VAT_CODES.length} VAT codes (7.5% standard), ` +
       `${WHT_CATEGORIES.length} WHT categories WITHOUT rates — supply them before ` +
       `any withholding is calculated — and 24 filing periods.`,
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Master data (Consolidated Reference §5, §6, §7, §10)
+//
+// Items, costs and recipes are taken verbatim from the SnailPro and PoultryPro
+// workbooks' Masters and BOM sheets. Nothing is invented: where the workbooks
+// are silent — supplier names, customer names, employee personal data — nothing
+// is seeded at all, because plausible-looking fake master data is worse than
+// none. The integration suite proves the seeded slime recipe reproduces the
+// workbook's ₦195,500 material cost for PO-SN-001.
+// ---------------------------------------------------------------------------
+
+async function seedMasters(companyId: string, accounts: Record<string, string>) {
+  const from = new Date('2026-01-01');
+
+  // --- Payment terms -------------------------------------------------------
+  for (const spec of [
+    { code: 'IMMEDIATE', name: 'Due immediately', netDays: 0 },
+    { code: 'NET14', name: 'Net 14 days', netDays: 14 },
+    { code: 'NET30', name: 'Net 30 days', netDays: 30 },
+    { code: 'NET60', name: 'Net 60 days', netDays: 60 },
+  ]) {
+    await prisma.paymentTerm.upsert({
+      where: { companyId_code: { companyId, code: spec.code } },
+      update: {},
+      create: { companyId, ...spec },
+    });
+  }
+
+  // --- Units of measure ----------------------------------------------------
+  // The workbooks use exactly these: Unit, L, Kg (BOM sheet column C).
+  const uomIds: Record<string, string> = {};
+  for (const spec of [
+    { code: 'Unit', name: 'Unit', precision: 0 },
+    { code: 'L', name: 'Litre', precision: 3 },
+    { code: 'Kg', name: 'Kilogramme', precision: 3 },
+  ]) {
+    const uom = await prisma.unitOfMeasure.upsert({
+      where: { companyId_code: { companyId, code: spec.code } },
+      update: {},
+      create: { companyId, ...spec },
+    });
+    uomIds[spec.code] = uom.id;
+  }
+
+  // --- Salary components (§7 Payroll Setup) --------------------------------
+  // Every §7 earning and deduction is a row. The pensionable flags follow the
+  // statutory workbook exactly: the pension base is Basic + Housing +
+  // Transport, NOT gross.
+  const SALARY_COMPONENTS = [
+    { code: 'BASIC', name: 'Basic', type: 'EARNING', taxable: true, pensionable: true },
+    { code: 'HOUSING', name: 'Housing', type: 'EARNING', taxable: true, pensionable: true },
+    { code: 'TRANSPORT', name: 'Transport', type: 'EARNING', taxable: true, pensionable: true },
+    { code: 'UTILITY', name: 'Utility', type: 'EARNING', taxable: true, pensionable: false },
+    { code: 'MEAL', name: 'Meal', type: 'EARNING', taxable: true, pensionable: false },
+    { code: 'RESPONSIBILITY', name: 'Responsibility', type: 'EARNING', taxable: true, pensionable: false },
+    { code: 'LEAVE', name: 'Leave allowance', type: 'EARNING', taxable: true, pensionable: false },
+    { code: 'BONUS', name: 'Bonus', type: 'EARNING', taxable: true, pensionable: false },
+    { code: 'OVERTIME', name: 'Overtime', type: 'EARNING', taxable: true, pensionable: false },
+    { code: 'COMMISSION', name: 'Commission', type: 'EARNING', taxable: true, pensionable: false },
+  ] as const;
+
+  for (const spec of SALARY_COMPONENTS) {
+    await prisma.salaryComponent.upsert({
+      where: { companyId_code: { companyId, code: spec.code } },
+      update: {},
+      create: {
+        companyId,
+        code: spec.code,
+        name: spec.name,
+        type: spec.type,
+        isTaxable: spec.taxable,
+        isPensionable: spec.pensionable,
+        isGrossPayComponent: true,
+        expenseGlAccountId: accounts['5101'] ?? null,
+        payableGlAccountId: accounts['2101'] ?? null,
+      },
+    });
+  }
+
+  // Deductions and employer contributions post to their own accounts. Rates are
+  // NOT seeded here — they belong to Phase 9's statutory configuration.
+  const STATUTORY_COMPONENTS = [
+    { code: 'PAYE', name: 'PAYE', type: 'DEDUCTION', payable: '2110' },
+    { code: 'PENSION-EE', name: 'Employee pension', type: 'DEDUCTION', payable: '2102' },
+    { code: 'NHF', name: 'NHF', type: 'DEDUCTION', payable: '2103' },
+    { code: 'PENSION-ER', name: 'Employer pension', type: 'EMPLOYER_CONTRIBUTION', payable: '2102', expense: '5102' },
+    { code: 'NSITF', name: 'NSITF', type: 'EMPLOYER_CONTRIBUTION', payable: '2104', expense: '5103' },
+    { code: 'ITF', name: 'ITF', type: 'EMPLOYER_CONTRIBUTION', payable: '2105', expense: '5104' },
+  ] as const;
+
+  for (const spec of STATUTORY_COMPONENTS) {
+    await prisma.salaryComponent.upsert({
+      where: { companyId_code: { companyId, code: spec.code } },
+      update: {},
+      create: {
+        companyId,
+        code: spec.code,
+        name: spec.name,
+        type: spec.type,
+        isTaxable: false,
+        isPensionable: false,
+        isGrossPayComponent: false,
+        payableGlAccountId: accounts[spec.payable] ?? null,
+        expenseGlAccountId: 'expense' in spec ? (accounts[spec.expense] ?? null) : null,
+      },
+    });
+  }
+
+  // --- Items (SnailPro & PoultryPro Masters sheets) ------------------------
+  type ItemSpec = {
+    code: string;
+    description: string;
+    uom: string;
+    costKobo: bigint | null;
+    inventoryAccount: string;
+    manufactured?: boolean;
+    feed?: boolean;
+  };
+
+  const ITEMS: ItemSpec[] = [
+    // SnailPro raw materials — Masters A5:D12, costs in naira -> kobo.
+    { code: 'RM-SNAIL-LIVE', description: 'Live Harvested Snails', uom: 'Kg', costKobo: 4_200_00n, inventoryAccount: '1301' },
+    { code: 'RM-SLIME', description: 'Fresh Snail Slime', uom: 'L', costKobo: 1_500_00n, inventoryAccount: '1301' },
+    { code: 'RM-SHELL', description: 'Snail Shells', uom: 'Kg', costKobo: 300_00n, inventoryAccount: '1301' },
+    { code: 'RM-PRESERVATIVE', description: 'Preservative', uom: 'L', costKobo: 8_000_00n, inventoryAccount: '1302' },
+    { code: 'PK-BOTTLE-100', description: 'Bottle 100ml', uom: 'Unit', costKobo: 180_00n, inventoryAccount: '1302' },
+    { code: 'PK-LABEL', description: 'Label', uom: 'Unit', costKobo: 45_00n, inventoryAccount: '1302' },
+    { code: 'PK-VACUUM', description: 'Vacuum Pack', uom: 'Unit', costKobo: 250_00n, inventoryAccount: '1302' },
+    { code: 'PK-CARTON', description: 'Carton', uom: 'Unit', costKobo: 350_00n, inventoryAccount: '1302' },
+    // BOM sheet R18 references a 1kg bag that the Masters sheet omits; its cost
+    // comes from the BOM row itself (E18 = 120).
+    { code: 'PK-BAG-1KG', description: 'Bag 1kg', uom: 'Unit', costKobo: 120_00n, inventoryAccount: '1302' },
+
+    // SnailPro finished goods — Masters G5:G9.
+    { code: 'FG-SLIME-COSMETIC', description: 'Cosmetic Snail Slime 100ml', uom: 'Unit', costKobo: null, inventoryAccount: '1401', manufactured: true },
+    { code: 'FG-SLIME-MEDICINAL', description: 'Medicinal Snail Slime 100ml', uom: 'Unit', costKobo: null, inventoryAccount: '1401', manufactured: true },
+    { code: 'FG-MEAT-FROZEN', description: 'Frozen Snail Meat 1kg', uom: 'Unit', costKobo: null, inventoryAccount: '1401', manufactured: true },
+    { code: 'FG-MEAT-SMOKED', description: 'Smoked Snail Meat 500g', uom: 'Unit', costKobo: null, inventoryAccount: '1401', manufactured: true },
+    { code: 'FG-SHELL-POWDER', description: 'Snail Shell Powder 1kg', uom: 'Unit', costKobo: null, inventoryAccount: '1401', manufactured: true },
+  ];
+
+  const itemIds: Record<string, string> = {};
+  for (const spec of ITEMS) {
+    const existing = await prisma.item.findUnique({
+      where: { companyId_code: { companyId, code: spec.code } },
+    });
+    if (existing) {
+      itemIds[spec.code] = existing.id;
+      continue;
+    }
+
+    const item = await prisma.item.create({
+      data: {
+        companyId,
+        code: spec.code,
+        description: spec.description,
+        unitOfMeasureId: uomIds[spec.uom]!,
+        itemType: 'INVENTORY',
+        isManufactured: spec.manufactured ?? false,
+        isBiologicalFeed: spec.feed ?? false,
+        inventoryGlAccountId: accounts[spec.inventoryAccount] ?? null,
+        revenueGlAccountId: spec.manufactured ? (accounts['4101'] ?? null) : null,
+        ...(spec.costKobo !== null
+          ? {
+              standardCosts: {
+                create: [
+                  {
+                    standardCostKobo: spec.costKobo,
+                    effectiveFrom: from,
+                    sourceReference: 'SnailPro workbook, Masters sheet',
+                  },
+                ],
+              },
+            }
+          : {}),
+      },
+    });
+    itemIds[spec.code] = item.id;
+  }
+
+  // --- Recipes (SnailPro BOM sheet, quantities per ONE finished unit) ------
+  const RECIPES: Array<{
+    code: string;
+    name: string;
+    output: string;
+    yieldPercent: string;
+    components: Array<{ item: string; qty: string; uom: string }>;
+  }> = [
+    {
+      code: 'REC-SLIME-COSMETIC', name: 'Cosmetic Snail Slime 100ml',
+      output: 'FG-SLIME-COSMETIC', yieldPercent: '92',
+      components: [
+        { item: 'RM-SLIME', qty: '0.1', uom: 'L' },
+        { item: 'RM-PRESERVATIVE', qty: '0.002', uom: 'L' },
+        { item: 'PK-BOTTLE-100', qty: '1', uom: 'Unit' },
+        { item: 'PK-LABEL', qty: '1', uom: 'Unit' },
+      ],
+    },
+    {
+      code: 'REC-SLIME-MEDICINAL', name: 'Medicinal Snail Slime 100ml',
+      output: 'FG-SLIME-MEDICINAL', yieldPercent: '90',
+      components: [
+        { item: 'RM-SLIME', qty: '0.1', uom: 'L' },
+        { item: 'RM-PRESERVATIVE', qty: '0.003', uom: 'L' },
+        { item: 'PK-BOTTLE-100', qty: '1', uom: 'Unit' },
+        { item: 'PK-LABEL', qty: '1', uom: 'Unit' },
+      ],
+    },
+    {
+      code: 'REC-MEAT-FROZEN', name: 'Frozen Snail Meat 1kg',
+      output: 'FG-MEAT-FROZEN', yieldPercent: '82',
+      components: [
+        { item: 'RM-SNAIL-LIVE', qty: '1.22', uom: 'Kg' },
+        { item: 'PK-VACUUM', qty: '1', uom: 'Unit' },
+      ],
+    },
+    {
+      code: 'REC-MEAT-SMOKED', name: 'Smoked Snail Meat 500g',
+      output: 'FG-MEAT-SMOKED', yieldPercent: '74',
+      components: [
+        { item: 'RM-SNAIL-LIVE', qty: '0.68', uom: 'Kg' },
+        { item: 'PK-VACUUM', qty: '1', uom: 'Unit' },
+      ],
+    },
+    {
+      code: 'REC-SHELL-POWDER', name: 'Snail Shell Powder 1kg',
+      output: 'FG-SHELL-POWDER', yieldPercent: '68',
+      components: [
+        { item: 'RM-SHELL', qty: '1.47', uom: 'Kg' },
+        { item: 'PK-BAG-1KG', qty: '1', uom: 'Unit' },
+      ],
+    },
+  ];
+
+  for (const spec of RECIPES) {
+    // Guard on the VERSION, not the recipe. A recipe row with no version is a
+    // half-finished seed, and skipping it would leave it permanently broken.
+    const existing = await prisma.productRecipe.findUnique({
+      where: { companyId_code: { companyId, code: spec.code } },
+      include: { versions: { select: { id: true } } },
+    });
+    if (existing?.versions.length) continue;
+    if (existing) await prisma.productRecipe.delete({ where: { id: existing.id } });
+
+    const recipe = await prisma.productRecipe.create({
+      data: {
+        companyId,
+        code: spec.code,
+        name: spec.name,
+        outputItemId: itemIds[spec.output]!,
+      },
+    });
+
+    // Created as a draft WITH its components, then activated. The database
+    // freezes an active version's components, so the order matters: a version
+    // that is ACTIVE before its lines exist can never receive them.
+    const version = await prisma.productRecipeVersion.create({
+      data: {
+        recipeId: recipe.id,
+        version: 1,
+        batchSize: '1',
+        expectedYieldPercent: spec.yieldPercent,
+        effectiveFrom: from,
+        notes: 'Seeded from the SnailPro workbook BOM sheet.',
+        components: {
+          create: spec.components.map((c, index) => ({
+            lineNumber: index + 1,
+            componentItemId: itemIds[c.item]!,
+            quantityPerBatch: c.qty,
+            unitOfMeasureId: uomIds[c.uom]!,
+          })),
+        },
+      },
+    });
+
+    await prisma.productRecipeVersion.update({
+      where: { id: version.id },
+      data: { status: 'ACTIVE' },
+    });
+  }
+
+  console.log(
+    `Seeded masters: ${ITEMS.length} items, ${RECIPES.length} recipes, ` +
+      `${SALARY_COMPONENTS.length + STATUTORY_COMPONENTS.length} salary components, ` +
+      `4 payment terms, 3 units of measure. No supplier, customer or employee ` +
+      `records — those are the client's real data, not ours to invent.`,
   );
 }
 

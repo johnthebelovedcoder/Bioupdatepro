@@ -111,22 +111,24 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  createdJournals         JournalEntry[]            @relation("JournalCreatedBy")
-  postedJournals          JournalEntry[]            @relation("JournalPostedBy")
-  auditRecords            AuditRecord[]
-  workflowMade            WorkflowTransaction[]     @relation("WorkflowMaker")
-  workflowStepsActed      WorkflowTransactionStep[] @relation("StepActor")
-  workflowStepsOnBehalf   WorkflowTransactionStep[] @relation("StepDelegator")
-  workflowHistory         WorkflowHistory[]         @relation("HistoryActor")
-  workflowHistoryOnBehalf WorkflowHistory[]         @relation("HistoryDelegator")
-  delegationsGiven        WorkflowDelegation[]      @relation("Delegator")
-  delegationsReceived     WorkflowDelegation[]      @relation("Delegate")
-  delegationsCreated      WorkflowDelegation[]      @relation("DelegationCreator")
-  workflowComments        WorkflowComment[]         @relation("CommentAuthor")
-  workflowNotifications   WorkflowNotification[]    @relation("NotificationRecipient")
-  workflowAttachments     WorkflowAttachment[]      @relation("AttachmentUploader")
-  taxPeriodsFiled         TaxPeriod[]               @relation("TaxPeriodFiler")
-  taxAdjustments          TaxAdjustment[]           @relation("TaxAdjustmentCreator")
+  createdJournals           JournalEntry[]            @relation("JournalCreatedBy")
+  postedJournals            JournalEntry[]            @relation("JournalPostedBy")
+  auditRecords              AuditRecord[]
+  workflowMade              WorkflowTransaction[]     @relation("WorkflowMaker")
+  workflowStepsActed        WorkflowTransactionStep[] @relation("StepActor")
+  workflowStepsOnBehalf     WorkflowTransactionStep[] @relation("StepDelegator")
+  workflowHistory           WorkflowHistory[]         @relation("HistoryActor")
+  workflowHistoryOnBehalf   WorkflowHistory[]         @relation("HistoryDelegator")
+  delegationsGiven          WorkflowDelegation[]      @relation("Delegator")
+  delegationsReceived       WorkflowDelegation[]      @relation("Delegate")
+  delegationsCreated        WorkflowDelegation[]      @relation("DelegationCreator")
+  workflowComments          WorkflowComment[]         @relation("CommentAuthor")
+  workflowNotifications     WorkflowNotification[]    @relation("NotificationRecipient")
+  workflowAttachments       WorkflowAttachment[]      @relation("AttachmentUploader")
+  taxPeriodsFiled           TaxPeriod[]               @relation("TaxPeriodFiler")
+  taxAdjustments            TaxAdjustment[]           @relation("TaxAdjustmentCreator")
+  employeeDocumentsUploaded EmployeeDocument[]        @relation("EmployeeDocumentUploader")
+  recipeVersionsApproved    ProductRecipeVersion[]    @relation("RecipeApprover")
 
   @@map("users")
 }
@@ -171,6 +173,14 @@ model Company {
   vatRegisterEntries      VatRegisterEntry[]
   whtRegisterEntries      WhtRegisterEntry[]
   taxAdjustments          TaxAdjustment[]
+  paymentTerms            PaymentTerm[]
+  unitsOfMeasure          UnitOfMeasure[]
+  suppliers               Supplier[]
+  customers               Customer[]
+  items                   Item[]
+  employees               Employee[]
+  salaryComponents        SalaryComponent[]
+  productRecipes          ProductRecipe[]
 
   @@map("companies")
 }
@@ -194,6 +204,9 @@ model Branch {
   workflowTransactions WorkflowTransaction[]
   vatRegisterEntries   VatRegisterEntry[]
   whtRegisterEntries   WhtRegisterEntry[]
+  suppliers            Supplier[]
+  customers            Customer[]
+  employees            Employee[]
 
   @@unique([companyId, code])
   @@map("branches")
@@ -213,6 +226,7 @@ model Department {
   journalLines         JournalLine[]
   workflowDefinitions  WorkflowDefinition[]
   workflowTransactions WorkflowTransaction[]
+  employees            Employee[]
 
   @@unique([companyId, code])
   @@map("departments")
@@ -242,6 +256,9 @@ model CostCentre {
   journalLines         JournalLine[]
   workflowDefinitions  WorkflowDefinition[]
   workflowTransactions WorkflowTransaction[]
+  supplierDefaults     Supplier[]            @relation("SupplierCostCentre")
+  customerDefaults     Customer[]            @relation("CustomerCostCentre")
+  employees            Employee[]            @relation("EmployeeCostCentre")
 
   @@unique([companyId, code])
   @@index([parentId])
@@ -276,11 +293,16 @@ model GLAccount {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company       Company        @relation(fields: [companyId], references: [id])
-  parent        GLAccount?     @relation("GLAccountHierarchy", fields: [parentId], references: [id])
-  children      GLAccount[]    @relation("GLAccountHierarchy")
-  journalLines  JournalLine[]
-  taxGlMappings TaxGLMapping[]
+  company                Company           @relation(fields: [companyId], references: [id])
+  parent                 GLAccount?        @relation("GLAccountHierarchy", fields: [parentId], references: [id])
+  children               GLAccount[]       @relation("GLAccountHierarchy")
+  journalLines           JournalLine[]
+  taxGlMappings          TaxGLMapping[]
+  itemsInventoryDefault  Item[]            @relation("ItemInventoryAccount")
+  itemsExpenseDefault    Item[]            @relation("ItemExpenseAccount")
+  itemsRevenueDefault    Item[]            @relation("ItemRevenueAccount")
+  salaryComponentExpense SalaryComponent[] @relation("SalaryComponentExpense")
+  salaryComponentPayable SalaryComponent[] @relation("SalaryComponentPayable")
 
   @@unique([companyId, accountNumber])
   @@index([parentId])
@@ -306,6 +328,8 @@ model Currency {
   ratesTo              ExchangeRate[]        @relation("RateToCurrency")
   workflowDefinitions  WorkflowDefinition[]
   workflowTransactions WorkflowTransaction[]
+  suppliers            Supplier[]
+  customers            Customer[]
 
   @@map("currencies")
 }
@@ -447,6 +471,7 @@ model Warehouse {
 
   company Company @relation(fields: [companyId], references: [id])
   branch  Branch  @relation(fields: [branchId], references: [id])
+  items   Item[]
 
   @@unique([companyId, code])
   @@map("warehouses")
@@ -1101,6 +1126,9 @@ model TaxCode {
   vatEntries  VatRegisterEntry[]
   whtEntries  WhtRegisterEntry[]
   adjustments TaxAdjustment[]
+  suppliers   Supplier[]         @relation("SupplierWhtCode")
+  customers   Customer[]         @relation("CustomerWhtCode")
+  items       Item[]             @relation("ItemVatCode")
 
   @@unique([companyId, code])
   @@index([companyId, taxType, active])
@@ -1366,4 +1394,621 @@ model TaxAdjustment {
 
   @@index([companyId, taxPeriodId])
   @@map("tax_adjustments")
+}
+
+// ---------------------------------------------------------------------------
+// Master Data  (Consolidated Reference §5, §6, §7, §10 — Phase 4)
+//
+// Supplier, Customer, Item, Employee and Recipe/BOM. Everything downstream
+// hangs off these, so two rules matter more here than anywhere else:
+//
+//   Rule 1  Every money field is BigInt kobo. Standard costs, credit limits and
+//           salary components included. Quantities are Decimal — a quantity is
+//           not money and 0.002 litres of preservative is a real BOM line.
+//
+//   Rule 8  Nothing species-specific. There is no snail table and no poultry
+//           table: a recipe for cosmetic slime and a recipe for dressed chicken
+//           are the same three rows with different configuration.
+//
+// The tax links (Item.vatTaxCodeId, Supplier/Customer.whtTaxCodeId) point at
+// Phase 3's TaxCode. That is what makes Rule 5 real rather than aspirational —
+// a document cannot carry a VAT rate that the tax engine does not own.
+// ---------------------------------------------------------------------------
+
+enum PartyStatus {
+  ACTIVE
+  INACTIVE
+  /// §5/§6: a blocked party fails credit control and cannot transact at all.
+  BLOCKED
+}
+
+/// §5 Item Master carries three independent Y/N flags (Inventory / Biological
+/// Feed / Expense). Inventory and Expense are mutually exclusive in practice —
+/// an item is either stocked or expensed on receipt — so they collapse into one
+/// discriminator. "Biological Feed" is orthogonal to both and stays a flag.
+enum ItemType {
+  INVENTORY
+  EXPENSE
+  SERVICE
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  CASUAL
+  INTERN
+}
+
+enum EmploymentStatus {
+  PROBATION
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+  RESIGNED
+  RETIRED
+}
+
+enum MaritalStatus {
+  SINGLE
+  MARRIED
+  DIVORCED
+  WIDOWED
+  UNDISCLOSED
+}
+
+/// §7 Payroll Setup. The three groups the payroll posting distinguishes:
+/// earnings and deductions move the employee's net pay, employer contributions
+/// are a company cost that never touches it.
+enum SalaryComponentType {
+  EARNING
+  DEDUCTION
+  EMPLOYER_CONTRIBUTION
+}
+
+enum SalaryComponentBasis {
+  /// A fixed monthly amount in kobo.
+  FIXED
+  /// A percentage of a named base (e.g. pension on basic+housing+transport).
+  PERCENTAGE_OF_BASE
+}
+
+/// A recipe version's lifecycle. SUPERSEDED rather than deleted: a production
+/// order from last quarter must still resolve the version it actually used.
+enum RecipeVersionStatus {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+  ARCHIVED
+}
+
+/// §5/§6 Payment Terms. A master rather than free text because a supplier
+/// invoice needs a computed Due Date, and "30 days net" as a string cannot
+/// produce one.
+model PaymentTerm {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  code            String
+  name            String
+  /// Days from invoice date to due date.
+  netDays         Int      @map("net_days")
+  /// Optional early-settlement discount, e.g. 2% if paid within 10 days.
+  discountPercent Decimal? @map("discount_percent") @db.Decimal(5, 2)
+  discountDays    Int?     @map("discount_days")
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company   Company    @relation(fields: [companyId], references: [id])
+  suppliers Supplier[]
+  customers Customer[]
+
+  @@unique([companyId, code])
+  @@map("payment_terms")
+}
+
+/// Units of measure. No conversion factors: the source documents never define
+/// any, and an invented conversion between kilogrammes and units would silently
+/// mis-cost every recipe that used it.
+model UnitOfMeasure {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  code      String
+  name      String
+  /// Decimal places a quantity in this unit may carry. Whole units of packaging
+  /// are not divisible; litres of slime are.
+  precision Int    @default(3)
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company    Company                  @relation(fields: [companyId], references: [id])
+  items      Item[]
+  components ProductRecipeComponent[]
+
+  @@unique([companyId, code])
+  @@map("units_of_measure")
+}
+
+// ---------------------------------------------------------------------------
+// §5 Supplier Master
+// ---------------------------------------------------------------------------
+
+model Supplier {
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @map("company_id") @db.Uuid
+  code      String
+  name      String
+  category  String?
+
+  // --- Tax identity ---
+  tin                   String?
+  vatRegistrationNumber String? @map("vat_registration_number")
+  /// §5 "WHT Category". Points at a Phase 3 WHT TaxCode so the rate comes from
+  /// the tax engine and nowhere else.
+  whtTaxCodeId          String? @map("wht_tax_code_id") @db.Uuid
+
+  // --- Contact ---
+  contactPerson String? @map("contact_person")
+  phone         String?
+  email         String?
+  address       String?
+
+  // --- Banking (for §5 Supplier Payment) ---
+  bankName      String? @map("bank_name")
+  accountNumber String? @map("account_number")
+  accountName   String? @map("account_name")
+
+  // --- Commercial ---
+  paymentTermId   String? @map("payment_term_id") @db.Uuid
+  /// MONEY. Integer kobo. Zero means no limit has been set, which is different
+  /// from a limit of zero — see Supplier.creditLimitSet.
+  creditLimitKobo BigInt  @default(0) @map("credit_limit_kobo")
+  creditLimitSet  Boolean @default(false) @map("credit_limit_set")
+
+  defaultCurrencyId   String  @map("default_currency_id") @db.Uuid
+  branchId            String? @map("branch_id") @db.Uuid
+  defaultCostCentreId String? @map("default_cost_centre_id") @db.Uuid
+
+  status       PartyStatus @default(ACTIVE)
+  /// Why a supplier was blocked. A block with no reason is not auditable.
+  statusReason String?     @map("status_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company           Company      @relation(fields: [companyId], references: [id])
+  whtTaxCode        TaxCode?     @relation("SupplierWhtCode", fields: [whtTaxCodeId], references: [id])
+  paymentTerm       PaymentTerm? @relation(fields: [paymentTermId], references: [id])
+  defaultCurrency   Currency     @relation(fields: [defaultCurrencyId], references: [id])
+  branch            Branch?      @relation(fields: [branchId], references: [id])
+  defaultCostCentre CostCentre?  @relation("SupplierCostCentre", fields: [defaultCostCentreId], references: [id])
+  preferredForItems Item[]       @relation("PreferredSupplier")
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@map("suppliers")
+}
+
+// ---------------------------------------------------------------------------
+// §6 Customer Master
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @map("company_id") @db.Uuid
+  code      String
+  name      String
+  category  String?
+
+  tin                   String?
+  vatRegistrationNumber String? @map("vat_registration_number")
+  /// The category the CUSTOMER withholds under when paying us — the mirror of
+  /// the supplier field, and the source of §6's WHT Receivable.
+  whtTaxCodeId          String? @map("wht_tax_code_id") @db.Uuid
+
+  contactPerson String? @map("contact_person")
+  telephone     String?
+  email         String?
+  address       String?
+  state         String?
+  country       String? @default("Nigeria")
+
+  paymentTermId   String? @map("payment_term_id") @db.Uuid
+  /// MONEY. Integer kobo. §6 Customer Credit Control checks against this.
+  creditLimitKobo BigInt  @default(0) @map("credit_limit_kobo")
+  creditLimitSet  Boolean @default(false) @map("credit_limit_set")
+
+  currencyId          String  @map("currency_id") @db.Uuid
+  defaultBranchId     String? @map("default_branch_id") @db.Uuid
+  defaultCostCentreId String? @map("default_cost_centre_id") @db.Uuid
+
+  status       PartyStatus @default(ACTIVE)
+  statusReason String?     @map("status_reason")
+
+  customerSince DateTime? @map("customer_since") @db.Date
+  /// §6 "Risk Rating". Free text: the rating scale is the client's commercial
+  /// policy, and inventing a fixed scale here would constrain it.
+  riskRating    String?   @map("risk_rating")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company           Company      @relation(fields: [companyId], references: [id])
+  whtTaxCode        TaxCode?     @relation("CustomerWhtCode", fields: [whtTaxCodeId], references: [id])
+  paymentTerm       PaymentTerm? @relation(fields: [paymentTermId], references: [id])
+  currency          Currency     @relation(fields: [currencyId], references: [id])
+  defaultBranch     Branch?      @relation(fields: [defaultBranchId], references: [id])
+  defaultCostCentre CostCentre?  @relation("CustomerCostCentre", fields: [defaultCostCentreId], references: [id])
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@map("customers")
+}
+
+// ---------------------------------------------------------------------------
+// §5 Item / Product Master
+// ---------------------------------------------------------------------------
+
+model Item {
+  id          String  @id @default(uuid()) @db.Uuid
+  companyId   String  @map("company_id") @db.Uuid
+  code        String
+  description String
+  category    String?
+
+  itemType         ItemType @default(INVENTORY) @map("item_type")
+  /// §5 "Biological Feed (Y/N)" — orthogonal to itemType, and the flag that
+  /// tells the Phase 5 biological module which purchases are feed consumption.
+  isBiologicalFeed Boolean  @default(false) @map("is_biological_feed")
+  /// Whether this item can be produced by a recipe (a finished good or an
+  /// intermediate), as opposed to only ever being bought.
+  isManufactured   Boolean  @default(false) @map("is_manufactured")
+
+  unitOfMeasureId String @map("unit_of_measure_id") @db.Uuid
+
+  /// §5 "VAT Code". A Phase 3 TaxCode of type VAT — the item never carries a
+  /// rate of its own.
+  vatTaxCodeId String? @map("vat_tax_code_id") @db.Uuid
+
+  preferredSupplierId String? @map("preferred_supplier_id") @db.Uuid
+
+  /// QUANTITIES, not money: Decimal, and never rounded to kobo.
+  reorderLevel          Decimal? @map("reorder_level") @db.Decimal(18, 6)
+  economicOrderQuantity Decimal? @map("economic_order_quantity") @db.Decimal(18, 6)
+
+  /// Default GL accounts. Which one applies follows from itemType: an inventory
+  /// item debits inventory on receipt, an expense item debits expense.
+  inventoryGlAccountId String? @map("inventory_gl_account_id") @db.Uuid
+  expenseGlAccountId   String? @map("expense_gl_account_id") @db.Uuid
+  revenueGlAccountId   String? @map("revenue_gl_account_id") @db.Uuid
+
+  defaultWarehouseId String? @map("default_warehouse_id") @db.Uuid
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company            Company       @relation(fields: [companyId], references: [id])
+  unitOfMeasure      UnitOfMeasure @relation(fields: [unitOfMeasureId], references: [id])
+  vatTaxCode         TaxCode?      @relation("ItemVatCode", fields: [vatTaxCodeId], references: [id])
+  preferredSupplier  Supplier?     @relation("PreferredSupplier", fields: [preferredSupplierId], references: [id])
+  inventoryGlAccount GLAccount?    @relation("ItemInventoryAccount", fields: [inventoryGlAccountId], references: [id])
+  expenseGlAccount   GLAccount?    @relation("ItemExpenseAccount", fields: [expenseGlAccountId], references: [id])
+  revenueGlAccount   GLAccount?    @relation("ItemRevenueAccount", fields: [revenueGlAccountId], references: [id])
+  defaultWarehouse   Warehouse?    @relation(fields: [defaultWarehouseId], references: [id])
+
+  standardCosts    ItemStandardCost[]
+  recipes          ProductRecipe[]          @relation("RecipeOutput")
+  recipeComponents ProductRecipeComponent[]
+
+  @@unique([companyId, code])
+  @@index([companyId, itemType, active])
+  @@map("items")
+}
+
+/// §5 "Standard Cost", effective-dated (Rule 8).
+///
+/// Separate from Item because a standard cost changes and every past costing
+/// must remain reproducible. The SnailPro BOM sheet's "Component Unit Cost"
+/// column resolves through here.
+model ItemStandardCost {
+  id     String @id @default(uuid()) @db.Uuid
+  itemId String @map("item_id") @db.Uuid
+
+  /// MONEY. Integer kobo, per one unit of the item's UoM.
+  standardCostKobo BigInt @map("standard_cost_kobo")
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  sourceReference String? @map("source_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId, effectiveFrom])
+  @@map("item_standard_costs")
+}
+
+// ---------------------------------------------------------------------------
+// §7 Employee Master
+// ---------------------------------------------------------------------------
+
+model Employee {
+  id             String @id @default(uuid()) @db.Uuid
+  companyId      String @map("company_id") @db.Uuid
+  employeeNumber String @map("employee_number")
+
+  // --- Personal ---
+  title         String?
+  firstName     String         @map("first_name")
+  middleName    String?        @map("middle_name")
+  surname       String
+  /// Free text rather than an enum. Gender categories are a policy question for
+  /// the client's HR, and an enum here would force a choice this system has no
+  /// business making.
+  gender        String?
+  dateOfBirth   DateTime?      @map("date_of_birth") @db.Date
+  maritalStatus MaritalStatus? @map("marital_status")
+  nationality   String?
+  stateOfOrigin String?        @map("state_of_origin")
+  address       String?
+  email         String?
+  phone         String?
+
+  // --- Employment ---
+  employmentType   EmploymentType   @default(FULL_TIME) @map("employment_type")
+  employmentStatus EmploymentStatus @default(PROBATION) @map("employment_status")
+  employmentDate   DateTime         @map("employment_date") @db.Date
+  confirmationDate DateTime?        @map("confirmation_date") @db.Date
+  exitDate         DateTime?        @map("exit_date") @db.Date
+
+  departmentId       String? @map("department_id") @db.Uuid
+  branchId           String? @map("branch_id") @db.Uuid
+  /// §7.2 rejects a payroll posting with no cost centre, so this is the field
+  /// that validation reads.
+  costCentreId       String? @map("cost_centre_id") @db.Uuid
+  designation        String?
+  grade              String?
+  jobCategory        String? @map("job_category")
+  reportingManagerId String? @map("reporting_manager_id") @db.Uuid
+
+  // --- Bank ---
+  bankName      String? @map("bank_name")
+  accountNumber String? @map("account_number")
+  accountName   String? @map("account_name")
+
+  // --- Statutory (drives Phase 9; see the payroll workbooks) ---
+  tin                  String?
+  nhfNumber            String? @map("nhf_number")
+  pensionRsaNumber     String? @map("pension_rsa_number")
+  pensionAdministrator String? @map("pension_administrator")
+  /// PAYE is remitted per state of residence (PAYE workbook, PAYE_Summary).
+  taxState             String? @map("tax_state")
+
+  /// Enrolment flags, not rates. The rates live in Phase 9 configuration.
+  /// NHF participation is opt-in for private-sector staff, so an absent flag
+  /// means "do not deduct" rather than "deduct by default".
+  pensionEnrolled Boolean @default(false) @map("pension_enrolled")
+  nhfEnrolled     Boolean @default(false) @map("nhf_enrolled")
+
+  // --- Next of kin ---
+  nextOfKinName         String? @map("next_of_kin_name")
+  nextOfKinRelationship String? @map("next_of_kin_relationship")
+  nextOfKinPhone        String? @map("next_of_kin_phone")
+  nextOfKinAddress      String? @map("next_of_kin_address")
+
+  /// Set once HR has approved the record and payroll may include it (§7
+  /// onboarding flow ends at "Payroll Activation").
+  payrollActive Boolean @default(false) @map("payroll_active")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company          Company     @relation(fields: [companyId], references: [id])
+  department       Department? @relation(fields: [departmentId], references: [id])
+  branch           Branch?     @relation(fields: [branchId], references: [id])
+  costCentre       CostCentre? @relation("EmployeeCostCentre", fields: [costCentreId], references: [id])
+  reportingManager Employee?   @relation("ReportingLine", fields: [reportingManagerId], references: [id])
+  reports          Employee[]  @relation("ReportingLine")
+
+  salaryComponents EmployeeSalaryComponent[]
+  documents        EmployeeDocument[]
+
+  @@unique([companyId, employeeNumber])
+  @@index([companyId, employmentStatus])
+  @@map("employees")
+}
+
+/// §7 "Documents: Photo, Offer Letter, Contract, ID, CV, Certificates, Medical
+/// Report". A table rather than a column per document, so adding a document
+/// type is data.
+model EmployeeDocument {
+  id           String @id @default(uuid()) @db.Uuid
+  employeeId   String @map("employee_id") @db.Uuid
+  documentType String @map("document_type")
+  fileName     String @map("file_name")
+  contentType  String @map("content_type")
+  byteSize     Int    @map("byte_size")
+  storageKey   String @map("storage_key")
+
+  uploadedById String   @map("uploaded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  uploadedBy User     @relation("EmployeeDocumentUploader", fields: [uploadedById], references: [id])
+
+  @@index([employeeId, documentType])
+  @@map("employee_documents")
+}
+
+/// §7 Payroll Setup — the catalogue of components a company pays or deducts.
+///
+/// Every one of the §7 lists (Basic, Housing, Transport … PAYE, Pension, NHF …
+/// Employer Pension, NSITF, ITF) is a row here, not a column anywhere. That is
+/// what lets Phase 9 add a component without a migration.
+model SalaryComponent {
+  id        String               @id @default(uuid()) @db.Uuid
+  companyId String               @map("company_id") @db.Uuid
+  code      String
+  name      String
+  type      SalaryComponentType
+  basis     SalaryComponentBasis @default(FIXED)
+
+  /// Whether this earning forms part of taxable gross (PAYE workbook,
+  /// Employee_Inputs: basic/housing/transport/other-taxable are summed).
+  isTaxable           Boolean @default(true) @map("is_taxable")
+  /// Whether it forms part of the pension base. The statutory workbook is
+  /// explicit that the base is Basic + Housing + Transport, NOT gross — so this
+  /// is a per-component flag rather than an assumption in the payroll engine.
+  isPensionable       Boolean @default(false) @map("is_pensionable")
+  /// Whether it counts toward the NHF and NSITF bases, which use gross.
+  isGrossPayComponent Boolean @default(true) @map("is_gross_pay_component")
+
+  /// For PERCENTAGE_OF_BASE components: the rate, effective-dated on the
+  /// assignment rather than here so a company-wide default can be overridden.
+  defaultRate Decimal? @map("default_rate") @db.Decimal(9, 8)
+
+  /// Where this component posts. §7 Payroll Accounting names an expense and a
+  /// payable per component.
+  expenseGlAccountId String? @map("expense_gl_account_id") @db.Uuid
+  payableGlAccountId String? @map("payable_gl_account_id") @db.Uuid
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company          Company                   @relation(fields: [companyId], references: [id])
+  expenseGlAccount GLAccount?                @relation("SalaryComponentExpense", fields: [expenseGlAccountId], references: [id])
+  payableGlAccount GLAccount?                @relation("SalaryComponentPayable", fields: [payableGlAccountId], references: [id])
+  assignments      EmployeeSalaryComponent[]
+
+  @@unique([companyId, code])
+  @@map("salary_components")
+}
+
+/// What one employee is actually paid, effective-dated.
+///
+/// A salary change closes one row and opens another; it never edits an amount.
+/// That is what makes a historical payroll run reproducible, which §7.1's audit
+/// requirement ("store the exact rules and source values used") depends on.
+model EmployeeSalaryComponent {
+  id                String @id @default(uuid()) @db.Uuid
+  employeeId        String @map("employee_id") @db.Uuid
+  salaryComponentId String @map("salary_component_id") @db.Uuid
+
+  /// MONEY. Integer kobo, for FIXED components.
+  amountKobo BigInt?  @map("amount_kobo")
+  /// For PERCENTAGE_OF_BASE components.
+  rate       Decimal? @db.Decimal(9, 8)
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  employee        Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  salaryComponent SalaryComponent @relation(fields: [salaryComponentId], references: [id])
+
+  @@index([employeeId, effectiveFrom])
+  @@map("employee_salary_components")
+}
+
+// ---------------------------------------------------------------------------
+// §9/§10 Recipe / Bill of Materials
+// ---------------------------------------------------------------------------
+
+/// A recipe for producing an item. §10.1 names ProductionRecipe,
+/// ProductionRecipeVersion and ProductionRecipeComponent, and the split matters:
+/// a production order pins a VERSION (§10.2 `recipe_version_id`), so changing a
+/// recipe can never rewrite what a past order consumed.
+model ProductRecipe {
+  id           String @id @default(uuid()) @db.Uuid
+  companyId    String @map("company_id") @db.Uuid
+  code         String
+  name         String
+  /// The item this recipe produces.
+  outputItemId String @map("output_item_id") @db.Uuid
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company    Company                @relation(fields: [companyId], references: [id])
+  outputItem Item                   @relation("RecipeOutput", fields: [outputItemId], references: [id])
+  versions   ProductRecipeVersion[]
+
+  @@unique([companyId, code])
+  @@index([companyId, outputItemId, active])
+  @@map("product_recipes")
+}
+
+model ProductRecipeVersion {
+  id       String @id @default(uuid()) @db.Uuid
+  recipeId String @map("recipe_id") @db.Uuid
+  version  Int
+
+  status RecipeVersionStatus @default(DRAFT)
+
+  /// QUANTITY. What one run of this recipe yields, in the output item's UoM.
+  /// Components are quantities PER THIS BATCH SIZE, not per single unit, so a
+  /// recipe whose economics only work at scale can be expressed honestly.
+  batchSize Decimal @map("batch_size") @db.Decimal(18, 6)
+
+  /// §10 "Expected Yield %". The workbook's Production_Orders column E.
+  expectedYieldPercent Decimal? @map("expected_yield_percent") @db.Decimal(9, 6)
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  approvedById String?   @map("approved_by_id") @db.Uuid
+  approvedAt   DateTime? @map("approved_at")
+  notes        String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  recipe     ProductRecipe            @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  approvedBy User?                    @relation("RecipeApprover", fields: [approvedById], references: [id])
+  components ProductRecipeComponent[]
+
+  @@unique([recipeId, version])
+  @@index([recipeId, status])
+  @@map("product_recipe_versions")
+}
+
+model ProductRecipeComponent {
+  id              String @id @default(uuid()) @db.Uuid
+  recipeVersionId String @map("recipe_version_id") @db.Uuid
+  lineNumber      Int    @map("line_number")
+  componentItemId String @map("component_item_id") @db.Uuid
+
+  /// QUANTITY per batch. Decimal(18,6) because 0.002 litres of preservative per
+  /// bottle is a real line from the SnailPro BOM sheet, and rounding it to
+  /// whole units would multiply the error by the batch size.
+  quantityPerBatch Decimal @map("quantity_per_batch") @db.Decimal(18, 6)
+  unitOfMeasureId  String  @map("unit_of_measure_id") @db.Uuid
+
+  /// Expected process loss on this component, if any.
+  wastagePercent Decimal? @map("wastage_percent") @db.Decimal(9, 6)
+
+  /// Whether a shortage of this component blocks production or merely warns.
+  optional Boolean @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  recipeVersion ProductRecipeVersion @relation(fields: [recipeVersionId], references: [id], onDelete: Cascade)
+  componentItem Item                 @relation(fields: [componentItemId], references: [id])
+  unitOfMeasure UnitOfMeasure        @relation(fields: [unitOfMeasureId], references: [id])
+
+  @@unique([recipeVersionId, lineNumber])
+  @@index([componentItemId])
+  @@map("product_recipe_components")
 }
