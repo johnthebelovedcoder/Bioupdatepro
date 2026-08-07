@@ -129,6 +129,9 @@ model User {
   taxAdjustments            TaxAdjustment[]           @relation("TaxAdjustmentCreator")
   employeeDocumentsUploaded EmployeeDocument[]        @relation("EmployeeDocumentUploader")
   recipeVersionsApproved    ProductRecipeVersion[]    @relation("RecipeApprover")
+  manualJournalsCreated     ManualJournal[]           @relation("ManualJournalCreator")
+  manualJournalAttachments  ManualJournalAttachment[] @relation("ManualJournalAttachmentUploader")
+  recurringJournalsCreated  RecurringJournal[]        @relation("RecurringJournalCreator")
 
   @@map("users")
 }
@@ -181,6 +184,10 @@ model Company {
   employees               Employee[]
   salaryComponents        SalaryComponent[]
   productRecipes          ProductRecipe[]
+  journalTypes            JournalType[]
+  reasonCodes             ReasonCode[]
+  manualJournals          ManualJournal[]
+  recurringJournals       RecurringJournal[]
 
   @@map("companies")
 }
@@ -207,6 +214,8 @@ model Branch {
   suppliers            Supplier[]
   customers            Customer[]
   employees            Employee[]
+  manualJournals       ManualJournal[]
+  recurringJournals    RecurringJournal[]
 
   @@unique([companyId, code])
   @@map("branches")
@@ -227,6 +236,7 @@ model Department {
   workflowDefinitions  WorkflowDefinition[]
   workflowTransactions WorkflowTransaction[]
   employees            Employee[]
+  manualJournalLines   ManualJournalLine[]
 
   @@unique([companyId, code])
   @@map("departments")
@@ -259,6 +269,7 @@ model CostCentre {
   supplierDefaults     Supplier[]            @relation("SupplierCostCentre")
   customerDefaults     Customer[]            @relation("CustomerCostCentre")
   employees            Employee[]            @relation("EmployeeCostCentre")
+  manualJournalLines   ManualJournalLine[]
 
   @@unique([companyId, code])
   @@index([parentId])
@@ -293,16 +304,18 @@ model GLAccount {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company                Company           @relation(fields: [companyId], references: [id])
-  parent                 GLAccount?        @relation("GLAccountHierarchy", fields: [parentId], references: [id])
-  children               GLAccount[]       @relation("GLAccountHierarchy")
+  company                Company                @relation(fields: [companyId], references: [id])
+  parent                 GLAccount?             @relation("GLAccountHierarchy", fields: [parentId], references: [id])
+  children               GLAccount[]            @relation("GLAccountHierarchy")
   journalLines           JournalLine[]
   taxGlMappings          TaxGLMapping[]
-  itemsInventoryDefault  Item[]            @relation("ItemInventoryAccount")
-  itemsExpenseDefault    Item[]            @relation("ItemExpenseAccount")
-  itemsRevenueDefault    Item[]            @relation("ItemRevenueAccount")
-  salaryComponentExpense SalaryComponent[] @relation("SalaryComponentExpense")
-  salaryComponentPayable SalaryComponent[] @relation("SalaryComponentPayable")
+  itemsInventoryDefault  Item[]                 @relation("ItemInventoryAccount")
+  itemsExpenseDefault    Item[]                 @relation("ItemExpenseAccount")
+  itemsRevenueDefault    Item[]                 @relation("ItemRevenueAccount")
+  salaryComponentExpense SalaryComponent[]      @relation("SalaryComponentExpense")
+  salaryComponentPayable SalaryComponent[]      @relation("SalaryComponentPayable")
+  manualJournalLines     ManualJournalLine[]
+  recurringJournalLines  RecurringJournalLine[]
 
   @@unique([companyId, accountNumber])
   @@index([parentId])
@@ -330,6 +343,8 @@ model Currency {
   workflowTransactions WorkflowTransaction[]
   suppliers            Supplier[]
   customers            Customer[]
+  manualJournals       ManualJournal[]
+  recurringJournals    RecurringJournal[]
 
   @@map("currencies")
 }
@@ -374,6 +389,7 @@ model FinancialYear {
   periods        FinancialPeriod[]
   journalEntries JournalEntry[]
   journalLines   JournalLine[]
+  manualJournals ManualJournal[]
 
   @@unique([companyId, code])
   @@map("financial_years")
@@ -390,9 +406,10 @@ model FinancialPeriod {
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
-  financialYear  FinancialYear  @relation(fields: [financialYearId], references: [id])
+  financialYear  FinancialYear   @relation(fields: [financialYearId], references: [id])
   journalEntries JournalEntry[]
   journalLines   JournalLine[]
+  manualJournals ManualJournal[]
 
   @@unique([financialYearId, periodNumber])
   @@index([startDate, endDate])
@@ -419,6 +436,7 @@ model Farm {
   journalLines         JournalLine[]
   workflowDefinitions  WorkflowDefinition[]
   workflowTransactions WorkflowTransaction[]
+  manualJournalLines   ManualJournalLine[]
 
   @@unique([companyId, code])
   @@map("farms")
@@ -435,8 +453,9 @@ model PenHouse {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  farm         Farm          @relation(fields: [farmId], references: [id])
-  journalLines JournalLine[]
+  farm               Farm                @relation(fields: [farmId], references: [id])
+  journalLines       JournalLine[]
+  manualJournalLines ManualJournalLine[]
 
   @@unique([farmId, code])
   @@map("pen_houses")
@@ -451,8 +470,9 @@ model Project {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company      Company       @relation(fields: [companyId], references: [id])
-  journalLines JournalLine[]
+  company            Company             @relation(fields: [companyId], references: [id])
+  journalLines       JournalLine[]
+  manualJournalLines ManualJournalLine[]
 
   @@unique([companyId, code])
   @@map("projects")
@@ -528,6 +548,7 @@ model JournalEntry {
   vatRegisterEntries   VatRegisterEntry[]
   whtRegisterEntries   WhtRegisterEntry[]
   taxAdjustments       TaxAdjustment[]
+  manualJournals       ManualJournal[]
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -578,6 +599,19 @@ model JournalLine {
   farm            Farm?           @relation(fields: [farmId], references: [id])
   penHouse        PenHouse?       @relation(fields: [penHouseId], references: [id])
   project         Project?        @relation(fields: [projectId], references: [id])
+  // --- Enterprise Dimensions §1.1 : BUSINESS (contextual) ---
+  // Nullable by nature: a depreciation line has no customer, and a sales line
+  // has no employee. Where a line DOES concern a party, this is what makes the
+  // party ledger a view over the general ledger rather than a copy of it.
+  customerId      String?         @map("customer_id") @db.Uuid
+  supplierId      String?         @map("supplier_id") @db.Uuid
+  employeeId      String?         @map("employee_id") @db.Uuid
+  itemId          String?         @map("item_id") @db.Uuid
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+  supplier Supplier? @relation(fields: [supplierId], references: [id])
+  employee Employee? @relation(fields: [employeeId], references: [id])
+  item     Item?     @relation(fields: [itemId], references: [id])
 
   @@unique([journalEntryId, lineNumber])
   // The trial balance index: flat scan, no join to the header.
@@ -1579,13 +1613,16 @@ model Supplier {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company           Company      @relation(fields: [companyId], references: [id])
-  whtTaxCode        TaxCode?     @relation("SupplierWhtCode", fields: [whtTaxCodeId], references: [id])
-  paymentTerm       PaymentTerm? @relation(fields: [paymentTermId], references: [id])
-  defaultCurrency   Currency     @relation(fields: [defaultCurrencyId], references: [id])
-  branch            Branch?      @relation(fields: [branchId], references: [id])
-  defaultCostCentre CostCentre?  @relation("SupplierCostCentre", fields: [defaultCostCentreId], references: [id])
-  preferredForItems Item[]       @relation("PreferredSupplier")
+  company            Company             @relation(fields: [companyId], references: [id])
+  whtTaxCode         TaxCode?            @relation("SupplierWhtCode", fields: [whtTaxCodeId], references: [id])
+  paymentTerm        PaymentTerm?        @relation(fields: [paymentTermId], references: [id])
+  defaultCurrency    Currency            @relation(fields: [defaultCurrencyId], references: [id])
+  branch             Branch?             @relation(fields: [branchId], references: [id])
+  defaultCostCentre  CostCentre?         @relation("SupplierCostCentre", fields: [defaultCostCentreId], references: [id])
+  preferredForItems  Item[]              @relation("PreferredSupplier")
+  journalLines       JournalLine[]
+  manualJournals     ManualJournal[]
+  manualJournalLines ManualJournalLine[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -1636,12 +1673,15 @@ model Customer {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company           Company      @relation(fields: [companyId], references: [id])
-  whtTaxCode        TaxCode?     @relation("CustomerWhtCode", fields: [whtTaxCodeId], references: [id])
-  paymentTerm       PaymentTerm? @relation(fields: [paymentTermId], references: [id])
-  currency          Currency     @relation(fields: [currencyId], references: [id])
-  defaultBranch     Branch?      @relation(fields: [defaultBranchId], references: [id])
-  defaultCostCentre CostCentre?  @relation("CustomerCostCentre", fields: [defaultCostCentreId], references: [id])
+  company            Company             @relation(fields: [companyId], references: [id])
+  whtTaxCode         TaxCode?            @relation("CustomerWhtCode", fields: [whtTaxCodeId], references: [id])
+  paymentTerm        PaymentTerm?        @relation(fields: [paymentTermId], references: [id])
+  currency           Currency            @relation(fields: [currencyId], references: [id])
+  defaultBranch      Branch?             @relation(fields: [defaultBranchId], references: [id])
+  defaultCostCentre  CostCentre?         @relation("CustomerCostCentre", fields: [defaultCostCentreId], references: [id])
+  journalLines       JournalLine[]
+  manualJournals     ManualJournal[]
+  manualJournalLines ManualJournalLine[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -1700,9 +1740,11 @@ model Item {
   revenueGlAccount   GLAccount?    @relation("ItemRevenueAccount", fields: [revenueGlAccountId], references: [id])
   defaultWarehouse   Warehouse?    @relation(fields: [defaultWarehouseId], references: [id])
 
-  standardCosts    ItemStandardCost[]
-  recipes          ProductRecipe[]          @relation("RecipeOutput")
-  recipeComponents ProductRecipeComponent[]
+  standardCosts      ItemStandardCost[]
+  recipes            ProductRecipe[]          @relation("RecipeOutput")
+  recipeComponents   ProductRecipeComponent[]
+  journalLines       JournalLine[]
+  manualJournalLines ManualJournalLine[]
 
   @@unique([companyId, code])
   @@index([companyId, itemType, active])
@@ -1817,8 +1859,10 @@ model Employee {
   reportingManager Employee?   @relation("ReportingLine", fields: [reportingManagerId], references: [id])
   reports          Employee[]  @relation("ReportingLine")
 
-  salaryComponents EmployeeSalaryComponent[]
-  documents        EmployeeDocument[]
+  salaryComponents   EmployeeSalaryComponent[]
+  documents          EmployeeDocument[]
+  journalLines       JournalLine[]
+  manualJournalLines ManualJournalLine[]
 
   @@unique([companyId, employeeNumber])
   @@index([companyId, employmentStatus])
@@ -2011,4 +2055,311 @@ model ProductRecipeComponent {
   @@unique([recipeVersionId, lineNumber])
   @@index([componentItemId])
   @@map("product_recipe_components")
+}
+
+// ---------------------------------------------------------------------------
+// Accounting Adjustment & Manual Journal  (Consolidated Reference §3 — Phase 10)
+//
+// §3 asks for a dedicated "Accounting Adjustment Centre" rather than a journal
+// screen buried under the GL menu. The model below is that centre.
+//
+// A NOTE ON WHAT IS *NOT* HERE: §3 lists JournalHeader and JournalLine. Those
+// already exist — they are Phase 1's JournalEntry and JournalLine, the general
+// ledger itself. What §3 actually needs is the DOCUMENT that becomes a GL
+// posting once approved, which is ManualJournal below. Modelling §3's
+// JournalHeader as a second ledger would give the system two places a balance
+// could live, and they would eventually disagree.
+//
+// So: ManualJournal is a document. It goes through the Phase 2 workflow engine
+// like every other document, and on final approval its registered handler calls
+// the Phase 1 PostingService. There is exactly one ledger, and this writes to it
+// through the same door as everything else.
+// ---------------------------------------------------------------------------
+
+enum ManualJournalStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  POSTED
+  REJECTED
+  RETURNED
+  CANCELLED
+}
+
+/// §3 lists General Journals, Customer/Supplier Adjustments, Opening Balances
+/// and Recurring Journals as separate menu items. They are one document type
+/// with different configuration, not four code paths.
+enum ManualJournalKind {
+  GENERAL
+  CUSTOMER_ADJUSTMENT
+  SUPPLIER_ADJUSTMENT
+  OPENING_BALANCE
+  RECURRING
+  REVERSAL
+}
+
+enum RecurrenceFrequency {
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  ANNUALLY
+}
+
+/// §3 "Journal Types". Configuration, so a new type is data (Rule 8).
+model JournalType {
+  id        String            @id @default(uuid()) @db.Uuid
+  companyId String            @map("company_id") @db.Uuid
+  code      String
+  name      String
+  kind      ManualJournalKind @default(GENERAL)
+
+  /// Whether a reason code must be supplied. An adjustment with no stated
+  /// reason is the one an auditor asks about first.
+  requiresReasonCode Boolean @default(true) @map("requires_reason_code")
+  /// Whether supporting documentation must be attached before submission.
+  requiresAttachment Boolean @default(false) @map("requires_attachment")
+
+  /// Accruals reverse automatically in the following period. When true, posting
+  /// this journal also schedules its reversal.
+  autoReverse Boolean @default(false) @map("auto_reverse")
+
+  /// Which workflow definition governs it. Defaults to the shared GL_JOURNAL
+  /// route; a type may name its own for a tighter ladder.
+  workflowTransactionType String @default("GL_JOURNAL") @map("workflow_transaction_type")
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company           Company            @relation(fields: [companyId], references: [id])
+  reasonCodes       ReasonCode[]
+  journals          ManualJournal[]
+  recurringJournals RecurringJournal[]
+
+  @@unique([companyId, code])
+  @@map("journal_types")
+}
+
+/// §3 "Reason Codes".
+model ReasonCode {
+  id            String  @id @default(uuid()) @db.Uuid
+  companyId     String  @map("company_id") @db.Uuid
+  code          String
+  name          String
+  /// Null = available to every journal type.
+  journalTypeId String? @map("journal_type_id") @db.Uuid
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company     Company         @relation(fields: [companyId], references: [id])
+  journalType JournalType?    @relation(fields: [journalTypeId], references: [id])
+  journals    ManualJournal[]
+
+  @@unique([companyId, code])
+  @@map("reason_codes")
+}
+
+/// The adjustment document. Becomes a GL posting on approval, never before.
+model ManualJournal {
+  id            String  @id @default(uuid()) @db.Uuid
+  companyId     String  @map("company_id") @db.Uuid
+  journalTypeId String  @map("journal_type_id") @db.Uuid
+  reasonCodeId  String? @map("reason_code_id") @db.Uuid
+
+  reference   String
+  journalDate DateTime @map("journal_date") @db.Date
+  narration   String
+
+  // --- Header dimensions (§1.1 mandatory set) ---
+  branchId          String  @map("branch_id") @db.Uuid
+  financialYearId   String  @map("financial_year_id") @db.Uuid
+  financialPeriodId String  @map("financial_period_id") @db.Uuid
+  currencyId        String  @map("currency_id") @db.Uuid
+  exchangeRate      Decimal @map("exchange_rate") @db.Decimal(18, 8)
+
+  /// §3 Customer/Supplier Adjustment. Set on the header when the whole document
+  /// concerns one party, which is what makes it appear on their statement.
+  customerId String? @map("customer_id") @db.Uuid
+  supplierId String? @map("supplier_id") @db.Uuid
+
+  status ManualJournalStatus @default(DRAFT)
+
+  /// Links to the Phase 2 workflow instance governing it.
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  /// Set once posted. The bridge from document to ledger, both ways.
+  journalEntryId        String? @map("journal_entry_id") @db.Uuid
+
+  /// When this document reverses another.
+  reversalOfId          String?   @map("reversal_of_id") @db.Uuid
+  /// For auto-reversing accruals: the date the reversal should carry.
+  scheduledReversalDate DateTime? @map("scheduled_reversal_date") @db.Date
+
+  /// Set when generated from a recurring template.
+  recurringJournalId String? @map("recurring_journal_id") @db.Uuid
+
+  createdById String    @map("created_by_id") @db.Uuid
+  postedAt    DateTime? @map("posted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company          Company                   @relation(fields: [companyId], references: [id])
+  journalType      JournalType               @relation(fields: [journalTypeId], references: [id])
+  reasonCode       ReasonCode?               @relation(fields: [reasonCodeId], references: [id])
+  branch           Branch                    @relation(fields: [branchId], references: [id])
+  financialYear    FinancialYear             @relation(fields: [financialYearId], references: [id])
+  financialPeriod  FinancialPeriod           @relation(fields: [financialPeriodId], references: [id])
+  currency         Currency                  @relation(fields: [currencyId], references: [id])
+  customer         Customer?                 @relation(fields: [customerId], references: [id])
+  supplier         Supplier?                 @relation(fields: [supplierId], references: [id])
+  journalEntry     JournalEntry?             @relation(fields: [journalEntryId], references: [id])
+  reversalOf       ManualJournal?            @relation("ManualJournalReversal", fields: [reversalOfId], references: [id])
+  reversedBy       ManualJournal[]           @relation("ManualJournalReversal")
+  recurringJournal RecurringJournal?         @relation(fields: [recurringJournalId], references: [id])
+  createdBy        User                      @relation("ManualJournalCreator", fields: [createdById], references: [id])
+  lines            ManualJournalLine[]
+  attachments      ManualJournalAttachment[]
+
+  @@unique([companyId, reference])
+  @@index([companyId, status])
+  @@index([companyId, journalDate])
+  @@map("manual_journals")
+}
+
+model ManualJournalLine {
+  id              String @id @default(uuid()) @db.Uuid
+  manualJournalId String @map("manual_journal_id") @db.Uuid
+  lineNumber      Int    @map("line_number")
+  glAccountId     String @map("gl_account_id") @db.Uuid
+  description     String
+
+  /// MONEY. Integer kobo, one side only — same shape as the GL line it becomes.
+  debitKobo  BigInt @default(0) @map("debit_kobo")
+  creditKobo BigInt @default(0) @map("credit_kobo")
+
+  // --- Management dimensions ---
+  departmentId String? @map("department_id") @db.Uuid
+  costCentreId String? @map("cost_centre_id") @db.Uuid
+  farmId       String? @map("farm_id") @db.Uuid
+  penHouseId   String? @map("pen_house_id") @db.Uuid
+  projectId    String? @map("project_id") @db.Uuid
+
+  // --- Business dimensions (§1.1) ---
+  customerId String? @map("customer_id") @db.Uuid
+  supplierId String? @map("supplier_id") @db.Uuid
+  employeeId String? @map("employee_id") @db.Uuid
+  itemId     String? @map("item_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  manualJournal ManualJournal @relation(fields: [manualJournalId], references: [id], onDelete: Cascade)
+  glAccount     GLAccount     @relation(fields: [glAccountId], references: [id])
+  department    Department?   @relation(fields: [departmentId], references: [id])
+  costCentre    CostCentre?   @relation(fields: [costCentreId], references: [id])
+  farm          Farm?         @relation(fields: [farmId], references: [id])
+  penHouse      PenHouse?     @relation(fields: [penHouseId], references: [id])
+  project       Project?      @relation(fields: [projectId], references: [id])
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  supplier      Supplier?     @relation(fields: [supplierId], references: [id])
+  employee      Employee?     @relation(fields: [employeeId], references: [id])
+  item          Item?         @relation(fields: [itemId], references: [id])
+
+  @@unique([manualJournalId, lineNumber])
+  @@map("manual_journal_lines")
+}
+
+model ManualJournalAttachment {
+  id              String   @id @default(uuid()) @db.Uuid
+  manualJournalId String   @map("manual_journal_id") @db.Uuid
+  fileName        String   @map("file_name")
+  contentType     String   @map("content_type")
+  byteSize        Int      @map("byte_size")
+  storageKey      String   @map("storage_key")
+  uploadedById    String   @map("uploaded_by_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  manualJournal ManualJournal @relation(fields: [manualJournalId], references: [id], onDelete: Cascade)
+  uploadedBy    User          @relation("ManualJournalAttachmentUploader", fields: [uploadedById], references: [id])
+
+  @@index([manualJournalId])
+  @@map("manual_journal_attachments")
+}
+
+/// §3 "Recurring Journals". A template plus a schedule; each run generates a
+/// normal ManualJournal that goes through the normal approval pipeline.
+///
+/// Generation deliberately does NOT auto-post. A recurring accrual is still an
+/// accounting judgement each period, and a template that posts itself removes
+/// the last human check on a figure nobody is looking at.
+model RecurringJournal {
+  id            String @id @default(uuid()) @db.Uuid
+  companyId     String @map("company_id") @db.Uuid
+  journalTypeId String @map("journal_type_id") @db.Uuid
+  code          String
+  name          String
+  narration     String
+
+  branchId   String  @map("branch_id") @db.Uuid
+  currencyId String  @map("currency_id") @db.Uuid
+  customerId String? @map("customer_id") @db.Uuid
+  supplierId String? @map("supplier_id") @db.Uuid
+
+  frequency  RecurrenceFrequency
+  /// Day of the month the journal should carry. Clamped to the month's length.
+  dayOfMonth Int                 @default(1) @map("day_of_month")
+
+  startDate   DateTime  @map("start_date") @db.Date
+  endDate     DateTime? @map("end_date") @db.Date
+  /// The next date a document is due to be generated for.
+  nextRunDate DateTime  @map("next_run_date") @db.Date
+
+  active      Boolean  @default(true)
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company     Company                @relation(fields: [companyId], references: [id])
+  journalType JournalType            @relation(fields: [journalTypeId], references: [id])
+  branch      Branch                 @relation(fields: [branchId], references: [id])
+  currency    Currency               @relation(fields: [currencyId], references: [id])
+  createdBy   User                   @relation("RecurringJournalCreator", fields: [createdById], references: [id])
+  lines       RecurringJournalLine[]
+  generated   ManualJournal[]
+
+  @@unique([companyId, code])
+  @@index([companyId, active, nextRunDate])
+  @@map("recurring_journals")
+}
+
+model RecurringJournalLine {
+  id                 String @id @default(uuid()) @db.Uuid
+  recurringJournalId String @map("recurring_journal_id") @db.Uuid
+  lineNumber         Int    @map("line_number")
+  glAccountId        String @map("gl_account_id") @db.Uuid
+  description        String
+
+  /// MONEY. Integer kobo.
+  debitKobo  BigInt @default(0) @map("debit_kobo")
+  creditKobo BigInt @default(0) @map("credit_kobo")
+
+  departmentId String? @map("department_id") @db.Uuid
+  costCentreId String? @map("cost_centre_id") @db.Uuid
+  farmId       String? @map("farm_id") @db.Uuid
+  projectId    String? @map("project_id") @db.Uuid
+  customerId   String? @map("customer_id") @db.Uuid
+  supplierId   String? @map("supplier_id") @db.Uuid
+  employeeId   String? @map("employee_id") @db.Uuid
+  itemId       String? @map("item_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  recurringJournal RecurringJournal @relation(fields: [recurringJournalId], references: [id], onDelete: Cascade)
+  glAccount        GLAccount        @relation(fields: [glAccountId], references: [id])
+
+  @@unique([recurringJournalId, lineNumber])
+  @@map("recurring_journal_lines")
 }

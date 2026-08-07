@@ -294,6 +294,7 @@ async function main(): Promise<void> {
   await seedWorkflow(company.id);
   await seedTax(company.id, accountIds);
   await seedMasters(company.id, accountIds);
+  await seedJournals(company.id);
 
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +
@@ -932,6 +933,70 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
       `${SALARY_COMPONENTS.length + STATUTORY_COMPONENTS.length} salary components, ` +
       `4 payment terms, 3 units of measure. No supplier, customer or employee ` +
       `records — those are the client's real data, not ours to invent.`,
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Accounting Adjustment Centre configuration (Consolidated Reference §3)
+//
+// Journal types and reason codes are configuration, so §3's menu items become
+// data. The reason codes are §6's Credit Note reasons plus the adjustment
+// causes §3 implies; extend them freely — no code changes.
+// ---------------------------------------------------------------------------
+
+async function seedJournals(companyId: string) {
+  const TYPES = [
+    { code: 'GJ', name: 'General Journal', kind: 'GENERAL', reason: true, attach: false, autoReverse: false },
+    { code: 'CADJ', name: 'Customer Adjustment Journal', kind: 'CUSTOMER_ADJUSTMENT', reason: true, attach: true, autoReverse: false },
+    { code: 'SADJ', name: 'Supplier Adjustment Journal', kind: 'SUPPLIER_ADJUSTMENT', reason: true, attach: true, autoReverse: false },
+    { code: 'OB', name: 'Opening Balance', kind: 'OPENING_BALANCE', reason: false, attach: true, autoReverse: false },
+    { code: 'ACCR', name: 'Accrual (auto-reversing)', kind: 'GENERAL', reason: true, attach: false, autoReverse: true },
+    { code: 'REC', name: 'Recurring Journal', kind: 'RECURRING', reason: false, attach: false, autoReverse: false },
+    { code: 'REV', name: 'Journal Reversal', kind: 'REVERSAL', reason: true, attach: false, autoReverse: false },
+  ] as const;
+
+  for (const spec of TYPES) {
+    await prisma.journalType.upsert({
+      where: { companyId_code: { companyId, code: spec.code } },
+      update: {},
+      create: {
+        companyId,
+        code: spec.code,
+        name: spec.name,
+        kind: spec.kind,
+        requiresReasonCode: spec.reason,
+        requiresAttachment: spec.attach,
+        autoReverse: spec.autoReverse,
+        workflowTransactionType: 'MANUAL_JOURNAL',
+      },
+    });
+  }
+
+  // §6 Credit Note reasons, plus the general adjustment causes.
+  const REASONS = [
+    { code: 'PRICING-ERROR', name: 'Pricing error' },
+    { code: 'RETURNED-GOODS', name: 'Returned goods' },
+    { code: 'PROMO-DISCOUNT', name: 'Promotional discount' },
+    { code: 'INVOICE-CANCEL', name: 'Invoice cancellation' },
+    { code: 'AUDIT-ADJ', name: 'Audit adjustment' },
+    { code: 'RECLASS', name: 'Reclassification' },
+    { code: 'ACCRUAL', name: 'Period-end accrual' },
+    { code: 'PREPAYMENT', name: 'Prepayment release' },
+    { code: 'FX-REVAL', name: 'Foreign exchange revaluation' },
+    { code: 'CORRECTION', name: 'Correction of a posting error' },
+  ];
+
+  for (const spec of REASONS) {
+    await prisma.reasonCode.upsert({
+      where: { companyId_code: { companyId, code: spec.code } },
+      update: {},
+      create: { companyId, code: spec.code, name: spec.name },
+    });
+  }
+
+  console.log(
+    `Seeded adjustment centre: ${TYPES.length} journal types, ${REASONS.length} reason codes.`,
   );
 }
 

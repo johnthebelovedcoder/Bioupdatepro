@@ -26,7 +26,26 @@ export interface ManagementDimensions {
   projectId?: string | null;
 }
 
-export type EnterpriseDimensions = MandatoryDimensions & ManagementDimensions;
+/**
+ * Business dimensions — §1.1 "contextual".
+ *
+ * Never validated as required: a depreciation line has no customer and a sales
+ * line has no employee. They matter because they are what makes a customer
+ * statement, a supplier statement and item-level analysis derivable FROM the
+ * ledger instead of maintained beside it.
+ *
+ * Added in Phase 10, once Phase 4 had delivered the master tables they point at.
+ */
+export interface BusinessDimensions {
+  customerId?: string | null;
+  supplierId?: string | null;
+  employeeId?: string | null;
+  itemId?: string | null;
+}
+
+export type EnterpriseDimensions = MandatoryDimensions &
+  ManagementDimensions &
+  BusinessDimensions;
 
 export const MANDATORY_DIMENSION_KEYS = [
   'companyId',
@@ -53,4 +72,8 @@ export const DIMENSION_LABELS: Record<string, string> = {
   farmId: 'Farm',
   penHouseId: 'Pen/House',
   projectId: 'Project',
+  customerId: 'Customer',
+  supplierId: 'Supplier',
+  employeeId: 'Employee',
+  itemId: 'Inventory Item',
 };

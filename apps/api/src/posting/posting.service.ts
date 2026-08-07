@@ -156,6 +156,12 @@ export class PostingService {
               farmId: line.dimensions.farmId ?? null,
               penHouseId: line.dimensions.penHouseId ?? null,
               projectId: line.dimensions.projectId ?? null,
+              // Business dimensions (§1.1). Nullable by nature; they are what
+              // let the party ledgers be views over these very rows.
+              customerId: line.dimensions.customerId ?? null,
+              supplierId: line.dimensions.supplierId ?? null,
+              employeeId: line.dimensions.employeeId ?? null,
+              itemId: line.dimensions.itemId ?? null,
             })),
           },
         },

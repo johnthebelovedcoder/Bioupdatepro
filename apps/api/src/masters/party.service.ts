@@ -273,16 +273,21 @@ export class PartyService {
    * reported, not just the first — a salesperson told only "over limit" will
    * fix the limit and hit the block next, and the round trip helps nobody.
    *
-   * OUTSTANDING BALANCE, PHASE 4 SCOPE: the accounts-receivable ledger arrives
-   * with Order-to-Cash in Phase 8. Until then the outstanding figure comes from
-   * posted GL movement on the customer's receivable control account, which is
-   * correct but company-wide rather than per customer. The signature and the
-   * decision logic do not change when Phase 8 lands — only where the number is
-   * read from — and this method is where that swap happens.
+   * OUTSTANDING BALANCE: since Phase 10 put the customer dimension on the GL
+   * line, this is the customer's own posted movement rather than a company-wide
+   * control-account figure. It is a NET position, not an open-item total —
+   * invoice-level allocation arrives with Order-to-Cash in Phase 8, and until
+   * then a receipt offsets exposure without being matched to the invoice it
+   * settled. That is the right number for a credit limit either way.
    */
   async creditCheck(params: {
     customerId: string;
     proposedAmount: Kobo;
+    /**
+     * Optional fallback for callers that predate the customer dimension. When
+     * omitted — which is now the normal case — the balance comes from journal
+     * lines carrying this customer.
+     */
     receivableGlAccountId?: string | null;
   }): Promise<CreditCheckResult> {
     const customer = await this.prisma.customer.findUniqueOrThrow({
@@ -300,18 +305,18 @@ export class PartyService {
       reasons.push('Customer is INACTIVE.');
     }
 
-    let outstanding = 0n;
-    if (params.receivableGlAccountId) {
-      const movement = await this.prisma.journalLine.aggregate({
-        where: {
-          glAccountId: params.receivableGlAccountId,
-          journalEntry: { status: 'POSTED', companyId: customer.companyId },
-        },
-        _sum: { debitKobo: true, creditKobo: true },
-      });
-      outstanding =
-        (movement._sum.debitKobo ?? 0n) - (movement._sum.creditKobo ?? 0n);
-    }
+    const movement = await this.prisma.journalLine.aggregate({
+      where: {
+        customerId: params.customerId,
+        journalEntry: { status: 'POSTED', companyId: customer.companyId },
+        ...(params.receivableGlAccountId
+          ? { glAccountId: params.receivableGlAccountId }
+          : {}),
+      },
+      _sum: { debitKobo: true, creditKobo: true },
+    });
+    const outstanding =
+      (movement._sum.debitKobo ?? 0n) - (movement._sum.creditKobo ?? 0n);
 
     const proposed = params.proposedAmount as bigint;
     let available: bigint | null = null;
