@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { MissingDimensionError } from '../common/errors';
 import {
@@ -35,12 +36,15 @@ export interface DimensionValidationTarget {
 export class DimensionValidatorService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async validate(targets: DimensionValidationTarget[]): Promise<void> {
+  async validate(
+    targets: DimensionValidationTarget[],
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
     for (const target of targets) {
       this.assertMandatoryPresent(target);
     }
-    await this.assertConditionalPresent(targets);
-    await this.assertReferencesResolve(targets);
+    await this.assertConditionalPresent(targets, tx);
+    await this.assertReferencesResolve(targets, tx);
   }
 
   private assertMandatoryPresent(target: DimensionValidationTarget): void {
@@ -58,9 +62,11 @@ export class DimensionValidatorService {
 
   private async assertConditionalPresent(
     targets: DimensionValidationTarget[],
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
+    const db = tx ?? this.prisma;
     const accountIds = [...new Set(targets.map((t) => t.glAccountId))];
-    const accounts = await this.prisma.gLAccount.findMany({
+    const accounts = await db.gLAccount.findMany({
       where: { id: { in: accountIds } },
       select: {
         id: true,
@@ -128,7 +134,9 @@ export class DimensionValidatorService {
    */
   private async assertReferencesResolve(
     targets: DimensionValidationTarget[],
+    tx?: Prisma.TransactionClient,
   ): Promise<void> {
+    const db = tx ?? this.prisma;
     if (targets.length === 0) return;
 
     const companyIds = [...new Set(targets.map((t) => t.dimensions.companyId))];
@@ -157,23 +165,23 @@ export class DimensionValidatorService {
 
     const [branches, departments, costCentres, farms, penHouses, projects] =
       await Promise.all([
-        this.prisma.branch.findMany({
+        db.branch.findMany({
           where: { id: { in: branchIds } },
           select: { id: true, companyId: true, active: true, code: true },
         }),
-        this.prisma.department.findMany({
+        db.department.findMany({
           where: { id: { in: departmentIds } },
           select: { id: true, companyId: true, active: true, code: true },
         }),
-        this.prisma.costCentre.findMany({
+        db.costCentre.findMany({
           where: { id: { in: costCentreIds } },
           select: { id: true, companyId: true, active: true, code: true },
         }),
-        this.prisma.farm.findMany({
+        db.farm.findMany({
           where: { id: { in: farmIds } },
           select: { id: true, companyId: true, active: true, code: true },
         }),
-        this.prisma.penHouse.findMany({
+        db.penHouse.findMany({
           where: { id: { in: penHouseIds } },
           select: {
             id: true,
@@ -182,7 +190,7 @@ export class DimensionValidatorService {
             farm: { select: { companyId: true } },
           },
         }),
-        this.prisma.project.findMany({
+        db.project.findMany({
           where: { id: { in: projectIds } },
           select: { id: true, companyId: true, active: true, code: true },
         }),

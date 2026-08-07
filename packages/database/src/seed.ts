@@ -281,9 +281,139 @@ async function main(): Promise<void> {
     skipDuplicates: true,
   });
 
+  await seedWorkflow(company.id);
+
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +
       `${COST_CENTRES.length} cost centres, 12 periods.`,
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Workflow configuration (Consolidated Reference §2)
+//
+// PROVISIONAL — these thresholds are the consultant's illustrative ladder, not
+// the client's confirmed delegated-authority policy. They live here, in seed
+// data, precisely so that correcting them is a configuration change and never a
+// code change (Rule 8). Confirm the real limits with the client before go-live.
+// ---------------------------------------------------------------------------
+
+const WORKFLOW_ROLES = {
+  supervisor: 'PRODUCTION_SUPERVISOR',
+  farmManager: 'FARM_MANAGER',
+  financeManager: 'FINANCE_MANAGER',
+  controller: 'FINANCIAL_CONTROLLER',
+  managingDirector: 'MANAGING_DIRECTOR',
+  administrator: 'ADMINISTRATOR',
+} as const;
+
+/**
+ * The §2 approval-limit ladder, in kobo.
+ *
+ *   Farm Manager          up to      ₦250,000
+ *   Finance Manager       up to    ₦2,000,000
+ *   Financial Controller  up to   ₦10,000,000
+ *   Managing Director     unlimited
+ *
+ * Each figure is that rung's approval ceiling: a document climbs from level 1
+ * up to the first rung whose ceiling covers it.
+ */
+const APPROVAL_LADDER = [
+  { level: 1, roleCode: WORKFLOW_ROLES.farmManager, name: 'Farm Manager', maxAmountKobo: 250_000_00n },
+  { level: 2, roleCode: WORKFLOW_ROLES.financeManager, name: 'Finance Manager', maxAmountKobo: 2_000_000_00n },
+  { level: 3, roleCode: WORKFLOW_ROLES.controller, name: 'Financial Controller', maxAmountKobo: 10_000_000_00n },
+  { level: 4, roleCode: WORKFLOW_ROLES.managingDirector, name: 'Managing Director', maxAmountKobo: null },
+];
+
+/**
+ * Transaction types in scope for §2. Every one routes through the shared
+ * engine; none of them implements its own approvals.
+ */
+const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> = [
+  { type: 'GL_JOURNAL', name: 'Manual Journal', autoPost: true },
+  { type: 'CUSTOMER_ADJUSTMENT', name: 'Customer Adjustment Journal', autoPost: true },
+  { type: 'SUPPLIER_ADJUSTMENT', name: 'Supplier Adjustment Journal', autoPost: true },
+  { type: 'JOURNAL_REVERSAL', name: 'Journal Reversal', autoPost: true },
+  { type: 'PURCHASE_REQUISITION', name: 'Purchase Requisition', autoPost: false },
+  { type: 'PURCHASE_ORDER', name: 'Purchase Order', autoPost: false },
+  { type: 'SUPPLIER_INVOICE', name: 'Supplier Invoice', autoPost: false },
+  { type: 'SUPPLIER_PAYMENT', name: 'Supplier Payment', autoPost: false },
+  { type: 'SALES_QUOTATION', name: 'Sales Quotation', autoPost: false },
+  { type: 'SALES_ORDER', name: 'Sales Order', autoPost: false },
+  { type: 'CREDIT_NOTE', name: 'Credit Note', autoPost: false },
+  { type: 'INVENTORY_ADJUSTMENT', name: 'Inventory Adjustment', autoPost: false },
+  { type: 'PRODUCTION_ORDER', name: 'Production Order', autoPost: false },
+  { type: 'MATERIAL_ISSUE', name: 'Material Issue', autoPost: false },
+  { type: 'PAYROLL_RUN', name: 'Payroll Processing', autoPost: false },
+  { type: 'PERIOD_CLOSE', name: 'Period Close', autoPost: false },
+];
+
+async function seedWorkflow(companyId: string) {
+  for (const spec of WORKFLOW_TYPES) {
+    const existing = await prisma.workflowDefinition.findFirst({
+      where: { companyId, transactionType: spec.type, branchId: null, farmId: null },
+    });
+
+    const definition =
+      existing ??
+      (await prisma.workflowDefinition.create({
+        data: {
+          companyId,
+          transactionType: spec.type,
+          name: `${spec.name} — standard approval`,
+          description:
+            'Company-wide default route. Add a narrower definition to give a ' +
+            'branch, farm or cost centre its own ladder.',
+          autoPostOnApproval: spec.autoPost,
+          effectiveFrom: new Date('2026-01-01'),
+        },
+      }));
+
+    for (const rung of APPROVAL_LADDER) {
+      await prisma.workflowStep.upsert({
+        where: {
+          definitionId_level: { definitionId: definition.id, level: rung.level },
+        },
+        update: {
+          roleCode: rung.roleCode,
+          name: rung.name,
+          maxAmountKobo: rung.maxAmountKobo,
+        },
+        create: {
+          definitionId: definition.id,
+          level: rung.level,
+          roleCode: rung.roleCode,
+          name: rung.name,
+          maxAmountKobo: rung.maxAmountKobo,
+        },
+      });
+    }
+  }
+
+  // §2 escalation: 24h reminder, 48h manager notification, 72h escalation.
+  //
+  // Found-then-created rather than upserted: the unique key includes a nullable
+  // transactionType, and Postgres treats NULLs as distinct, so an upsert on
+  // (companyId, null) is not a lookup the database can satisfy.
+  const existingEscalation = await prisma.workflowEscalationRule.findFirst({
+    where: { companyId, transactionType: null },
+  });
+  if (!existingEscalation) {
+    await prisma.workflowEscalationRule.create({
+      data: {
+        companyId,
+        transactionType: null,
+        remindAfterHours: 24,
+        notifyManagerAfterHours: 48,
+        escalateAfterHours: 72,
+      },
+    });
+  }
+
+  console.log(
+    `Seeded workflow: ${WORKFLOW_TYPES.length} transaction types, ` +
+      `${APPROVAL_LADDER.length}-level ladder, escalation 24/48/72h.`,
   );
 }
 

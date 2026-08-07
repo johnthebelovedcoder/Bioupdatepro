@@ -52,13 +52,27 @@ export class PostingService {
     private readonly dimensions: DimensionValidatorService,
   ) {}
 
-  async post(request: PostingRequest): Promise<PostingResult> {
+  /**
+   * Post a journal.
+   *
+   * `externalTx` lets a caller that is already inside a database transaction —
+   * the Workflow Engine posting on final approval, for instance — have the
+   * posting commit or roll back together with its own work. Without it the
+   * posting would open a second connection and, under a single-connection pool,
+   * deadlock against the caller. When it is omitted this opens its own
+   * transaction exactly as before.
+   */
+  async post(
+    request: PostingRequest,
+    externalTx?: Prisma.TransactionClient,
+  ): Promise<PostingResult> {
     this.assertStructure(request);
     const { totalDebit, totalCredit } = this.assertBalanced(request);
 
     await this.periods.assertPostingAllowed(
       request.financialPeriodId,
       request.actor.roles,
+      externalTx,
     );
 
     await this.dimensions.validate(
@@ -67,9 +81,10 @@ export class PostingService {
         glAccountId: line.glAccountId,
         dimensions: line.dimensions,
       })),
+      externalTx,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient): Promise<PostingResult> => {
       const reservation = await this.idempotency.reserve(
         IDEMPOTENCY_SCOPE,
         request.idempotencyKey,
@@ -191,7 +206,9 @@ export class PostingService {
         totalDebitKobo: totalDebit,
         totalCreditKobo: totalCredit,
       };
-    });
+    };
+
+    return externalTx ? run(externalTx) : this.prisma.$transaction(run);
   }
 
   /**
