@@ -1,17 +1,20 @@
 import { Module } from '@nestjs/common';
 import { CoreModule } from './core.module';
 import { WorkflowModule } from './workflow/workflow.module';
+import { TaxModule } from './tax/tax.module';
 import { MastersController } from './masters/masters.controller';
 import { WorkflowController } from './workflow/workflow.controller';
+import { TaxController } from './tax/tax.controller';
 import { DemoController } from './demo/demo.controller';
 import { PanelController } from './demo/panel.controller';
 
 @Module({
-  imports: [CoreModule, WorkflowModule],
+  imports: [CoreModule, WorkflowModule, TaxModule],
   controllers: [
     PanelController,
     MastersController,
     WorkflowController,
+    TaxController,
     DemoController,
   ],
 })

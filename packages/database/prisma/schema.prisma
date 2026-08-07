@@ -125,6 +125,8 @@ model User {
   workflowComments        WorkflowComment[]         @relation("CommentAuthor")
   workflowNotifications   WorkflowNotification[]    @relation("NotificationRecipient")
   workflowAttachments     WorkflowAttachment[]      @relation("AttachmentUploader")
+  taxPeriodsFiled         TaxPeriod[]               @relation("TaxPeriodFiler")
+  taxAdjustments          TaxAdjustment[]           @relation("TaxAdjustmentCreator")
 
   @@map("users")
 }
@@ -162,6 +164,13 @@ model Company {
   workflowTransactions    WorkflowTransaction[]
   workflowDelegations     WorkflowDelegation[]
   workflowEscalationRules WorkflowEscalationRule[]
+  taxCodes                TaxCode[]
+  taxConfigurations       TaxConfiguration[]
+  taxGlMappings           TaxGLMapping[]
+  taxPeriods              TaxPeriod[]
+  vatRegisterEntries      VatRegisterEntry[]
+  whtRegisterEntries      WhtRegisterEntry[]
+  taxAdjustments          TaxAdjustment[]
 
   @@map("companies")
 }
@@ -183,6 +192,8 @@ model Branch {
   journalLines         JournalLine[]
   workflowDefinitions  WorkflowDefinition[]
   workflowTransactions WorkflowTransaction[]
+  vatRegisterEntries   VatRegisterEntry[]
+  whtRegisterEntries   WhtRegisterEntry[]
 
   @@unique([companyId, code])
   @@map("branches")
@@ -265,10 +276,11 @@ model GLAccount {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company      Company       @relation(fields: [companyId], references: [id])
-  parent       GLAccount?    @relation("GLAccountHierarchy", fields: [parentId], references: [id])
-  children     GLAccount[]   @relation("GLAccountHierarchy")
-  journalLines JournalLine[]
+  company       Company        @relation(fields: [companyId], references: [id])
+  parent        GLAccount?     @relation("GLAccountHierarchy", fields: [parentId], references: [id])
+  children      GLAccount[]    @relation("GLAccountHierarchy")
+  journalLines  JournalLine[]
+  taxGlMappings TaxGLMapping[]
 
   @@unique([companyId, accountNumber])
   @@index([parentId])
@@ -488,6 +500,9 @@ model JournalEntry {
   reversedBy           JournalEntry?         @relation("JournalReversal")
   lines                JournalLine[]
   workflowTransactions WorkflowTransaction[]
+  vatRegisterEntries   VatRegisterEntry[]
+  whtRegisterEntries   WhtRegisterEntry[]
+  taxAdjustments       TaxAdjustment[]
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -977,4 +992,378 @@ model WorkflowAttachment {
 
   @@index([transactionId])
   @@map("workflow_attachments")
+}
+
+// ---------------------------------------------------------------------------
+// Tax Engine — VAT & WHT  (Consolidated Reference §4 — Phase 3)
+//
+// Rule 5: ONE tax engine. Procurement, Sales and Banking call it; none of them
+// computes tax itself. Rule 8: every rate, threshold and GL mapping is
+// effective-dated configuration, never a constant in code — Nigerian rates
+// change by Finance Act and must be correctable without a deployment.
+//
+// A NOTE ON THE THREE TABLES §4 LISTS: the reference names TaxCode, VATCode and
+// WHTCode. VATCode and WHTCode would share every column with TaxCode and differ
+// only by which tax they describe, so they are one table here discriminated by
+// `taxType`, with the rate history in TaxRate. Splitting them would mean two
+// copies of the same effective-dating logic to keep in step. Everything §4 asks
+// for is present; it is arranged in two tables rather than three.
+// ---------------------------------------------------------------------------
+
+enum TaxType {
+  VAT
+  WHT
+}
+
+/// Zero-rated and exempt both produce no tax, but they are not the same thing:
+/// input VAT on zero-rated supplies is recoverable and on exempt supplies is
+/// not. Collapsing them would misstate the VAT return, so the distinction is
+/// carried explicitly rather than inferred from a zero rate.
+enum TaxTreatment {
+  STANDARD
+  ZERO_RATED
+  EXEMPT
+  OUT_OF_SCOPE
+}
+
+enum VatDirection {
+  /// VAT we paid a supplier. Recoverable unless the treatment says otherwise.
+  INPUT
+  /// VAT we charged a customer and owe to the authority.
+  OUTPUT
+}
+
+enum WhtDirection {
+  /// We withheld from a supplier and owe it to the authority.
+  PAYABLE
+  /// A customer withheld from us; claimable against our own tax.
+  RECEIVABLE
+}
+
+enum TaxPeriodStatus {
+  OPEN
+  CLOSED
+  FILED
+}
+
+/// Rounding is a policy decision with money consequences, so it is configuration
+/// and it is explicit. HALF_UP is the Nigerian commercial convention.
+enum RoundingRule {
+  HALF_UP
+  HALF_EVEN
+  DOWN
+  UP
+}
+
+/// Whether withholding is computed on the amount before or after VAT. This is
+/// legally significant and the source documents do not state it, so it is
+/// configuration with no silent default — see TaxConfiguration.
+enum WhtBasis {
+  NET_OF_VAT
+  GROSS_INCLUDING_VAT
+}
+
+/// Whether a price already contains its VAT.
+enum PriceBasis {
+  EXCLUSIVE
+  INCLUSIVE
+}
+
+/// The tax master. One row per code a document line can carry.
+model TaxCode {
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @map("company_id") @db.Uuid
+  code      String
+  name      String
+  taxType   TaxType @map("tax_type")
+
+  treatment TaxTreatment @default(STANDARD)
+
+  /// VAT only. Whether a price carrying this code already includes the tax.
+  priceBasis PriceBasis @default(EXCLUSIVE) @map("price_basis")
+
+  /// VAT only. Whether input VAT under this code may be recovered. Exempt
+  /// supplies are the case where it may not.
+  recoverable Boolean @default(true)
+
+  /// WHT only. The §5/§6 "WHT Category" on the supplier and customer masters.
+  /// Free text rather than an enum because the categories are set by the tax
+  /// authority, not by this system.
+  whtCategory String? @map("wht_category")
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company     Company            @relation(fields: [companyId], references: [id])
+  rates       TaxRate[]
+  glMappings  TaxGLMapping[]
+  vatEntries  VatRegisterEntry[]
+  whtEntries  WhtRegisterEntry[]
+  adjustments TaxAdjustment[]
+
+  @@unique([companyId, code])
+  @@index([companyId, taxType, active])
+  @@map("tax_codes")
+}
+
+/// Effective-dated rate history for a tax code (Rule 8).
+///
+/// The rate is a Decimal, not money: it is a ratio, and it is the one place
+/// fractional arithmetic is allowed. Every amount derived from it is rounded to
+/// integer kobo exactly once, at the point of persistence (Rule 1).
+model TaxRate {
+  id        String  @id @default(uuid()) @db.Uuid
+  taxCodeId String  @map("tax_code_id") @db.Uuid
+  /// e.g. 0.07500000 for 7.5%.
+  rate      Decimal @db.Decimal(9, 8)
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  /// Where the rate comes from — a Finance Act section, a circular, a URL.
+  /// A tax rate with no provenance is not auditable.
+  sourceReference String? @map("source_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  taxCode TaxCode @relation(fields: [taxCodeId], references: [id], onDelete: Cascade)
+
+  @@index([taxCodeId, effectiveFrom])
+  @@map("tax_rates")
+}
+
+/// Company-level tax policy. Everything here would otherwise be a constant
+/// buried in the engine.
+model TaxConfiguration {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  rounding RoundingRule @default(HALF_UP)
+
+  /// NOT defaulted to a guess. The source documents never state whether WHT is
+  /// computed before or after VAT, and the two give different answers, so this
+  /// is set deliberately per company and recorded with its authority below.
+  whtBasis          WhtBasis @map("wht_basis")
+  whtBasisAuthority String?  @map("wht_basis_authority")
+
+  /// VAT registration details for the return.
+  vatRegistrationNumber String? @map("vat_registration_number")
+  tin                   String?
+
+  /// Filing cadence in months; Nigerian VAT is monthly.
+  vatFilingIntervalMonths Int @default(1) @map("vat_filing_interval_months")
+  /// Day of the following month the return is due. Nigerian VAT is the 21st.
+  vatFilingDueDayOfMonth  Int @default(21) @map("vat_filing_due_day_of_month")
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, effectiveFrom])
+  @@map("tax_configurations")
+}
+
+/// Which GL account each tax code posts to, in each direction. Effective-dated
+/// because a chart of accounts is restructured more often than anyone expects.
+model TaxGLMapping {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  taxCodeId String @map("tax_code_id") @db.Uuid
+
+  /// INPUT/OUTPUT for VAT, PAYABLE/RECEIVABLE for WHT. Stored as text so one
+  /// table serves both without a nullable enum per tax type.
+  direction String
+
+  glAccountId String @map("gl_account_id") @db.Uuid
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  taxCode   TaxCode   @relation(fields: [taxCodeId], references: [id], onDelete: Cascade)
+  glAccount GLAccount @relation(fields: [glAccountId], references: [id])
+
+  @@index([companyId, taxCodeId, direction, effectiveFrom])
+  @@map("tax_gl_mappings")
+}
+
+/// A filing period. Separate from the financial period because a VAT return
+/// covers a calendar month with its own due date and its own close, and the two
+/// calendars do not have to agree.
+model TaxPeriod {
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @map("company_id") @db.Uuid
+  taxType   TaxType @map("tax_type")
+
+  year         Int
+  periodNumber Int    @map("period_number")
+  name         String
+
+  startDate DateTime @map("start_date") @db.Date
+  endDate   DateTime @map("end_date") @db.Date
+  dueDate   DateTime @map("due_date") @db.Date
+
+  status TaxPeriodStatus @default(OPEN)
+
+  filedAt         DateTime? @map("filed_at")
+  filedById       String?   @map("filed_by_id") @db.Uuid
+  filingReference String?   @map("filing_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company     Company            @relation(fields: [companyId], references: [id])
+  filedBy     User?              @relation("TaxPeriodFiler", fields: [filedById], references: [id])
+  vatEntries  VatRegisterEntry[]
+  whtEntries  WhtRegisterEntry[]
+  adjustments TaxAdjustment[]
+
+  @@unique([companyId, taxType, year, periodNumber])
+  @@index([companyId, taxType, status])
+  @@map("tax_periods")
+}
+
+/// One line of the VAT return, written in the same database transaction as the
+/// GL posting that produced it.
+///
+/// That timing is the whole control: a register assembled later, by a separate
+/// job reading the ledger, can drift from the ledger. One written alongside the
+/// posting cannot — and the reconciliation test proves the totals still agree.
+model VatRegisterEntry {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  branchId  String @map("branch_id") @db.Uuid
+
+  taxPeriodId String       @map("tax_period_id") @db.Uuid
+  taxCodeId   String       @map("tax_code_id") @db.Uuid
+  direction   VatDirection
+  treatment   TaxTreatment
+
+  /// The document that gave rise to it.
+  sourceModule       String   @map("source_module")
+  sourceDocumentType String   @map("source_document_type")
+  sourceDocumentId   String?  @map("source_document_id")
+  documentReference  String   @map("document_reference")
+  documentDate       DateTime @map("document_date") @db.Date
+
+  /// Counterparty as at the document date. Denormalised deliberately: a VAT
+  /// return must reproduce what was filed, not what the master data says today.
+  counterpartyName String? @map("counterparty_name")
+  counterpartyTin  String? @map("counterparty_tin")
+
+  /// MONEY. Integer kobo.
+  taxableBaseKobo BigInt  @map("taxable_base_kobo")
+  taxKobo         BigInt  @map("tax_kobo")
+  /// The rate actually applied, kept so a historical line can be re-derived
+  /// even after the rate changes.
+  appliedRate     Decimal @map("applied_rate") @db.Decimal(9, 8)
+  recoverable     Boolean @default(true)
+
+  journalEntryId String @map("journal_entry_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  branch       Branch       @relation(fields: [branchId], references: [id])
+  taxPeriod    TaxPeriod    @relation(fields: [taxPeriodId], references: [id])
+  taxCode      TaxCode      @relation(fields: [taxCodeId], references: [id])
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
+
+  @@index([companyId, taxPeriodId, direction])
+  @@index([journalEntryId])
+  @@map("vat_register_entries")
+}
+
+/// One line of the WHT register.
+///
+/// WHT crystallises on the cash movement, not the invoice — §5 credits WHT
+/// Payable at supplier payment and §6 debits WHT Receivable at customer
+/// receipt. Entries are therefore written by the payment and receipt paths.
+model WhtRegisterEntry {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  branchId  String @map("branch_id") @db.Uuid
+
+  taxPeriodId String       @map("tax_period_id") @db.Uuid
+  taxCodeId   String       @map("tax_code_id") @db.Uuid
+  direction   WhtDirection
+  whtCategory String       @map("wht_category")
+
+  sourceModule       String   @map("source_module")
+  sourceDocumentType String   @map("source_document_type")
+  sourceDocumentId   String?  @map("source_document_id")
+  documentReference  String   @map("document_reference")
+  documentDate       DateTime @map("document_date") @db.Date
+
+  counterpartyName String? @map("counterparty_name")
+  counterpartyTin  String? @map("counterparty_tin")
+
+  /// MONEY. Integer kobo.
+  grossAmountKobo BigInt  @map("gross_amount_kobo")
+  vatAmountKobo   BigInt  @default(0) @map("vat_amount_kobo")
+  /// What the rate was actually applied to, after the WhtBasis decision.
+  taxableBaseKobo BigInt  @map("taxable_base_kobo")
+  taxKobo         BigInt  @map("tax_kobo")
+  appliedRate     Decimal @map("applied_rate") @db.Decimal(9, 8)
+
+  /// The credit note the counterparty issues as evidence, needed to claim it.
+  creditNoteReference String?   @map("credit_note_reference")
+  creditNoteDate      DateTime? @map("credit_note_date") @db.Date
+
+  journalEntryId String @map("journal_entry_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  branch       Branch       @relation(fields: [branchId], references: [id])
+  taxPeriod    TaxPeriod    @relation(fields: [taxPeriodId], references: [id])
+  taxCode      TaxCode      @relation(fields: [taxCodeId], references: [id])
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id])
+
+  @@index([companyId, taxPeriodId, direction])
+  @@index([journalEntryId])
+  @@map("wht_register_entries")
+}
+
+/// A correction to a filed or closed tax period. Workflow-governed, like every
+/// other correction in this system — a register entry is never edited (Rule 2).
+model TaxAdjustment {
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @map("company_id") @db.Uuid
+  taxType   TaxType @map("tax_type")
+
+  taxPeriodId String @map("tax_period_id") @db.Uuid
+  taxCodeId   String @map("tax_code_id") @db.Uuid
+
+  reference String
+  reason    String
+
+  /// MONEY. Signed: negative reduces the liability.
+  taxableBaseKobo BigInt @map("taxable_base_kobo")
+  taxKobo         BigInt @map("tax_kobo")
+
+  /// Set once the adjustment has been approved and posted.
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company      Company       @relation(fields: [companyId], references: [id])
+  taxPeriod    TaxPeriod     @relation(fields: [taxPeriodId], references: [id])
+  taxCode      TaxCode       @relation(fields: [taxCodeId], references: [id])
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  createdBy    User          @relation("TaxAdjustmentCreator", fields: [createdById], references: [id])
+
+  @@index([companyId, taxPeriodId])
+  @@map("tax_adjustments")
 }

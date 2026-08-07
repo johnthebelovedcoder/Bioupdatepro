@@ -40,6 +40,10 @@ const ACCOUNTS: AccountSeed[] = [
   // SnailPro TDD §10.5 — "Require cost centre on every production GL line."
   { number: '1501', name: 'Work in Progress', type: AccountType.ASSET, normal: NormalBalance.DEBIT,
     requiresCostCentre: true, source: 'SnailPro TB_WIP_Control R8 — the WIP control account' },
+  { number: '1601', name: 'Input VAT Recoverable', type: AccountType.ASSET, normal: NormalBalance.DEBIT,
+    source: 'Consolidated Reference §5 — Supplier Invoice posting' },
+  { number: '1602', name: 'WHT Receivable', type: AccountType.ASSET, normal: NormalBalance.DEBIT,
+    source: 'Consolidated Reference §6 — Customer Receipt posting' },
 
   // --- Liabilities --------------------------------------------------------
   { number: '2101', name: 'Salary Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT,
@@ -54,6 +58,10 @@ const ACCOUNTS: AccountSeed[] = [
     source: 'Statutory workbook GL_Journal R13' },
   { number: '2110', name: 'PAYE Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT,
     source: 'PAYE workbook GL_Journal R6' },
+  { number: '2120', name: 'Output VAT Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT,
+    source: 'Consolidated Reference §6 — Sales Invoice posting' },
+  { number: '2130', name: 'WHT Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT,
+    source: 'Consolidated Reference §5 — Supplier Payment posting' },
 
   // --- Revenue ------------------------------------------------------------
   { number: '4101', name: 'Revenue', type: AccountType.REVENUE, normal: NormalBalance.CREDIT,
@@ -180,8 +188,9 @@ async function main(): Promise<void> {
     }
   }
 
+  const accountIds: Record<string, string> = {};
   for (const account of ACCOUNTS) {
-    await prisma.gLAccount.upsert({
+    const created = await prisma.gLAccount.upsert({
       where: {
         companyId_accountNumber: {
           companyId: company.id,
@@ -199,6 +208,7 @@ async function main(): Promise<void> {
         requiresCostCentre: account.requiresCostCentre ?? false,
       },
     });
+    accountIds[account.number] = created.id;
   }
 
   const farm = await prisma.farm.upsert({
@@ -282,6 +292,7 @@ async function main(): Promise<void> {
   });
 
   await seedWorkflow(company.id);
+  await seedTax(company.id, accountIds);
 
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +
@@ -414,6 +425,222 @@ async function seedWorkflow(companyId: string) {
   console.log(
     `Seeded workflow: ${WORKFLOW_TYPES.length} transaction types, ` +
       `${APPROVAL_LADDER.length}-level ladder, escalation 24/48/72h.`,
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Tax configuration (Consolidated Reference §4)
+//
+// WHAT IS SOURCED AND WHAT IS NOT — read this before changing anything here.
+//
+// VAT at 7.5% IS in the source documents: both the SnailPro and PoultryPro
+// workbooks carry it on their Assumptions sheet, marked "configurable;
+// effective-dated tax code". It is seeded with that provenance.
+//
+// WHT RATES ARE NOT. The reference names a "WHT Category" on the supplier and
+// customer masters and shows WHT Payable and WHT Receivable in the postings,
+// but no document in this set states a single rate. Nigerian withholding rates
+// are set by statute and vary by service, by contract type and by whether the
+// counterparty is resident — exactly the kind of legally sensitive figure the
+// build brief says not to invent.
+//
+// So the WHT CODES are seeded and their RATES are not. The engine refuses to
+// calculate a tax whose rate is unconfigured rather than defaulting to zero,
+// which means an unrated WHT category fails loudly at the first payment instead
+// of quietly under-deducting for a year. Supply the rates, with their statutory
+// source, and the engine starts working — no code change.
+// ---------------------------------------------------------------------------
+
+async function seedTax(companyId: string, accounts: Record<string, string>) {
+  const from = new Date('2026-01-01');
+
+  // --- Company tax policy --------------------------------------------------
+  const existingConfig = await prisma.taxConfiguration.findFirst({
+    where: { companyId, effectiveTo: null },
+  });
+  if (!existingConfig) {
+    await prisma.taxConfiguration.create({
+      data: {
+        companyId,
+        rounding: 'HALF_UP',
+        // PROVISIONAL. The source documents never state whether withholding is
+        // computed before or after VAT. NET_OF_VAT is the common Nigerian
+        // practice, but "common practice" is not authority — confirm with the
+        // client's tax adviser and correct this row if it is wrong.
+        whtBasis: 'NET_OF_VAT',
+        whtBasisAuthority:
+          'PROVISIONAL — not stated in any source document. Confirm with the client tax adviser.',
+        vatFilingIntervalMonths: 1,
+        vatFilingDueDayOfMonth: 21,
+        effectiveFrom: from,
+      },
+    });
+  }
+
+  // --- VAT codes -----------------------------------------------------------
+  const VAT_CODES = [
+    {
+      code: 'VAT-STD',
+      name: 'VAT standard rated',
+      treatment: 'STANDARD' as const,
+      recoverable: true,
+      rate: '0.07500000',
+      source: 'SnailPro & PoultryPro workbooks, Assumptions B5 (7.5%)',
+    },
+    {
+      code: 'VAT-ZERO',
+      name: 'VAT zero rated',
+      treatment: 'ZERO_RATED' as const,
+      recoverable: true,
+      rate: '0.00000000',
+      source: 'Zero-rated supplies: no output tax, input tax recoverable',
+    },
+    {
+      code: 'VAT-EXEMPT',
+      name: 'VAT exempt',
+      treatment: 'EXEMPT' as const,
+      // The distinction that matters: exempt supplies carry no output tax AND
+      // no input recovery. Many basic agricultural products are exempt in
+      // Nigeria — which of this client's products qualify is a question for
+      // their tax adviser, not an assumption to encode here.
+      recoverable: false,
+      rate: '0.00000000',
+      source: 'Exempt supplies: no output tax, input tax NOT recoverable',
+    },
+    {
+      code: 'VAT-OOS',
+      name: 'Outside the scope of VAT',
+      treatment: 'OUT_OF_SCOPE' as const,
+      recoverable: false,
+      rate: '0.00000000',
+      source: 'Non-supply transactions (e.g. payroll, internal transfers)',
+    },
+  ];
+
+  for (const spec of VAT_CODES) {
+    const code = await prisma.taxCode.upsert({
+      where: { companyId_code: { companyId, code: spec.code } },
+      update: {},
+      create: {
+        companyId,
+        code: spec.code,
+        name: spec.name,
+        taxType: 'VAT',
+        treatment: spec.treatment,
+        priceBasis: 'EXCLUSIVE',
+        recoverable: spec.recoverable,
+      },
+    });
+
+    const hasRate = await prisma.taxRate.findFirst({ where: { taxCodeId: code.id } });
+    if (!hasRate) {
+      await prisma.taxRate.create({
+        data: {
+          taxCodeId: code.id,
+          rate: spec.rate,
+          effectiveFrom: from,
+          sourceReference: spec.source,
+        },
+      });
+    }
+
+    for (const direction of ['INPUT', 'OUTPUT']) {
+      const glAccountId =
+        direction === 'INPUT' ? accounts['1601'] : accounts['2120'];
+      if (!glAccountId) continue;
+
+      const mapped = await prisma.taxGLMapping.findFirst({
+        where: { companyId, taxCodeId: code.id, direction },
+      });
+      if (!mapped) {
+        await prisma.taxGLMapping.create({
+          data: { companyId, taxCodeId: code.id, direction, glAccountId, effectiveFrom: from },
+        });
+      }
+    }
+  }
+
+  // --- WHT codes (rates deliberately absent) -------------------------------
+  const WHT_CATEGORIES = [
+    { code: 'WHT-CONTRACT', name: 'WHT — contracts and supplies', category: 'Contracts/Supplies' },
+    { code: 'WHT-SERVICES', name: 'WHT — professional services', category: 'Professional Services' },
+    { code: 'WHT-RENT', name: 'WHT — rent', category: 'Rent' },
+    { code: 'WHT-COMMISSION', name: 'WHT — commission', category: 'Commission' },
+    { code: 'WHT-DIVIDEND', name: 'WHT — dividends', category: 'Dividends' },
+    { code: 'WHT-INTEREST', name: 'WHT — interest', category: 'Interest' },
+    { code: 'WHT-ROYALTY', name: 'WHT — royalties', category: 'Royalties' },
+  ];
+
+  for (const spec of WHT_CATEGORIES) {
+    const code = await prisma.taxCode.upsert({
+      where: { companyId_code: { companyId, code: spec.code } },
+      update: {},
+      create: {
+        companyId,
+        code: spec.code,
+        name: spec.name,
+        taxType: 'WHT',
+        treatment: 'STANDARD',
+        whtCategory: spec.category,
+      },
+    });
+
+    for (const direction of ['PAYABLE', 'RECEIVABLE']) {
+      const glAccountId =
+        direction === 'PAYABLE' ? accounts['2130'] : accounts['1602'];
+      if (!glAccountId) continue;
+
+      const mapped = await prisma.taxGLMapping.findFirst({
+        where: { companyId, taxCodeId: code.id, direction },
+      });
+      if (!mapped) {
+        await prisma.taxGLMapping.create({
+          data: { companyId, taxCodeId: code.id, direction, glAccountId, effectiveFrom: from },
+        });
+      }
+    }
+    // NOTE: no prisma.taxRate.create() here, on purpose. See the header.
+  }
+
+  // --- Filing calendar -----------------------------------------------------
+  const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  for (const taxType of ['VAT', 'WHT'] as const) {
+    for (let index = 0; index < 12; index += 1) {
+      const periodNumber = index + 1;
+      const existing = await prisma.taxPeriod.findUnique({
+        where: {
+          companyId_taxType_year_periodNumber: {
+            companyId, taxType, year: 2026, periodNumber,
+          },
+        },
+      });
+      if (existing) continue;
+
+      await prisma.taxPeriod.create({
+        data: {
+          companyId,
+          taxType,
+          year: 2026,
+          periodNumber,
+          name: `${MONTH_NAMES[index]} 2026`,
+          startDate: new Date(Date.UTC(2026, index, 1)),
+          endDate: new Date(Date.UTC(2026, index + 1, 0)),
+          // Nigerian VAT is due on the 21st of the following month.
+          dueDate: new Date(Date.UTC(2026, index + 1, 21)),
+        },
+      });
+    }
+  }
+
+  console.log(
+    `Seeded tax: ${VAT_CODES.length} VAT codes (7.5% standard), ` +
+      `${WHT_CATEGORIES.length} WHT categories WITHOUT rates — supply them before ` +
+      `any withholding is calculated — and 24 filing periods.`,
   );
 }
 

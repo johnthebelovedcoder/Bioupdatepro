@@ -39,6 +39,14 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   // runs this.
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
+      tax_adjustments,
+      vat_register_entries,
+      wht_register_entries,
+      tax_periods,
+      tax_gl_mappings,
+      tax_rates,
+      tax_codes,
+      tax_configurations,
       workflow_notifications,
       workflow_history,
       workflow_transaction_steps,
@@ -148,6 +156,13 @@ export async function seedFixture(prisma: PrismaClient): Promise<TestFixture> {
     { number: '5205', name: 'Payroll/Overhead Clearing', type: 'EXPENSE', normal: 'CREDIT', cc: false },
     { number: '5305', name: 'Production Loss Expense', type: 'EXPENSE', normal: 'DEBIT', cc: true },
     { number: '1101', name: 'Bank', type: 'ASSET', normal: 'DEBIT', cc: false },
+    // Tax control accounts (Phase 3). The register reconciliation compares its
+    // totals against the movement on exactly these.
+    { number: '1601', name: 'Input VAT Recoverable', type: 'ASSET', normal: 'DEBIT', cc: false },
+    { number: '1602', name: 'WHT Receivable', type: 'ASSET', normal: 'DEBIT', cc: false },
+    { number: '2120', name: 'Output VAT Payable', type: 'LIABILITY', normal: 'CREDIT', cc: false },
+    { number: '2130', name: 'WHT Payable', type: 'LIABILITY', normal: 'CREDIT', cc: false },
+    { number: '4101', name: 'Revenue', type: 'REVENUE', normal: 'CREDIT', cc: false },
   ] as const;
 
   const accounts: Record<string, string> = {};
