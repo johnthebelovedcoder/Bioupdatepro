@@ -132,6 +132,7 @@ model User {
   manualJournalsCreated     ManualJournal[]           @relation("ManualJournalCreator")
   manualJournalAttachments  ManualJournalAttachment[] @relation("ManualJournalAttachmentUploader")
   recurringJournalsCreated  RecurringJournal[]        @relation("RecurringJournalCreator")
+  payrollRunsCreated        PayrollRun[]              @relation("PayrollRunCreator")
 
   @@map("users")
 }
@@ -188,6 +189,10 @@ model Company {
   reasonCodes             ReasonCode[]
   manualJournals          ManualJournal[]
   recurringJournals       RecurringJournal[]
+  payeBands               PayeBand[]
+  payeConfigurations      PayeConfiguration[]
+  statutoryConfigurations StatutoryConfiguration[]
+  payrollRuns             PayrollRun[]
 
   @@map("companies")
 }
@@ -216,6 +221,8 @@ model Branch {
   employees            Employee[]
   manualJournals       ManualJournal[]
   recurringJournals    RecurringJournal[]
+  payrollRuns          PayrollRun[]
+  payrollRunLines      PayrollRunLine[]
 
   @@unique([companyId, code])
   @@map("branches")
@@ -237,6 +244,7 @@ model Department {
   workflowTransactions WorkflowTransaction[]
   employees            Employee[]
   manualJournalLines   ManualJournalLine[]
+  payrollRunLines      PayrollRunLine[]
 
   @@unique([companyId, code])
   @@map("departments")
@@ -270,6 +278,7 @@ model CostCentre {
   customerDefaults     Customer[]            @relation("CustomerCostCentre")
   employees            Employee[]            @relation("EmployeeCostCentre")
   manualJournalLines   ManualJournalLine[]
+  payrollRunLines      PayrollRunLine[]      @relation("PayrollLineCostCentre")
 
   @@unique([companyId, code])
   @@index([parentId])
@@ -345,6 +354,7 @@ model Currency {
   customers            Customer[]
   manualJournals       ManualJournal[]
   recurringJournals    RecurringJournal[]
+  payrollRuns          PayrollRun[]
 
   @@map("currencies")
 }
@@ -390,6 +400,7 @@ model FinancialYear {
   journalEntries JournalEntry[]
   journalLines   JournalLine[]
   manualJournals ManualJournal[]
+  payrollRuns    PayrollRun[]
 
   @@unique([companyId, code])
   @@map("financial_years")
@@ -410,6 +421,7 @@ model FinancialPeriod {
   journalEntries JournalEntry[]
   journalLines   JournalLine[]
   manualJournals ManualJournal[]
+  payrollRuns    PayrollRun[]
 
   @@unique([financialYearId, periodNumber])
   @@index([startDate, endDate])
@@ -549,6 +561,7 @@ model JournalEntry {
   whtRegisterEntries   WhtRegisterEntry[]
   taxAdjustments       TaxAdjustment[]
   manualJournals       ManualJournal[]
+  payrollRuns          PayrollRun[]
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -1863,6 +1876,8 @@ model Employee {
   documents          EmployeeDocument[]
   journalLines       JournalLine[]
   manualJournalLines ManualJournalLine[]
+  taxReliefs         EmployeeTaxRelief[]
+  payrollRunLines    PayrollRunLine[]
 
   @@unique([companyId, employeeNumber])
   @@index([companyId, employmentStatus])
@@ -2362,4 +2377,314 @@ model RecurringJournalLine {
 
   @@unique([recurringJournalId, lineNumber])
   @@map("recurring_journal_lines")
+}
+
+// ---------------------------------------------------------------------------
+// HR & Payroll  (Consolidated Reference §7, §7.1, §7.2 — Phase 9)
+//
+// This is the module with legal consequences for getting it wrong, so the rule
+// the build brief states most firmly applies hardest here: NOTHING statutory is
+// a constant in code. Every band, rate, threshold and applicability test below
+// is an effective-dated configuration row carrying its own source reference.
+//
+// The Nigeria Tax Act 2025 bands take effect 1 January 2026. When they change,
+// the correction is a new row with a new effective date — never an edit, so
+// that a payroll run from before the change still reproduces exactly.
+//
+// TWO THINGS THE SOURCE DOCUMENTS SAY IN TERMS, ENCODED HERE:
+//   - "Never apply the highest band rate to the whole income" — the calculation
+//     is band-by-band and the per-band amounts are stored, not just the total.
+//   - "Do not restore the former Consolidated Relief Allowance" — there is no
+//     CRA field anywhere in this schema, and rent relief replaces it.
+// ---------------------------------------------------------------------------
+
+enum PayrollRunStatus {
+  DRAFT
+  CALCULATED
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  POSTED
+  CANCELLED
+}
+
+/// §7.2: whether the employer funds the employee's pension share as well.
+/// When it does, the combined statutory minimum is 18% and the employee
+/// deduction becomes zero.
+enum PensionFundingModel {
+  SPLIT_8_10
+  EMPLOYER_PAYS_ALL_18
+}
+
+/// The progressive annual bands (§7.1). Effective-dated so a mid-year change in
+/// law does not rewrite January's payroll.
+///
+/// `bandWidth` and `lowerLimit` are both stored even though either could be
+/// derived, because the workbook carries both and a band table that has to be
+/// derived is a band table someone will eventually derive wrongly.
+model PayeBand {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  bandOrder      Int     @map("band_order")
+  /// MONEY. Integer kobo. The workbook's ₦800,000 first band is 80_000_000 kobo.
+  lowerLimitKobo BigInt  @map("lower_limit_kobo")
+  /// Null on the top band: it is unbounded.
+  upperLimitKobo BigInt? @map("upper_limit_kobo")
+  bandWidthKobo  BigInt? @map("band_width_kobo")
+  /// e.g. 0.15000000 for 15%.
+  rate           Decimal @db.Decimal(9, 8)
+
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+  sourceReference String?   @map("source_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, bandOrder, effectiveFrom])
+  @@index([companyId, effectiveFrom])
+  @@map("paye_bands")
+}
+
+/// The PAYE reliefs and thresholds that are not bands (§7.1 PAYE_Rules sheet).
+model PayeConfiguration {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// MONEY. Monthly gross at or below this pays no PAYE at all.
+  minimumWageMonthlyKobo BigInt @map("minimum_wage_monthly_kobo")
+
+  /// Rent relief: the lower of (annual rent x rate) and the cap. This REPLACED
+  /// the Consolidated Relief Allowance; it is not an addition to it.
+  rentReliefRate    Decimal @map("rent_relief_rate") @db.Decimal(9, 8)
+  rentReliefCapKobo BigInt  @map("rent_relief_cap_kobo")
+
+  /// The pension rate used when computing the PAYE DEDUCTION. Kept separate
+  /// from the statutory contribution rate: they happen to be equal today, and
+  /// conflating them would hide it if the law ever separated them.
+  pensionReliefRate Decimal @map("pension_relief_rate") @db.Decimal(9, 8)
+
+  /// Rounding for the final payroll line. §7.1: "Round only at the final
+  /// payroll line; preserve calculation precision."
+  rounding RoundingRule @default(HALF_UP)
+
+  /// Version stamp recorded on every calculation, so a snapshot can be tied to
+  /// the exact rule set that produced it (the workbook's "NTA-2025-2026.01").
+  ruleVersion String @map("rule_version")
+
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+  sourceReference String?   @map("source_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, effectiveFrom])
+  @@map("paye_configurations")
+}
+
+/// §7.2 NHF / ITF / NSITF / Pension. Every rate and applicability test.
+model StatutoryConfiguration {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  // --- Pension ---
+  pensionFunding      PensionFundingModel @default(SPLIT_8_10) @map("pension_funding")
+  pensionEmployeeRate Decimal             @map("pension_employee_rate") @db.Decimal(9, 8)
+  pensionEmployerRate Decimal             @map("pension_employer_rate") @db.Decimal(9, 8)
+  /// Used when the employer funds the whole contribution.
+  pensionCombinedRate Decimal             @map("pension_combined_rate") @db.Decimal(9, 8)
+  /// The Pension Reform Act applies from this headcount upward.
+  pensionMinEmployees Int                 @default(3) @map("pension_min_employees")
+
+  // --- NHF ---
+  nhfRate                 Decimal @map("nhf_rate") @db.Decimal(9, 8)
+  /// Private-sector participation is voluntary; without this the scheme is off
+  /// for the whole company however many employees have ticked the box.
+  nhfCompanyParticipation Boolean @default(false) @map("nhf_company_participation")
+
+  // --- NSITF (employer only; deducting it from an employee is prohibited) ---
+  nsitfRate Decimal @map("nsitf_rate") @db.Decimal(9, 8)
+
+  // --- ITF (employer only; annual payment, monthly accrual) ---
+  itfRate         Decimal @map("itf_rate") @db.Decimal(9, 8)
+  itfMinEmployees Int     @default(25) @map("itf_min_employees")
+
+  /// MONEY. NHF eligibility floor, and the same figure PAYE exempts below.
+  minimumWageMonthlyKobo BigInt @map("minimum_wage_monthly_kobo")
+
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+  sourceReference String?   @map("source_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, effectiveFrom])
+  @@map("statutory_configurations")
+}
+
+/// Per-employee annual relief inputs (§7.1 Employee_Inputs sheet).
+///
+/// Effective-dated by tax year because these are declared annually with
+/// supporting evidence, and last year's declaration must not silently apply to
+/// this year's payroll.
+model EmployeeTaxRelief {
+  id         String @id @default(uuid()) @db.Uuid
+  employeeId String @map("employee_id") @db.Uuid
+  taxYear    Int    @map("tax_year")
+
+  /// MONEY, all integer kobo, all ANNUAL figures.
+  annualRentKobo             BigInt @default(0) @map("annual_rent_kobo")
+  nhfAnnualKobo              BigInt @default(0) @map("nhf_annual_kobo")
+  nhisAnnualKobo             BigInt @default(0) @map("nhis_annual_kobo")
+  lifeAssuranceAnnualKobo    BigInt @default(0) @map("life_assurance_annual_kobo")
+  mortgageInterestAnnualKobo BigInt @default(0) @map("mortgage_interest_annual_kobo")
+  /// Irregular income annualised separately from recurring pay.
+  annualBonusKobo            BigInt @default(0) @map("annual_bonus_kobo")
+
+  /// §7.1: "all reliefs must be based on actual supported amounts" — a relief
+  /// without evidence is not granted.
+  documentsComplete Boolean @default(false) @map("documents_complete")
+  evidenceReference String? @map("evidence_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, taxYear])
+  @@map("employee_tax_reliefs")
+}
+
+/// One month's payroll for one company.
+model PayrollRun {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  year        Int
+  month       Int
+  reference   String
+  /// The date the accrual carries, and the date every rate is resolved as at.
+  payrollDate DateTime @map("payroll_date") @db.Date
+
+  branchId          String @map("branch_id") @db.Uuid
+  financialYearId   String @map("financial_year_id") @db.Uuid
+  financialPeriodId String @map("financial_period_id") @db.Uuid
+  currencyId        String @map("currency_id") @db.Uuid
+
+  status PayrollRunStatus @default(DRAFT)
+
+  /// Headcount as at calculation, which drives the pension and ITF
+  /// applicability tests. Stored because it is an input to the result and must
+  /// not be re-derived later from a changed employee list.
+  employeeCount Int @default(0) @map("employee_count")
+
+  /// MONEY. Control totals, all integer kobo.
+  totalGrossKobo           BigInt @default(0) @map("total_gross_kobo")
+  totalPayeKobo            BigInt @default(0) @map("total_paye_kobo")
+  totalEmployeePensionKobo BigInt @default(0) @map("total_employee_pension_kobo")
+  totalEmployerPensionKobo BigInt @default(0) @map("total_employer_pension_kobo")
+  totalNhfKobo             BigInt @default(0) @map("total_nhf_kobo")
+  totalNsitfKobo           BigInt @default(0) @map("total_nsitf_kobo")
+  totalItfKobo             BigInt @default(0) @map("total_itf_kobo")
+  totalOtherDeductionsKobo BigInt @default(0) @map("total_other_deductions_kobo")
+  totalNetPayKobo          BigInt @default(0) @map("total_net_pay_kobo")
+
+  /// The rule versions this run was computed under, for §7.1's audit
+  /// requirement. A recalculation creates a new run rather than mutating this.
+  payeRuleVersion String? @map("paye_rule_version")
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  journalEntryId        String? @map("journal_entry_id") @db.Uuid
+
+  calculatedAt DateTime? @map("calculated_at")
+  postedAt     DateTime? @map("posted_at")
+  createdById  String    @map("created_by_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  company         Company          @relation(fields: [companyId], references: [id])
+  branch          Branch           @relation(fields: [branchId], references: [id])
+  financialYear   FinancialYear    @relation(fields: [financialYearId], references: [id])
+  financialPeriod FinancialPeriod  @relation(fields: [financialPeriodId], references: [id])
+  currency        Currency         @relation(fields: [currencyId], references: [id])
+  journalEntry    JournalEntry?    @relation(fields: [journalEntryId], references: [id])
+  createdBy       User             @relation("PayrollRunCreator", fields: [createdById], references: [id])
+  lines           PayrollRunLine[]
+
+  @@unique([companyId, year, month])
+  @@unique([companyId, reference])
+  @@index([companyId, status])
+  @@map("payroll_runs")
+}
+
+/// One employee's pay for one run.
+///
+/// Every intermediate figure is stored, not just the answer. §7.1 requires the
+/// calculation snapshot to be reproducible, and "trust us, 32,911.70 is right"
+/// is not a snapshot — an auditor needs to see the chargeable income and the
+/// band-by-band split that produced it.
+model PayrollRunLine {
+  id           String @id @default(uuid()) @db.Uuid
+  payrollRunId String @map("payroll_run_id") @db.Uuid
+  employeeId   String @map("employee_id") @db.Uuid
+
+  /// Denormalised at calculation time. An employee who later moves cost centre
+  /// must not retroactively move last month's payroll expense.
+  departmentId String? @map("department_id") @db.Uuid
+  costCentreId String? @map("cost_centre_id") @db.Uuid
+  branchId     String? @map("branch_id") @db.Uuid
+  taxState     String? @map("tax_state")
+
+  // --- Pay, all MONEY in integer kobo ---
+  monthlyGrossKobo          BigInt @map("monthly_gross_kobo")
+  taxableGrossKobo          BigInt @map("taxable_gross_kobo")
+  pensionableEmolumentsKobo BigInt @map("pensionable_emoluments_kobo")
+
+  // --- PAYE working (§7.1) ---
+  annualGrossKobo            BigInt  @map("annual_gross_kobo")
+  annualPensionReliefKobo    BigInt  @map("annual_pension_relief_kobo")
+  annualNhfReliefKobo        BigInt  @map("annual_nhf_relief_kobo")
+  annualNhisReliefKobo       BigInt  @map("annual_nhis_relief_kobo")
+  annualLifeAssuranceKobo    BigInt  @map("annual_life_assurance_kobo")
+  annualMortgageInterestKobo BigInt  @map("annual_mortgage_interest_kobo")
+  rentReliefKobo             BigInt  @map("rent_relief_kobo")
+  totalReliefsKobo           BigInt  @map("total_reliefs_kobo")
+  chargeableIncomeKobo       BigInt  @map("chargeable_income_kobo")
+  annualPayeKobo             BigInt  @map("annual_paye_kobo")
+  monthlyPayeKobo            BigInt  @map("monthly_paye_kobo")
+  minimumWageExempt          Boolean @default(false) @map("minimum_wage_exempt")
+
+  // --- Statutory (§7.2) ---
+  employeePensionKobo BigInt @map("employee_pension_kobo")
+  employerPensionKobo BigInt @map("employer_pension_kobo")
+  nhfKobo             BigInt @map("nhf_kobo")
+  nsitfKobo           BigInt @map("nsitf_kobo")
+  itfKobo             BigInt @map("itf_kobo")
+
+  otherDeductionsKobo BigInt @default(0) @map("other_deductions_kobo")
+  netPayKobo          BigInt @map("net_pay_kobo")
+
+  /// The full band-by-band trace and the inputs that produced it.
+  calculationSnapshot Json @map("calculation_snapshot")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  payrollRun PayrollRun  @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employee   Employee    @relation(fields: [employeeId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+  costCentre CostCentre? @relation("PayrollLineCostCentre", fields: [costCentreId], references: [id])
+  branch     Branch?     @relation(fields: [branchId], references: [id])
+
+  @@unique([payrollRunId, employeeId])
+  @@index([payrollRunId, taxState])
+  @@map("payroll_run_lines")
 }

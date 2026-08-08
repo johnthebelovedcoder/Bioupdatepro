@@ -39,6 +39,12 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   // runs this.
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
+      payroll_run_lines,
+      payroll_runs,
+      employee_tax_reliefs,
+      paye_bands,
+      paye_configurations,
+      statutory_configurations,
       recurring_journal_lines,
       recurring_journals,
       manual_journal_attachments,
