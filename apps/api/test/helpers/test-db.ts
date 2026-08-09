@@ -39,6 +39,22 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   // runs this.
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
+      receipt_allocations,
+      customer_receipts,
+      sales_return_lines,
+      sales_returns,
+      credit_note_lines,
+      credit_notes,
+      sales_invoice_lines,
+      sales_invoices,
+      delivery_note_lines,
+      delivery_notes,
+      sales_order_lines,
+      sales_orders,
+      sales_quotation_lines,
+      sales_quotations,
+      stock_movements,
+      sales_configurations,
       payroll_run_lines,
       payroll_runs,
       employee_tax_reliefs,

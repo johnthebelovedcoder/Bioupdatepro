@@ -30,7 +30,11 @@ let dataDir: string | undefined;
 
 export async function setup(): Promise<void> {
   if (!process.env.DATABASE_URL) {
-    const port = Number(process.env.TEST_PG_PORT ?? 54329);
+    // Claim a free port rather than a fixed one. A run that was killed mid-way
+    // can leave a postmaster holding the port, and a fixed port turns that into
+    // "no tests ran" with no useful message — the failure mode is far more
+    // confusing than the problem.
+    const port = await findFreePort(Number(process.env.TEST_PG_PORT ?? 54329));
     dataDir = mkdtempSync(join(tmpdir(), 'bap-pg-'));
 
     postgres = new EmbeddedPostgres({
@@ -70,6 +74,25 @@ export async function setup(): Promise<void> {
         : rejectPush(new Error(`Schema push failed with exit code ${code}`)),
     );
   });
+}
+
+/** The first port at or above `from` that nothing is listening on. */
+async function findFreePort(from: number, attempts = 25): Promise<number> {
+  const net = await import('node:net');
+
+  for (let port = from; port < from + attempts; port += 1) {
+    const free = await new Promise<boolean>((resolve) => {
+      const server = net.createServer();
+      server.once('error', () => resolve(false));
+      server.once('listening', () => server.close(() => resolve(true)));
+      server.listen(port, '127.0.0.1');
+    });
+    if (free) return port;
+  }
+
+  throw new Error(
+    `No free port between ${from} and ${from + attempts} for the test database.`,
+  );
 }
 
 export async function teardown(): Promise<void> {

@@ -296,6 +296,7 @@ async function main(): Promise<void> {
   await seedMasters(company.id, accountIds);
   await seedJournals(company.id);
   await seedPayroll(company.id);
+  await seedSales(company.id, accountIds);
 
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +
@@ -1108,6 +1109,73 @@ async function seedPayroll(companyId: string) {
   console.log(
     `Seeded payroll: ${BANDS.length} PAYE bands (NTA 2025, effective 2026-01-01), ` +
       `PAYE reliefs and the NHF/ITF/NSITF/pension rates — all effective-dated with sources.`,
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Order-to-Cash configuration (Consolidated Reference §6)
+//
+// The COGS recognition point is set to DELIVERY, which is when control of the
+// goods transfers. §6 instructs cost of sales to be posted at BOTH delivery and
+// invoice; that is a contradiction, so it is configuration here and double
+// recognition is refused by the database either way. Confirm with the client
+// which point they intend before go-live.
+// ---------------------------------------------------------------------------
+
+async function seedSales(companyId: string, accounts: Record<string, string>) {
+  const existing = await prisma.salesConfiguration.findFirst({
+    where: { companyId, effectiveTo: null },
+  });
+  if (existing) {
+    console.log('Sales configuration already present.');
+    return;
+  }
+
+  // §6 postings need a receivable and a cost-of-sales account; neither is in
+  // the workbooks' chart, so they are added here with that provenance.
+  const extra = [
+    { number: '1201', name: 'Trade Receivables', type: 'ASSET', normal: 'DEBIT' },
+    { number: '5001', name: 'Cost of Sales', type: 'EXPENSE', normal: 'DEBIT' },
+  ] as const;
+
+  for (const spec of extra) {
+    const account = await prisma.gLAccount.upsert({
+      where: {
+        companyId_accountNumber: { companyId, accountNumber: spec.number },
+      },
+      update: {},
+      create: {
+        companyId,
+        accountNumber: spec.number,
+        name: spec.name,
+        accountType: spec.type,
+        normalBalance: spec.normal,
+        isPostingAccount: true,
+      },
+    });
+    accounts[spec.number] = account.id;
+  }
+
+  await prisma.salesConfiguration.create({
+    data: {
+      companyId,
+      cogsRecognitionPoint: 'DELIVERY',
+      // Nothing increases stock until Procure-to-Pay and Processing land, so
+      // enforcing availability now would block every delivery.
+      allowNegativeStock: true,
+      receivableGlAccountId: accounts['1201']!,
+      revenueGlAccountId: accounts['4101']!,
+      costOfSalesGlAccountId: accounts['5001']!,
+      inventoryGlAccountId: accounts['1401']!,
+      whtReceivableGlAccountId: accounts['1602'] ?? null,
+      effectiveFrom: new Date('2026-01-01'),
+    },
+  });
+
+  console.log(
+    'Seeded sales: O2C configuration with cost of sales recognised at DELIVERY ' +
+      '(§6 is contradictory on this — confirm with the client).',
   );
 }
 

@@ -88,8 +88,13 @@ export interface ResolvedStep {
 export interface WorkflowPostingHandler {
   readonly transactionType: string;
   /**
-   * Called inside the approval's database transaction. Must return the journal
+   * Called inside the approval's database transaction. Returns the journal
    * entry id so workflow and ledger reference each other both ways.
+   *
+   * A NULL journal id is legitimate and means "approved, nothing to post yet":
+   * a delivery note whose company recognises cost of sales at invoice has done
+   * real work — stock has moved — but has produced no GL entry. Such a document
+   * finishes APPROVED rather than POSTED, which is exactly what it is.
    *
    * Throwing here rolls back the approval as well as the posting: a document
    * cannot be recorded as approved-and-posted when the posting failed.
@@ -100,7 +105,7 @@ export interface WorkflowPostingHandler {
     payload: Prisma.JsonValue;
     actor: WorkflowActor;
     tx: Prisma.TransactionClient;
-  }): Promise<{ journalEntryId: string }>;
+  }): Promise<{ journalEntryId: string | null }>;
 }
 
 export const WORKFLOW_POSTING_HANDLERS = Symbol('WORKFLOW_POSTING_HANDLERS');

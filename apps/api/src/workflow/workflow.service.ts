@@ -368,7 +368,10 @@ export class WorkflowService {
           actor: request.actor,
           tx,
         });
-        journalEntryId = posted.journalEntryId;
+        // A null id means the handler did real work but produced no GL entry.
+        // The document is APPROVED, not POSTED — claiming otherwise would put a
+        // posting reference on a transaction that never reached the ledger.
+        journalEntryId = posted.journalEntryId ?? null;
       }
 
       const finalStatus = journalEntryId ? WorkflowStatus.POSTED : WorkflowStatus.APPROVED;
