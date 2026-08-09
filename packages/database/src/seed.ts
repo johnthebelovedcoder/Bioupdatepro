@@ -297,6 +297,7 @@ async function main(): Promise<void> {
   await seedJournals(company.id);
   await seedPayroll(company.id);
   await seedSales(company.id, accountIds);
+  await seedProcurement(company.id, accountIds);
 
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +
@@ -1176,6 +1177,74 @@ async function seedSales(companyId: string, accounts: Record<string, string>) {
   console.log(
     'Seeded sales: O2C configuration with cost of sales recognised at DELIVERY ' +
       '(§6 is contradictory on this — confirm with the client).',
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Procure-to-Pay configuration (Consolidated Reference §5)
+//
+// GRNI is the account that makes the receive-then-invoice sequence work without
+// recognising inventory twice. §5 names it; the workbooks' chart of accounts
+// does not contain it, so it is added here with that provenance.
+//
+// Match tolerances start at ZERO — every variance is an exception until the
+// client states what they are willing to accept without a second look.
+// ---------------------------------------------------------------------------
+
+async function seedProcurement(companyId: string, accounts: Record<string, string>) {
+  const existing = await prisma.procurementConfiguration.findFirst({
+    where: { companyId, effectiveTo: null },
+  });
+  if (existing) {
+    console.log('Procurement configuration already present.');
+    return;
+  }
+
+  const extra = [
+    { number: '2140', name: 'Goods Received Not Invoiced', type: 'LIABILITY', normal: 'CREDIT' },
+    { number: '2201', name: 'Trade Payables', type: 'LIABILITY', normal: 'CREDIT' },
+    { number: '5401', name: 'Operating Expenses', type: 'EXPENSE', normal: 'DEBIT' },
+  ] as const;
+
+  for (const spec of extra) {
+    const account = await prisma.gLAccount.upsert({
+      where: { companyId_accountNumber: { companyId, accountNumber: spec.number } },
+      update: {},
+      create: {
+        companyId,
+        accountNumber: spec.number,
+        name: spec.name,
+        accountType: spec.type,
+        normalBalance: spec.normal,
+        isPostingAccount: true,
+      },
+    });
+    accounts[spec.number] = account.id;
+  }
+
+  await prisma.procurementConfiguration.create({
+    data: {
+      companyId,
+      grniGlAccountId: accounts['2140']!,
+      payablesGlAccountId: accounts['2201']!,
+      whtPayableGlAccountId: accounts['2130'] ?? null,
+      // Zero tolerance: every price or quantity variance routes to the
+      // exception ladder until the client sets a threshold.
+      quantityTolerancePercent: '0',
+      priceTolerancePercent: '0',
+      overReceiptTolerancePercent: '0',
+      // The inward stock flow exists from this phase, so availability can be
+      // enforced — but Processing (Phase 6) still has to land before every
+      // inward movement is represented.
+      allowNegativeStock: true,
+      effectiveFrom: new Date('2026-01-01'),
+    },
+  });
+
+  console.log(
+    'Seeded procurement: GRNI, payables and expense accounts, zero match ' +
+      'tolerances (confirm the client\u2019s thresholds before go-live).',
   );
 }
 

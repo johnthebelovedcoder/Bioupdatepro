@@ -6,6 +6,7 @@ import { MastersModule } from './masters/masters.module';
 import { JournalsModule } from './journals/journals.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { SalesModule } from './sales/sales.module';
+import { ProcurementModule } from './procurement/procurement.module';
 import { MastersController } from './masters/masters.controller';
 import { MasterDataController } from './masters/master-data.controller';
 import { WorkflowController } from './workflow/workflow.controller';
@@ -16,7 +17,7 @@ import { DemoController } from './demo/demo.controller';
 import { PanelController } from './demo/panel.controller';
 
 @Module({
-  imports: [CoreModule, WorkflowModule, TaxModule, MastersModule, JournalsModule, PayrollModule, SalesModule],
+  imports: [CoreModule, WorkflowModule, TaxModule, MastersModule, JournalsModule, PayrollModule, SalesModule, ProcurementModule],
   controllers: [
     PanelController,
     MastersController,

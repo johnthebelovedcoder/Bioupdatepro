@@ -140,6 +140,13 @@ model User {
   invoicesCreated           SalesInvoice[]            @relation("InvoiceCreator")
   receiptsCreated           CustomerReceipt[]         @relation("ReceiptCreator")
   creditNotesCreated        CreditNote[]              @relation("CreditNoteCreator")
+  requisitionsRequested     PurchaseRequisition[]     @relation("RequisitionRequester")
+  rfqsCreated               Rfq[]                     @relation("RfqCreator")
+  purchaseOrdersCreated     PurchaseOrder[]           @relation("PurchaseOrderCreator")
+  grnsCreated               GoodsReceiptNote[]        @relation("GrnCreator")
+  grnsInspected             GoodsReceiptNote[]        @relation("GrnInspector")
+  supplierInvoicesCreated   SupplierInvoice[]         @relation("SupplierInvoiceCreator")
+  supplierPaymentsCreated   SupplierPayment[]         @relation("PaymentCreator")
 
   @@map("users")
 }
@@ -161,54 +168,61 @@ model Company {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  baseCurrency            Currency                 @relation(fields: [baseCurrencyId], references: [id])
-  branches                Branch[]
-  departments             Department[]
-  costCentres             CostCentre[]
-  glAccounts              GLAccount[]
-  financialYears          FinancialYear[]
-  farms                   Farm[]
-  projects                Project[]
-  warehouses              Warehouse[]
-  exchangeRates           ExchangeRate[]
-  journalEntries          JournalEntry[]
-  journalLines            JournalLine[]
-  workflowDefinitions     WorkflowDefinition[]
-  workflowTransactions    WorkflowTransaction[]
-  workflowDelegations     WorkflowDelegation[]
-  workflowEscalationRules WorkflowEscalationRule[]
-  taxCodes                TaxCode[]
-  taxConfigurations       TaxConfiguration[]
-  taxGlMappings           TaxGLMapping[]
-  taxPeriods              TaxPeriod[]
-  vatRegisterEntries      VatRegisterEntry[]
-  whtRegisterEntries      WhtRegisterEntry[]
-  taxAdjustments          TaxAdjustment[]
-  paymentTerms            PaymentTerm[]
-  unitsOfMeasure          UnitOfMeasure[]
-  suppliers               Supplier[]
-  customers               Customer[]
-  items                   Item[]
-  employees               Employee[]
-  salaryComponents        SalaryComponent[]
-  productRecipes          ProductRecipe[]
-  journalTypes            JournalType[]
-  reasonCodes             ReasonCode[]
-  manualJournals          ManualJournal[]
-  recurringJournals       RecurringJournal[]
-  payeBands               PayeBand[]
-  payeConfigurations      PayeConfiguration[]
-  statutoryConfigurations StatutoryConfiguration[]
-  payrollRuns             PayrollRun[]
-  salesConfigurations     SalesConfiguration[]
-  stockMovements          StockMovement[]
-  salesQuotations         SalesQuotation[]
-  salesOrders             SalesOrder[]
-  deliveryNotes           DeliveryNote[]
-  salesInvoices           SalesInvoice[]
-  customerReceipts        CustomerReceipt[]
-  creditNotes             CreditNote[]
-  salesReturns            SalesReturn[]
+  baseCurrency              Currency                   @relation(fields: [baseCurrencyId], references: [id])
+  branches                  Branch[]
+  departments               Department[]
+  costCentres               CostCentre[]
+  glAccounts                GLAccount[]
+  financialYears            FinancialYear[]
+  farms                     Farm[]
+  projects                  Project[]
+  warehouses                Warehouse[]
+  exchangeRates             ExchangeRate[]
+  journalEntries            JournalEntry[]
+  journalLines              JournalLine[]
+  workflowDefinitions       WorkflowDefinition[]
+  workflowTransactions      WorkflowTransaction[]
+  workflowDelegations       WorkflowDelegation[]
+  workflowEscalationRules   WorkflowEscalationRule[]
+  taxCodes                  TaxCode[]
+  taxConfigurations         TaxConfiguration[]
+  taxGlMappings             TaxGLMapping[]
+  taxPeriods                TaxPeriod[]
+  vatRegisterEntries        VatRegisterEntry[]
+  whtRegisterEntries        WhtRegisterEntry[]
+  taxAdjustments            TaxAdjustment[]
+  paymentTerms              PaymentTerm[]
+  unitsOfMeasure            UnitOfMeasure[]
+  suppliers                 Supplier[]
+  customers                 Customer[]
+  items                     Item[]
+  employees                 Employee[]
+  salaryComponents          SalaryComponent[]
+  productRecipes            ProductRecipe[]
+  journalTypes              JournalType[]
+  reasonCodes               ReasonCode[]
+  manualJournals            ManualJournal[]
+  recurringJournals         RecurringJournal[]
+  payeBands                 PayeBand[]
+  payeConfigurations        PayeConfiguration[]
+  statutoryConfigurations   StatutoryConfiguration[]
+  payrollRuns               PayrollRun[]
+  salesConfigurations       SalesConfiguration[]
+  stockMovements            StockMovement[]
+  salesQuotations           SalesQuotation[]
+  salesOrders               SalesOrder[]
+  deliveryNotes             DeliveryNote[]
+  salesInvoices             SalesInvoice[]
+  customerReceipts          CustomerReceipt[]
+  creditNotes               CreditNote[]
+  salesReturns              SalesReturn[]
+  procurementConfigurations ProcurementConfiguration[]
+  purchaseRequisitions      PurchaseRequisition[]
+  rfqs                      Rfq[]
+  purchaseOrders            PurchaseOrder[]
+  goodsReceiptNotes         GoodsReceiptNote[]
+  supplierInvoices          SupplierInvoice[]
+  supplierPayments          SupplierPayment[]
 
   @@map("companies")
 }
@@ -247,6 +261,11 @@ model Branch {
   customerReceipts     CustomerReceipt[]
   creditNotes          CreditNote[]
   salesReturns         SalesReturn[]
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders       PurchaseOrder[]
+  goodsReceiptNotes    GoodsReceiptNote[]
+  supplierInvoices     SupplierInvoice[]
+  supplierPayments     SupplierPayment[]
 
   @@unique([companyId, code])
   @@map("branches")
@@ -271,6 +290,9 @@ model Department {
   payrollRunLines      PayrollRunLine[]
   salesOrders          SalesOrder[]
   salesInvoices        SalesInvoice[]
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders       PurchaseOrder[]
+  supplierInvoices     SupplierInvoice[]
 
   @@unique([companyId, code])
   @@map("departments")
@@ -308,6 +330,9 @@ model CostCentre {
   salesQuotations      SalesQuotation[]      @relation("QuotationCostCentre")
   salesOrders          SalesOrder[]          @relation("SalesOrderCostCentre")
   salesInvoices        SalesInvoice[]        @relation("InvoiceCostCentre")
+  purchaseRequisitions PurchaseRequisition[] @relation("RequisitionCostCentre")
+  purchaseOrders       PurchaseOrder[]       @relation("PurchaseOrderCostCentre")
+  supplierInvoices     SupplierInvoice[]     @relation("SupplierInvoiceCostCentre")
 
   @@unique([companyId, code])
   @@index([parentId])
@@ -342,24 +367,29 @@ model GLAccount {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company                   Company                @relation(fields: [companyId], references: [id])
-  parent                    GLAccount?             @relation("GLAccountHierarchy", fields: [parentId], references: [id])
-  children                  GLAccount[]            @relation("GLAccountHierarchy")
-  journalLines              JournalLine[]
-  taxGlMappings             TaxGLMapping[]
-  itemsInventoryDefault     Item[]                 @relation("ItemInventoryAccount")
-  itemsExpenseDefault       Item[]                 @relation("ItemExpenseAccount")
-  itemsRevenueDefault       Item[]                 @relation("ItemRevenueAccount")
-  salaryComponentExpense    SalaryComponent[]      @relation("SalaryComponentExpense")
-  salaryComponentPayable    SalaryComponent[]      @relation("SalaryComponentPayable")
-  manualJournalLines        ManualJournalLine[]
-  recurringJournalLines     RecurringJournalLine[]
-  salesReceivableConfigs    SalesConfiguration[]   @relation("SalesReceivableAccount")
-  salesRevenueConfigs       SalesConfiguration[]   @relation("SalesRevenueAccount")
-  salesCostOfSalesConfigs   SalesConfiguration[]   @relation("SalesCostOfSalesAccount")
-  salesInventoryConfigs     SalesConfiguration[]   @relation("SalesInventoryAccount")
-  salesWhtReceivableConfigs SalesConfiguration[]   @relation("SalesWhtReceivableAccount")
-  receiptBankAccounts       CustomerReceipt[]      @relation("ReceiptBankAccount")
+  company                    Company                    @relation(fields: [companyId], references: [id])
+  parent                     GLAccount?                 @relation("GLAccountHierarchy", fields: [parentId], references: [id])
+  children                   GLAccount[]                @relation("GLAccountHierarchy")
+  journalLines               JournalLine[]
+  taxGlMappings              TaxGLMapping[]
+  itemsInventoryDefault      Item[]                     @relation("ItemInventoryAccount")
+  itemsExpenseDefault        Item[]                     @relation("ItemExpenseAccount")
+  itemsRevenueDefault        Item[]                     @relation("ItemRevenueAccount")
+  salaryComponentExpense     SalaryComponent[]          @relation("SalaryComponentExpense")
+  salaryComponentPayable     SalaryComponent[]          @relation("SalaryComponentPayable")
+  manualJournalLines         ManualJournalLine[]
+  recurringJournalLines      RecurringJournalLine[]
+  salesReceivableConfigs     SalesConfiguration[]       @relation("SalesReceivableAccount")
+  salesRevenueConfigs        SalesConfiguration[]       @relation("SalesRevenueAccount")
+  salesCostOfSalesConfigs    SalesConfiguration[]       @relation("SalesCostOfSalesAccount")
+  salesInventoryConfigs      SalesConfiguration[]       @relation("SalesInventoryAccount")
+  salesWhtReceivableConfigs  SalesConfiguration[]       @relation("SalesWhtReceivableAccount")
+  receiptBankAccounts        CustomerReceipt[]          @relation("ReceiptBankAccount")
+  procurementGrniConfigs     ProcurementConfiguration[] @relation("ProcurementGrniAccount")
+  procurementPayablesConfigs ProcurementConfiguration[] @relation("ProcurementPayablesAccount")
+  procurementWhtConfigs      ProcurementConfiguration[] @relation("ProcurementWhtPayableAccount")
+  supplierInvoiceLineCosts   SupplierInvoiceLine[]      @relation("SupplierInvoiceLineCostAccount")
+  paymentBankAccounts        SupplierPayment[]          @relation("PaymentBankAccount")
 
   @@unique([companyId, accountNumber])
   @@index([parentId])
@@ -396,6 +426,11 @@ model Currency {
   salesInvoices        SalesInvoice[]
   customerReceipts     CustomerReceipt[]
   creditNotes          CreditNote[]
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders       PurchaseOrder[]
+  goodsReceiptNotes    GoodsReceiptNote[]
+  supplierInvoices     SupplierInvoice[]
+  supplierPayments     SupplierPayment[]
 
   @@map("currencies")
 }
@@ -436,16 +471,19 @@ model FinancialYear {
   createdAt DateTime     @default(now()) @map("created_at")
   updatedAt DateTime     @updatedAt @map("updated_at")
 
-  company          Company           @relation(fields: [companyId], references: [id])
-  periods          FinancialPeriod[]
-  journalEntries   JournalEntry[]
-  journalLines     JournalLine[]
-  manualJournals   ManualJournal[]
-  payrollRuns      PayrollRun[]
-  deliveryNotes    DeliveryNote[]
-  salesInvoices    SalesInvoice[]
-  customerReceipts CustomerReceipt[]
-  creditNotes      CreditNote[]
+  company           Company            @relation(fields: [companyId], references: [id])
+  periods           FinancialPeriod[]
+  journalEntries    JournalEntry[]
+  journalLines      JournalLine[]
+  manualJournals    ManualJournal[]
+  payrollRuns       PayrollRun[]
+  deliveryNotes     DeliveryNote[]
+  salesInvoices     SalesInvoice[]
+  customerReceipts  CustomerReceipt[]
+  creditNotes       CreditNote[]
+  goodsReceiptNotes GoodsReceiptNote[]
+  supplierInvoices  SupplierInvoice[]
+  supplierPayments  SupplierPayment[]
 
   @@unique([companyId, code])
   @@map("financial_years")
@@ -462,15 +500,18 @@ model FinancialPeriod {
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
-  financialYear    FinancialYear     @relation(fields: [financialYearId], references: [id])
-  journalEntries   JournalEntry[]
-  journalLines     JournalLine[]
-  manualJournals   ManualJournal[]
-  payrollRuns      PayrollRun[]
-  deliveryNotes    DeliveryNote[]
-  salesInvoices    SalesInvoice[]
-  customerReceipts CustomerReceipt[]
-  creditNotes      CreditNote[]
+  financialYear     FinancialYear      @relation(fields: [financialYearId], references: [id])
+  journalEntries    JournalEntry[]
+  journalLines      JournalLine[]
+  manualJournals    ManualJournal[]
+  payrollRuns       PayrollRun[]
+  deliveryNotes     DeliveryNote[]
+  salesInvoices     SalesInvoice[]
+  customerReceipts  CustomerReceipt[]
+  creditNotes       CreditNote[]
+  goodsReceiptNotes GoodsReceiptNote[]
+  supplierInvoices  SupplierInvoice[]
+  supplierPayments  SupplierPayment[]
 
   @@unique([financialYearId, periodNumber])
   @@index([startDate, endDate])
@@ -501,6 +542,9 @@ model Farm {
   salesQuotations      SalesQuotation[]
   salesOrders          SalesOrder[]
   salesInvoices        SalesInvoice[]
+  purchaseRequisitions PurchaseRequisition[]
+  purchaseOrders       PurchaseOrder[]
+  supplierInvoices     SupplierInvoice[]
 
   @@unique([companyId, code])
   @@map("farms")
@@ -553,13 +597,15 @@ model Warehouse {
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
 
-  company        Company         @relation(fields: [companyId], references: [id])
-  branch         Branch          @relation(fields: [branchId], references: [id])
-  items          Item[]
-  stockMovements StockMovement[]
-  salesOrders    SalesOrder[]
-  deliveryNotes  DeliveryNote[]
-  salesReturns   SalesReturn[]
+  company           Company            @relation(fields: [companyId], references: [id])
+  branch            Branch             @relation(fields: [branchId], references: [id])
+  items             Item[]
+  stockMovements    StockMovement[]
+  salesOrders       SalesOrder[]
+  deliveryNotes     DeliveryNote[]
+  salesReturns      SalesReturn[]
+  purchaseOrders    PurchaseOrder[]
+  goodsReceiptNotes GoodsReceiptNote[]
 
   @@unique([companyId, code])
   @@map("warehouses")
@@ -623,6 +669,9 @@ model JournalEntry {
   salesInvoices        SalesInvoice[]
   customerReceipts     CustomerReceipt[]
   creditNotes          CreditNote[]
+  goodsReceiptNotes    GoodsReceiptNote[]
+  supplierInvoices     SupplierInvoice[]
+  supplierPayments     SupplierPayment[]
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -1228,20 +1277,24 @@ model TaxCode {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company           Company              @relation(fields: [companyId], references: [id])
-  rates             TaxRate[]
-  glMappings        TaxGLMapping[]
-  vatEntries        VatRegisterEntry[]
-  whtEntries        WhtRegisterEntry[]
-  adjustments       TaxAdjustment[]
-  suppliers         Supplier[]           @relation("SupplierWhtCode")
-  customers         Customer[]           @relation("CustomerWhtCode")
-  items             Item[]               @relation("ItemVatCode")
-  quotationLines    SalesQuotationLine[] @relation("QuotationLineTaxCode")
-  salesOrderLines   SalesOrderLine[]     @relation("SalesOrderLineTaxCode")
-  salesInvoiceLines SalesInvoiceLine[]   @relation("InvoiceLineTaxCode")
-  creditNoteLines   CreditNoteLine[]     @relation("CreditNoteLineTaxCode")
-  customerReceipts  CustomerReceipt[]    @relation("ReceiptWhtCode")
+  company              Company               @relation(fields: [companyId], references: [id])
+  rates                TaxRate[]
+  glMappings           TaxGLMapping[]
+  vatEntries           VatRegisterEntry[]
+  whtEntries           WhtRegisterEntry[]
+  adjustments          TaxAdjustment[]
+  suppliers            Supplier[]            @relation("SupplierWhtCode")
+  customers            Customer[]            @relation("CustomerWhtCode")
+  items                Item[]                @relation("ItemVatCode")
+  quotationLines       SalesQuotationLine[]  @relation("QuotationLineTaxCode")
+  salesOrderLines      SalesOrderLine[]      @relation("SalesOrderLineTaxCode")
+  salesInvoiceLines    SalesInvoiceLine[]    @relation("InvoiceLineTaxCode")
+  creditNoteLines      CreditNoteLine[]      @relation("CreditNoteLineTaxCode")
+  customerReceipts     CustomerReceipt[]     @relation("ReceiptWhtCode")
+  purchaseOrderLines   PurchaseOrderLine[]   @relation("PurchaseOrderLineTaxCode")
+  supplierInvoiceLines SupplierInvoiceLine[] @relation("SupplierInvoiceLineTaxCode")
+  supplierInvoicesWht  SupplierInvoice[]     @relation("SupplierInvoiceWhtCode")
+  supplierPaymentsWht  SupplierPayment[]     @relation("PaymentWhtCode")
 
   @@unique([companyId, code])
   @@index([companyId, taxType, active])
@@ -1613,9 +1666,10 @@ model PaymentTerm {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company   Company    @relation(fields: [companyId], references: [id])
-  suppliers Supplier[]
-  customers Customer[]
+  company        Company         @relation(fields: [companyId], references: [id])
+  suppliers      Supplier[]
+  customers      Customer[]
+  purchaseOrders PurchaseOrder[]
 
   @@unique([companyId, code])
   @@map("payment_terms")
@@ -1702,6 +1756,11 @@ model Supplier {
   journalLines       JournalLine[]
   manualJournals     ManualJournal[]
   manualJournalLines ManualJournalLine[]
+  quotations         SupplierQuotation[]
+  purchaseOrders     PurchaseOrder[]
+  goodsReceiptNotes  GoodsReceiptNote[]
+  supplierInvoices   SupplierInvoice[]
+  supplierPayments   SupplierPayment[]
 
   @@unique([companyId, code])
   @@index([companyId, status])
@@ -1826,18 +1885,23 @@ model Item {
   revenueGlAccount   GLAccount?    @relation("ItemRevenueAccount", fields: [revenueGlAccountId], references: [id])
   defaultWarehouse   Warehouse?    @relation(fields: [defaultWarehouseId], references: [id])
 
-  standardCosts      ItemStandardCost[]
-  recipes            ProductRecipe[]          @relation("RecipeOutput")
-  recipeComponents   ProductRecipeComponent[]
-  journalLines       JournalLine[]
-  manualJournalLines ManualJournalLine[]
-  stockMovements     StockMovement[]
-  quotationLines     SalesQuotationLine[]
-  salesOrderLines    SalesOrderLine[]
-  deliveryLines      DeliveryNoteLine[]
-  salesInvoiceLines  SalesInvoiceLine[]
-  creditNoteLines    CreditNoteLine[]
-  salesReturnLines   SalesReturnLine[]
+  standardCosts          ItemStandardCost[]
+  recipes                ProductRecipe[]           @relation("RecipeOutput")
+  recipeComponents       ProductRecipeComponent[]
+  journalLines           JournalLine[]
+  manualJournalLines     ManualJournalLine[]
+  stockMovements         StockMovement[]
+  quotationLines         SalesQuotationLine[]
+  salesOrderLines        SalesOrderLine[]
+  deliveryLines          DeliveryNoteLine[]
+  salesInvoiceLines      SalesInvoiceLine[]
+  creditNoteLines        CreditNoteLine[]
+  salesReturnLines       SalesReturnLine[]
+  requisitionLines       PurchaseRequisitionLine[]
+  quotationLinesSupplier SupplierQuotationLine[]
+  purchaseOrderLines     PurchaseOrderLine[]
+  goodsReceiptLines      GoodsReceiptNoteLine[]
+  supplierInvoiceLines   SupplierInvoiceLine[]
 
   @@unique([companyId, code])
   @@index([companyId, itemType, active])
@@ -3550,4 +3614,681 @@ model SalesReturnLine {
 
   @@unique([salesReturnId, lineNumber])
   @@map("sales_return_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Procure-to-Pay  (Consolidated Reference §5 — Phase 7)
+//
+// PR -> RFQ -> PO -> GRN -> Supplier Invoice -> Three-Way Match -> Payment.
+//
+// THE GRNI MECHANISM, AND WHY IT MATTERS HERE:
+//
+//   §5 gives the GRN posting as "Dr Inventory / Cr GRNI (Goods Received Not
+//   Invoiced)" and the Supplier Invoice posting as "Dr Inventory/Expense /
+//   Dr Input VAT Recoverable / Cr Trade Payables". Read literally, an item that
+//   is both received and invoiced debits inventory TWICE.
+//
+//   GRNI — which §5 names itself — is the resolution. Goods arriving debit
+//   inventory and credit GRNI, a holding account for "we have the goods but not
+//   the bill". The invoice then DEBITS GRNI to clear it, rather than debiting
+//   inventory again. Inventory is recognised once, at receipt, which is when
+//   control actually passes.
+//
+//   That makes GRNI this phase's accounting identity: for a purchase order
+//   fully received and fully invoiced, the GRNI balance must be exactly zero.
+//   It is the direct analogue of the WIP-clearing test, and the integration
+//   suite proves it rather than eyeballing it.
+//
+// The inward side of StockMovement lands here, so from this phase on stock on
+// hand is a real figure and availability can be enforced.
+// ---------------------------------------------------------------------------
+
+enum RequisitionStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CONVERTED
+  CLOSED
+  CANCELLED
+}
+
+enum RfqStatus {
+  DRAFT
+  ISSUED
+  EVALUATED
+  CLOSED
+  CANCELLED
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  PARTIALLY_RECEIVED
+  FULLY_RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+enum GrnStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  POSTED
+  CANCELLED
+}
+
+/// §5 GRN carries a "Quality Inspection Status".
+enum QualityStatus {
+  PENDING
+  PASSED
+  FAILED
+  PARTIAL
+}
+
+enum SupplierInvoiceStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  POSTED
+  PART_PAID
+  PAID
+  CANCELLED
+}
+
+/// §5 Three-Way Matching compares PO / GRN / Invoice and routes exceptions to
+/// approval. The outcome is stored, not recomputed: what mattered is what the
+/// approver saw at the time.
+enum MatchStatus {
+  NOT_MATCHED
+  MATCHED
+  EXCEPTION
+  /// A standalone invoice with no PO or GRN to match against.
+  NOT_APPLICABLE
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CASH
+  CHEQUE
+  // Mobile Money is marked "Future" in §5 and is deliberately absent.
+}
+
+enum PaymentStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  POSTED
+  CANCELLED
+}
+
+/// Company-level procurement policy.
+model ProcurementConfiguration {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// The GRNI holding account. Without this the whole receive-then-invoice
+  /// sequence has nowhere to park the liability, so it is NOT optional.
+  grniGlAccountId       String  @map("grni_gl_account_id") @db.Uuid
+  payablesGlAccountId   String  @map("payables_gl_account_id") @db.Uuid
+  whtPayableGlAccountId String? @map("wht_payable_gl_account_id") @db.Uuid
+
+  /// §5 Three-Way Matching tolerances. Zero means exact match required.
+  quantityTolerancePercent Decimal @default(0) @map("quantity_tolerance_percent") @db.Decimal(9, 6)
+  priceTolerancePercent    Decimal @default(0) @map("price_tolerance_percent") @db.Decimal(9, 6)
+
+  /// Whether a receipt may exceed the ordered quantity, and by how much.
+  overReceiptTolerancePercent Decimal @default(0) @map("over_receipt_tolerance_percent") @db.Decimal(9, 6)
+
+  /// Once the inward stock flow exists — which is this phase — availability can
+  /// be enforced. Defaults to enforcing it.
+  allowNegativeStock Boolean @default(false) @map("allow_negative_stock")
+
+  /// Transaction type for an invoice that matched cleanly, and the tighter
+  /// route for one that did not (§5: "Exceptions require approval").
+  invoiceTransactionType        String @default("SUPPLIER_INVOICE") @map("invoice_transaction_type")
+  matchExceptionTransactionType String @default("SUPPLIER_INVOICE_EXCEPTION") @map("match_exception_transaction_type")
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company           Company    @relation(fields: [companyId], references: [id])
+  grniAccount       GLAccount  @relation("ProcurementGrniAccount", fields: [grniGlAccountId], references: [id])
+  payablesAccount   GLAccount  @relation("ProcurementPayablesAccount", fields: [payablesGlAccountId], references: [id])
+  whtPayableAccount GLAccount? @relation("ProcurementWhtPayableAccount", fields: [whtPayableGlAccountId], references: [id])
+
+  @@index([companyId, effectiveFrom])
+  @@map("procurement_configurations")
+}
+
+// ---------------------------------------------------------------------------
+// §5 Purchase Requisition
+// ---------------------------------------------------------------------------
+
+model PurchaseRequisition {
+  id                String @id @default(uuid()) @db.Uuid
+  companyId         String @map("company_id") @db.Uuid
+  requisitionNumber String @map("requisition_number")
+
+  requestDate  DateTime  @map("request_date") @db.Date
+  requiredDate DateTime? @map("required_date") @db.Date
+
+  requesterId  String  @map("requester_id") @db.Uuid
+  branchId     String  @map("branch_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+  costCentreId String? @map("cost_centre_id") @db.Uuid
+  farmId       String? @map("farm_id") @db.Uuid
+
+  justification String?
+  status        RequisitionStatus @default(DRAFT)
+
+  /// MONEY. Estimated only — a requisition commits nothing.
+  estimatedCostKobo BigInt @default(0) @map("estimated_cost_kobo")
+
+  currencyId String @map("currency_id") @db.Uuid
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company        Company                   @relation(fields: [companyId], references: [id])
+  requester      User                      @relation("RequisitionRequester", fields: [requesterId], references: [id])
+  branch         Branch                    @relation(fields: [branchId], references: [id])
+  department     Department?               @relation(fields: [departmentId], references: [id])
+  costCentre     CostCentre?               @relation("RequisitionCostCentre", fields: [costCentreId], references: [id])
+  farm           Farm?                     @relation(fields: [farmId], references: [id])
+  currency       Currency                  @relation(fields: [currencyId], references: [id])
+  lines          PurchaseRequisitionLine[]
+  rfqs           Rfq[]
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([companyId, requisitionNumber])
+  @@index([companyId, status])
+  @@map("purchase_requisitions")
+}
+
+model PurchaseRequisitionLine {
+  id            String @id @default(uuid()) @db.Uuid
+  requisitionId String @map("requisition_id") @db.Uuid
+  lineNumber    Int    @map("line_number")
+  itemId        String @map("item_id") @db.Uuid
+  description   String
+
+  quantity              Decimal @db.Decimal(18, 6)
+  /// MONEY. An estimate, typically the item's standard cost.
+  estimatedUnitCostKobo BigInt  @map("estimated_unit_cost_kobo")
+
+  /// How much of this line has been placed on a purchase order.
+  orderedQuantity Decimal @default(0) @map("ordered_quantity") @db.Decimal(18, 6)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  requisition PurchaseRequisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  item        Item                @relation(fields: [itemId], references: [id])
+
+  @@unique([requisitionId, lineNumber])
+  @@map("purchase_requisition_lines")
+}
+
+// ---------------------------------------------------------------------------
+// §5 RFQ and quotation comparison (optional in the flow)
+// ---------------------------------------------------------------------------
+
+model Rfq {
+  id            String  @id @default(uuid()) @db.Uuid
+  companyId     String  @map("company_id") @db.Uuid
+  rfqNumber     String  @map("rfq_number")
+  requisitionId String? @map("requisition_id") @db.Uuid
+
+  issueDate     DateTime  @map("issue_date") @db.Date
+  validityDate  DateTime? @map("validity_date") @db.Date
+  deliveryTerms String?   @map("delivery_terms")
+
+  status RfqStatus @default(DRAFT)
+
+  /// The quotation chosen after comparison, and why.
+  awardedQuotationId String? @unique @map("awarded_quotation_id") @db.Uuid
+  awardReason        String? @map("award_reason")
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company        Company              @relation(fields: [companyId], references: [id])
+  requisition    PurchaseRequisition? @relation(fields: [requisitionId], references: [id])
+  createdBy      User                 @relation("RfqCreator", fields: [createdById], references: [id])
+  quotations     SupplierQuotation[]  @relation("RfqQuotations")
+  awarded        SupplierQuotation?   @relation("RfqAward", fields: [awardedQuotationId], references: [id])
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([companyId, rfqNumber])
+  @@map("rfqs")
+}
+
+model SupplierQuotation {
+  id         String @id @default(uuid()) @db.Uuid
+  rfqId      String @map("rfq_id") @db.Uuid
+  supplierId String @map("supplier_id") @db.Uuid
+
+  quotationReference String    @map("quotation_reference")
+  quotationDate      DateTime  @map("quotation_date") @db.Date
+  validUntil         DateTime? @map("valid_until") @db.Date
+
+  /// MONEY. Control total for comparison.
+  totalAmountKobo BigInt @default(0) @map("total_amount_kobo")
+  /// Lead time in days, the other axis a buyer compares on.
+  leadTimeDays    Int?   @map("lead_time_days")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  rfq       Rfq                     @relation("RfqQuotations", fields: [rfqId], references: [id], onDelete: Cascade)
+  supplier  Supplier                @relation(fields: [supplierId], references: [id])
+  awardedIn Rfq?                    @relation("RfqAward")
+  lines     SupplierQuotationLine[]
+
+  @@unique([rfqId, supplierId])
+  @@map("supplier_quotations")
+}
+
+model SupplierQuotationLine {
+  id          String @id @default(uuid()) @db.Uuid
+  quotationId String @map("quotation_id") @db.Uuid
+  lineNumber  Int    @map("line_number")
+  itemId      String @map("item_id") @db.Uuid
+
+  quantity      Decimal @db.Decimal(18, 6)
+  unitPriceKobo BigInt  @map("unit_price_kobo")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  quotation SupplierQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  item      Item              @relation(fields: [itemId], references: [id])
+
+  @@unique([quotationId, lineNumber])
+  @@map("supplier_quotation_lines")
+}
+
+// ---------------------------------------------------------------------------
+// §5 Purchase Order
+// ---------------------------------------------------------------------------
+
+model PurchaseOrder {
+  id          String @id @default(uuid()) @db.Uuid
+  companyId   String @map("company_id") @db.Uuid
+  orderNumber String @map("order_number")
+  supplierId  String @map("supplier_id") @db.Uuid
+
+  requisitionId String? @map("requisition_id") @db.Uuid
+  rfqId         String? @map("rfq_id") @db.Uuid
+
+  orderDate            DateTime  @map("order_date") @db.Date
+  expectedDeliveryDate DateTime? @map("expected_delivery_date") @db.Date
+
+  currencyId   String  @map("currency_id") @db.Uuid
+  exchangeRate Decimal @map("exchange_rate") @db.Decimal(18, 8)
+
+  paymentTermId   String? @map("payment_term_id") @db.Uuid
+  deliveryAddress String? @map("delivery_address")
+
+  branchId     String  @map("branch_id") @db.Uuid
+  warehouseId  String  @map("warehouse_id") @db.Uuid
+  farmId       String? @map("farm_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+  costCentreId String? @map("cost_centre_id") @db.Uuid
+
+  status PurchaseOrderStatus @default(DRAFT)
+
+  netAmountKobo   BigInt @default(0) @map("net_amount_kobo")
+  vatAmountKobo   BigInt @default(0) @map("vat_amount_kobo")
+  grossAmountKobo BigInt @default(0) @map("gross_amount_kobo")
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company     Company              @relation(fields: [companyId], references: [id])
+  supplier    Supplier             @relation(fields: [supplierId], references: [id])
+  requisition PurchaseRequisition? @relation(fields: [requisitionId], references: [id])
+  rfq         Rfq?                 @relation(fields: [rfqId], references: [id])
+  currency    Currency             @relation(fields: [currencyId], references: [id])
+  paymentTerm PaymentTerm?         @relation(fields: [paymentTermId], references: [id])
+  branch      Branch               @relation(fields: [branchId], references: [id])
+  warehouse   Warehouse            @relation(fields: [warehouseId], references: [id])
+  farm        Farm?                @relation(fields: [farmId], references: [id])
+  department  Department?          @relation(fields: [departmentId], references: [id])
+  costCentre  CostCentre?          @relation("PurchaseOrderCostCentre", fields: [costCentreId], references: [id])
+  createdBy   User                 @relation("PurchaseOrderCreator", fields: [createdById], references: [id])
+  lines       PurchaseOrderLine[]
+  receipts    GoodsReceiptNote[]
+  invoices    SupplierInvoice[]
+
+  @@unique([companyId, orderNumber])
+  @@index([companyId, status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id              String @id @default(uuid()) @db.Uuid
+  purchaseOrderId String @map("purchase_order_id") @db.Uuid
+  lineNumber      Int    @map("line_number")
+  itemId          String @map("item_id") @db.Uuid
+  description     String
+
+  requisitionLineId String? @map("requisition_line_id") @db.Uuid
+
+  quantity         Decimal @db.Decimal(18, 6)
+  /// Progress, both tracked so the three-way match has something to compare.
+  receivedQuantity Decimal @default(0) @map("received_quantity") @db.Decimal(18, 6)
+  invoicedQuantity Decimal @default(0) @map("invoiced_quantity") @db.Decimal(18, 6)
+
+  unitPriceKobo BigInt @map("unit_price_kobo")
+
+  taxCodeId     String? @map("tax_code_id") @db.Uuid
+  netAmountKobo BigInt  @map("net_amount_kobo")
+  vatAmountKobo BigInt  @default(0) @map("vat_amount_kobo")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  purchaseOrder PurchaseOrder          @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  item          Item                   @relation(fields: [itemId], references: [id])
+  taxCode       TaxCode?               @relation("PurchaseOrderLineTaxCode", fields: [taxCodeId], references: [id])
+  receiptLines  GoodsReceiptNoteLine[]
+  invoiceLines  SupplierInvoiceLine[]
+
+  @@unique([purchaseOrderId, lineNumber])
+  @@map("purchase_order_lines")
+}
+
+// ---------------------------------------------------------------------------
+// §5 Goods Receipt Note
+// ---------------------------------------------------------------------------
+
+model GoodsReceiptNote {
+  id              String @id @default(uuid()) @db.Uuid
+  companyId       String @map("company_id") @db.Uuid
+  grnNumber       String @map("grn_number")
+  purchaseOrderId String @map("purchase_order_id") @db.Uuid
+  supplierId      String @map("supplier_id") @db.Uuid
+
+  receiptDate DateTime @map("receipt_date") @db.Date
+  warehouseId String   @map("warehouse_id") @db.Uuid
+  branchId    String   @map("branch_id") @db.Uuid
+
+  deliveryNoteReference String?       @map("delivery_note_reference")
+  qualityStatus         QualityStatus @default(PENDING) @map("quality_status")
+  inspectedById         String?       @map("inspected_by_id") @db.Uuid
+
+  status GrnStatus @default(DRAFT)
+
+  /// MONEY. Value of goods accepted into stock, at PO price.
+  totalValueKobo BigInt @default(0) @map("total_value_kobo")
+
+  financialYearId   String @map("financial_year_id") @db.Uuid
+  financialPeriodId String @map("financial_period_id") @db.Uuid
+  currencyId        String @map("currency_id") @db.Uuid
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  journalEntryId        String? @map("journal_entry_id") @db.Uuid
+
+  createdById String    @map("created_by_id") @db.Uuid
+  postedAt    DateTime? @map("posted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company         Company                @relation(fields: [companyId], references: [id])
+  purchaseOrder   PurchaseOrder          @relation(fields: [purchaseOrderId], references: [id])
+  supplier        Supplier               @relation(fields: [supplierId], references: [id])
+  warehouse       Warehouse              @relation(fields: [warehouseId], references: [id])
+  branch          Branch                 @relation(fields: [branchId], references: [id])
+  financialYear   FinancialYear          @relation(fields: [financialYearId], references: [id])
+  financialPeriod FinancialPeriod        @relation(fields: [financialPeriodId], references: [id])
+  currency        Currency               @relation(fields: [currencyId], references: [id])
+  inspectedBy     User?                  @relation("GrnInspector", fields: [inspectedById], references: [id])
+  journalEntry    JournalEntry?          @relation(fields: [journalEntryId], references: [id])
+  createdBy       User                   @relation("GrnCreator", fields: [createdById], references: [id])
+  lines           GoodsReceiptNoteLine[]
+
+  @@unique([companyId, grnNumber])
+  @@index([companyId, status])
+  @@map("goods_receipt_notes")
+}
+
+model GoodsReceiptNoteLine {
+  id                  String @id @default(uuid()) @db.Uuid
+  goodsReceiptNoteId  String @map("goods_receipt_note_id") @db.Uuid
+  lineNumber          Int    @map("line_number")
+  purchaseOrderLineId String @map("purchase_order_line_id") @db.Uuid
+  itemId              String @map("item_id") @db.Uuid
+
+  /// QUANTITIES. §5 asks for ordered / received / rejected separately, because
+  /// the difference between them is what an exception report is made of.
+  orderedQuantity  Decimal @map("ordered_quantity") @db.Decimal(18, 6)
+  receivedQuantity Decimal @map("received_quantity") @db.Decimal(18, 6)
+  rejectedQuantity Decimal @default(0) @map("rejected_quantity") @db.Decimal(18, 6)
+  /// received less rejected — what actually enters stock and GRNI.
+  acceptedQuantity Decimal @map("accepted_quantity") @db.Decimal(18, 6)
+
+  unitPriceKobo BigInt @map("unit_price_kobo")
+  valueKobo     BigInt @map("value_kobo")
+
+  batchReference String?   @map("batch_reference")
+  expiryDate     DateTime? @map("expiry_date") @db.Date
+
+  /// How much of the accepted quantity has been invoiced. The GRNI balance for
+  /// this line is (accepted - invoiced) x price, and it must reach zero.
+  invoicedQuantity Decimal @default(0) @map("invoiced_quantity") @db.Decimal(18, 6)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  goodsReceiptNote  GoodsReceiptNote      @relation(fields: [goodsReceiptNoteId], references: [id], onDelete: Cascade)
+  purchaseOrderLine PurchaseOrderLine     @relation(fields: [purchaseOrderLineId], references: [id])
+  item              Item                  @relation(fields: [itemId], references: [id])
+  invoiceLines      SupplierInvoiceLine[]
+
+  @@unique([goodsReceiptNoteId, lineNumber])
+  @@map("goods_receipt_note_lines")
+}
+
+// ---------------------------------------------------------------------------
+// §5 Supplier Invoice and Three-Way Match
+// ---------------------------------------------------------------------------
+
+model SupplierInvoice {
+  id                    String @id @default(uuid()) @db.Uuid
+  companyId             String @map("company_id") @db.Uuid
+  /// Our internal reference.
+  invoiceNumber         String @map("invoice_number")
+  /// The supplier's own invoice number — the one that must not be paid twice.
+  supplierInvoiceNumber String @map("supplier_invoice_number")
+  supplierId            String @map("supplier_id") @db.Uuid
+
+  purchaseOrderId String? @map("purchase_order_id") @db.Uuid
+
+  invoiceDate DateTime  @map("invoice_date") @db.Date
+  dueDate     DateTime? @map("due_date") @db.Date
+
+  currencyId   String  @map("currency_id") @db.Uuid
+  exchangeRate Decimal @map("exchange_rate") @db.Decimal(18, 8)
+
+  branchId     String  @map("branch_id") @db.Uuid
+  farmId       String? @map("farm_id") @db.Uuid
+  departmentId String? @map("department_id") @db.Uuid
+  costCentreId String? @map("cost_centre_id") @db.Uuid
+
+  financialYearId   String @map("financial_year_id") @db.Uuid
+  financialPeriodId String @map("financial_period_id") @db.Uuid
+
+  /// §5: the WHT category to apply when this invoice is paid.
+  whtTaxCodeId String? @map("wht_tax_code_id") @db.Uuid
+
+  status      SupplierInvoiceStatus @default(DRAFT)
+  matchStatus MatchStatus           @default(NOT_MATCHED) @map("match_status")
+  /// The three-way match findings as at approval. Stored, not recomputed:
+  /// what matters is what the approver actually saw.
+  matchResult Json?                 @map("match_result")
+
+  netAmountKobo     BigInt @default(0) @map("net_amount_kobo")
+  vatAmountKobo     BigInt @default(0) @map("vat_amount_kobo")
+  grossAmountKobo   BigInt @default(0) @map("gross_amount_kobo")
+  settledAmountKobo BigInt @default(0) @map("settled_amount_kobo")
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  journalEntryId        String? @map("journal_entry_id") @db.Uuid
+
+  createdById String    @map("created_by_id") @db.Uuid
+  postedAt    DateTime? @map("posted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company         Company               @relation(fields: [companyId], references: [id])
+  supplier        Supplier              @relation(fields: [supplierId], references: [id])
+  purchaseOrder   PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id])
+  currency        Currency              @relation(fields: [currencyId], references: [id])
+  branch          Branch                @relation(fields: [branchId], references: [id])
+  farm            Farm?                 @relation(fields: [farmId], references: [id])
+  department      Department?           @relation(fields: [departmentId], references: [id])
+  costCentre      CostCentre?           @relation("SupplierInvoiceCostCentre", fields: [costCentreId], references: [id])
+  financialYear   FinancialYear         @relation(fields: [financialYearId], references: [id])
+  financialPeriod FinancialPeriod       @relation(fields: [financialPeriodId], references: [id])
+  whtTaxCode      TaxCode?              @relation("SupplierInvoiceWhtCode", fields: [whtTaxCodeId], references: [id])
+  journalEntry    JournalEntry?         @relation(fields: [journalEntryId], references: [id])
+  createdBy       User                  @relation("SupplierInvoiceCreator", fields: [createdById], references: [id])
+  lines           SupplierInvoiceLine[]
+  allocations     PaymentAllocation[]
+
+  /// The supplier's own number, unique per supplier: the single most effective
+  /// guard against paying the same invoice twice.
+  @@unique([companyId, supplierId, supplierInvoiceNumber])
+  @@unique([companyId, invoiceNumber])
+  @@index([companyId, status])
+  @@map("supplier_invoices")
+}
+
+model SupplierInvoiceLine {
+  id          String @id @default(uuid()) @db.Uuid
+  invoiceId   String @map("invoice_id") @db.Uuid
+  lineNumber  Int    @map("line_number")
+  itemId      String @map("item_id") @db.Uuid
+  description String
+
+  purchaseOrderLineId    String? @map("purchase_order_line_id") @db.Uuid
+  goodsReceiptNoteLineId String? @map("goods_receipt_note_line_id") @db.Uuid
+
+  quantity      Decimal @db.Decimal(18, 6)
+  unitPriceKobo BigInt  @map("unit_price_kobo")
+
+  taxCodeId     String? @map("tax_code_id") @db.Uuid
+  netAmountKobo BigInt  @map("net_amount_kobo")
+  vatAmountKobo BigInt  @default(0) @map("vat_amount_kobo")
+
+  /// Which GL account the cost side hits. For a GRN-matched line this is the
+  /// GRNI account being cleared; for an unmatched line it is inventory or
+  /// expense directly.
+  costGlAccountId String  @map("cost_gl_account_id") @db.Uuid
+  /// True when this line clears GRNI rather than debiting inventory afresh —
+  /// the distinction that stops inventory being recognised twice.
+  clearsGrni      Boolean @default(false) @map("clears_grni")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  invoice           SupplierInvoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  item              Item                  @relation(fields: [itemId], references: [id])
+  purchaseOrderLine PurchaseOrderLine?    @relation(fields: [purchaseOrderLineId], references: [id])
+  goodsReceiptLine  GoodsReceiptNoteLine? @relation(fields: [goodsReceiptNoteLineId], references: [id])
+  taxCode           TaxCode?              @relation("SupplierInvoiceLineTaxCode", fields: [taxCodeId], references: [id])
+  costAccount       GLAccount             @relation("SupplierInvoiceLineCostAccount", fields: [costGlAccountId], references: [id])
+
+  @@unique([invoiceId, lineNumber])
+  @@map("supplier_invoice_lines")
+}
+
+// ---------------------------------------------------------------------------
+// §5 Supplier Payment
+// ---------------------------------------------------------------------------
+
+model SupplierPayment {
+  id            String @id @default(uuid()) @db.Uuid
+  companyId     String @map("company_id") @db.Uuid
+  paymentNumber String @map("payment_number")
+  supplierId    String @map("supplier_id") @db.Uuid
+
+  paymentDate DateTime      @map("payment_date") @db.Date
+  method      PaymentMethod
+
+  bankGlAccountId String  @map("bank_gl_account_id") @db.Uuid
+  reference       String?
+  narration       String?
+
+  branchId          String @map("branch_id") @db.Uuid
+  currencyId        String @map("currency_id") @db.Uuid
+  financialYearId   String @map("financial_year_id") @db.Uuid
+  financialPeriodId String @map("financial_period_id") @db.Uuid
+
+  /// MONEY. `amountKobo` is what leaves the bank; the withheld and discount
+  /// amounts make up the rest of what the payables balance is relieved by.
+  amountKobo    BigInt @map("amount_kobo")
+  whtAmountKobo BigInt @default(0) @map("wht_amount_kobo")
+  discountKobo  BigInt @default(0) @map("discount_kobo")
+
+  whtTaxCodeId String? @map("wht_tax_code_id") @db.Uuid
+
+  status PaymentStatus @default(DRAFT)
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  journalEntryId        String? @map("journal_entry_id") @db.Uuid
+
+  createdById String    @map("created_by_id") @db.Uuid
+  postedAt    DateTime? @map("posted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company         Company             @relation(fields: [companyId], references: [id])
+  supplier        Supplier            @relation(fields: [supplierId], references: [id])
+  bankAccount     GLAccount           @relation("PaymentBankAccount", fields: [bankGlAccountId], references: [id])
+  branch          Branch              @relation(fields: [branchId], references: [id])
+  currency        Currency            @relation(fields: [currencyId], references: [id])
+  financialYear   FinancialYear       @relation(fields: [financialYearId], references: [id])
+  financialPeriod FinancialPeriod     @relation(fields: [financialPeriodId], references: [id])
+  whtTaxCode      TaxCode?            @relation("PaymentWhtCode", fields: [whtTaxCodeId], references: [id])
+  journalEntry    JournalEntry?       @relation(fields: [journalEntryId], references: [id])
+  createdBy       User                @relation("PaymentCreator", fields: [createdById], references: [id])
+  allocations     PaymentAllocation[]
+
+  @@unique([companyId, paymentNumber])
+  @@index([companyId, status])
+  @@map("supplier_payments")
+}
+
+model PaymentAllocation {
+  id        String @id @default(uuid()) @db.Uuid
+  paymentId String @map("payment_id") @db.Uuid
+  invoiceId String @map("invoice_id") @db.Uuid
+
+  /// MONEY. How much of this payment settles this invoice.
+  amountKobo BigInt @map("amount_kobo")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  payment SupplierPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice SupplierInvoice @relation(fields: [invoiceId], references: [id])
+
+  @@unique([paymentId, invoiceId])
+  @@index([invoiceId])
+  @@map("payment_allocations")
 }
