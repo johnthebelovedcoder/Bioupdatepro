@@ -73,6 +73,7 @@ export class PostingService {
       request.financialPeriodId,
       request.actor.roles,
       externalTx,
+      request.isClosingEntry ?? false,
     );
 
     await this.dimensions.validate(
@@ -200,6 +201,7 @@ export class PostingService {
             totalCreditKobo: totalCredit.toString(),
             lineCount: request.lines.length,
             reversalOfId: request.reversalOfId ?? null,
+            ...(request.isClosingEntry ? { isClosingEntry: true } : {}),
           },
         },
         tx,

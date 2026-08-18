@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { NormalBalance } from '@bioassetpro/database';
+import { AccountType, NormalBalance } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { EnterpriseDimensions } from '../enterprise-dimensions/dimensions.types';
 
@@ -7,6 +7,10 @@ export interface TrialBalanceRow {
   glAccountId: string;
   accountNumber: string;
   accountName: string;
+  /// Needed to separate temporary accounts (revenue, expense) from permanent
+  /// ones at year end: the first are swept to retained earnings, the second
+  /// carry forward.
+  accountType: AccountType;
   normalBalance: NormalBalance;
   totalDebitKobo: bigint;
   totalCreditKobo: bigint;
@@ -75,6 +79,7 @@ export class TrialBalanceService {
         id: true,
         accountNumber: true,
         name: true,
+        accountType: true,
         normalBalance: true,
       },
     });
@@ -91,6 +96,7 @@ export class TrialBalanceService {
           glAccountId: g.glAccountId,
           accountNumber: account?.accountNumber ?? '(unknown)',
           accountName: account?.name ?? '(unknown)',
+          accountType: account?.accountType ?? AccountType.ASSET,
           normalBalance,
           totalDebitKobo: debit,
           totalCreditKobo: credit,

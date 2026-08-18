@@ -5,6 +5,9 @@ import { EscalationService } from './escalation.service';
 import { NotificationService } from './notification.service';
 import { kobo } from '../common/money';
 import { ActionRequest, SubmitRequest, WorkflowActor } from './workflow.types';
+import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
+import { OwnedRecord } from '../auth/owned-record.guard';
+import { Roles, AnyRole } from '../auth/roles.guard';
 
 /**
  * Consolidated Reference §2 API surface.
@@ -23,6 +26,7 @@ export class WorkflowController {
     private readonly notifications: NotificationService,
   ) {}
 
+  @AnyRole('Raising a document for approval is open; the engine decides who must approve it.')
   @Post('submit')
   async submit(
     @Body()
@@ -35,6 +39,7 @@ export class WorkflowController {
     return this.workflow.submit(request);
   }
 
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
   @Post('approve')
   async approve(@Body() body: ActionRequest) {
     return this.workflow.approve(body);
@@ -45,11 +50,13 @@ export class WorkflowController {
     return this.workflow.reject(body);
   }
 
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
   @Post('return')
   async returnToMaker(@Body() body: ActionRequest) {
     return this.workflow.returnToMaker(body);
   }
 
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
   @Post('cancel')
   async cancel(@Body() body: ActionRequest) {
     return this.workflow.cancel(body);
@@ -76,6 +83,8 @@ export class WorkflowController {
     });
   }
 
+  @OwnedRecord('workflowDelegation', 'id')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
   @Post('delegations/:id/revoke')
   async revokeDelegation(
     @Param('id') id: string,
@@ -84,12 +93,18 @@ export class WorkflowController {
     return this.delegations.revoke(id, body.actor.userId);
   }
 
+  /*
+   * Whose approvals these are is decided by the token, not the query.
+   *
+   * `userId` used to come off the URL, which meant any signed-in user could
+   * read anyone else's approval queue — including what is waiting on the
+   * finance director, its amounts and its documents. An approval inbox is a
+   * personal surface; there is no legitimate reason to ask for someone else's.
+   */
+  @AnyRole('Your own queue. The service scopes it to the caller.')
   @Get('pending')
-  async pending(
-    @Query('userId') userId: string,
-    @Query('companyId') companyId?: string,
-  ) {
-    const rows = await this.workflow.pendingFor(userId, companyId);
+  async pending(@CurrentUser() actor: WorkflowActor, @CurrentCompany() companyId: string) {
+    const rows = await this.workflow.pendingFor(actor.userId, companyId);
     return rows.map((t) => ({
       transactionId: t.id,
       documentReference: t.documentReference,
@@ -111,6 +126,8 @@ export class WorkflowController {
     }));
   }
 
+  @OwnedRecord('workflowTransaction', 'transactionId')
+  @AnyRole('The trail of a document you can already see.')
   @Get('history/:transactionId')
   async history(@Param('transactionId') transactionId: string) {
     const rows = await this.workflow.history(transactionId);
@@ -126,14 +143,17 @@ export class WorkflowController {
     }));
   }
 
+  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
   @Get('dashboard')
-  async dashboard(@Query('companyId') companyId: string) {
+  async dashboard(@CurrentCompany() companyId: string) {
     return this.workflow.dashboard(companyId);
   }
 
+  /** Also personal, and also previously addressable by any user id. */
+  @AnyRole('Your own queue. The service scopes it to the caller.')
   @Get('inbox')
-  async inbox(@Query('userId') userId: string) {
-    const rows = await this.notifications.inbox(userId);
+  async inbox(@CurrentUser() actor: WorkflowActor) {
+    const rows = await this.notifications.inbox(actor.userId);
     return rows.map((n) => ({
       id: n.id,
       event: n.event,
@@ -150,11 +170,9 @@ export class WorkflowController {
    * it also lets an administrator run the sweep on demand, and lets tests supply
    * an explicit `now` instead of waiting three days.
    */
+  @Roles('MANAGING_DIRECTOR')
   @Post('escalation/sweep')
-  async sweep(@Body() body: { companyId?: string; now?: string }) {
-    return this.escalation.sweep(
-      body.now ? new Date(body.now) : new Date(),
-      body.companyId,
-    );
+  async sweep(@CurrentCompany() companyId: string, @Body() body: { now?: string }) {
+    return this.escalation.sweep(body.now ? new Date(body.now) : new Date(), companyId);
   }
 }

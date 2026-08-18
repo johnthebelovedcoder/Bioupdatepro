@@ -5,6 +5,8 @@ import { RecurringJournalService } from './recurring-journal.service';
 import { PartyLedgerService } from './party-ledger.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { kobo } from '../common/money';
+import { CurrentCompany } from '../auth/current-user.decorator';
+import { Roles } from '../auth/roles.guard';
 
 /**
  * §3 API surface.
@@ -15,6 +17,7 @@ import { kobo } from '../common/money';
  * so it is absent here and refused by a database trigger besides.
  */
 @Controller('journal')
+@Roles('FINANCIAL_CONTROLLER', 'FINANCE_MANAGER', 'MANAGING_DIRECTOR')
 export class JournalsController {
   constructor(
     private readonly journals: ManualJournalService,
@@ -116,7 +119,7 @@ export class JournalsController {
 
   @Get('register')
   async register(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('status') status?: ManualJournalStatus,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -135,9 +138,9 @@ export class JournalsController {
 
   @Post('recurring')
   async createRecurring(
+    @CurrentCompany() companyId: string,
     @Body()
     body: {
-      companyId: string;
       journalTypeCode: string;
       code: string;
       name: string;
@@ -154,6 +157,7 @@ export class JournalsController {
   ) {
     return this.recurring.create({
       ...body,
+      companyId,
       startDate: new Date(body.startDate),
       endDate: body.endDate ? new Date(body.endDate) : null,
       lines: body.lines.map((line) => ({
@@ -170,10 +174,11 @@ export class JournalsController {
 
   @Post('recurring/generate')
   async generateRecurring(
-    @Body() body: { companyId: string; actorId: string; now?: string },
+    @CurrentCompany() companyId: string,
+    @Body() body: { actorId: string; now?: string },
   ) {
     return this.recurring.generateDue({
-      companyId: body.companyId,
+      companyId,
       actorId: body.actorId,
       now: body.now ? new Date(body.now) : new Date(),
     });
@@ -209,7 +214,7 @@ export class JournalsController {
 
   @Get('customer-ageing')
   async customerAgeing(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('asAt') asAt?: string,
   ) {
     return this.ledgers.customerAgeing({

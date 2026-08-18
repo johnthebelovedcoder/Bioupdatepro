@@ -3,9 +3,13 @@ import { PayrollRunService } from './payroll-run.service';
 import { PayeEngineService } from './paye-engine.service';
 import { StatutoryEngineService } from './statutory-engine.service';
 import { WorkflowActor } from '../workflow/workflow.types';
+import { CurrentCompany } from '../auth/current-user.decorator';
+import { OwnedRecord } from '../auth/owned-record.guard';
+import { Roles } from '../auth/roles.guard';
 
 /** §7 API surface. */
 @Controller('payroll')
+@Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
 export class PayrollController {
   constructor(
     private readonly runs: PayrollRunService,
@@ -31,11 +35,13 @@ export class PayrollController {
     return { id: run.id, reference: run.reference, status: run.status };
   }
 
+  @OwnedRecord('payrollRun', 'id')
   @Get('runs/:id/validate')
   async validate(@Param('id') id: string) {
     return this.runs.validate(id);
   }
 
+  @OwnedRecord('payrollRun', 'id')
   @Post('runs/:id/calculate')
   async calculate(@Param('id') id: string, @Body() body: { actorId: string }) {
     const run = await this.runs.calculate({ payrollRunId: id, actorId: body.actorId });
@@ -53,21 +59,25 @@ export class PayrollController {
     };
   }
 
+  @OwnedRecord('payrollRun', 'id')
   @Post('runs/:id/submit')
   async submit(@Param('id') id: string, @Body() body: { actor: WorkflowActor }) {
     return this.runs.submit({ payrollRunId: id, actor: body.actor });
   }
 
+  @OwnedRecord('payrollRun', 'id')
   @Get('runs/:id/paye-by-state')
   async payeByState(@Param('id') id: string) {
     return this.runs.payeByState(id);
   }
 
+  @OwnedRecord('payrollRun', 'id')
   @Get('runs/:id/bank-schedule')
   async bankSchedule(@Param('id') id: string) {
     return this.runs.bankSchedule(id);
   }
 
+  @OwnedRecord('payrollRun', 'id')
   @Get('runs/:id/payslip/:employeeId')
   async payslip(@Param('id') id: string, @Param('employeeId') employeeId: string) {
     return this.runs.payslip(id, employeeId);
@@ -79,9 +89,9 @@ export class PayrollController {
    */
   @Post('paye/calculate')
   async calculatePaye(
+    @CurrentCompany() companyId: string,
     @Body()
     body: {
-      companyId: string;
       monthlyTaxableGrossKobo: string | number;
       pensionableEmolumentsKobo: string | number;
       pensionEnrolled?: boolean;
@@ -96,7 +106,7 @@ export class PayrollController {
     },
   ) {
     return this.paye.calculate({
-      companyId: body.companyId,
+      companyId,
       monthlyTaxableGrossKobo: BigInt(body.monthlyTaxableGrossKobo),
       pensionableEmolumentsKobo: BigInt(body.pensionableEmolumentsKobo),
       pensionEnrolled: body.pensionEnrolled ?? false,
@@ -117,9 +127,9 @@ export class PayrollController {
 
   @Post('statutory/calculate')
   async calculateStatutory(
+    @CurrentCompany() companyId: string,
     @Body()
     body: {
-      companyId: string;
       grossPayKobo: string | number;
       pensionableEmolumentsKobo: string | number;
       pensionEnrolled?: boolean;
@@ -129,7 +139,7 @@ export class PayrollController {
     },
   ) {
     return this.statutory.calculate({
-      companyId: body.companyId,
+      companyId,
       grossPayKobo: BigInt(body.grossPayKobo),
       pensionableEmolumentsKobo: BigInt(body.pensionableEmolumentsKobo),
       pensionEnrolled: body.pensionEnrolled ?? false,
@@ -140,7 +150,7 @@ export class PayrollController {
   }
 
   @Get('paye/bands')
-  async bands(@Query('companyId') companyId: string, @Query('on') on?: string) {
+  async bands(@CurrentCompany() companyId: string, @Query('on') on?: string) {
     const bands = await this.paye.bands(companyId, on ? new Date(on) : new Date());
     return bands.map((b) => ({
       bandOrder: b.bandOrder,

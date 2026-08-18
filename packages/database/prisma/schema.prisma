@@ -104,12 +104,25 @@ model User {
   email        String   @unique
   fullName     String   @map("full_name")
   passwordHash String   @map("password_hash")
+  /// The tenant this person belongs to. Every company-scoped query resolves it
+  /// from here rather than from anything the client sends — without it there is
+  /// no way to tell "which company is this user allowed to see" apart from
+  /// "which company did the request ask for", which is not a distinction the
+  /// server can afford to leave to the caller.
+  ///
+  /// Nullable only so that a platform administrator can exist without belonging
+  /// to a tenant. That is deliberately NOT a skeleton key: a null company means
+  /// no company-scoped data resolves at all, so the failure mode of forgetting
+  /// to set it is an empty screen rather than every tenant's ledger.
+  companyId    String?  @map("company_id") @db.Uuid
   /// Role codes, e.g. ADMINISTRATOR, FINANCE_MANAGER, FINANCIAL_CONTROLLER.
   /// Approval routing (Phase 2) resolves against these.
   roles        String[]
   active       Boolean  @default(true)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
+
+  company Company? @relation("CompanyUsers", fields: [companyId], references: [id])
 
   createdJournals           JournalEntry[]            @relation("JournalCreatedBy")
   postedJournals            JournalEntry[]            @relation("JournalPostedBy")
@@ -147,6 +160,15 @@ model User {
   grnsInspected             GoodsReceiptNote[]        @relation("GrnInspector")
   supplierInvoicesCreated   SupplierInvoice[]         @relation("SupplierInvoiceCreator")
   supplierPaymentsCreated   SupplierPayment[]         @relation("PaymentCreator")
+  checklistsCompleted       PeriodCloseChecklist[]    @relation("ChecklistCompleter")
+  periodCloseLogs           PeriodCloseLog[]          @relation("CloseLogActor")
+  reopenRequested           PeriodReopenRequest[]     @relation("ReopenRequester")
+  reopenApproved            PeriodReopenRequest[]     @relation("ReopenApprover")
+  dailyRecordsRecorded      DailyRecord[]             @relation("DailyRecordRecorder")
+  treatmentsRecorded        TreatmentRecord[]         @relation("TreatmentRecorder")
+  harvestsRecorded          HarvestRecord[]           @relation("HarvestRecorder")
+  stageChangesRecorded      StageChange[]             @relation("StageChangeRecorder")
+  invitationsSent           Invitation[]              @relation("InvitationSender")
 
   @@map("users")
 }
@@ -168,7 +190,16 @@ model Company {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  baseCurrency              Currency                   @relation(fields: [baseCurrencyId], references: [id])
+  baseCurrency              Currency                       @relation(fields: [baseCurrencyId], references: [id])
+  users                     User[]                         @relation("CompanyUsers")
+  auditRecords              AuditRecord[]
+  invitations               Invitation[]
+  livestockGroups           LivestockGroup[]
+  dailyRecords              DailyRecord[]
+  healthEvents              HealthEvent[]
+  treatmentRecords          TreatmentRecord[]
+  harvestRecords            HarvestRecord[]
+  stageChanges              StageChange[]
   branches                  Branch[]
   departments               Department[]
   costCentres               CostCentre[]
@@ -223,6 +254,10 @@ model Company {
   goodsReceiptNotes         GoodsReceiptNote[]
   supplierInvoices          SupplierInvoice[]
   supplierPayments          SupplierPayment[]
+  closeChecklistTemplates   PeriodCloseChecklistTemplate[]
+  periodCloseLogs           PeriodCloseLog[]
+  accountBalances           AccountBalance[]
+  periodReopenRequests      PeriodReopenRequest[]
 
   @@map("companies")
 }
@@ -266,6 +301,7 @@ model Branch {
   goodsReceiptNotes    GoodsReceiptNote[]
   supplierInvoices     SupplierInvoice[]
   supplierPayments     SupplierPayment[]
+  livestockGroups      LivestockGroup[]
 
   @@unique([companyId, code])
   @@map("branches")
@@ -390,6 +426,7 @@ model GLAccount {
   procurementWhtConfigs      ProcurementConfiguration[] @relation("ProcurementWhtPayableAccount")
   supplierInvoiceLineCosts   SupplierInvoiceLine[]      @relation("SupplierInvoiceLineCostAccount")
   paymentBankAccounts        SupplierPayment[]          @relation("PaymentBankAccount")
+  accountBalances            AccountBalance[]
 
   @@unique([companyId, accountNumber])
   @@index([parentId])
@@ -484,6 +521,8 @@ model FinancialYear {
   goodsReceiptNotes GoodsReceiptNote[]
   supplierInvoices  SupplierInvoice[]
   supplierPayments  SupplierPayment[]
+  periodCloseLogs   PeriodCloseLog[]
+  accountBalances   AccountBalance[]
 
   @@unique([companyId, code])
   @@map("financial_years")
@@ -500,7 +539,7 @@ model FinancialPeriod {
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
-  financialYear     FinancialYear      @relation(fields: [financialYearId], references: [id])
+  financialYear     FinancialYear          @relation(fields: [financialYearId], references: [id])
   journalEntries    JournalEntry[]
   journalLines      JournalLine[]
   manualJournals    ManualJournal[]
@@ -512,6 +551,9 @@ model FinancialPeriod {
   goodsReceiptNotes GoodsReceiptNote[]
   supplierInvoices  SupplierInvoice[]
   supplierPayments  SupplierPayment[]
+  closeChecklists   PeriodCloseChecklist[]
+  periodCloseLogs   PeriodCloseLog[]
+  reopenRequests    PeriodReopenRequest[]
 
   @@unique([financialYearId, periodNumber])
   @@index([startDate, endDate])
@@ -535,6 +577,7 @@ model Farm {
   company              Company               @relation(fields: [companyId], references: [id])
   branch               Branch                @relation(fields: [branchId], references: [id])
   pens                 PenHouse[]
+  livestockGroups      LivestockGroup[]
   journalLines         JournalLine[]
   workflowDefinitions  WorkflowDefinition[]
   workflowTransactions WorkflowTransaction[]
@@ -564,6 +607,9 @@ model PenHouse {
   farm               Farm                @relation(fields: [farmId], references: [id])
   journalLines       JournalLine[]
   manualJournalLines ManualJournalLine[]
+  livestockGroups    LivestockGroup[]    @relation("GroupPenHouse")
+  stageChangesFrom   StageChange[]       @relation("StageChangeFrom")
+  stageChangesTo     StageChange[]       @relation("StageChangeTo")
 
   @@unique([farmId, code])
   @@map("pen_houses")
@@ -672,6 +718,10 @@ model JournalEntry {
   goodsReceiptNotes    GoodsReceiptNote[]
   supplierInvoices     SupplierInvoice[]
   supplierPayments     SupplierPayment[]
+  accountBalances      AccountBalance[]
+  feedIssues           FeedIssue[]       @relation("FeedIssueJournal")
+  treatmentRecords     TreatmentRecord[] @relation("TreatmentJournal")
+  harvestRecords       HarvestRecord[]   @relation("HarvestJournal")
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -769,6 +819,17 @@ model IdempotencyRecord {
 
 model AuditRecord {
   id            String      @id @default(uuid()) @db.Uuid
+  /// The tenant the acting user belonged to at the moment this was written.
+  ///
+  /// Denormalised deliberately. Reading it back through the user would mean a
+  /// person who later moves between companies drags their entire history into
+  /// the new one — and an audit trail whose contents depend on today's
+  /// employment records is not evidence of anything. Stamped once, then
+  /// immutable like the rest of the row.
+  ///
+  /// Nullable only because rows written before tenancy existed have no answer;
+  /// those predate any company and are excluded from the company-scoped view.
+  companyId     String?     @map("company_id") @db.Uuid
   /// The business transaction this record describes (e.g. a journal id).
   transactionId String      @map("transaction_id")
   module        String
@@ -783,11 +844,13 @@ model AuditRecord {
   comments      String?
   metadata      Json?
 
-  user User @relation(fields: [userId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
 
   @@index([transactionId])
   @@index([module, entityType, entityId])
   @@index([occurredAt])
+  @@index([companyId, occurredAt])
   @@map("audit_records")
 }
 
@@ -1902,6 +1965,7 @@ model Item {
   purchaseOrderLines     PurchaseOrderLine[]
   goodsReceiptLines      GoodsReceiptNoteLine[]
   supplierInvoiceLines   SupplierInvoiceLine[]
+  feedIssues             FeedIssue[]              @relation("FeedIssueItem")
 
   @@unique([companyId, code])
   @@index([companyId, itemType, active])
@@ -4291,4 +4355,683 @@ model PaymentAllocation {
   @@unique([paymentId, invoiceId])
   @@index([invoiceId])
   @@map("payment_allocations")
+}
+
+// ---------------------------------------------------------------------------
+// Period-End & Year-End Closing  (Consolidated Reference §8 — Phase 11)
+//
+// Built last because it depends on every other module being able to post
+// correctly — which, eight phases in, they demonstrably can.
+//
+// §8's developer notes, and where each lands:
+//   1. "Year-End Close Wizard must run as a single controlled transaction —
+//      any validation failure rolls back completely, never partially closes."
+//      -> YearEndService.close() is one database transaction end to end.
+//   2. "New year's opening balances generate automatically from prior year's
+//      closing balances." -> the roll-forward, which nets revenue and expense
+//      into retained earnings rather than carrying them forward.
+//   3. "Period close/reopen/year-end close all go through the Workflow Engine."
+//   4. "Every close/reopen is an immutable audit record."
+//   5. "Must be reusable across SnailPro, PoultryPro and future products."
+//      -> nothing here names a module or a species.
+//
+// The Phase 1 schema already carries FinancialYear, FinancialPeriod and their
+// statuses, and PeriodService already gates postings on them. This section adds
+// what §8 asks for beyond that: the checklist, the logs, and the balances that
+// carry a year forward.
+// ---------------------------------------------------------------------------
+
+enum ChecklistItemStatus {
+  PENDING
+  COMPLETE
+  /// Deliberately passed over, with a reason. Not the same as done.
+  WAIVED
+  FAILED
+}
+
+enum CloseAction {
+  OPEN
+  SOFT_CLOSE
+  CLOSE
+  REOPEN
+  YEAR_END_CLOSE
+  ROLL_FORWARD
+}
+
+/// A step that must be settled before a period can close.
+///
+/// Configuration, so a company adds a step without a migration. `blocking`
+/// separates "you cannot close until this is done" from "look at this first" —
+/// a checklist where everything blocks is a checklist people learn to waive.
+model PeriodCloseChecklistTemplate {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  code        String
+  name        String
+  description String?
+  sequence    Int
+
+  blocking         Boolean @default(true)
+  /// Applies to a year-end close as well as a period close.
+  appliesToYearEnd Boolean @default(false) @map("applies_to_year_end")
+
+  /// An automated check this step maps to, where one exists. Null means the
+  /// step is confirmed by a human.
+  automatedCheck String? @map("automated_check")
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company                @relation(fields: [companyId], references: [id])
+  items   PeriodCloseChecklist[]
+
+  @@unique([companyId, code])
+  @@map("period_close_checklist_templates")
+}
+
+/// One checklist step against one period, as it was actually settled.
+model PeriodCloseChecklist {
+  id                String @id @default(uuid()) @db.Uuid
+  financialPeriodId String @map("financial_period_id") @db.Uuid
+  templateId        String @map("template_id") @db.Uuid
+
+  status ChecklistItemStatus @default(PENDING)
+
+  /// Set when an automated check ran, with what it found.
+  checkResult Json? @map("check_result")
+
+  completedById String?   @map("completed_by_id") @db.Uuid
+  completedAt   DateTime? @map("completed_at")
+  /// Required when waiving. A step passed over without a reason is a step
+  /// nobody can review afterwards.
+  comments      String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  financialPeriod FinancialPeriod              @relation(fields: [financialPeriodId], references: [id], onDelete: Cascade)
+  template        PeriodCloseChecklistTemplate @relation(fields: [templateId], references: [id])
+  completedBy     User?                        @relation("ChecklistCompleter", fields: [completedById], references: [id])
+
+  @@unique([financialPeriodId, templateId])
+  @@map("period_close_checklists")
+}
+
+/// Every close, soft close, reopen and year-end action. Append-only (§8 note 4).
+model PeriodCloseLog {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  financialYearId   String  @map("financial_year_id") @db.Uuid
+  financialPeriodId String? @map("financial_period_id") @db.Uuid
+
+  action     CloseAction
+  fromStatus String?     @map("from_status")
+  toStatus   String      @map("to_status")
+
+  /// MONEY. The trial balance at the moment of the action, so a closed period's
+  /// figures can be reproduced without re-deriving them from a ledger that has
+  /// moved on.
+  totalDebitKobo  BigInt @default(0) @map("total_debit_kobo")
+  totalCreditKobo BigInt @default(0) @map("total_credit_kobo")
+
+  /// The checklist and validation state at the time, for the same reason.
+  snapshot Json?
+
+  reason        String?
+  performedById String   @map("performed_by_id") @db.Uuid
+  occurredAt    DateTime @default(now()) @map("occurred_at")
+  ipAddress     String?  @map("ip_address")
+  device        String?
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+
+  company         Company          @relation(fields: [companyId], references: [id])
+  financialYear   FinancialYear    @relation(fields: [financialYearId], references: [id])
+  financialPeriod FinancialPeriod? @relation(fields: [financialPeriodId], references: [id])
+  performedBy     User             @relation("CloseLogActor", fields: [performedById], references: [id])
+
+  @@index([companyId, occurredAt])
+  @@index([financialYearId, action])
+  @@map("period_close_logs")
+}
+
+/// A year's closing balance per account, and the next year's opening balance.
+///
+/// One table for both: an opening balance IS the prior year's closing balance,
+/// and storing them separately would create two numbers that have to agree.
+model AccountBalance {
+  id              String @id @default(uuid()) @db.Uuid
+  companyId       String @map("company_id") @db.Uuid
+  financialYearId String @map("financial_year_id") @db.Uuid
+  glAccountId     String @map("gl_account_id") @db.Uuid
+
+  /// True for the opening position of the year, false for its close.
+  isOpening Boolean @map("is_opening")
+
+  /// MONEY, integer kobo. Both sides retained rather than a net, so the
+  /// roll-forward can be checked against the ledger it came from.
+  totalDebitKobo  BigInt @map("total_debit_kobo")
+  totalCreditKobo BigInt @map("total_credit_kobo")
+  /// Signed by the account's normal balance, as the trial balance presents it.
+  balanceKobo     BigInt @map("balance_kobo")
+
+  /// The journal that carried this balance forward, for opening rows.
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company       Company       @relation(fields: [companyId], references: [id])
+  financialYear FinancialYear @relation(fields: [financialYearId], references: [id])
+  glAccount     GLAccount     @relation(fields: [glAccountId], references: [id])
+  journalEntry  JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  @@unique([financialYearId, glAccountId, isOpening])
+  @@index([companyId, financialYearId])
+  @@map("account_balances")
+}
+
+/// §8 lists a Period Reopen Request as its own document. Reopening a closed
+/// period is the single most sensitive action in this module — it lets figures
+/// already reported change — so it carries its own reason and its own approval
+/// rather than riding on a status update.
+model PeriodReopenRequest {
+  id                String @id @default(uuid()) @db.Uuid
+  companyId         String @map("company_id") @db.Uuid
+  financialPeriodId String @map("financial_period_id") @db.Uuid
+
+  reason        String
+  requestedById String   @map("requested_by_id") @db.Uuid
+  requestedAt   DateTime @default(now()) @map("requested_at")
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+
+  approvedById String?   @map("approved_by_id") @db.Uuid
+  approvedAt   DateTime? @map("approved_at")
+  /// Set once the period has actually been reopened, so a granted request that
+  /// was never acted on is distinguishable from one that was.
+  reopenedAt   DateTime? @map("reopened_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company         Company         @relation(fields: [companyId], references: [id])
+  financialPeriod FinancialPeriod @relation(fields: [financialPeriodId], references: [id])
+  requestedBy     User            @relation("ReopenRequester", fields: [requestedById], references: [id])
+  approvedBy      User?           @relation("ReopenApprover", fields: [approvedById], references: [id])
+
+  @@index([companyId, financialPeriodId])
+  @@map("period_reopen_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Operations — the livestock, and what happens to it
+//
+// Everything above this line is the accounting spine: ledger, tax, payroll,
+// procurement, sales, close. None of it knew what a farm actually keeps. The
+// web app has screens that record real work — the daily round, treatments,
+// harvests, stage changes, placements — and until now every one of them queued
+// its work in the browser with nowhere to send it.
+//
+// Rule 8 holds throughout: the species lives in the DATA. There is no poultry
+// table and no snail table, no enum listing them, and nothing here that would
+// have to change to add fish. A batch of broilers and a colony of snails are
+// the same row with a different `speciesKey`, and the words a user sees come
+// from the module registry in the web app, not from a column name.
+//
+// Conventions carried from the sections above: money is integer kobo in a
+// BigInt, quantities that can be fractional are Decimal, and counts of animals
+// are Int — half a bird is not a thing.
+// ---------------------------------------------------------------------------
+
+enum LivestockGroupStatus {
+  ACTIVE
+  /// Sold out, harvested out, or otherwise finished. Kept forever: a closed
+  /// batch is where the profit of a completed cycle is measured.
+  CLOSED
+}
+
+/// A managed population — a poultry batch, a snail colony, a pond of fish.
+///
+/// The cost object the whole product turns on. Feed issued to it, treatments
+/// given to it and losses from it accumulate here, which is what makes "did
+/// this batch make money" answerable rather than estimated.
+model LivestockGroup {
+  id         String @id @default(uuid()) @db.Uuid
+  companyId  String @map("company_id") @db.Uuid
+  branchId   String @map("branch_id") @db.Uuid
+  farmId     String @map("farm_id") @db.Uuid
+  /// Where it is kept now. Moves when a stage change moves it.
+  penHouseId String @map("pen_house_id") @db.Uuid
+
+  /// The farm's own reference — B-2026-007, S-004. Unique within the company
+  /// because that is how people refer to it out loud.
+  code String
+
+  /// Which species module this belongs to: 'poultry', 'snail', 'fish'.
+  /// A string rather than an enum, on purpose — see Rule 8 above.
+  speciesKey String @map("species_key")
+
+  breed String
+  /// What it is kept for: Layer, Broiler, Breeder colony, Growers.
+  purpose String
+  /// Where it is in its life: Chick, Grower, Layer, Juvenile, Breeder.
+  /// Values come from the module registry, so they are data too.
+  stage String
+
+  /// How many arrived. Never changes — it is the denominator of every
+  /// cumulative mortality figure this population will ever have.
+  openingPopulation Int @map("opening_population")
+
+  /// How many are alive now.
+  ///
+  /// A materialised balance, in the same spirit as AccountBalance above: it is
+  /// only ever moved inside the same transaction as the event that moved it —
+  /// a mortality record, a harvest, a livestock sale. Nothing may set it
+  /// directly. Kept rather than derived because every screen in the product
+  /// shows it, and summing an entire history on each read would be the slowest
+  /// query in the application.
+  population Int
+
+  startedOn DateTime  @map("started_on") @db.Date
+  closedOn  DateTime? @map("closed_on") @db.Date
+
+  status LivestockGroupStatus @default(ACTIVE)
+
+  /// Who supplied the stock. Free text: a farm buys day-olds from a hatchery
+  /// it will not find in a supplier master.
+  source String?
+
+  /// MONEY. What the stock itself cost to acquire, in kobo.
+  acquisitionCostKobo BigInt @default(0) @map("acquisition_cost_kobo")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company  Company  @relation(fields: [companyId], references: [id])
+  branch   Branch   @relation(fields: [branchId], references: [id])
+  farm     Farm     @relation(fields: [farmId], references: [id])
+  penHouse PenHouse @relation("GroupPenHouse", fields: [penHouseId], references: [id])
+
+  dailyRecords  DailyRecord[]
+  healthEvents  HealthEvent[]
+  treatments    TreatmentRecord[]
+  harvests      HarvestRecord[]
+  harvestsInto  HarvestRecord[]  @relation("HarvestMovedTo")
+  stageChanges  StageChange[]
+
+  @@unique([companyId, code])
+  @@index([companyId, speciesKey, status])
+  @@index([penHouseId])
+  @@map("livestock_groups")
+}
+
+/// One population, one day: what it ate, what it produced, what it lost.
+///
+/// The daily round walks the houses and records exactly this per stop, so the
+/// shape matches the walk rather than the database's convenience. One row per
+/// population per day — recording the same day twice is a correction, not a
+/// second row, which is what the unique constraint enforces.
+model DailyRecord {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  groupId   String @map("group_id") @db.Uuid
+
+  recordedOn DateTime @map("recorded_on") @db.Date
+
+  /// True when the figures were carried over from yesterday rather than
+  /// observed. Kept because a carried-over number is weaker evidence than a
+  /// counted one, and a variance check that cannot tell them apart will chase
+  /// its own tail.
+  carriedOver Boolean @default(false) @map("carried_over")
+
+  notes String?
+
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company    Company           @relation(fields: [companyId], references: [id])
+  group      LivestockGroup    @relation(fields: [groupId], references: [id])
+  recordedBy User              @relation("DailyRecordRecorder", fields: [recordedById], references: [id])
+  production ProductionLine[]
+  feedIssues FeedIssue[]
+  mortality  MortalityRecord[]
+
+  @@unique([groupId, recordedOn])
+  @@index([companyId, recordedOn])
+  @@map("daily_records")
+}
+
+/// What a population produced, one line per measure.
+///
+/// Key/value rather than columns, because what gets counted is configuration:
+/// poultry records whole eggs and cracked eggs, snails record harvest weight,
+/// dairy records litres. A table with an `eggs` column would be a species named
+/// in the schema, and the next module would need a migration to exist.
+model ProductionLine {
+  id            String @id @default(uuid()) @db.Uuid
+  dailyRecordId String @map("daily_record_id") @db.Uuid
+
+  /// The module registry's field key — 'wholeEggs', 'cracked', 'weightKg'.
+  fieldKey String @map("field_key")
+  /// QUANTITY. Decimal because some measures are weights.
+  quantity Decimal @db.Decimal(18, 6)
+
+  dailyRecord DailyRecord @relation(fields: [dailyRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyRecordId, fieldKey])
+  @@map("production_lines")
+}
+
+/// Feed issued to a population.
+///
+/// The single largest cost on a poultry farm, and the reason feed-per-head is
+/// the sharpest theft signal the product has.
+model FeedIssue {
+  id            String @id @default(uuid()) @db.Uuid
+  dailyRecordId String @map("daily_record_id") @db.Uuid
+
+  /// The stock item, once the feed is a real inventory item. Nullable while a
+  /// farm is still typing the name of a feed it buys in bags from the market.
+  itemId String? @map("item_id") @db.Uuid
+  /// What the worker chose, as they chose it — 'Broiler finisher'.
+  feedName String @map("feed_name")
+
+  /// QUANTITY in kilograms.
+  quantityKg Decimal @map("quantity_kg") @db.Decimal(18, 6)
+
+  /// MONEY. Integer kobo, at the cost the stock was issued at.
+  unitCostKobo BigInt @default(0) @map("unit_cost_kobo")
+  valueKobo    BigInt @default(0) @map("value_kobo")
+
+  /// The posting that took this out of stock and into the population's
+  /// work-in-progress. Null until it has been posted.
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  dailyRecord  DailyRecord   @relation(fields: [dailyRecordId], references: [id], onDelete: Cascade)
+  item         Item?         @relation("FeedIssueItem", fields: [itemId], references: [id])
+  journalEntry JournalEntry? @relation("FeedIssueJournal", fields: [journalEntryId], references: [id])
+
+  @@index([dailyRecordId])
+  @@map("feed_issues")
+}
+
+/// Animals lost, and what the worker believed killed them.
+model MortalityRecord {
+  id            String @id @default(uuid()) @db.Uuid
+  dailyRecordId String @map("daily_record_id") @db.Uuid
+
+  /// COUNT. Whole animals.
+  quantity Int
+
+  /// More than one is allowed: a die-off is rarely one thing, and forcing a
+  /// single cause produces a confident answer nobody checked.
+  causes String[]
+
+  notes String?
+
+  dailyRecord DailyRecord      @relation(fields: [dailyRecordId], references: [id], onDelete: Cascade)
+  photos      MortalityPhoto[]
+
+  @@index([dailyRecordId])
+  @@map("mortality_records")
+}
+
+/// A photograph attached to a mortality record.
+///
+/// Its own table so the image never rides along with a query that only wanted
+/// the numbers. The bytes are held inline today because there is no object
+/// store yet; `storageKey` is the seam for moving them out, at which point
+/// `data` becomes null and nothing else has to change.
+model MortalityPhoto {
+  id                String @id @default(uuid()) @db.Uuid
+  mortalityRecordId String @map("mortality_record_id") @db.Uuid
+
+  fileName String @map("file_name")
+  mimeType String @map("mime_type")
+  byteSize Int    @map("byte_size")
+  /// Base64, as captured and downscaled by the phone.
+  data       String? @db.Text
+  storageKey String? @map("storage_key")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  mortalityRecord MortalityRecord @relation(fields: [mortalityRecordId], references: [id], onDelete: Cascade)
+
+  @@index([mortalityRecordId])
+  @@map("mortality_photos")
+}
+
+enum HealthEventStatus {
+  DUE
+  OVERDUE
+  DONE
+  /// Deliberately not given — a vet stood the batch down, or the programme
+  /// changed. Distinct from DONE so coverage figures stay honest.
+  SKIPPED
+}
+
+/// A treatment that is scheduled — a vaccination on a programme.
+///
+/// Separate from the record of it being given, because the two are genuinely
+/// different facts: one is a plan, the other is evidence. Keeping them in one
+/// row means a missed vaccination becomes indistinguishable from one that was
+/// never scheduled.
+model HealthEvent {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  groupId   String @map("group_id") @db.Uuid
+
+  /// VACCINATION, TREATMENT, INCIDENT. A string because a farm may have kinds
+  /// nobody put in an enum.
+  kind   String
+  name   String
+  detail String?
+
+  dueOn  DateTime          @map("due_on") @db.Date
+  status HealthEventStatus @default(DUE)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company    Company           @relation(fields: [companyId], references: [id])
+  group      LivestockGroup    @relation(fields: [groupId], references: [id])
+  treatments TreatmentRecord[]
+
+  @@index([companyId, status, dueOn])
+  @@index([groupId, dueOn])
+  @@map("health_events")
+}
+
+/// A treatment actually given.
+///
+/// Carries the two things a tick-box would lose: how many animals it reached,
+/// and the withdrawal period. Partial coverage is recorded as it happened
+/// rather than rounded up to "done", and the withdrawal days come off the
+/// product label — this schema does not know them and must not invent them.
+model TreatmentRecord {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  groupId   String @map("group_id") @db.Uuid
+
+  /// The scheduled event this satisfies. Null for an unscheduled treatment —
+  /// animals get sick between vaccination dates.
+  healthEventId String? @map("health_event_id") @db.Uuid
+
+  name    String
+  givenOn DateTime @map("given_on") @db.Date
+  /// How it was administered: in drinking water, injection, spray.
+  route   String
+  /// Free text rather than a user link: the person who gave it is often not a
+  /// system user, and naming the wrong one is worse than naming a string.
+  givenBy String @map("given_by")
+
+  /// COUNT reached, and the population at the time. Both, because coverage is
+  /// the ratio and the denominator moves.
+  treatedCount     Int @map("treated_count")
+  populationAtTime Int @map("population_at_time")
+
+  /// The bottle's batch number, for tracing a bad batch later.
+  productBatch String? @map("product_batch")
+
+  /// Days after which produce may be sold again, taken from the product label,
+  /// and the date that implies. Zero means none was stated.
+  withdrawalDays Int       @default(0) @map("withdrawal_days")
+  safeToSellFrom DateTime? @map("safe_to_sell_from") @db.Date
+
+  /// MONEY. What it cost, in kobo, against this population.
+  costKobo BigInt @default(0) @map("cost_kobo")
+
+  notes String?
+
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company      Company        @relation(fields: [companyId], references: [id])
+  group        LivestockGroup @relation(fields: [groupId], references: [id])
+  healthEvent  HealthEvent?   @relation(fields: [healthEventId], references: [id])
+  recordedBy   User           @relation("TreatmentRecorder", fields: [recordedById], references: [id])
+  journalEntry JournalEntry?  @relation("TreatmentJournal", fields: [journalEntryId], references: [id])
+
+  @@index([companyId, givenOn])
+  @@index([groupId, givenOn])
+  @@map("treatment_records")
+}
+
+/// What came off a population.
+///
+/// NOT a sale. A harvest moves cost out of the population's work-in-progress
+/// and into finished goods; the revenue happens later, at a price nobody knows
+/// yet. There is deliberately no price column — putting one here would
+/// recognise profit at the moment of picking.
+model HarvestRecord {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  groupId   String @map("group_id") @db.Uuid
+
+  harvestedOn DateTime @map("harvested_on") @db.Date
+  grade       String
+
+  /// QUANTITY in kilograms, and the COUNT of animals it removed. The count is
+  /// recorded rather than inferred from weight — animals per kilo varies with
+  /// size, breed and season, so inferring it would corrupt the population that
+  /// every mortality rate is measured against.
+  weightKg Decimal @map("weight_kg") @db.Decimal(18, 6)
+  count    Int
+
+  populationAtTime Int @map("population_at_time")
+
+  /// Where it went. Either into stock, or back into another population as
+  /// breeding stock — in which case `movedToGroupId` is set.
+  destination    String
+  movedToGroupId String? @map("moved_to_group_id") @db.Uuid
+
+  notes String?
+
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company      Company         @relation(fields: [companyId], references: [id])
+  group        LivestockGroup  @relation(fields: [groupId], references: [id])
+  movedToGroup LivestockGroup? @relation("HarvestMovedTo", fields: [movedToGroupId], references: [id])
+  recordedBy   User            @relation("HarvestRecorder", fields: [recordedById], references: [id])
+  journalEntry JournalEntry?   @relation("HarvestJournal", fields: [journalEntryId], references: [id])
+
+  @@index([companyId, harvestedOn])
+  @@index([groupId, harvestedOn])
+  @@map("harvest_records")
+}
+
+/// A population moving to the next stage of its life.
+///
+/// Records the move and nothing else. It does NOT change the count — a pullet
+/// becoming a layer is the same bird — and it does not split a population,
+/// because apportioning accumulated cost between the halves is a decision no
+/// schema should make silently.
+model StageChange {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  groupId   String @map("group_id") @db.Uuid
+
+  changedOn DateTime @map("changed_on") @db.Date
+
+  fromStage String @map("from_stage")
+  toStage   String @map("to_stage")
+
+  /// Houses move with the stage often enough to record both; the two are equal
+  /// when the population stayed put.
+  fromPenHouseId String @map("from_pen_house_id") @db.Uuid
+  toPenHouseId   String @map("to_pen_house_id") @db.Uuid
+
+  /// The count at the moment of the move. Evidence that it did not change.
+  population Int
+
+  notes String?
+
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company      Company        @relation(fields: [companyId], references: [id])
+  group        LivestockGroup @relation(fields: [groupId], references: [id])
+  fromPenHouse PenHouse       @relation("StageChangeFrom", fields: [fromPenHouseId], references: [id])
+  toPenHouse   PenHouse       @relation("StageChangeTo", fields: [toPenHouseId], references: [id])
+  recordedBy   User           @relation("StageChangeRecorder", fields: [recordedById], references: [id])
+
+  @@index([companyId, changedOn])
+  @@index([groupId, changedOn])
+  @@map("stage_changes")
+}
+
+/// An invitation to join a farm that already exists.
+///
+/// Signing up creates a company. This is the other half: a farm manager adding
+/// the people who work for them, who must land INSIDE that company rather than
+/// creating one of their own. Without it every worker who needed an account
+/// would sign up as an owner and end up in a farm of one, looking at an empty
+/// dashboard and wondering where the birds went.
+///
+/// The token is stored HASHED, never in the clear. The raw value exists only in
+/// the link that is handed to the person; anybody reading this table — a
+/// backup, a support query, a leaked dump — gets a hash they cannot use. Same
+/// reasoning as a password, for the same reason: this token is a credential,
+/// and for a short while it is enough on its own to join a company.
+model Invitation {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// Who it was sent to. Not unique: an invitation can be resent, and a person
+  /// who leaves and returns should not be blocked by their own history.
+  email String
+  /// What they will be able to do once they accept.
+  roles String[]
+
+  /// SHA-256 of the token in the link. Unique so a token identifies one
+  /// invitation and lookups do not need a scan.
+  tokenHash String @unique @map("token_hash")
+
+  invitedById String   @map("invited_by_id") @db.Uuid
+  /// Invitations rot on purpose. A link that works forever is a credential
+  /// nobody remembers issuing, sitting in an inbox somebody else may inherit.
+  expiresAt   DateTime @map("expires_at")
+
+  acceptedAt     DateTime? @map("accepted_at")
+  acceptedUserId String?   @map("accepted_user_id") @db.Uuid
+  /// Withdrawn before it was used. Kept rather than deleted so "who invited
+  /// this person, and who cancelled it" stays answerable.
+  revokedAt DateTime? @map("revoked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company   Company @relation(fields: [companyId], references: [id])
+  invitedBy User    @relation("InvitationSender", fields: [invitedById], references: [id])
+
+  @@index([companyId, email])
+  @@index([expiresAt])
+  @@map("invitations")
 }

@@ -135,7 +135,9 @@ async function main(): Promise<void> {
     update: {},
     create: {
       code: 'BAP',
-      name: 'SnailPro / PoultryPro Demo',
+      // A farm's name, not a list of the modules it subscribes to. The old
+      // value put "PoultryPro" on the screen of anyone keeping only snails.
+      name: 'Kajola Farms',
       // Statutory workbook Company_Setup B6 / B8
       sector: 'Private',
       freeTradeZone: false,
@@ -298,6 +300,10 @@ async function main(): Promise<void> {
   await seedPayroll(company.id);
   await seedSales(company.id, accountIds);
   await seedProcurement(company.id, accountIds);
+  await seedStatutoryRates(company.id);
+  await seedItemVatTreatment(company.id);
+  await seedMatchTolerances(company.id);
+  await seedCloseChecklist(company.id);
 
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +
@@ -1245,6 +1251,384 @@ async function seedProcurement(companyId: string, accounts: Record<string, strin
   console.log(
     'Seeded procurement: GRNI, payables and expense accounts, zero match ' +
       'tolerances (confirm the client\u2019s thresholds before go-live).',
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Nigerian statutory positions researched from public sources (August 2026)
+//
+// These fill the gaps the client's own documents left open. They are RESEARCHED,
+// not client-confirmed: every figure carries its source, and each still wants a
+// sign-off from the client's tax adviser before go-live. That is a materially
+// better position than blank configuration — a wrong rate that is written down
+// with its source can be checked, whereas a missing rate silently blocks work.
+//
+// SOURCES
+//   WHT rates    Deduction of Tax at Source (Withholding) Regulations 2024,
+//                gazetted 2 October 2024, effective 1 January 2025. Rates cross-
+//                checked against PwC Worldwide Tax Summaries (reviewed 29 May
+//                2026) and TaxSpire's 2026 WHT guide, which agree.
+//   WHT basis    Computed on the amount BEFORE VAT. PwC and Stransact both
+//                state VAT is excluded from the WHT base.
+//   VAT          Nigeria Tax Act 2025, effective 1 January 2026. Standard rate
+//                remains 7.5%. Basic food and agricultural products are
+//                ZERO-RATED (not exempt) — so input VAT on them is RECOVERABLE.
+// ---------------------------------------------------------------------------
+
+async function seedStatutoryRates(companyId: string) {
+  const from = new Date('2026-01-01');
+  const WHT_SOURCE =
+    'Deduction of Tax at Source (Withholding) Regulations 2024 (effective 2025-01-01); ' +
+    'cross-checked PwC Worldwide Tax Summaries 2026-05-29 and TaxSpire 2026 guide. ' +
+    'RESEARCHED — confirm with the client tax adviser.';
+
+  // Rates for RESIDENT recipients. Non-resident rates differ and are governed by
+  // treaty in many cases, which is why they are not assumed here.
+  const WHT_RATES: Array<{ code: string; rate: string; note: string }> = [
+    { code: 'WHT-CONTRACT', rate: '0.02000000', note: 'Supply of goods/materials and construction of roads, bridges, buildings and power plants — 2%' },
+    { code: 'WHT-SERVICES', rate: '0.05000000', note: 'Professional, consultancy, technical and management fees — 5%, a final tax for residents' },
+    { code: 'WHT-COMMISSION', rate: '0.05000000', note: 'Commission — 5%' },
+    { code: 'WHT-RENT', rate: '0.10000000', note: 'Rent, hire or lease — 10%' },
+    { code: 'WHT-DIVIDEND', rate: '0.10000000', note: 'Dividends — 10%' },
+    { code: 'WHT-INTEREST', rate: '0.10000000', note: 'Interest — 10%' },
+    { code: 'WHT-ROYALTY', rate: '0.05000000', note: 'Royalties — 5%' },
+  ];
+
+  let ratesAdded = 0;
+  for (const spec of WHT_RATES) {
+    const code = await prisma.taxCode.findUnique({
+      where: { companyId_code: { companyId, code: spec.code } },
+    });
+    if (!code) continue;
+
+    const existing = await prisma.taxRate.findFirst({ where: { taxCodeId: code.id } });
+    if (existing) continue;
+
+    await prisma.taxRate.create({
+      data: {
+        taxCodeId: code.id,
+        rate: spec.rate,
+        effectiveFrom: from,
+        sourceReference: `${spec.note}. ${WHT_SOURCE}`,
+      },
+    });
+    ratesAdded += 1;
+  }
+
+  // Two WHT rules deliberately NOT automated, because each changes an amount
+  // and needs the client to say they want it applied automatically:
+  //
+  //   1. A vendor without a valid TIN attracts DOUBLE the rate (passive income
+  //      such as dividends excepted). Mechanical to add once confirmed.
+  //   2. Small companies (turnover <= N25m) are exempt from the obligation to
+  //      deduct, and PwC additionally reports a per-transaction floor of N2m
+  //      for TIN-registered vendors. The two thresholds are described
+  //      differently by different sources, which is exactly why this system
+  //      should not guess between them.
+  //
+  // Both are recorded here so the gap is visible rather than forgotten.
+
+  const config = await prisma.taxConfiguration.findFirst({
+    where: { companyId, effectiveTo: null },
+  });
+  if (config) {
+    await prisma.taxConfiguration.update({
+      where: { id: config.id },
+      data: {
+        whtBasis: 'NET_OF_VAT',
+        whtBasisAuthority:
+          'Withholding is computed on the amount BEFORE VAT. Sources: PwC Worldwide ' +
+          'Tax Summaries (Nigeria, Corporate — Withholding taxes) and Stransact, ' +
+          '"Nigeria’s New Withholding Tax Regulations Explained". RESEARCHED — ' +
+          'confirm with the client tax adviser.',
+      },
+    });
+  }
+
+  console.log(
+    `Seeded statutory rates: ${ratesAdded} WHT rates from the 2024 Withholding ` +
+      `Regulations, WHT basis confirmed NET_OF_VAT. Researched, not client-confirmed.`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// VAT treatment of the client's own products (Nigeria Tax Act 2025)
+//
+// The Act ZERO-RATES basic food and agricultural products, rather than exempting
+// them. The distinction is worth real money: a zero-rated supplier recovers
+// input VAT, an exempt one bears it as a cost. Phase 3 models the two
+// separately for exactly this reason.
+//
+// The mapping below is a defensible reading, not a ruling. Two lines are
+// genuinely arguable and are flagged in the console rather than buried.
+// ---------------------------------------------------------------------------
+
+async function seedItemVatTreatment(companyId: string) {
+  const codes = await prisma.taxCode.findMany({
+    where: { companyId, taxType: 'VAT' },
+  });
+  const byCode = new Map(codes.map((c) => [c.code, c.id]));
+
+  const STANDARD = byCode.get('VAT-STD');
+  const ZERO = byCode.get('VAT-ZERO');
+  if (!STANDARD || !ZERO) return;
+
+  const MAPPING: Array<{ item: string; taxCode: string; reason: string }> = [
+    // Unprocessed agricultural produce — zero-rated.
+    { item: 'RM-SNAIL-LIVE', taxCode: 'VAT-ZERO', reason: 'Live agricultural produce' },
+    { item: 'RM-SLIME', taxCode: 'VAT-ZERO', reason: 'Unprocessed agricultural produce' },
+    { item: 'RM-SHELL', taxCode: 'VAT-ZERO', reason: 'Agricultural by-product' },
+
+    // Chemical and packaging inputs — standard rated.
+    { item: 'RM-PRESERVATIVE', taxCode: 'VAT-STD', reason: 'Chemical input, not agricultural produce' },
+    { item: 'PK-BOTTLE-100', taxCode: 'VAT-STD', reason: 'Packaging' },
+    { item: 'PK-LABEL', taxCode: 'VAT-STD', reason: 'Packaging' },
+    { item: 'PK-VACUUM', taxCode: 'VAT-STD', reason: 'Packaging' },
+    { item: 'PK-CARTON', taxCode: 'VAT-STD', reason: 'Packaging' },
+    { item: 'PK-BAG-1KG', taxCode: 'VAT-STD', reason: 'Packaging' },
+
+    // Food outputs — zero-rated as basic food.
+    { item: 'FG-MEAT-FROZEN', taxCode: 'VAT-ZERO', reason: 'Basic food item' },
+    { item: 'FG-MEAT-SMOKED', taxCode: 'VAT-ZERO', reason: 'Basic food item' },
+
+    // Non-food outputs — standard rated. A cosmetic is not a basic food item
+    // however agricultural its input was.
+    { item: 'FG-SLIME-COSMETIC', taxCode: 'VAT-STD', reason: 'Cosmetic product, not food' },
+
+    // ARGUABLE — flagged below rather than assumed silently.
+    { item: 'FG-SLIME-MEDICINAL', taxCode: 'VAT-STD', reason: 'ARGUABLE: may qualify as a zero-rated medical product if registered as such' },
+    { item: 'FG-SHELL-POWDER', taxCode: 'VAT-STD', reason: 'ARGUABLE: zero-rated if sold as animal feed or an agricultural input' },
+  ];
+
+  let mapped = 0;
+  for (const spec of MAPPING) {
+    const item = await prisma.item.findUnique({
+      where: { companyId_code: { companyId, code: spec.item } },
+    });
+    if (!item) continue;
+
+    await prisma.item.update({
+      where: { id: item.id },
+      data: { vatTaxCodeId: spec.taxCode === 'VAT-ZERO' ? ZERO : STANDARD },
+    });
+    mapped += 1;
+  }
+
+  const arguable = MAPPING.filter((m) => m.reason.startsWith('ARGUABLE'));
+
+  console.log(
+    `Seeded VAT treatment: ${mapped} items mapped (food and agricultural produce ` +
+      `ZERO-RATED per Nigeria Tax Act 2025, so input VAT stays recoverable).`,
+  );
+  for (const item of arguable) {
+    console.log(`  NEEDS A RULING: ${item.item} — ${item.reason.replace('ARGUABLE: ', '')}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Three-way match tolerances (§5)
+//
+// Commercial policy rather than statute, so this is a judgement call: 2% on
+// both price and quantity. Tight enough that a real overcharge is caught,
+// loose enough that a rounding difference or a weighed-goods variance does not
+// send every invoice to an exception queue nobody then has time to read.
+// Zero tolerance sounds safer and in practice is worse, because an exception
+// queue that is always full stops being read at all.
+// ---------------------------------------------------------------------------
+
+async function seedMatchTolerances(companyId: string) {
+  const config = await prisma.procurementConfiguration.findFirst({
+    where: { companyId, effectiveTo: null },
+  });
+  if (!config) return;
+
+  await prisma.procurementConfiguration.update({
+    where: { id: config.id },
+    data: {
+      priceTolerancePercent: '2',
+      quantityTolerancePercent: '2',
+      // Over-receipt stays at zero: accepting goods nobody ordered is a
+      // different kind of problem from a small price variance.
+      overReceiptTolerancePercent: '0',
+    },
+  });
+
+  console.log(
+    'Seeded match tolerances: 2% price, 2% quantity, 0% over-receipt (commercial ' +
+      'judgement — the client may set their own).',
+  );
+}
+
+/**
+ * The period-close checklist (§8). Each step is either backed by an automated
+ * check the close validation already runs — in which case `automatedCheck`
+ * names the finding code and the system answers it — or confirmed by a human.
+ *
+ * Blocking steps stop the close. Non-blocking ones are recorded and may be
+ * waived with a stated reason, which the database requires.
+ */
+async function seedCloseChecklist(companyId: string) {
+  const steps = [
+    {
+      code: 'CL-010',
+      name: 'All sub-ledgers posted to the general ledger',
+      description:
+        'No approved document from procurement, sales, payroll or production is ' +
+        'still waiting to reach the GL for this period.',
+      blocking: true,
+      appliesToYearEnd: true,
+      automatedCheck: null,
+    },
+    {
+      code: 'CL-020',
+      name: 'No transactions awaiting approval',
+      description: 'Every workflow transaction dated in the period has reached a terminal state.',
+      blocking: true,
+      appliesToYearEnd: true,
+      automatedCheck: 'NO_PENDING_APPROVALS',
+    },
+    {
+      code: 'CL-030',
+      name: 'No draft journals left in the period',
+      description: 'Draft manual journals are either posted or cancelled before the period shuts.',
+      blocking: true,
+      appliesToYearEnd: true,
+      automatedCheck: 'NO_DRAFT_JOURNALS',
+    },
+    {
+      code: 'CL-040',
+      name: 'Bank accounts reconciled',
+      description:
+        'Each bank GL account agrees to its statement at the period end date, with ' +
+        'reconciling items listed.',
+      blocking: true,
+      appliesToYearEnd: true,
+      automatedCheck: null,
+    },
+    {
+      code: 'CL-050',
+      name: 'Stock count reconciled to the stock ledger',
+      description:
+        'Physical counts are entered and variances either explained or written off ' +
+        'through an approved adjustment.',
+      blocking: true,
+      appliesToYearEnd: true,
+      automatedCheck: null,
+    },
+    {
+      code: 'CL-060',
+      name: 'GRNI reviewed and aged',
+      description:
+        'Goods received not invoiced is a real liability. Anything aged beyond the ' +
+        'agreed window is chased or accrued.',
+      blocking: true,
+      appliesToYearEnd: true,
+      automatedCheck: 'GRNI_REVIEWED',
+    },
+    {
+      code: 'CL-070',
+      name: 'Payroll posted for the period',
+      description: 'Every payroll run covering the period is approved and posted.',
+      blocking: true,
+      appliesToYearEnd: true,
+      automatedCheck: 'PAYROLL_POSTED',
+    },
+    {
+      code: 'CL-080',
+      name: 'VAT and WHT registers agree to the control accounts',
+      description:
+        'Register totals reconcile to movement on the input VAT, output VAT, WHT ' +
+        'receivable and WHT payable accounts.',
+      blocking: true,
+      appliesToYearEnd: true,
+      automatedCheck: null,
+    },
+    {
+      code: 'CL-090',
+      name: 'Statutory returns filed',
+      description:
+        'VAT and PAYE returns for the period are filed and the remittance evidence ' +
+        'attached. Due dates: VAT and PAYE by the 21st and 10th of the following ' +
+        'month respectively — confirm with the client for their filing calendar.',
+      blocking: false,
+      appliesToYearEnd: true,
+      automatedCheck: 'TAX_PERIODS_FILED',
+    },
+    {
+      code: 'CL-100',
+      name: 'Accruals and prepayments reviewed',
+      description: 'Recurring accruals released or rolled, prepayments amortised for the period.',
+      blocking: false,
+      appliesToYearEnd: true,
+      automatedCheck: null,
+    },
+    {
+      code: 'CL-110',
+      name: 'Depreciation posted',
+      description: 'Fixed asset depreciation for the period is calculated and posted.',
+      blocking: false,
+      appliesToYearEnd: true,
+      automatedCheck: null,
+    },
+    {
+      code: 'CL-120',
+      name: 'Intercompany and interbranch balances agree',
+      description: 'Branch-to-branch balances net to zero across the company.',
+      blocking: false,
+      appliesToYearEnd: true,
+      automatedCheck: null,
+    },
+    {
+      code: 'CL-130',
+      name: 'Trial balance in balance',
+      description: 'Total debits equal total credits for the period.',
+      blocking: true,
+      appliesToYearEnd: true,
+      automatedCheck: 'TRIAL_BALANCE',
+    },
+    {
+      code: 'CL-140',
+      name: 'Management accounts reviewed and signed off',
+      description:
+        'The period result is reviewed against budget and the variances explained ' +
+        'before the period is shut.',
+      blocking: false,
+      appliesToYearEnd: true,
+      automatedCheck: null,
+    },
+  ];
+
+  let sequence = 10;
+  for (const step of steps) {
+    await prisma.periodCloseChecklistTemplate.upsert({
+      where: { companyId_code: { companyId, code: step.code } },
+      update: {
+        name: step.name,
+        description: step.description,
+        sequence,
+        blocking: step.blocking,
+        appliesToYearEnd: step.appliesToYearEnd,
+        automatedCheck: step.automatedCheck,
+      },
+      create: {
+        companyId,
+        code: step.code,
+        name: step.name,
+        description: step.description,
+        sequence,
+        blocking: step.blocking,
+        appliesToYearEnd: step.appliesToYearEnd,
+        automatedCheck: step.automatedCheck,
+      },
+    });
+    sequence += 10;
+  }
+
+  console.log(
+    `Seeded ${steps.length} period-close checklist steps ` +
+      `(${steps.filter((s) => s.blocking).length} blocking, ` +
+      `${steps.filter((s) => s.automatedCheck).length} automated).`,
   );
 }
 

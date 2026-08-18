@@ -4,9 +4,13 @@ import { TaxEngineService } from './tax-engine.service';
 import { TaxRegisterService } from './tax-register.service';
 import { TaxPeriodService } from './tax-period.service';
 import { kobo } from '../common/money';
+import { CurrentCompany } from '../auth/current-user.decorator';
+import { OwnedRecord } from '../auth/owned-record.guard';
+import { Roles } from '../auth/roles.guard';
 
 /** Consolidated Reference §4 API surface. */
 @Controller('tax')
+@Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
 export class TaxController {
   constructor(
     private readonly engine: TaxEngineService,
@@ -16,16 +20,16 @@ export class TaxController {
 
   @Post('vat/calculate')
   async calculateVat(
+    @CurrentCompany() companyId: string,
     @Body()
     body: {
-      companyId: string;
       taxCode: string;
       amountKobo: string | number;
       on?: string;
     },
   ) {
     const result = await this.engine.calculateVat({
-      companyId: body.companyId,
+      companyId,
       taxCode: body.taxCode,
       amount: kobo(BigInt(body.amountKobo)),
       on: body.on ? new Date(body.on) : new Date(),
@@ -35,15 +39,15 @@ export class TaxController {
 
   @Post('vat/calculate-document')
   async calculateDocument(
+    @CurrentCompany() companyId: string,
     @Body()
     body: {
-      companyId: string;
       on?: string;
       lines: Array<{ lineNumber: number; taxCode: string; amountKobo: string | number }>;
     },
   ) {
     const result = await this.engine.calculateDocument({
-      companyId: body.companyId,
+      companyId,
       on: body.on ? new Date(body.on) : new Date(),
       lines: body.lines.map((l) => ({
         lineNumber: l.lineNumber,
@@ -62,9 +66,9 @@ export class TaxController {
 
   @Post('wht/calculate')
   async calculateWht(
+    @CurrentCompany() companyId: string,
     @Body()
     body: {
-      companyId: string;
       taxCode: string;
       amountKobo: string | number;
       vatAmountKobo?: string | number;
@@ -72,7 +76,7 @@ export class TaxController {
     },
   ) {
     const result = await this.engine.calculateWht({
-      companyId: body.companyId,
+      companyId,
       taxCode: body.taxCode,
       amount: kobo(BigInt(body.amountKobo)),
       vatAmount:
@@ -93,7 +97,7 @@ export class TaxController {
 
   @Get('vat/register')
   async vatRegister(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('taxPeriodId') taxPeriodId: string,
   ) {
     const result = await this.registers.vatRegister(companyId, taxPeriodId);
@@ -118,7 +122,7 @@ export class TaxController {
 
   @Get('wht/register')
   async whtRegister(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('taxPeriodId') taxPeriodId: string,
   ) {
     const result = await this.registers.whtRegister(companyId, taxPeriodId);
@@ -144,7 +148,7 @@ export class TaxController {
 
   @Get('reconciliation')
   async reconciliation(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('taxPeriodId') taxPeriodId: string,
   ) {
     return this.registers.reconcile(companyId, taxPeriodId);
@@ -152,7 +156,7 @@ export class TaxController {
 
   @Get('periods')
   async listPeriods(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('taxType') taxType?: TaxType,
   ) {
     return this.periods.list(companyId, taxType);
@@ -166,11 +170,13 @@ export class TaxController {
     return this.periods.generateYear(body);
   }
 
+  @OwnedRecord('taxPeriod', 'id')
   @Post('periods/:id/close')
   async closePeriod(@Param('id') id: string, @Body() body: { actorId: string }) {
     return this.periods.close({ taxPeriodId: id, actorId: body.actorId });
   }
 
+  @OwnedRecord('taxPeriod', 'id')
   @Post('periods/:id/file')
   async filePeriod(
     @Param('id') id: string,

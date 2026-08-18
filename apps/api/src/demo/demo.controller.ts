@@ -1,9 +1,11 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Public } from '../auth/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { TrialBalanceService } from '../reporting/trial-balance.service';
 import { AuditService } from '../audit/audit.service';
 import { kobo } from '../common/money';
+import { AnyRole } from '../auth/roles.guard';
 
 /**
  * A thin driver for the Phase 1 control panel.
@@ -16,6 +18,8 @@ import { kobo } from '../common/money';
  * It is NOT part of the product surface. Phase 2 replaces it with real
  * workflow-governed transactions.
  */
+// Dev scaffolding: registered only outside production (see AppModule).
+@Public()
 @Controller('demo')
 export class DemoController {
   constructor(
@@ -25,6 +29,7 @@ export class DemoController {
     private readonly audit: AuditService,
   ) {}
 
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Get('context')
   async context() {
     const company = await this.prisma.company.findFirst({
@@ -64,6 +69,7 @@ export class DemoController {
     };
   }
 
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Get('periods')
   async periods() {
     return this.prisma.financialPeriod.findMany({
@@ -73,6 +79,7 @@ export class DemoController {
     });
   }
 
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Get('trial-balance')
   async tb() {
     const company = await this.prisma.company.findFirstOrThrow({
@@ -94,6 +101,7 @@ export class DemoController {
     };
   }
 
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Get('journals')
   async journals() {
     const entries = await this.prisma.journalEntry.findMany({
@@ -129,6 +137,7 @@ export class DemoController {
     }));
   }
 
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Get('audit')
   async auditTrail() {
     const records = await this.prisma.auditRecord.findMany({
@@ -153,6 +162,7 @@ export class DemoController {
    * either a valid entry or one of the rule violations, so the panel can show
    * both that correct postings land and that incorrect ones are refused.
    */
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Post('post')
   async postScenario(
     @Body()
@@ -278,6 +288,7 @@ export class DemoController {
    * of application code. The trigger's own message is returned verbatim so the
    * panel can show where the refusal came from.
    */
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Post('tamper')
   async tamper(@Body() body: { journalEntryId: string }) {
     try {
@@ -304,6 +315,7 @@ export class DemoController {
     }
   }
 
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Post('reverse')
   async reverse(@Body() body: { journalEntryId: string }) {
     const actor = await this.ensureDemoUser();
@@ -327,6 +339,7 @@ export class DemoController {
     };
   }
 
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Post('period-status')
   async setPeriodStatus(
     @Body() body: { status: 'OPEN' | 'SOFT_CLOSED' | 'CLOSED' | 'ARCHIVED' },
@@ -342,6 +355,7 @@ export class DemoController {
     return { ok: true, period: period.name, status: body.status };
   }
 
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Post('reset')
   async reset() {
     // Demo data only: journals, their lines, the idempotency log and the audit
@@ -372,16 +386,36 @@ export class DemoController {
   }
 
   private async ensureDemoUser() {
+    /*
+     * Belongs to the demo company, like any other operator.
+     *
+     * Audit records are stamped with the acting user's company, so a demo
+     * operator with no company writes records that belong to no tenant — and
+     * they then vanish from the audit screen, which is company-scoped. The
+     * postings would be real and their trail invisible, which is precisely the
+     * impression this scaffolding exists to avoid giving.
+     */
+    const company = await this.prisma.company.findFirstOrThrow({ where: { code: 'BAP' } });
+
     const existing = await this.prisma.user.findUnique({
       where: { email: 'demo@bioassetpro.local' },
     });
-    if (existing) return existing;
+    if (existing) {
+      // Attach one created before the company link existed.
+      if (existing.companyId === company.id) return existing;
+      return this.prisma.user.update({
+        where: { id: existing.id },
+        data: { companyId: company.id },
+      });
+    }
+
     return this.prisma.user.create({
       data: {
         email: 'demo@bioassetpro.local',
         fullName: 'Demo Operator',
         passwordHash: 'not-a-real-account',
         roles: ['PRODUCTION_SUPERVISOR', 'FINANCE_MANAGER'],
+        companyId: company.id,
       },
     });
   }

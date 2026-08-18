@@ -9,6 +9,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from '../reporting/trial-balance.service';
 import { AuditService } from '../audit/audit.service';
+import { OwnedRecord } from '../auth/owned-record.guard';
+import { Roles } from '../auth/roles.guard';
 
 /**
  * Phase 1 read/create endpoints for the core masters.
@@ -19,6 +21,7 @@ import { AuditService } from '../audit/audit.service';
  * Configuration" and "Role Changes" as workflow-governed transactions).
  */
 @Controller('core')
+@Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
 export class MastersController {
   constructor(
     private readonly prisma: PrismaService,
@@ -89,6 +92,7 @@ export class MastersController {
       .then(serialiseBigInts);
   }
 
+  @OwnedRecord('journalEntry', 'journalEntryId')
   @Get('journals/:journalEntryId')
   async getJournal(@Param('journalEntryId') journalEntryId: string) {
     const entry = await this.prisma.journalEntry.findUnique({
@@ -106,11 +110,13 @@ export class MastersController {
     return serialiseBigInts(entry);
   }
 
+  @OwnedRecord('journalEntry', 'journalEntryId')
   @Get('journals/:journalEntryId/audit')
   getJournalAudit(@Param('journalEntryId') journalEntryId: string) {
     return this.audit.findForTransaction(journalEntryId);
   }
 
+  @OwnedRecord('financialPeriod', 'periodId')
   @Post('periods/:periodId/status')
   async setPeriodStatus(
     @Param('periodId') periodId: string,

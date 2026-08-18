@@ -48,6 +48,13 @@ export interface PostingRequest {
 
   /** When set, this journal reverses the referenced one (Rule 2). */
   reversalOfId?: string | null;
+
+  /**
+   * Marks a year-end closing or opening entry, which is permitted into a CLOSED
+   * period — see PeriodService.assertPostingAllowed. Set ONLY by YearEndService.
+   * It is recorded on the audit record, so such a posting is never invisible.
+   */
+  isClosingEntry?: boolean;
 }
 
 export interface PostingResult {

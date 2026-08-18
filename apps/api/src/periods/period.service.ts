@@ -29,11 +29,20 @@ export class PeriodService {
    *   SOFT_CLOSED — accepts postings only from the finance roles above
    *   CLOSED      — accepts nothing; reopening is a workflow-governed action
    *   ARCHIVED    — accepts nothing, ever
+   *
+   * THE ONE EXEMPTION: a year-end closing entry. The journal that sweeps
+   * revenue to retained earnings belongs to the final period BY DEFINITION,
+   * and that period must already be closed before the year can close — so
+   * without this the close could never post its own entry. The exemption is
+   * deliberately narrow: it is set only by YearEndService, it never applies to
+   * an ARCHIVED period or a closed YEAR, and it is recorded on the audit
+   * record so a posting into a closed period is always visible as one.
    */
   async assertPostingAllowed(
     financialPeriodId: string,
     userRoles: string[],
     tx?: Prisma.TransactionClient,
+    isClosingEntry = false,
   ): Promise<void> {
     const client = tx ?? this.prisma;
     const period = await client.financialPeriod.findUnique({
@@ -74,6 +83,9 @@ export class PeriodService {
       }
 
       case PeriodStatus.CLOSED:
+        if (isClosingEntry) return;
+        throw new ClosedPeriodError(period.name, period.status);
+
       case PeriodStatus.ARCHIVED:
       default:
         throw new ClosedPeriodError(period.name, period.status);

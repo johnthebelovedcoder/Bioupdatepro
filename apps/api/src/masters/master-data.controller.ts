@@ -9,6 +9,9 @@ import { ItemService } from './item.service';
 import { EmployeeService } from './employee.service';
 import { RecipeService } from './recipe.service';
 import { kobo } from '../common/money';
+import { CurrentCompany } from '../auth/current-user.decorator';
+import { OwnedRecord } from '../auth/owned-record.guard';
+import { Roles } from '../auth/roles.guard';
 
 /**
  * Master data API (§5, §6, §7, §10).
@@ -17,6 +20,7 @@ import { kobo } from '../common/money';
  * (companies, accounts, periods). This one owns the transacting masters.
  */
 @Controller('masters')
+@Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
 export class MasterDataController {
   constructor(
     private readonly parties: PartyService,
@@ -41,7 +45,7 @@ export class MasterDataController {
 
   @Get('suppliers')
   async listSuppliers(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('status') status?: PartyStatus,
   ) {
     const rows = await this.parties.listSuppliers(companyId, status);
@@ -58,6 +62,7 @@ export class MasterDataController {
     }));
   }
 
+  @OwnedRecord('supplier', 'id')
   @Post('suppliers/:id/status')
   async setSupplierStatus(
     @Param('id') id: string,
@@ -83,7 +88,7 @@ export class MasterDataController {
 
   @Get('customers')
   async listCustomers(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('status') status?: PartyStatus,
   ) {
     const rows = await this.parties.listCustomers(companyId, status);
@@ -99,6 +104,7 @@ export class MasterDataController {
     }));
   }
 
+  @OwnedRecord('customer', 'id')
   @Post('customers/:id/status')
   async setCustomerStatus(
     @Param('id') id: string,
@@ -107,6 +113,7 @@ export class MasterDataController {
     return this.parties.setCustomerStatus({ customerId: id, ...body });
   }
 
+  @OwnedRecord('customer', 'id')
   @Post('customers/:id/credit-check')
   async creditCheck(
     @Param('id') id: string,
@@ -138,7 +145,7 @@ export class MasterDataController {
 
   @Get('items')
   async listItems(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('itemType') itemType?: ItemType,
   ) {
     const rows = await this.items.list(companyId, itemType);
@@ -154,6 +161,7 @@ export class MasterDataController {
     }));
   }
 
+  @OwnedRecord('item', 'id')
   @Post('items/:id/standard-cost')
   async setStandardCost(
     @Param('id') id: string,
@@ -188,7 +196,7 @@ export class MasterDataController {
 
   @Get('employees')
   async listEmployees(
-    @Query('companyId') companyId: string,
+    @CurrentCompany() companyId: string,
     @Query('status') status?: EmploymentStatus,
   ) {
     const rows = await this.employees.list(companyId, status);
@@ -204,6 +212,7 @@ export class MasterDataController {
     }));
   }
 
+  @OwnedRecord('employee', 'id')
   @Post('employees/:id/salary-component')
   async setSalaryComponent(
     @Param('id') id: string,
@@ -229,16 +238,19 @@ export class MasterDataController {
     });
   }
 
+  @OwnedRecord('employee', 'id')
   @Get('employees/:id/salary')
   async salarySnapshot(@Param('id') id: string, @Query('on') on?: string) {
     return this.employees.salarySnapshot(id, on ? new Date(on) : new Date());
   }
 
+  @OwnedRecord('employee', 'id')
   @Get('employees/:id/payroll-readiness')
   async payrollReadiness(@Param('id') id: string, @Query('on') on?: string) {
     return this.employees.payrollReadiness(id, on ? new Date(on) : new Date());
   }
 
+  @OwnedRecord('employee', 'id')
   @Post('employees/:id/activate-payroll')
   async activatePayroll(
     @Param('id') id: string,
@@ -274,11 +286,13 @@ export class MasterDataController {
     });
   }
 
+  @OwnedRecord('productRecipeVersion', 'id')
   @Post('recipes/versions/:id/activate')
   async activateVersion(@Param('id') id: string, @Body() body: { actorId: string }) {
     return this.recipes.activateVersion({ recipeVersionId: id, actorId: body.actorId });
   }
 
+  @OwnedRecord('productRecipeVersion', 'id')
   @Get('recipes/versions/:id/explode')
   async explode(
     @Param('id') id: string,

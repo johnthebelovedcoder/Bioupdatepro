@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Controller, Get, Header } from '@nestjs/common';
+import { Public } from '../auth/current-user.decorator';
+import { AnyRole } from '../auth/roles.guard';
 
 /**
  * Serves the Phase 1 control panel.
@@ -11,10 +13,13 @@ import { Controller, Get, Header } from '@nestjs/common';
  *
  * Phase 2 onward this is replaced by the Next.js admin app.
  */
+// Dev scaffolding: registered only outside production (see AppModule).
+@Public()
 @Controller()
 export class PanelController {
   private readonly panelPath = join(__dirname, '..', '..', 'public', 'index.html');
 
+  @AnyRole('Development-only demo panel; never routable in production.')
   @Get()
   @Header('content-type', 'text/html; charset=utf-8')
   @Header('cache-control', 'no-store')

@@ -16,7 +16,10 @@
     "db:generate": "npm run generate -w @bioassetpro/database",
     "db:push": "npm run push -w @bioassetpro/database",
     "db:seed": "npm run seed -w @bioassetpro/database",
-    "db:start": "node scripts/pg-dev-server.mjs"
+    "db:start": "node scripts/pg-dev-server.mjs",
+    "db:seed:users": "tsx --env-file=.env apps/api/src/auth/seed-users.ts",
+    "db:seed:ops": "tsx --env-file=.env packages/database/src/seed-operations.ts",
+    "db:seed:trade": "tsx --env-file=.env packages/database/src/seed-trade.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.3.4",

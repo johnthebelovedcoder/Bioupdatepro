@@ -4,6 +4,13 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "baseUrl": ".",
+    // Must live INSIDE outDir. nest-cli.json sets deleteOutDir, so dist is
+    // wiped on every start; if the incremental build-info survives that wipe,
+    // tsc reads it, concludes every file is already emitted, writes nothing,
+    // and reports "Found 0 errors" over an empty dist. The app then dies with
+    // "Cannot find module dist/main". Keeping the two together means they are
+    // always cleared as a pair.
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "types": [
       "node"
     ]
