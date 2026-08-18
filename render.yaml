@@ -23,7 +23,15 @@ services:
     # cleanly, so a redeploy is safe. This is the right shape while the schema
     # is still moving; once it settles, this should become a migration step so
     # that a deploy can be rolled back as well as rolled forward.
-    buildCommand: npm install && npm run db:generate && npm run db:push && npm run build --workspace @bioassetpro/api
+    # --include=dev is load-bearing, not belt-and-braces.
+    #
+    # NODE_ENV=production is set below because the runtime needs it — it is
+    # what keeps the demo controllers out of the module graph and makes the
+    # seeds refuse to run. But npm reads the same variable and OMITS
+    # devDependencies, which is where the build tools live: prisma, typescript,
+    # @types/react, and pg for the SQL constraint step. Without this flag the
+    # build fails on a missing package that is right there in package.json.
+    buildCommand: npm install --include=dev && npm run db:generate && npm run db:push && npm run build --workspace @bioassetpro/api
     startCommand: node apps/api/dist/main.js
     healthCheckPath: /api/auth/providers
     envVars:
@@ -59,7 +67,7 @@ services:
     plan: free
     region: frankfurt
     branch: main
-    buildCommand: npm install && npm run db:generate && npm run build --workspace @bioassetpro/web
+    buildCommand: npm install --include=dev && npm run db:generate && npm run build --workspace @bioassetpro/web
     startCommand: npm run start --workspace @bioassetpro/web
     envVars:
       - key: NODE_ENV
