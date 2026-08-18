@@ -1,151 +1,155 @@
 # BioAssetPro
 
-An accounting-grade agritech ERP. Pilot modules: **SnailPro** and **PoultryPro**.
+Farm management and accounting for Nigerian livestock farms — poultry and snails
+today, built so fish, dairy, pigs, goats and rabbits are configuration rather
+than new code.
 
-This is a financial system, not a prototype. Every accounting rule in the source
-specifications is a hard requirement.
+## What makes it different
 
----
+Most farm software records operations. Most accounting software records money.
+Neither can answer the question a farmer actually asks: **did this batch make
+money, and if not, where did it go?**
 
-## Non-negotiable rules
+Answering that needs both halves and one source of truth between them. So feed
+issued to a batch is not a note in a log — it is a posting that moves value out
+of inventory and into that batch's work-in-progress account. The operational
+record and the ledger are the same record, seen from two ends.
 
-These are enforced structurally — in the type system, the service layer and the
-database — not by convention.
+That is also what makes theft detectable. A house using 18% more feed per bird
+than the identical house next door is a discrepancy no textbook can spot and no
+farm can argue with, and it is only computable because the feed, the birds and
+the money are in one system.
 
-| # | Rule | Where it is enforced |
-|---|---|---|
-| 1 | Money is an integer count of minor units (kobo) | `Kobo` branded bigint (`common/money.ts`); `BigInt` columns; no float anywhere near an amount |
-| 2 | Posted transactions are immutable | Postgres triggers (`prisma/sql/010_constraints.sql`) **and** Prisma middleware |
-| 3 | Every GL line carries the full Enterprise Dimension set | `NOT NULL` on the mandatory six; `DimensionValidatorService` for conditionals |
-| 4 | Maker-checker is structural | Service layer (Phase 2 — Workflow Engine) |
-| 5 | One Workflow Engine, one Tax Engine | Phases 2 and 3; every module calls them |
-| 6 | Idempotency keys on every posting endpoint | Unique index on `(scope, key)` + `IdempotencyService` |
-| 7 | The WIP identity holds exactly | Phase 6, with an automated regression test |
-| 8 | Nothing species-specific is hard-coded | Recipes, rates, GL mappings and requirement flags are all configuration rows |
-| 9 | Every workflow event and posting writes an immutable audit record | `AuditService`, written in the same transaction; append-only trigger |
-| 10 | No invented business logic | Where the spec is silent, we ask — see `docs/assumptions.md` |
+## Design rules
 
----
+These hold throughout and are worth knowing before reading the code.
 
-## Repository layout
+- **Money is integer kobo.** Never a float, never a Number over the wire —
+  BigInt in the API, decimal strings in JSON. A rounding error in a ledger is
+  not a rounding error, it is a discrepancy somebody has to explain.
+- **Posted transactions are immutable.** Corrections are reversals. Enforced by
+  database triggers, not convention.
+- **The species lives in the data.** No poultry table, no snail enum. A batch of
+  broilers and a colony of snails are the same row with a different
+  `speciesKey`; the words on screen come from a module registry.
+- **Nothing is invented.** Where the source documents are silent — statutory
+  rates, approval limits, breed standards for species that have none published —
+  the product says so rather than guessing. A benchmark of unknown origin beside
+  a real figure is worse than no benchmark.
+- **The interface is honest about what it cannot do.** Work recorded with no
+  signal says it is queued, not saved. Figures that are illustrative say so.
+
+## Architecture
 
 ```
 apps/
-  api/                  NestJS backend
-    src/
-      common/           money.ts (Rule 1), errors.ts
-      prisma/           PrismaService + immutability middleware
-      enterprise-dimensions/   §1.1 dimension block and validator
-      audit/            Rule 9
-      idempotency/      Rule 6
-      periods/          §8 period status gate
-      posting/          THE posting service — the only path into the GL
-      reporting/        Trial balance and dimensional queries
-      masters/          Phase 1 read/create endpoints
-    test/               Unit + integration suites
+  api/        NestJS. Ledger, tax, payroll, O2C, P2P, period close, operations.
+  web/        Next.js App Router. Mobile-first; the daily round is the centre.
 packages/
-  database/             Prisma schema, SQL invariants, seed
-scripts/
-  pg-dev-server.mjs     In-process Postgres for local dev
+  database/   Prisma schema, seeds, SQL constraints and immutability triggers.
 ```
 
----
+The web app writes through an **outbox**. Every submission is queued in the
+browser with an idempotency key generated once and reused across retries, so a
+handset that loses signal mid-send cannot record the same round twice. Reads
+come from the API; anything still illustrative is labelled.
+
+### Authorisation
+
+Three guards answering three different questions. Being signed in satisfies
+none of them on its own.
+
+| Guard | Question | On failure |
+|---|---|---|
+| `CompanyScopeGuard` | May this request *name* this company? | 403 |
+| `OwnedRecordGuard` | May it *touch* this record? | **404**, never 403 — a 403 would confirm the id exists and turn the endpoint into an oracle for enumerating another tenant's keys |
+| `RolesGuard` | May this *role* reach this endpoint? | 403 naming the role required, never the role held |
+
+`RolesGuard` **denies by default**. A route with no explicit `@Roles(...)`,
+`@AnyRole(reason)` or `@Public` is refused — including for an administrator —
+so a forgotten rule fails loudly the first time it is called instead of sitting
+there as an accidental hole.
 
 ## Getting started
 
+Requires Node 20+. No Docker: the development database is a real PostgreSQL
+started by a script.
+
 ```bash
 npm install
+cp .env.example .env
 ```
 
-### Database
-
-Any Postgres works. If you do not have one, this repo can run Postgres
-in-process (PGlite over the wire protocol — a real server, no Docker):
+Then set `JWT_SECRET` in `.env` — the API will not start without it:
 
 ```bash
-npm run db:start
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 ```
 
-Then, in another terminal:
+Bring up the database and load it:
 
 ```bash
-npm run db:push
-npm run db:seed
+npm run db:start        # PostgreSQL on :5433
+npm run db:push         # schema + SQL constraints and triggers
+npm run db:seed         # chart of accounts, tax codes, calendar
+npm run db:seed:users   # one user per rung of the approval ladder
+npm run db:seed:ops     # illustrative livestock and 30 days of history
+npm run db:seed:trade   # customers, suppliers, feed and medication items
 ```
 
-`db:push` applies the Prisma schema **and** the SQL invariants in
-`packages/database/prisma/sql/`. Those SQL files are not optional decoration —
-they are where Rule 2 and Rule 9 actually hold.
-
-### Tests
+Run the two apps in separate terminals:
 
 ```bash
-npm test
+cd apps/api && npm run dev    # :3001
+cd apps/web && npm run dev    # :3000
 ```
 
-The integration suite starts its own Postgres if `DATABASE_URL` is unset, so it
-needs no setup. Point `DATABASE_URL` at a managed Postgres for CI and it will
-use that instead.
+Sign in with any seeded user — password `ChangeMe!2026`:
 
----
+| Email | Role | Sees |
+|---|---|---|
+| `supervisor@bioassetpro.ng` | Production supervisor | Livestock and the daily round. No money. |
+| `farm.manager@bioassetpro.ng` | Farm manager | The farm, buying, and money. Not the ledger. |
+| `controller@bioassetpro.ng` | Financial controller | The ledger, journals, period close. |
+| `md@bioassetpro.ng` | Managing director | Everything, and approvals. |
+| `admin@bioassetpro.ng` | Administrator | Everything, including staff and invitations. |
 
-## Phase 1 — Core platform (this phase)
+Or create your own farm at `/signup` — registration provisions a chart of
+accounts, cost centres and twelve open periods in one transaction, so a new
+farm can record a round on its first morning.
 
-**Delivered**
+## Testing
 
-- Company, Branch, Department, Cost Centre (hierarchical), Chart of Accounts
-- Financial Year / Period with `OPEN → SOFT_CLOSED → CLOSED → ARCHIVED`
-- Currency and effective-dated exchange rates
-- Farm, Pen/House, Project, Warehouse dimension masters
-- The Enterprise Dimension block and its validator
-- **`PostingService`** — the single write path into the General Ledger
-- `AuditService`, `IdempotencyService`, `PeriodService`
-- `TrialBalanceService` with dimensional filtering
-- Database-level immutability, single-side and balance constraints
+```bash
+npm run typecheck
+npm test                  # 312 integration tests against a real PostgreSQL
+```
 
-**Proved by tests**
+The integration suite starts its own ephemeral database. It exercises the
+accounting rules directly — balanced postings, immutability triggers,
+maker-checker, tax reconciliation, year-end close.
 
-- A balanced posting commits; an unbalanced one is refused
-- A missing mandatory dimension is refused
-- A missing cost centre is refused *only* on accounts configured to need one
-- A line contradicting its header is refused
-- Another company's cost centre is refused
-- Summary and inactive accounts are refused
-- Closed periods refuse everyone; soft-closed periods admit only finance roles
-- A replayed idempotency key returns the original result and posts nothing new
-- The same key with a different body is a hard error
-- `UPDATE` / `DELETE` against a posted journal fails **at the database**
-- Audit records cannot be updated or deleted by any path
-- Reversal produces a mirror document and leaves the original untouched
-- The trial balance balances after every posting
+## What is not built yet
 
-**Deferred, and why**
+Stated here rather than discovered later.
 
-- *Workflow states beyond Draft → Posted* — Phase 2. The posting service
-  contract does not change when they arrive.
-- *Business dimensions (Customer, Supplier, Employee, Item)* — Phase 4, with
-  their master tables. Additive nullable columns.
-- *The Batch dimension* — Phase 5, with `BiologicalBatch`.
-- *Period close as a governed process* — Phase 11. Phase 1 exposes a direct
-  status setter so the posting gate is testable; it is not the close process.
-- *Exchange-rate revaluation* — not specified in any source document, so not
-  built (Rule 10).
+- **Tax rates, approval limits and payroll bands are not provisioned** for a new
+  farm. They carry statutory consequences and belong to the farm's own
+  accountant. Operations work from day one; a VAT invoice needs these first.
+- **Sales and purchases stop at a submitted document.** They are translated into
+  O2C and P2P orders and sent for approval — deliberately, so there is one
+  posting path and one set of tax rules — but nothing reaches the ledger until
+  somebody approves it.
+- **Harvest and mortality are not valued.** Both need a costing policy
+  (weighted average, FIFO, standard) that is the farm's decision.
+- **Google and Facebook sign-in are seams, not features.** The flow is ready;
+  the credentials must come from your own developer accounts.
+- **Stock levels, staff and the activity feed still read from fixtures.**
+  Livestock, health, harvests, feeding and the money figures are real.
+- **Interface translations need a native speaker.** The Hausa, Yorùbá and Igbo
+  wording was not written by one, and a wrong word on a mortality form produces
+  wrong records.
 
----
+## Licence
 
-## Build order
-
-1. **Core platform** ← this phase
-2. Workflow & Approval Engine
-3. Tax Engine (VAT/WHT)
-4. Master data
-5. ⚠ Biological Batch source interface — *blocked on Stage 7 / IAS 41 documentation*
-6. Processing engine → SnailPro → cost allocation → PoultryPro
-7. Procure-to-Pay
-8. Order-to-Cash
-9. HR & Payroll (PAYE + Statutory engines)
-10. Manual Journal / Adjustment Centre
-11. Period-End & Year-End Closing
-
-See `docs/implementation-plan.md` for the full plan, the source-document
-findings, and the open questions.
+Not yet licensed. All rights reserved.
