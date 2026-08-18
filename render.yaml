@@ -1,0 +1,85 @@
+# Render Blueprint — the whole stack in one file.
+#
+# Create it from the Render dashboard: New → Blueprint, point it at this repo,
+# and it provisions the database and both services together with the wiring
+# between them already correct.
+#
+# Two things are deliberately NOT automated here, and both are explained where
+# they occur: the database schema is applied at build time, and no demo data is
+# ever seeded into a deployed environment.
+services:
+  # ---------------------------------------------------------------------------
+  # API — NestJS. Ledger, tax, payroll, O2C, P2P, operations.
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: bioassetpro-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    # The schema is pushed as part of the build.
+    #
+    # `prisma db push` is idempotent and the SQL constraint files re-apply
+    # cleanly, so a redeploy is safe. This is the right shape while the schema
+    # is still moving; once it settles, this should become a migration step so
+    # that a deploy can be rolled back as well as rolled forward.
+    buildCommand: npm install && npm run db:generate && npm run db:push && npm run build --workspace @bioassetpro/api
+    startCommand: node apps/api/dist/main.js
+    healthCheckPath: /api/auth/providers
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bioassetpro-db
+          property: connectionString
+      # Generated once by Render and never seen by anyone. The API refuses to
+      # start if this is missing, which is the intended behaviour: a fallback
+      # secret that works silently in development ships silently to production.
+      - key: JWT_SECRET
+        generateValue: true
+      # CORS allow-list. The browser does not call this API directly — every
+      # call is server-to-server from the web service — but the allow-list is
+      # set correctly anyway rather than left at a localhost default.
+      #
+      # Entered by hand rather than wired with `fromService`, because that
+      # yields a bare hostname and an Origin must carry its scheme. Render
+      # prompts for it when the Blueprint is created:
+      #
+      #     https://bioassetpro-web.onrender.com
+      - key: WEB_ORIGIN
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # Web — Next.js. The farm-facing application.
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: bioassetpro-web
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: npm install && npm run db:generate && npm run build --workspace @bioassetpro/web
+    startCommand: npm run start --workspace @bioassetpro/web
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Where the web server reaches the API.
+      #
+      # Despite the NEXT_PUBLIC_ prefix this is only ever read on the server —
+      # in server actions, route handlers and server-only modules. The browser
+      # never holds a token and never calls the API directly; it posts to
+      # /api/sync on this origin, which attaches the bearer server-side.
+      # Entered by hand for the same reason as WEB_ORIGIN above: `fromService`
+      # returns a bare hostname, and this needs a scheme AND the /api prefix
+      # the server mounts everything under. Render prompts for it:
+      #
+      #     https://bioassetpro-api.onrender.com/api
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+
+databases:
+  - name: bioassetpro-db
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: "16"

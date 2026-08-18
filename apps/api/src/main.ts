@@ -49,8 +49,16 @@ async function bootstrap(): Promise<void> {
   // The control panel lives at the root; everything else is under /api.
   app.setGlobalPrefix('api', { exclude: ['/'] });
 
+  /*
+   * Bind on every interface, not just loopback.
+   *
+   * A container platform routes traffic to the container's address, not to
+   * 127.0.0.1 inside it — an API listening only on loopback answers its own
+   * health check and nothing else, and the deploy fails with no error in the
+   * logs to explain why.
+   */
   const port = Number(process.env.PORT ?? 3001);
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   new Logger('Bootstrap').log(`BioAssetPro API listening on :${port}`);
 }
 
