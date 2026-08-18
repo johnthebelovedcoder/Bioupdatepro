@@ -42,7 +42,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const password = process.env.SEED_PASSWORD ?? 'ChangeMe!2026';
+  const password = process.env.SEED_PASSWORD ?? 'admin123@';
   const passwordHash = await hashPassword(password);
 
   /*
@@ -63,8 +63,26 @@ async function main(): Promise<void> {
   for (const person of PEOPLE) {
     await prisma.user.upsert({
       where: { email: person.email },
-      // Re-running must not reset a password someone has since changed.
-      update: { fullName: person.fullName, roles: person.roles, companyId: company.id },
+      /*
+       * The password IS reset on every run, deliberately.
+       *
+       * This used to preserve it, on the reasoning that re-seeding should not
+       * clobber a password somebody had changed. The effect was worse than the
+       * problem: the script ends by printing "Password for all of them: X", and
+       * for every account that already existed that line was false. A seed that
+       * reports credentials it did not set sends you to a login screen that
+       * rejects you with no clue why.
+       *
+       * These are development fixtures — the script refuses to run in
+       * production at all — so resetting them is the honest behaviour, and it
+       * makes the line at the end true.
+       */
+      update: {
+        fullName: person.fullName,
+        roles: person.roles,
+        companyId: company.id,
+        passwordHash,
+      },
       create: { ...person, passwordHash, companyId: company.id },
     });
   }

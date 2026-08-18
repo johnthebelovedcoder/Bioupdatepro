@@ -104,7 +104,7 @@ cd apps/api && npm run dev    # :3001
 cd apps/web && npm run dev    # :3000
 ```
 
-Sign in with any seeded user — password `ChangeMe!2026`:
+Sign in with any seeded user — password `admin123@`:
 
 | Email | Role | Sees |
 |---|---|---|
