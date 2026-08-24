@@ -1,0 +1,290 @@
+[
+  {
+    "module": "AgriPro",
+    "code": "110100",
+    "name": "Cash and Bank",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Receipts/payments"
+  },
+  {
+    "module": "AgriPro",
+    "code": "120100",
+    "name": "Trade Receivables",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Customer invoices/receipts"
+  },
+  {
+    "module": "AgriPro",
+    "code": "130100",
+    "name": "Raw Materials and Consumables",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Feed ingredients, packaging, medication"
+  },
+  {
+    "module": "AgriPro",
+    "code": "130400",
+    "name": "Production WIP Control",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Released feed/processing orders"
+  },
+  {
+    "module": "AgriPro",
+    "code": "140100",
+    "name": "Property Plant and Equipment",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Capitalised assets"
+  },
+  {
+    "module": "AgriPro",
+    "code": "149100",
+    "name": "Accumulated Depreciation",
+    "klass": "Contra asset",
+    "normal": "Credit",
+    "purpose": "Periodic depreciation"
+  },
+  {
+    "module": "AgriPro",
+    "code": "210100",
+    "name": "Trade Payables",
+    "klass": "Liability",
+    "normal": "Credit",
+    "purpose": "Vendor invoices/payments"
+  },
+  {
+    "module": "AgriPro",
+    "code": "220100",
+    "name": "Payroll Payable",
+    "klass": "Liability",
+    "normal": "Credit",
+    "purpose": "Net pay and payroll clearing"
+  },
+  {
+    "module": "AgriPro",
+    "code": "221100",
+    "name": "PAYE Payable",
+    "klass": "Liability",
+    "normal": "Credit",
+    "purpose": "Employee PAYE deduction/payment"
+  },
+  {
+    "module": "AgriPro",
+    "code": "222100",
+    "name": "Pension Payable",
+    "klass": "Liability",
+    "normal": "Credit",
+    "purpose": "Employee/employer pension"
+  },
+  {
+    "module": "AgriPro",
+    "code": "230100",
+    "name": "Accrued Expenses",
+    "klass": "Liability",
+    "normal": "Credit",
+    "purpose": "Utilities and unbilled services"
+  },
+  {
+    "module": "AgriPro",
+    "code": "310100",
+    "name": "Share Capital/Owner Funding",
+    "klass": "Equity",
+    "normal": "Credit",
+    "purpose": "Funding and equity"
+  },
+  {
+    "module": "AgriPro",
+    "code": "320100",
+    "name": "Retained Earnings",
+    "klass": "Equity",
+    "normal": "Credit",
+    "purpose": "Accumulated result"
+  },
+  {
+    "module": "SnailPro",
+    "code": "130200",
+    "name": "Biological Assets — Snails",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Breeder to market-ready FVLCTS"
+  },
+  {
+    "module": "SnailPro",
+    "code": "130410",
+    "name": "WIP — Snail Processing",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Snail processing orders"
+  },
+  {
+    "module": "SnailPro",
+    "code": "130510",
+    "name": "Finished Goods — Snail Meat/Slime/Shell",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Processed outputs"
+  },
+  {
+    "module": "SnailPro",
+    "code": "410100",
+    "name": "Revenue — Live Snails",
+    "klass": "Income",
+    "normal": "Credit",
+    "purpose": "External live-snail sales"
+  },
+  {
+    "module": "SnailPro",
+    "code": "410200",
+    "name": "Revenue — Processed Snail Products",
+    "klass": "Income",
+    "normal": "Credit",
+    "purpose": "Meat/slime/shell sales"
+  },
+  {
+    "module": "SnailPro",
+    "code": "420100",
+    "name": "Fair-Value Gain/Loss — Snails",
+    "klass": "Income/expense",
+    "normal": "Credit/Debit",
+    "purpose": "IAS 41 FVLCTS movement"
+  },
+  {
+    "module": "SnailPro",
+    "code": "510100",
+    "name": "COGS — Live Snails",
+    "klass": "Expense",
+    "normal": "Debit",
+    "purpose": "Derecognition on live sale"
+  },
+  {
+    "module": "SnailPro",
+    "code": "510200",
+    "name": "COGS — Processed Snail Products",
+    "klass": "Expense",
+    "normal": "Debit",
+    "purpose": "FG issue on processed sale"
+  },
+  {
+    "module": "SnailPro",
+    "code": "520100",
+    "name": "Snail Production Variances",
+    "klass": "Expense/income",
+    "normal": "Debit/Credit",
+    "purpose": "Material, yield and conversion variance"
+  },
+  {
+    "module": "SnailPro",
+    "code": "219810",
+    "name": "S_Recovery_GL",
+    "klass": "Clearing",
+    "normal": "Credit/Debit",
+    "purpose": "Standard conversion recovery"
+  },
+  {
+    "module": "SnailPro",
+    "code": "611000",
+    "name": "Snail Feed and Medication Expense",
+    "klass": "Expense",
+    "normal": "Debit",
+    "purpose": "Lifecycle resource use under FVLCTS policy"
+  },
+  {
+    "module": "SnailPro",
+    "code": "612000",
+    "name": "Snailery Labour and Facility Expense",
+    "klass": "Expense",
+    "normal": "Debit",
+    "purpose": "Lifecycle labour/facility ABC"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "130210",
+    "name": "Biological Assets — Poultry",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Chicks, grow-out, layers/broilers"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "130420",
+    "name": "WIP — Poultry Processing",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Slaughter/dressing orders"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "130520",
+    "name": "Finished Goods — Poultry Products",
+    "klass": "Asset",
+    "normal": "Debit",
+    "purpose": "Whole birds, cuts and by-products"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "410300",
+    "name": "Revenue — Live Birds/Eggs",
+    "klass": "Income",
+    "normal": "Credit",
+    "purpose": "External bird/egg sales"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "410400",
+    "name": "Revenue — Processed Poultry",
+    "klass": "Income",
+    "normal": "Credit",
+    "purpose": "Meat/offal/by-product sales"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "420200",
+    "name": "Fair-Value Gain/Loss — Poultry",
+    "klass": "Income/expense",
+    "normal": "Credit/Debit",
+    "purpose": "IAS 41 FVLCTS movement"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "510300",
+    "name": "COGS — Live Birds/Eggs",
+    "klass": "Expense",
+    "normal": "Debit",
+    "purpose": "Derecognition on sale"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "510400",
+    "name": "COGS — Processed Poultry",
+    "klass": "Expense",
+    "normal": "Debit",
+    "purpose": "FG issue on sale"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "520300",
+    "name": "Poultry Production Variances",
+    "klass": "Expense/income",
+    "normal": "Debit/Credit",
+    "purpose": "Feed, yield and conversion variance"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "219820",
+    "name": "P_Recovery_GL",
+    "klass": "Clearing",
+    "normal": "Credit/Debit",
+    "purpose": "Standard conversion recovery"
+  },
+  {
+    "module": "PoultryPro",
+    "code": "613000",
+    "name": "Poultry Farm Labour/Overhead",
+    "klass": "Expense/BA input",
+    "normal": "Debit",
+    "purpose": "Farm ABC source/assignment"
+  }
+]

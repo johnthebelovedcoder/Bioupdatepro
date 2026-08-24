@@ -11,3 +11,6 @@ coverage/
 .DS_Store
 *.tsbuildinfo
 packages/database/generated/
+
+# Local verification scripts and one-off data fixes.
+.scratch/

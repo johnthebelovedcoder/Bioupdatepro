@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { getBatchResults } from '@/lib/profitability';
 import { formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
-import { Tabs, MONEY_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'What each batch made — BioAssetPro' };
 
@@ -37,7 +37,7 @@ export default async function BatchProfitPage() {
         subtitle="Every population, ranked by what it earned against what it cost"
       />
 
-      <Tabs tabs={MONEY_TABS} />
+      <Tabs />
 
       <div className="stack">
         <div className="stat-grid">

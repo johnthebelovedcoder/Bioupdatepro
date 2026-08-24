@@ -10,6 +10,12 @@ import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { Kobo } from '../common/money';
 
+/**
+ * Long enough for a create plus its audit record on a cold connection pool.
+ * The 5s default failed the first item created after a restart.
+ */
+const TRANSACTION_OPTIONS = { timeout: 20_000 };
+
 export interface CreditCheckResult {
   passed: boolean;
   customerCode: string;
@@ -38,6 +44,18 @@ export class PartyService {
   // -------------------------------------------------------------------------
   // Supplier
   // -------------------------------------------------------------------------
+
+  /**
+   * The company's own defaults, so a registration form does not have to ask
+   * for them. Currency in particular: the answer is never anything but the
+   * company's base currency, and asking is how a wrong one gets chosen.
+   */
+  async companyDefaults(companyId: string) {
+    return this.prisma.company.findUniqueOrThrow({
+      where: { id: companyId },
+      select: { baseCurrencyId: true },
+    });
+  }
 
   async createSupplier(input: {
     companyId: string;
@@ -104,7 +122,7 @@ export class PartyService {
       });
 
       return supplier;
-    });
+    }, TRANSACTION_OPTIONS);
   }
 
   /**
@@ -145,7 +163,7 @@ export class PartyService {
       });
 
       return supplier;
-    });
+    }, TRANSACTION_OPTIONS);
   }
 
   async listSuppliers(companyId: string, status?: PartyStatus) {
@@ -230,7 +248,7 @@ export class PartyService {
       });
 
       return customer;
-    });
+    }, TRANSACTION_OPTIONS);
   }
 
   async setCustomerStatus(params: {
@@ -263,7 +281,7 @@ export class PartyService {
       });
 
       return customer;
-    });
+    }, TRANSACTION_OPTIONS);
   }
 
   /**

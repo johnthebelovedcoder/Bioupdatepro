@@ -2,27 +2,43 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { sectionFor } from '@/lib/navigation';
+import { canSee } from '@/lib/permissions';
+import { useRoles } from './roles-context';
 
 /**
- * Tabs across related pages.
+ * Tabs across the pages of one section.
  *
- * These exist to shorten the sidebar. Nineteen top-level entries is a menu
- * nobody reads; grouping the related ones behind a single entry and letting
- * tabs move between them turns it into nine. Each tab is still its own route,
- * so links and the back button keep working.
+ * There is nothing to pass in any more. The tab bar works out which section
+ * the current page belongs to and renders that section's children, so it can
+ * never show a different set from the sidebar or label the same page
+ * differently — which is what happened while four tab sets were maintained by
+ * hand next to a sidebar that did not read them.
+ *
+ * A page that belongs to no section renders nothing rather than guessing.
  */
-export interface Tab {
-  href: string;
-  label: string;
-}
-
-export function Tabs({ tabs }: { tabs: Tab[] }) {
+export function Tabs() {
   const pathname = usePathname();
+  const roles = useRoles();
+  const section = sectionFor(pathname);
+
+  /*
+   * A section the role cannot reach shows no tabs at all.
+   *
+   * This is what let a production supervisor stand on the receiving screen —
+   * which is theirs — looking at a "Purchase orders" tab that answered "ask an
+   * administrator". Every tab in a section shares that section's permission, so
+   * the check is one call rather than one per tab.
+   */
+  if (!section || !canSee(roles, section.section)) return null;
+
+  const tabs = section.children.filter((child) => !child.hidden);
+  if (tabs.length < 2) return null;
 
   return (
-    <div className="tabs" role="tablist">
+    <div className="tabs" role="tablist" aria-label={section.label}>
       {tabs.map((tab) => {
-        const active = pathname === tab.href;
+        const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
         return (
           <Link
             key={tab.href}
@@ -30,6 +46,7 @@ export function Tabs({ tabs }: { tabs: Tab[] }) {
             role="tab"
             aria-selected={active}
             className="tab"
+            title={tab.hint}
           >
             {tab.label}
           </Link>
@@ -39,29 +56,11 @@ export function Tabs({ tabs }: { tabs: Tab[] }) {
   );
 }
 
-/* The tab sets, defined once so a page cannot disagree with the sidebar. */
-
-export const FARM_TABS: Tab[] = [
-  { href: '/farm', label: 'Houses & pens' },
-  { href: '/farm/activity', label: "What's happened" },
-];
-
-export const STORE_TABS: Tab[] = [
-  { href: '/inventory', label: 'What we have' },
-  { href: '/procurement', label: 'Buying' },
-];
-
-export const MONEY_TABS: Tab[] = [
-  { href: '/finance', label: 'Money in & out' },
-  { href: '/sales', label: 'Selling' },
-  { href: '/finance/batches', label: 'What each batch made' },
-  { href: '/finance/losses', label: 'Watching for losses' },
-  { href: '/ledger/trial-balance', label: 'Trial balance' },
-  { href: '/ledger/journals', label: 'Journal entries' },
-  { href: '/ledger/audit', label: 'Audit trail' },
-];
-
-export const SETUP_TABS: Tab[] = [
-  { href: '/settings', label: 'Farm setup' },
-  { href: '/staff', label: 'People & access' },
-];
+/*
+ * There is deliberately nothing else exported from this file.
+ *
+ * `FARM_TABS`, `STORE_TABS`, `MONEY_TABS` and `SETUP_TABS` used to live here
+ * and be passed in by each page. That argument was the whole problem: a page
+ * could hand over a list the sidebar knew nothing about, and two of them
+ * eventually did. Removing the export removes the way back.
+ */

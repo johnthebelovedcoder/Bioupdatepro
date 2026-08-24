@@ -141,6 +141,22 @@ async function main(): Promise<void> {
     where: { companyId: company.id, type: 'RAW_MATERIAL' },
   });
 
+  /*
+   * Where receiving these lands on the balance sheet.
+   *
+   * Feed and medication are raw material. Without this every one of these
+   * items was created with no stock account, and a goods receipt against them
+   * had nowhere to put its debit — which is a refusal at the moment somebody
+   * is standing next to a delivery, and the least helpful time to discover it.
+   */
+  const rawMaterialAccount = await prisma.gLAccount.findFirst({
+    where: { companyId: company.id, accountNumber: '1301', active: true },
+    select: { id: true },
+  });
+  if (!rawMaterialAccount) {
+    throw new Error('No 1301 Raw Material Inventory account. Run `npm run db:seed` first.');
+  }
+
   let supplies = 0;
   for (const supply of SUPPLIES) {
     const unit = await prisma.unitOfMeasure.findFirst({
@@ -150,10 +166,17 @@ async function main(): Promise<void> {
 
     const item = await prisma.item.upsert({
       where: { companyId_code: { companyId: company.id, code: supply.code } },
-      update: { description: supply.description, active: true },
+      update: {
+        description: supply.description,
+        active: true,
+        // Applied on update too, so databases seeded before this existed are
+        // repaired by re-running rather than needing a migration.
+        inventoryGlAccount: { connect: { id: rawMaterialAccount.id } },
+      },
       create: {
         company: { connect: { id: company.id } },
         unitOfMeasure: { connect: { id: unit.id } },
+        inventoryGlAccount: { connect: { id: rawMaterialAccount.id } },
         ...(zeroRated ? { vatTaxCode: { connect: { id: zeroRated.id } } } : {}),
         ...(rawStore ? { defaultWarehouse: { connect: { id: rawStore.id } } } : {}),
         code: supply.code,

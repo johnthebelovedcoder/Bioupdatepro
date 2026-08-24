@@ -4,6 +4,7 @@ import { RecurringJournalService } from './recurring-journal.service';
 import { PartyLedgerService } from './party-ledger.service';
 import { ManualJournalPostingHandler } from './manual-journal.handler';
 import { WorkflowService } from '../workflow/workflow.service';
+import { PostingControlModule } from '../posting-control/posting-control.module';
 
 /**
  * The Accounting Adjustment Centre (§3).
@@ -13,6 +14,7 @@ import { WorkflowService } from '../workflow/workflow.service';
  * documents post, and the engine owns when.
  */
 @Module({
+  imports: [PostingControlModule],
   providers: [
     ManualJournalService,
     RecurringJournalService,

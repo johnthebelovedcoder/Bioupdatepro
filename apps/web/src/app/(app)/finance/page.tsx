@@ -3,7 +3,7 @@ import { getCashFlow, getExpenses } from '@/lib/demo-trade';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, CardLink, PageHeader, Stat } from '@/components/ui';
 import { TrendChart } from '@/components/trend-chart';
-import { Tabs, MONEY_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'Income & expenses — BioAssetPro' };
 
@@ -39,7 +39,7 @@ export default async function FinancePage() {
         subtitle="Money in, money out, and where it went"
       />
 
-      <Tabs tabs={MONEY_TABS} />
+      <Tabs />
 
       <div className="stack">
         <div className="stat-grid">

@@ -10,7 +10,7 @@ import {
   IconFeed,
   IconTag,
 } from '@/components/icons';
-import { Tabs, FARM_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'Daily activity — BioAssetPro' };
 
@@ -32,7 +32,7 @@ export default async function ActivityPage() {
         subtitle="Everything that happened, most recent first"
       />
 
-      <Tabs tabs={FARM_TABS} />
+      <Tabs />
 
       <div className="stack">
         {days.map((day) => (

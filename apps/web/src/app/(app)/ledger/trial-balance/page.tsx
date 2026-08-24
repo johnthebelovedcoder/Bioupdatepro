@@ -3,7 +3,7 @@ import { formatNaira, toKobo } from '@/lib/money';
 import { defaultYear, getContext } from '@/lib/org';
 import { TrialBalanceFilters } from './filters';
 import { PageHeader } from '@/components/ui';
-import { Tabs, MONEY_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'Trial balance — BioAssetPro' };
 
@@ -86,7 +86,7 @@ export default async function TrialBalancePage({
         subtitle="Posted journal lines only. Drafts are not accounting records."
       />
 
-      <Tabs tabs={MONEY_TABS} />
+      <Tabs />
 
       <TrialBalanceFilters
         years={context.financialYears}

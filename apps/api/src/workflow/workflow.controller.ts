@@ -4,7 +4,7 @@ import { DelegationService } from './delegation.service';
 import { EscalationService } from './escalation.service';
 import { NotificationService } from './notification.service';
 import { kobo } from '../common/money';
-import { ActionRequest, SubmitRequest, WorkflowActor } from './workflow.types';
+import { SubmitRequest, WorkflowActor } from './workflow.types';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
 import { Roles, AnyRole } from '../auth/roles.guard';
@@ -12,10 +12,12 @@ import { Roles, AnyRole } from '../auth/roles.guard';
 /**
  * Consolidated Reference §2 API surface.
  *
- * Authentication lands in Phase 3; until then the actor arrives in the body and
- * these routes are not exposed outside development. Every method already takes
- * the actor as an explicit argument, so wiring a JWT guard in front changes only
- * where the actor comes from, never how the rules are enforced.
+ * Who is acting comes from the session on every route that acts. That was the
+ * one thing this controller got wrong for a long time: the actor was a field in
+ * the request body, which reads as harmless plumbing and is not. Every §2 rule
+ * about segregation of duties — a maker may not approve their own work, an
+ * approver needs the role and the limit — is enforced against the actor, so an
+ * actor the caller can type is a rule the caller can opt out of.
  */
 @Controller('workflow')
 export class WorkflowController {
@@ -39,27 +41,65 @@ export class WorkflowController {
     return this.workflow.submit(request);
   }
 
+  /*
+   * Acting on a document: approve, reject, send back, cancel.
+   *
+   * The transaction moved from the body onto the path, and the actor from the
+   * body onto the session, and both moves close the same hole. The actor being
+   * a request field meant a caller could name themselves — including naming
+   * somebody else, which defeats maker-checker at the point it exists to work:
+   * the engine refuses an approval from the maker, and a maker could simply
+   * claim to be their own approver. The transaction being a body field meant
+   * the ownership guard, which reads path parameters, never ran, so a signed-in
+   * user of one farm could approve another farm's payment run by id.
+   */
+
+  @OwnedRecord('workflowTransaction', 'transactionId')
   @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
-  @Post('approve')
-  async approve(@Body() body: ActionRequest) {
-    return this.workflow.approve(body);
+  @Post(':transactionId/approve')
+  async approve(
+    @Param('transactionId') transactionId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { comments?: string | null },
+  ) {
+    return this.workflow.approve({ transactionId, actor, comments: body?.comments ?? null });
   }
 
-  @Post('reject')
-  async reject(@Body() body: ActionRequest) {
-    return this.workflow.reject(body);
+  @OwnedRecord('workflowTransaction', 'transactionId')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Post(':transactionId/reject')
+  async reject(
+    @Param('transactionId') transactionId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { comments?: string | null },
+  ) {
+    return this.workflow.reject({ transactionId, actor, comments: body?.comments ?? null });
   }
 
+  @OwnedRecord('workflowTransaction', 'transactionId')
   @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
-  @Post('return')
-  async returnToMaker(@Body() body: ActionRequest) {
-    return this.workflow.returnToMaker(body);
+  @Post(':transactionId/return')
+  async returnToMaker(
+    @Param('transactionId') transactionId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { comments?: string | null },
+  ) {
+    return this.workflow.returnToMaker({
+      transactionId,
+      actor,
+      comments: body?.comments ?? null,
+    });
   }
 
+  @OwnedRecord('workflowTransaction', 'transactionId')
   @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
-  @Post('cancel')
-  async cancel(@Body() body: ActionRequest) {
-    return this.workflow.cancel(body);
+  @Post(':transactionId/cancel')
+  async cancel(
+    @Param('transactionId') transactionId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { comments?: string | null },
+  ) {
+    return this.workflow.cancel({ transactionId, actor, comments: body?.comments ?? null });
   }
 
   @Post('delegate')

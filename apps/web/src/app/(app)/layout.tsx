@@ -44,7 +44,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <AppShell
       user={user}
-      activeModule={activeModule.key}
+      activeModule={activeModule?.key ?? null}
       workerLanguage={config.organisation.workerLanguage}
       organisationName={organisationName}
     >

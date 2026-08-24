@@ -6,6 +6,12 @@ import { AccountingRuleViolation } from '../common/errors';
 import { Kobo } from '../common/money';
 
 /**
+ * Long enough for a create plus its audit record on a cold connection pool.
+ * The 5s default failed the first item created after a restart.
+ */
+const TRANSACTION_OPTIONS = { timeout: 20_000 };
+
+/**
  * Item / Product master (§5).
  *
  * The GL-mapping validation here is the part that earns its keep: an inventory
@@ -142,7 +148,7 @@ export class ItemService {
       );
 
       return item;
-    });
+    }, TRANSACTION_OPTIONS);
   }
 
   /**
@@ -201,7 +207,7 @@ export class ItemService {
       );
 
       return created;
-    });
+    }, TRANSACTION_OPTIONS);
   }
 
   async list(companyId: string, itemType?: ItemType) {

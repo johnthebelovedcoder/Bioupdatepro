@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
 import { AuditService } from '../audit/audit.service';
 import { OperationsPostingService } from './operations-posting.service';
+import { BiologicalAssetService } from '../biological-assets/biological-asset.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
 /**
@@ -47,6 +48,7 @@ export class OperationsService {
     private readonly idempotency: IdempotencyService,
     private readonly audit: AuditService,
     private readonly postings: OperationsPostingService,
+    private readonly biologicalAssets: BiologicalAssetService,
   ) {}
 
   /* ------------------------------------------------------------------ */
@@ -124,6 +126,22 @@ export class OperationsService {
       );
 
       return { id: group.id, replayed: false };
+    }).then(async (result) => {
+      /*
+       * Dr biological asset / Cr GRNI — after commit, never inside it. See
+       * the note on postFeedIssues: the placement is the worker's record of
+       * what arrived, and it must survive whatever the ledger thinks.
+       */
+      if (!result.replayed) {
+        const outcome = await this.biologicalAssets.postAcquisition({
+          groupId: result.id,
+          actor,
+        });
+        if (!outcome.posted && outcome.reason && outcome.reason !== 'No acquisition cost recorded.') {
+          this.logger.warn(`Placement ${result.id}: ${outcome.reason}`);
+        }
+      }
+      return result;
     });
   }
 
@@ -326,6 +344,23 @@ export class OperationsService {
         });
         if (outcome.skipped.length > 0) {
           this.logger.warn(`Round ${id}: ${outcome.skipped.join('; ')}`);
+        }
+
+        // Dr fair-value/abnormal loss / Cr biological asset — same after-commit
+        // convention. A round with no deaths finds nothing here and costs one
+        // empty query.
+        const deaths = await this.prisma.mortalityRecord.findMany({
+          where: { dailyRecordId: id, journalEntryId: null },
+          select: { id: true },
+        });
+        for (const death of deaths) {
+          const outcome = await this.biologicalAssets.postMortality({
+            mortalityRecordId: death.id,
+            actor,
+          });
+          if (!outcome.posted && outcome.reason) {
+            this.logger.warn(`Mortality ${death.id}: ${outcome.reason}`);
+          }
         }
       }
     }
@@ -613,7 +648,7 @@ export class OperationsService {
       throw new BadRequestException('The population is already at that stage.');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const scope = 'operations.stage-change';
       const reserved = await this.idempotency.reserve(scope, idempotencyKey, payload, tx);
       if (reserved.replayed) return { id: reserved.resultRef!, replayed: true };
@@ -663,6 +698,20 @@ export class OperationsService {
 
       return { id: record.id, replayed: false };
     });
+
+    // Dr destination stage / Cr source stage, after commit — a house move the
+    // worker made is true whether or not the ledger can currently take it.
+    if (!result.replayed) {
+      const outcome = await this.biologicalAssets.postStageTransfer({
+        stageChangeId: result.id,
+        actor,
+      });
+      if (!outcome.posted && outcome.reason) {
+        this.logger.warn(`Stage change ${result.id}: ${outcome.reason}`);
+      }
+    }
+
+    return result;
   }
 
   /* ------------------------------------------------------------------ */

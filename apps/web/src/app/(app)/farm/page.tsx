@@ -1,7 +1,7 @@
 import { getFarmStructure } from '@/lib/demo-ops';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { IconFarm } from '@/components/icons';
-import { Tabs, FARM_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'Farms & pens — BioAssetPro' };
 
@@ -30,7 +30,7 @@ export default async function FarmPage() {
         subtitle="Sites, houses and what is living in each"
       />
 
-      <Tabs tabs={FARM_TABS} />
+      <Tabs />
 
       <div className="stack">
         <div className="stat-grid">

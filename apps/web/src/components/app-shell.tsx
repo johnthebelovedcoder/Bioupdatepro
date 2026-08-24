@@ -6,6 +6,8 @@ import type { SessionUser } from '@/lib/session';
 import type { ModuleKey } from '@/lib/modules';
 import type { LanguageCode } from '@/lib/farm-config';
 import { SidebarNav } from './sidebar';
+import { SearchPalette } from './search-palette';
+import { RolesProvider } from './roles-context';
 import { ModuleSwitcher } from './module-switcher';
 import { UserMenu } from './user-menu';
 import { SyncStatus } from './sync-status';
@@ -29,7 +31,8 @@ export function AppShell({
   children,
 }: {
   user: SessionUser;
-  activeModule: ModuleKey;
+  /** Null when the farm runs AgriPro Core with no species module. */
+  activeModule: ModuleKey | null;
   /** The pen language. The bottom bar is the worker's navigation. */
   workerLanguage?: LanguageCode;
   /** The farm's own name, shown in place of a product list. */
@@ -54,6 +57,7 @@ export function AppShell({
   }, [navOpen]);
 
   return (
+    <RolesProvider roles={user.roles}>
     <div className="app-shell">
       <OfflineSupport />
       {navOpen ? (
@@ -120,6 +124,13 @@ export function AppShell({
           >
             <IconMenu size={18} />
           </button>
+          {/*
+            Search sits before the spacer so it takes the room rather than
+            hugging the right edge. It is the widest thing in the header on
+            purpose: for anybody who knows a document number it is a faster way
+            in than the menu, and it has to look like it will accept one.
+          */}
+          <SearchPalette roles={user.roles} />
           <div className="spacer" />
           <SyncStatus />
           <UserMenu user={user} />
@@ -135,5 +146,6 @@ export function AppShell({
         onMore={() => setNavOpen(true)}
       />
     </div>
+    </RolesProvider>
   );
 }

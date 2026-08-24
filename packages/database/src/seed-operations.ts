@@ -565,7 +565,10 @@ function spread(total: number, buckets: number, seed: string): number[] {
 
   for (const { index } of order) {
     if (remainder <= 0) break;
-    floors[index] += 1;
+    // The index comes from mapping over `exact`, which is the same length as
+    // `floors`, so this is always in range — but the compiler cannot see that
+    // and a silent `undefined + 1` here would produce a NaN quantity.
+    floors[index] = (floors[index] ?? 0) + 1;
     remainder -= 1;
   }
   return floors;

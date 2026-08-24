@@ -12,6 +12,7 @@ import {
 } from '@/lib/demo';
 import { Card, CardLink, PageHeader, Stat } from '@/components/ui';
 import { NeedsAttention, FeedRunwayCard } from '@/components/attention';
+import { CoreOperations } from '@/components/core-operations';
 import { ShareSummary } from '@/components/share-summary';
 import { getLedgerMoney } from '@/lib/trade';
 import { canSee } from '@/lib/permissions';
@@ -85,6 +86,17 @@ export default async function DashboardPage() {
   ]);
 
   const modules = subscribedModules(config.modules);
+  /*
+   * Whether this farm keeps anything alive.
+   *
+   * AgriPro Core is sold without a species module, and this page was written
+   * as though that could not happen: an empty "Livestock" heading, a feed
+   * runway with nothing to measure, a task list of vaccinations, and the
+   * work-in-progress account labelled "tied up in livestock". Everything below
+   * that belongs to the animals is now gated on this, and what remains is the
+   * platform — money, approvals, what is in flight.
+   */
+  const hasSpecies = modules.length > 0;
   const [money, tasks, activity, ...overviews] = await Promise.all([
     getMoneySummary(),
     getUpcomingTasks(),
@@ -121,7 +133,12 @@ export default async function DashboardPage() {
           { label: 'Revenue', value: formatNaira(ledger.revenueKobo) },
           { label: 'Expenses', value: formatNaira(ledger.expenseKobo) },
           { label: 'Gross profit', value: formatNaira(grossProfit) },
-          { label: 'Tied up in livestock', value: formatNaira(ledger.workInProgressKobo) },
+          {
+            // Same label as the screen. A summary that renames a figure on its
+            // way into a WhatsApp message is a figure two people cannot discuss.
+            label: hasSpecies ? 'Tied up in livestock' : 'Work in progress',
+            value: formatNaira(ledger.workInProgressKobo),
+          },
           { label: 'Owed to us', value: formatNaira(ledger.receivableKobo) },
         ]
       : [],
@@ -191,12 +208,17 @@ export default async function DashboardPage() {
               currently alive have cost so far. It is neither an expense nor
               revenue yet, so a normal profit summary hides it entirely — and on
               this farm it is the largest number on the page.
+
+              The label follows the modules. On AgriPro Core with no species
+              module the same account is simply work in progress, and calling it
+              "tied up in livestock" told a customer who keeps no animals that
+              twenty-six million naira of theirs was in animals.
             */}
             <Stat
-              label="Tied up in livestock"
+              label={hasSpecies ? 'Tied up in livestock' : 'Work in progress'}
               value={formatNaira(ledger.workInProgressKobo)}
               money
-              hint="feed and treatment so far"
+              hint={hasSpecies ? 'feed and treatment so far' : 'not yet expensed or sold'}
             />
             <Stat
               label="Owed to us"
@@ -215,7 +237,13 @@ export default async function DashboardPage() {
         ) : null}
 
         {/* One card per subscribed species module, in that module's own
-            vocabulary. Adding FishPro adds a card here and nothing else. */}
+            vocabulary. Adding FishPro adds a card here and nothing else.
+
+            Absent entirely with no module, rather than an empty heading. A bare
+            "LIVESTOCK" label with nothing beneath it is how this page looked to
+            an AgriPro Core customer, and it reads as something broken rather
+            than something they did not buy. */}
+        {hasSpecies ? (
         <section>
           <SectionLabel>Livestock</SectionLabel>
           <div className={modules.length >= 3 ? 'stat-grid' : 'stat-grid stat-grid-2'}>
@@ -262,14 +290,29 @@ export default async function DashboardPage() {
             })}
           </div>
         </section>
+        ) : null}
 
         <div className="two-col">
           <div className="stack">
-            <Card title="Recent activity" subtitle="Today on the farm" padded={false}>
-              {activity.map((entry) => (
-                <ActivityRow key={entry.id} entry={entry} />
-              ))}
-            </Card>
+            {/*
+              The platform's own work, above the farm's.
+
+              Approvals, orders and receipts are AgriPro Core, so they are what
+              a Core-only customer sees — and they belong near the top for
+              everybody else too, because a document waiting on somebody is more
+              urgent than a list of what happened this morning.
+            */}
+            {canSee(roles, 'trade') ? <CoreOperations /> : null}
+
+            {/* The farm's day. Nothing to show without a species module — the
+                entries are feeding, mortality, egg collection and harvest. */}
+            {hasSpecies ? (
+              <Card title="Recent activity" subtitle="Today on the farm" padded={false}>
+                {activity.map((entry) => (
+                  <ActivityRow key={entry.id} entry={entry} />
+                ))}
+              </Card>
+            ) : null}
           </div>
 
           <div className="stack">
@@ -311,8 +354,10 @@ export default async function DashboardPage() {
               )}
             </Card>
 
-            <FeedRunwayCard runway={runway} />
+            {/* Feed and the farm's task list are both livestock work. */}
+            {hasSpecies ? <FeedRunwayCard runway={runway} /> : null}
 
+            {hasSpecies ? (
             <Card title="Upcoming tasks" padded={false}>
               {tasks.map((task) => (
                 <div className="list-row" key={task.id}>
@@ -335,6 +380,7 @@ export default async function DashboardPage() {
                 </div>
               ))}
             </Card>
+            ) : null}
           </div>
         </div>
 

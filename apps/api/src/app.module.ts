@@ -10,8 +10,15 @@ import { SalesModule } from './sales/sales.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { ClosingModule } from './closing/closing.module';
 import { OperationsModule } from './operations/operations.module';
+import { SearchModule } from './search/search.module';
+import { PostingControlModule } from './posting-control/posting-control.module';
+import { BiologicalAssetModule } from './biological-assets/biological-asset.module';
 import { MastersController } from './masters/masters.controller';
 import { MasterDataController } from './masters/master-data.controller';
+import { ProcurementController } from './procurement/procurement.controller';
+import { SearchController } from './search/search.controller';
+import { PostingControlController } from './posting-control/posting-control.controller';
+import { BiologicalAssetController } from './biological-assets/biological-asset.controller';
 import { WorkflowController } from './workflow/workflow.controller';
 import { TaxController } from './tax/tax.controller';
 import { JournalsController } from './journals/journals.controller';
@@ -43,6 +50,9 @@ const developmentOnlyControllers =
     ProcurementModule,
     ClosingModule,
     OperationsModule,
+    SearchModule,
+    PostingControlModule,
+    BiologicalAssetModule,
   ],
   controllers: [
     MastersController,
@@ -53,6 +63,10 @@ const developmentOnlyControllers =
     PayrollController,
     ClosingController,
     ReportingController,
+    ProcurementController,
+    SearchController,
+    PostingControlController,
+    BiologicalAssetController,
     ...developmentOnlyControllers,
   ],
 })

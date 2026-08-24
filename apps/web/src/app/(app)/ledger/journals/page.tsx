@@ -4,7 +4,7 @@ import { defaultYear, getContext } from '@/lib/org';
 import { Pagination } from '@/components/pagination';
 import { JournalFilters } from './filters';
 import { PageHeader } from '@/components/ui';
-import { Tabs, MONEY_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'Journal entries — BioAssetPro' };
 
@@ -74,7 +74,7 @@ export default async function JournalsPage({
         subtitle="Every posting in the ledger, whichever module raised it. Posted entries cannot be edited or deleted — a correction is a reversal."
       />
 
-      <Tabs tabs={MONEY_TABS} />
+      <Tabs />
 
       <JournalFilters
         years={context.financialYears}

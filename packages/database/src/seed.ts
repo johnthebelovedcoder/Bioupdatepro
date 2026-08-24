@@ -12,6 +12,9 @@
  */
 
 import { PrismaClient, AccountType, NormalBalance, WarehouseType } from '../generated/client';
+import { seedPostingControl } from './seed-posting-control';
+import { seedSpecChart } from './seed-spec-coa';
+import { seedBiologicalAssets } from './seed-biological-assets';
 
 const prisma = new PrismaClient();
 
@@ -305,10 +308,32 @@ async function main(): Promise<void> {
   await seedMatchTolerances(company.id);
   await seedCloseChecklist(company.id);
 
+  /*
+   * §66 posting control, and the chart it posts to.
+   *
+   * Order matters: the accounts must exist before the posting keys are linked
+   * to them, or every key seeds unresolved and the whole table resolves
+   * nothing — which is exactly what happened the first time these were run the
+   * other way round.
+   *
+   * Both are the client's own rows rather than anything invented here. See the
+   * two files for what is stated by the client and what is derived from their
+   * numbering scheme.
+   */
+  const chart = await seedSpecChart(prisma, company.id);
+  const control = await seedPostingControl(prisma, company.id);
+  const bioAssets = await seedBiologicalAssets(prisma, company.id);
+
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +
       `${COST_CENTRES.length} cost centres, 12 periods.`,
   );
+  console.log(
+    `  §66 posting control: ${control.rules} rules, ${control.keys} keys ` +
+      `(${control.linked} resolved, ${control.unresolved} awaiting a decision), ` +
+      `over ${chart.created} specification accounts.`,
+  );
+  console.log(`  Biological assets: ${bioAssets.mapped} stage accounts mapped.`);
 }
 
 
@@ -351,24 +376,71 @@ const APPROVAL_LADDER = [
 /**
  * Transaction types in scope for §2. Every one routes through the shared
  * engine; none of them implements its own approvals.
+ *
+ * Two things about this list are load-bearing, and both were wrong until a
+ * goods receipt was attempted end to end.
+ *
+ * **A type absent from this list cannot be submitted at all.** Routing refuses
+ * to resolve a definition it cannot find — deliberately, since a transaction
+ * type with no route must not bypass approval — so the service, its handler
+ * and its tests can all be correct while the feature is unreachable. That is
+ * exactly what had happened to GOODS_RECEIPT: receiving stock is the moment
+ * `Dr Inventory / Cr GRNI` fires, and there was no route for it to travel.
+ *
+ * **`autoPost` must mirror handler registration.** True means the engine calls
+ * the registered posting handler at final approval; the types marked true are
+ * the ones with a handler, verified against `readonly transactionType` in the
+ * handler classes. True with no handler throws at approval. False with a
+ * handler is worse and quieter: the document reaches APPROVED, no journal is
+ * written, and nothing says so.
  */
 const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> = [
-  { type: 'GL_JOURNAL', name: 'Manual Journal', autoPost: true },
+  // Journals. Every journal type carries `workflowTransactionType:
+  // 'MANUAL_JOURNAL'`, so that is the route that has to exist.
+  { type: 'MANUAL_JOURNAL', name: 'Manual Journal', autoPost: true },
+  { type: 'GL_JOURNAL', name: 'General Ledger Journal', autoPost: true },
   { type: 'CUSTOMER_ADJUSTMENT', name: 'Customer Adjustment Journal', autoPost: true },
   { type: 'SUPPLIER_ADJUSTMENT', name: 'Supplier Adjustment Journal', autoPost: true },
   { type: 'JOURNAL_REVERSAL', name: 'Journal Reversal', autoPost: true },
+
+  // Procure-to-pay. Requisition and order commit money but post nothing; the
+  // ledger first hears about a purchase when the goods arrive.
   { type: 'PURCHASE_REQUISITION', name: 'Purchase Requisition', autoPost: false },
   { type: 'PURCHASE_ORDER', name: 'Purchase Order', autoPost: false },
-  { type: 'SUPPLIER_INVOICE', name: 'Supplier Invoice', autoPost: false },
-  { type: 'SUPPLIER_PAYMENT', name: 'Supplier Payment', autoPost: false },
+  { type: 'GOODS_RECEIPT', name: 'Goods Receipt', autoPost: true },
+  { type: 'SUPPLIER_INVOICE', name: 'Supplier Invoice', autoPost: true },
+  {
+    type: 'SUPPLIER_INVOICE_EXCEPTION',
+    name: 'Supplier Invoice — match exception',
+    autoPost: true,
+  },
+  { type: 'SUPPLIER_PAYMENT', name: 'Supplier Payment', autoPost: true },
+
+  // Order-to-cash.
   { type: 'SALES_QUOTATION', name: 'Sales Quotation', autoPost: false },
   { type: 'SALES_ORDER', name: 'Sales Order', autoPost: false },
-  { type: 'CREDIT_NOTE', name: 'Credit Note', autoPost: false },
+  {
+    type: 'SALES_ORDER_CREDIT_OVERRIDE',
+    name: 'Sales Order — credit override',
+    autoPost: false,
+  },
+  { type: 'GOODS_ISSUE', name: 'Goods Issue', autoPost: true },
+  { type: 'SALES_INVOICE', name: 'Sales Invoice', autoPost: true },
+  { type: 'CUSTOMER_RECEIPT', name: 'Customer Receipt', autoPost: true },
+  { type: 'CREDIT_NOTE', name: 'Credit Note', autoPost: true },
+
+  // Inventory and production.
   { type: 'INVENTORY_ADJUSTMENT', name: 'Inventory Adjustment', autoPost: false },
   { type: 'PRODUCTION_ORDER', name: 'Production Order', autoPost: false },
   { type: 'MATERIAL_ISSUE', name: 'Material Issue', autoPost: false },
-  { type: 'PAYROLL_RUN', name: 'Payroll Processing', autoPost: false },
+
+  // Biological assets (§43, §61, §67).
+  { type: 'BA_VALUATION', name: 'Biological Asset Valuation', autoPost: true },
+
+  // Payroll and period control.
+  { type: 'PAYROLL_RUN', name: 'Payroll Processing', autoPost: true },
   { type: 'PERIOD_CLOSE', name: 'Period Close', autoPost: false },
+  { type: 'PERIOD_REOPEN', name: 'Period Reopen', autoPost: false },
 ];
 
 async function seedWorkflow(companyId: string) {

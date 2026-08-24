@@ -3,7 +3,7 @@ import { formatDateTime } from '@/lib/money';
 import { Pagination } from '@/components/pagination';
 import { AuditFilters } from './filters';
 import { PageHeader } from '@/components/ui';
-import { Tabs, MONEY_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'Audit trail — BioAssetPro' };
 
@@ -48,7 +48,7 @@ export default async function AuditPage({
         subtitle="Every workflow event and every posting, with the user, time, IP and device that produced it. Append-only in the database."
       />
 
-      <Tabs tabs={MONEY_TABS} />
+      <Tabs />
 
       <AuditFilters
         modules={result.modules}

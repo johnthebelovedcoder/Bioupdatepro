@@ -123,6 +123,26 @@ const RESOLVERS = {
     (await prisma.taxPeriod.findUnique({ where: { id }, select: { companyId: true } }))
       ?.companyId ?? null,
 
+  purchaseOrder: async (prisma: PrismaService, id: string) =>
+    (await prisma.purchaseOrder.findUnique({ where: { id }, select: { companyId: true } }))
+      ?.companyId ?? null,
+
+  livestockGroup: async (prisma: PrismaService, id: string) =>
+    (await prisma.livestockGroup.findUnique({ where: { id }, select: { companyId: true } }))
+      ?.companyId ?? null,
+
+  biologicalAssetValuation: async (prisma: PrismaService, id: string) =>
+    (
+      await prisma.biologicalAssetValuation.findUnique({
+        where: { id },
+        select: { companyId: true },
+      })
+    )?.companyId ?? null,
+
+  goodsReceiptNote: async (prisma: PrismaService, id: string) =>
+    (await prisma.goodsReceiptNote.findUnique({ where: { id }, select: { companyId: true } }))
+      ?.companyId ?? null,
+
   workflowDelegation: async (prisma: PrismaService, id: string) =>
     (await prisma.workflowDelegation.findUnique({ where: { id }, select: { companyId: true } }))
       ?.companyId ?? null,

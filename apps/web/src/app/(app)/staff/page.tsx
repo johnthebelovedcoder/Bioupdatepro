@@ -4,7 +4,7 @@ import { InviteWorker } from '@/components/invite-worker';
 import { formatDate } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { IconUsers } from '@/components/icons';
-import { Tabs, SETUP_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'Staff & roles — BioAssetPro' };
 
@@ -25,7 +25,7 @@ export default async function StaffPage() {
         subtitle="Who can do what, and who did it"
       />
 
-      <Tabs tabs={SETUP_TABS} />
+      <Tabs />
 
       <div className="stack">
         <InviteWorker invitations={invitations} />

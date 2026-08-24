@@ -2,7 +2,7 @@ import { getInventory, getStockMovements } from '@/lib/demo-trade';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { IconBox } from '@/components/icons';
-import { Tabs, STORE_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'Inventory — BioAssetPro' };
 
@@ -29,7 +29,7 @@ export default async function InventoryPage() {
         subtitle="Feed, medication, packaging and equipment"
       />
 
-      <Tabs tabs={STORE_TABS} />
+      <Tabs />
 
       <div className="stack">
         <div className="stat-grid">

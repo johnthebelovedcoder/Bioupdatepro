@@ -520,7 +520,22 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
     }
   }
 
-  const ordered = alerts.sort((a, b) => a.rank - b.rank);
+  /*
+   * A farm with no animals gets no warnings about animals.
+   *
+   * AgriPro Core is sold on its own — books, buying, selling, payroll, no
+   * livestock — and until this filter existed such a customer opened their
+   * dashboard to "Gumboro vaccine is below the reorder level" and "how long the
+   * feed lasts". Every alert whose section is `livestock` belongs to a species
+   * module, so the same mapping that decides who may see an alert decides
+   * whether it applies at all.
+   */
+  const hasSpecies = subscribedModules(config.modules).length > 0;
+  const applicable = hasSpecies
+    ? alerts
+    : alerts.filter((alert) => sectionForKind(alert.kind) !== 'livestock');
+
+  const ordered = applicable.sort((a, b) => a.rank - b.rank);
   if (!roles) return ordered;
 
   return ordered

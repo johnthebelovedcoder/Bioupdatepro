@@ -718,13 +718,28 @@ export class SupplierInvoiceService {
       // the invoice), so its cost lands on the expense account here.
       const clearsGrni = grnLine.item.itemType === ItemType.INVENTORY;
 
+      /*
+       * And it must have one. Falling back to GRNI put the cost of a service on
+       * a control account the service had never touched — debiting a liability
+       * that was never credited, so the GRNI balance drifted by the value of
+       * every such invoice and could never be cleared. The purchase-order
+       * branch below already refuses this by name; the two paths disagreed only
+       * because this one was written first.
+       */
+      if (!clearsGrni && !grnLine.item.expenseGlAccountId) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §5 — Item master',
+          `Item "${grnLine.item.code}" has no expense account, so this invoice line has ` +
+            `nowhere to post. Set one on the item before billing it.`,
+          { itemCode: grnLine.item.code },
+        );
+      }
+
       return {
         itemId: grnLine.itemId,
         description: grnLine.item.description,
         purchaseOrderLineId: grnLine.purchaseOrderLineId,
-        costGlAccountId: clearsGrni
-          ? grniGlAccountId
-          : (grnLine.item.expenseGlAccountId ?? grniGlAccountId),
+        costGlAccountId: clearsGrni ? grniGlAccountId : grnLine.item.expenseGlAccountId!,
         clearsGrni,
         defaultTaxCode: grnLine.item.vatTaxCode?.code ?? null,
         availableQuantity: new Decimal(grnLine.acceptedQuantity.toString()).minus(

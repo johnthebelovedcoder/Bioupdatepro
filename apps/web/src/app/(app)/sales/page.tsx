@@ -2,7 +2,7 @@ import { getCustomers, getReceivablesAgeing, getSalesInvoices } from '@/lib/demo
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import Link from 'next/link';
-import { Tabs, MONEY_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 import { IconPlus } from '@/components/icons';
 
 export const metadata = { title: 'Sales — BioAssetPro' };
@@ -44,7 +44,7 @@ export default async function SalesPage() {
         }
       />
 
-      <Tabs tabs={MONEY_TABS} />
+      <Tabs />
 
       <div className="stack">
         <div className="stat-grid">

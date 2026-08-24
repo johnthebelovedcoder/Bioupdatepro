@@ -308,6 +308,33 @@ export class GoodsReceiptService {
     if (inventoryLines.length > 0) {
       const total = inventoryLines.reduce((s, l) => s + l.valueKobo, 0n);
 
+      /*
+       * Every stocked line must name the account its value lands in.
+       *
+       * This used to fall back to GRNI when an item had no inventory account,
+       * which put the debit and the credit on the same account: a journal that
+       * balanced, passed every check, posted cleanly and recorded nothing. The
+       * stock never appeared on the balance sheet and the GRNI liability
+       * cancelled itself out, so the one control this posting exists to create
+       * was silently absent.
+       *
+       * There is no safe guess here. An item's inventory account is a decision
+       * about where the farm's money sits, and refusing by name is the only
+       * honest answer.
+       */
+      const unmapped = inventoryLines.filter((line) => !line.item.inventoryGlAccountId);
+      if (unmapped.length > 0) {
+        const codes = [...new Set(unmapped.map((line) => line.item.code))];
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §5 — Goods receipt',
+          `${codes.join(', ')} ${codes.length === 1 ? 'has' : 'have'} no stock account, so ` +
+            `there is nowhere to debit the goods received on ${grn.grnNumber}. Set the ` +
+            `stock account on ${codes.length === 1 ? 'the item' : 'those items'} under ` +
+            `Setup → Items, then approve this receipt again.`,
+          { grnNumber: grn.grnNumber, itemCodes: codes },
+        );
+      }
+
       const lines: Array<{
         glAccountId: string;
         description: string;
@@ -316,8 +343,7 @@ export class GoodsReceiptService {
         itemId: string | null;
       }> = [
         ...inventoryLines.map((line) => ({
-          glAccountId:
-            line.item.inventoryGlAccountId ?? settings.grniGlAccountId,
+          glAccountId: line.item.inventoryGlAccountId!,
           description: `Goods received — ${line.item.code}`,
           debit: line.valueKobo,
           itemId: line.itemId,
@@ -398,6 +424,35 @@ export class GoodsReceiptService {
         },
       });
     }
+
+    /*
+     * And move the order itself on.
+     *
+     * The line quantities above were being advanced while the order's own
+     * status sat unchanged at APPROVED, so an order whose goods had all
+     * arrived still read as one still waiting for them — and, worse, remained
+     * receivable, because the receivable check reads this field. Written here,
+     * inside the posting transaction, because that is the moment it becomes
+     * true; a fully received order and an unposted journal must never both
+     * exist.
+     */
+    const lines = await params.tx.purchaseOrderLine.findMany({
+      where: { purchaseOrderId: grn.purchaseOrderId },
+      select: { quantity: true, receivedQuantity: true },
+    });
+    const allReceived = lines.every((line) =>
+      new Decimal(line.receivedQuantity.toString()).greaterThanOrEqualTo(
+        new Decimal(line.quantity.toString()),
+      ),
+    );
+    await params.tx.purchaseOrder.update({
+      where: { id: grn.purchaseOrderId },
+      data: {
+        status: allReceived
+          ? PurchaseOrderStatus.FULLY_RECEIVED
+          : PurchaseOrderStatus.PARTIALLY_RECEIVED,
+      },
+    });
 
     await params.tx.goodsReceiptNote.update({
       where: { id: grn.id },

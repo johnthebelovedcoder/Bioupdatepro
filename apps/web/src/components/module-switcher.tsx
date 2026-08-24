@@ -1,9 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { switchModule } from '@/app/(app)/module-actions';
 import { MODULES, type ModuleKey } from '@/lib/modules';
+import { IconChart } from './icons';
 
 /**
  * Picks the species module the whole interface is currently speaking about.
@@ -21,12 +23,20 @@ import { MODULES, type ModuleKey } from '@/lib/modules';
  * Unsubscribed modules are listed but disabled rather than hidden, so the
  * extension path is visible without pretending it is available.
  */
-export function ModuleSwitcher({ active }: { active: ModuleKey }) {
+export function ModuleSwitcher({ active }: { active: ModuleKey | null }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const current = MODULES.find((module) => module.key === active) ?? MODULES[0]!;
-  const CurrentIcon = current.icon;
+  /*
+   * No module is a real state, not a missing one.
+   *
+   * This used to fall back to `MODULES[0]` — PoultryPro — so a farm running the
+   * platform on its own would have been told it was working in a product it had
+   * never bought. Core standing on its own is what §60 describes, and the
+   * control should say so.
+   */
+  const current = MODULES.find((module) => module.key === active) ?? null;
+  const CurrentIcon = current?.icon ?? null;
 
   useEffect(() => {
     if (!open) return;
@@ -54,17 +64,40 @@ export function ModuleSwitcher({ active }: { active: ModuleKey }) {
         onClick={() => setOpen((value) => !value)}
       >
         <span className="module-trigger-icon">
-          <CurrentIcon size={17} />
+          {CurrentIcon ? <CurrentIcon size={17} /> : <IconChart size={17} />}
         </span>
         <span className="module-trigger-text">
-          <span className="module-trigger-name">{current.productName}</span>
-          <span className="module-trigger-sub">Switch module</span>
+          <span className="module-trigger-name">
+            {current ? current.productName : 'AgriPro Core'}
+          </span>
+          {/*
+            Says what the thing above it is, not what the control does.
+
+            "Switch module" described the button; "on AgriPro Core" describes
+            the product — that SnailPro is an extension sitting on a platform,
+            which is the single most important fact about how this application
+            is put together and was nowhere on screen.
+          */}
+          <span className="module-trigger-sub">
+            {current ? 'on AgriPro Core' : 'no species module'}
+          </span>
         </span>
         <Chevron open={open} />
       </button>
 
       {open ? (
         <div className="module-menu" role="menu" aria-label="Species module">
+          <div className="module-menu-head">
+            <Link href="/agripro" className="module-core" onClick={() => setOpen(false)}>
+              <span className="module-option-text">
+                <span className="module-option-name">AgriPro Core</span>
+                <span className="module-option-sub">
+                  The shared platform — ledger, buying, selling, people
+                </span>
+              </span>
+            </Link>
+            <div className="module-menu-label">Species modules on top</div>
+          </div>
           {MODULES.map((module) => (
             <form
               key={module.key}

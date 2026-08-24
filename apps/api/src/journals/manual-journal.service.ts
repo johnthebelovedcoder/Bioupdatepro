@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
 import { WorkflowService } from '../workflow/workflow.service';
+import { PostingControlService } from '../posting-control/posting-control.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import {
   AccountingRuleViolation,
@@ -76,6 +77,7 @@ export class ManualJournalService {
     private readonly audit: AuditService,
     private readonly posting: PostingService,
     private readonly workflow: WorkflowService,
+    private readonly postingControl: PostingControlService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -133,6 +135,24 @@ export class ManualJournalService {
     }
 
     this.assertLinesBalance(input.lines);
+
+    /*
+     * §66.3 — a manual journal may not touch a control account.
+     *
+     * GRNI, payables, receivables, inventory, WIP, the recovery accounts and
+     * the payroll liabilities are all `CONTROL — subledger/system only`. They
+     * are the accounts a subledger reconciles against, and hand-journalling one
+     * destroys the reconciliation without leaving anything to reconcile: the
+     * three-way match would agree with a GRNI balance somebody had simply typed
+     * to zero.
+     *
+     * Checked at creation rather than at posting so a journal that can never be
+     * approved is refused while the person is still looking at it.
+     */
+    await this.postingControl.assertManualJournalAllowed({
+      companyId: input.companyId,
+      glAccountIds: input.lines.map((line) => line.glAccountId),
+    });
     this.assertPartyConsistency(journalType.kind, input);
 
     return this.prisma.$transaction(async (tx) => {

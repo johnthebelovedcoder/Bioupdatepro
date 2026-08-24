@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getModule, type ModuleKey } from '@/lib/modules';
+import { sectionFor } from '@/lib/navigation';
 import { translator } from '@/lib/i18n';
 import type { LanguageCode } from '@/lib/farm-config';
 import { IconBox, IconDashboard, IconMenu, IconPlus, IconWallet } from './icons';
@@ -32,7 +33,7 @@ export function BottomNav({
   onMore,
   language = 'en',
 }: {
-  activeModule: ModuleKey;
+  activeModule: ModuleKey | null;
   onMore: () => void;
   /** The worker's language — this bar is the worker's navigation. */
   language?: LanguageCode;
@@ -48,7 +49,16 @@ export function BottomNav({
   const isHome = pathname === '/';
   const isLivestock = pathname.startsWith(livestockHref) || pathname === `/m/${module.key}`;
   const isRecord = pathname === recordHref;
-  const isStore = pathname.startsWith('/inventory') || pathname.startsWith('/procurement');
+  /*
+   * Which of the five is lit comes from the navigation model, not from a path
+   * prefix written here.
+   *
+   * It used to be `startsWith('/procurement')`, which lit "Store" on the
+   * purchase-order screen — fine while buying and the store were one group,
+   * wrong the moment they became two. Reading the section means this bar
+   * cannot disagree with the sidebar about where you are.
+   */
+  const isStore = sectionFor(pathname)?.key === 'stock';
 
   return (
     <nav className="bottom-nav" aria-label="Main">

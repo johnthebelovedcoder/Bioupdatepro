@@ -2,7 +2,7 @@ import { getVarianceFindings } from '@/lib/variance';
 import { getFarmConfig } from '@/lib/farm-config.server';
 import { formatNaira, toKobo } from '@/lib/money';
 import { Card, EmptyState, PageHeader, Stat } from '@/components/ui';
-import { Tabs, MONEY_TABS } from '@/components/tabs';
+import { Tabs } from '@/components/tabs';
 import { IconAlert, IconCheckCircle } from '@/components/icons';
 import Link from 'next/link';
 
@@ -36,7 +36,7 @@ export default async function LossesPage() {
         subtitle="Feed, eggs and stock that do not add up"
       />
 
-      <Tabs tabs={MONEY_TABS} />
+      <Tabs />
 
       <div className="stack">
         {!config.variance.enabled ? (

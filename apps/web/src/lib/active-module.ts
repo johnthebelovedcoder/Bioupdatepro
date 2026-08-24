@@ -18,7 +18,20 @@ import { getFarmConfig } from './farm-config.server';
 
 export const MODULE_COOKIE = 'bap_module';
 
-export async function getActiveModule(): Promise<SpeciesModule> {
+/**
+ * Null when the organisation has no species module, which is a valid state.
+ *
+ * This used to throw. That made a claim the specification explicitly denies:
+ * §60 describes AgriPro as a core ERP platform with SnailPro and PoultryPro as
+ * optional extensions, so a farm that buys the platform on its own — books,
+ * buying, selling, payroll, no livestock — is an ordinary customer, and this
+ * function crashed their entire application on the first page load.
+ *
+ * Returning null instead means "AgriPro Core, nothing on top", and every
+ * consumer already had to handle the shape of a missing module for the case
+ * where a cookie names one the farm does not have.
+ */
+export async function getActiveModule(): Promise<SpeciesModule | null> {
   const [store, config] = await Promise.all([cookies(), getFarmConfig()]);
   const enabled = config.modules;
   const has = (module: SpeciesModule | null) =>
@@ -33,9 +46,5 @@ export async function getActiveModule(): Promise<SpeciesModule> {
   const fallback = getModule(DEFAULT_MODULE);
   if (has(fallback)) return fallback!;
 
-  const first = subscribedModules(enabled)[0];
-  if (!first) {
-    throw new Error('This organisation has no subscribed species modules.');
-  }
-  return first;
+  return subscribedModules(enabled)[0] ?? null;
 }

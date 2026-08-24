@@ -9,9 +9,11 @@ import { ItemService } from './item.service';
 import { EmployeeService } from './employee.service';
 import { RecipeService } from './recipe.service';
 import { kobo } from '../common/money';
-import { CurrentCompany } from '../auth/current-user.decorator';
+import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
-import { Roles } from '../auth/roles.guard';
+import { AnyRole, Roles } from '../auth/roles.guard';
+import { FarmStructureService } from './farm-structure.service';
+import type { WorkflowActor } from '../workflow/workflow.types';
 
 /**
  * Master data API (§5, §6, §7, §10).
@@ -27,18 +29,39 @@ export class MasterDataController {
     private readonly items: ItemService,
     private readonly employees: EmployeeService,
     private readonly recipes: RecipeService,
+    private readonly structure: FarmStructureService,
   ) {}
 
   // --- Suppliers ----------------------------------------------------------
 
+  /**
+   * Register a vendor.
+   *
+   * The company and the actor come from the verified session, never the body.
+   * They used to be read straight off the request, which let a caller name the
+   * company a supplier belonged to and — worse, since nothing checked it —
+   * attribute the registration to another user in the audit trail.
+   *
+   * The currency is resolved from the company rather than asked for: a farm
+   * registering a feed supplier should not have to answer a question about
+   * currency ids, and the answer is never anything but the company's own.
+   */
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
   @Post('suppliers')
-  async createSupplier(@Body() body: Record<string, unknown>) {
-    const input = body;
+  async createSupplier(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const company = await this.parties.companyDefaults(companyId);
     return this.parties.createSupplier({
-      ...input,
+      ...body,
+      companyId,
+      actorId: actor.userId,
+      defaultCurrencyId: company.baseCurrencyId,
       creditLimit:
-        input.creditLimitKobo !== undefined && input.creditLimitKobo !== null
-          ? kobo(BigInt(String(input.creditLimitKobo)))
+        body.creditLimitKobo !== undefined && body.creditLimitKobo !== null
+          ? kobo(BigInt(String(body.creditLimitKobo)))
           : null,
     } as Parameters<PartyService['createSupplier']>[0]);
   }
@@ -128,9 +151,15 @@ export class MasterDataController {
 
   // --- Items --------------------------------------------------------------
 
+  /** Company and actor from the session, never the body — as for suppliers. */
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
   @Post('items')
-  async createItem(@Body() body: Record<string, unknown>) {
-    const input = body;
+  async createItem(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const input: Record<string, unknown> = { ...body, companyId, actorId: actor.userId };
     return this.items.create({
       ...input,
       standardCost:
@@ -304,5 +333,104 @@ export class MasterDataController {
       quantity,
       on: on ? new Date(on) : new Date(),
     });
+  }
+
+  /* --- Structure: farms, pens, stores, cost centres ------------------------
+   *
+   * None of these had an endpoint. The consequence was not subtle: a farm that
+   * signed up could not create the pen its animals live in, the store its feed
+   * sits in, or the cost centre every production posting requires — so the
+   * whole operational side was unreachable from a fresh account.
+   */
+
+  @AnyRole('Everyone on a farm needs to know which farms and pens exist.')
+  @Get('farms')
+  async listFarms(@CurrentCompany() companyId: string) {
+    return this.structure.listFarms(companyId);
+  }
+
+  @Roles('FARM_MANAGER', 'MANAGING_DIRECTOR')
+  @Post('farms')
+  async createFarm(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { code: string; name: string },
+  ) {
+    return this.structure.createFarm({ companyId, actor, ...body });
+  }
+
+  @AnyRole('Everyone on a farm needs to know which pens exist.')
+  @Get('pens')
+  async listPens(@CurrentCompany() companyId: string) {
+    return this.structure.listPens(companyId);
+  }
+
+  @Roles('FARM_MANAGER', 'MANAGING_DIRECTOR')
+  @Post('pens')
+  async createPen(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { farmId?: string | null; code: string; name: string },
+  ) {
+    return this.structure.createPen({ companyId, actor, ...body });
+  }
+
+  @AnyRole('Stores are named on every stock movement.')
+  @Get('warehouses')
+  async listWarehouses(@CurrentCompany() companyId: string) {
+    return this.structure.listWarehouses(companyId);
+  }
+
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'MANAGING_DIRECTOR')
+  @Post('warehouses')
+  async createWarehouse(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { code: string; name: string; type: string },
+  ) {
+    return this.structure.createWarehouse({ companyId, actor, ...body });
+  }
+
+  /*
+   * The two lists an item form cannot be filled in without.
+   *
+   * Offered as lists rather than free text because a mistyped unit code is
+   * rejected by the API with a message about unit codes, and a mistyped VAT
+   * code silently misstates recoverable input tax. Neither is a sentence a
+   * farmer should have to decode.
+   */
+  @AnyRole('Reference lists that every create form needs to render.')
+  @Get('units')
+  async listUnits(@CurrentCompany() companyId: string) {
+    return this.structure.listUnits(companyId);
+  }
+
+  @AnyRole('Reference lists that every create form needs to render.')
+  @Get('gl-accounts')
+  async listGlAccounts(@CurrentCompany() companyId: string) {
+    return this.structure.listGlAccounts(companyId);
+  }
+
+  @AnyRole('Reference lists that every create form needs to render.')
+  @Get('tax-codes')
+  async listTaxCodes(@CurrentCompany() companyId: string) {
+    return this.structure.listTaxCodes(companyId);
+  }
+
+  @AnyRole('Cost centres appear on every production posting.')
+  @Get('cost-centres')
+  async listCostCentres(@CurrentCompany() companyId: string) {
+    return this.structure.listCostCentres(companyId);
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Post('cost-centres')
+  async createCostCentre(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: { code: string; name: string; parentId?: string | null; managerName?: string | null },
+  ) {
+    return this.structure.createCostCentre({ companyId, actor, ...body });
   }
 }

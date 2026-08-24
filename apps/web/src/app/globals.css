@@ -755,6 +755,25 @@ table.data {
   font-size: 14px;
 }
 
+/*
+ * A table with too much in it to squash.
+ *
+ * `width: 100%` inside a scrolling wrapper does not scroll — it shrinks, and
+ * the browser resolves the shortfall by narrowing whichever column wraps most
+ * willingly. On the approvals queue that was the description, which collapsed
+ * to one word per line and turned "An order to a supplier" into four rows of
+ * text beside a perfectly roomy amount column. A floor makes the wrapper do
+ * its job and scroll instead.
+ */
+table.data.wide {
+  min-width: 880px;
+}
+
+/* Buttons that belong together stay together. */
+table.data td.actions {
+  white-space: nowrap;
+}
+
 table.data th {
   text-align: left;
   font-weight: 500;
@@ -2387,4 +2406,221 @@ body:has(.offline-banner) .app-sidebar {
   text-align: left;
   white-space: normal;
   box-shadow: var(--shadow-lg);
+}
+
+/* ==========================================================================
+   Search palette
+
+   One box for finding anything — screens from the navigation tree, records
+   from the API. It is the widest control in the header because for anybody
+   who knows a document number it is a faster way in than the menu, and it has
+   to look like it will accept one.
+   ========================================================================== */
+
+.search-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 380px;
+  height: 36px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--gray-25);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.search-trigger:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.search-trigger-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-trigger-key {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: var(--surface);
+}
+
+/* The keyboard hint is a lie on a touch device, and the label costs room the
+   header does not have on a phone. The icon alone still reads as search. */
+@media (max-width: 720px) {
+  .search-trigger {
+    max-width: none;
+    flex: 0 0 auto;
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .search-trigger-label,
+  .search-trigger-key {
+    display: none;
+  }
+}
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(16, 24, 40, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(8vh, var(--sp-5)) var(--sp-4) var(--sp-4);
+}
+
+.palette {
+  width: min(640px, 100%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 24px 48px -12px rgba(16, 24, 40, 0.28);
+  overflow: hidden;
+}
+
+.palette-input {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.palette-input input {
+  flex: 1 1 auto;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 16px;
+  color: var(--gray-900);
+  min-height: 0;
+  padding: 0;
+}
+
+.palette-results {
+  overflow-y: auto;
+  padding: var(--sp-2);
+}
+
+.palette-empty {
+  padding: var(--sp-5);
+  color: var(--text-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.palette-hit {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-hit.is-active {
+  background: var(--gray-50, var(--gray-25));
+}
+
+.palette-hit-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.palette-hit-title {
+  display: block;
+  color: var(--gray-900);
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-hit-subtitle {
+  display: block;
+  color: var(--text-muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-footer {
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+/* Nothing to press on a touch device, so the shortcut legend is noise. */
+@media (max-width: 720px) {
+  .palette-footer {
+    display: none;
+  }
+}
+
+/* AgriPro Core, at the head of the module menu.
+
+   The platform is not one of the species options, so it does not look like
+   one: it sits above them, under its own heading, and it is a link rather
+   than a form because choosing it does not switch anything — it opens the
+   page that explains what Core is. */
+
+.module-menu-head {
+  padding: var(--sp-2) var(--sp-2) 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-2);
+}
+
+.module-core {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  color: var(--gray-800);
+  text-decoration: none;
+}
+
+.module-core:hover {
+  background: var(--brand-50);
+  color: var(--brand-800);
+  text-decoration: none;
+}
+
+.module-menu-label {
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gray-400);
 }

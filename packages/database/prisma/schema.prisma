@@ -169,6 +169,7 @@ model User {
   harvestsRecorded          HarvestRecord[]           @relation("HarvestRecorder")
   stageChangesRecorded      StageChange[]             @relation("StageChangeRecorder")
   invitationsSent           Invitation[]              @relation("InvitationSender")
+  valuationsPrepared        BiologicalAssetValuation[] @relation("ValuationPreparer")
 
   @@map("users")
 }
@@ -258,6 +259,11 @@ model Company {
   periodCloseLogs           PeriodCloseLog[]
   accountBalances           AccountBalance[]
   periodReopenRequests      PeriodReopenRequest[]
+  postingKeys               PostingKey[]
+  postingRules              PostingRule[]
+  biologicalAssetStageAccounts   BiologicalAssetStageAccount[]
+  biologicalAssetConfigurations  BiologicalAssetConfiguration[]
+  biologicalAssetValuations      BiologicalAssetValuation[]
 
   @@map("companies")
 }
@@ -427,6 +433,8 @@ model GLAccount {
   supplierInvoiceLineCosts   SupplierInvoiceLine[]      @relation("SupplierInvoiceLineCostAccount")
   paymentBankAccounts        SupplierPayment[]          @relation("PaymentBankAccount")
   accountBalances            AccountBalance[]
+  postingKeys                PostingKey[]               @relation("PostingKeyAccount")
+  biologicalAssetStageAccounts BiologicalAssetStageAccount[] @relation("BiologicalStageAccount")
 
   @@unique([companyId, accountNumber])
   @@index([parentId])
@@ -719,9 +727,12 @@ model JournalEntry {
   supplierInvoices     SupplierInvoice[]
   supplierPayments     SupplierPayment[]
   accountBalances      AccountBalance[]
-  feedIssues           FeedIssue[]       @relation("FeedIssueJournal")
-  treatmentRecords     TreatmentRecord[] @relation("TreatmentJournal")
-  harvestRecords       HarvestRecord[]   @relation("HarvestJournal")
+  feedIssues           FeedIssue[]           @relation("FeedIssueJournal")
+  treatmentRecords     TreatmentRecord[]     @relation("TreatmentJournal")
+  harvestRecords       HarvestRecord[]       @relation("HarvestJournal")
+  mortalityRecords     MortalityRecord[]     @relation("MortalityJournal")
+  stageChanges         StageChange[]         @relation("StageChangeJournal")
+  biologicalAssetValuations BiologicalAssetValuation[]
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -1075,6 +1086,7 @@ model WorkflowTransaction {
   comments      WorkflowComment[]
   notifications WorkflowNotification[]
   attachments   WorkflowAttachment[]
+  biologicalAssetValuations BiologicalAssetValuation[]
 
   @@unique([module, documentType, documentId])
   @@index([companyId, status])
@@ -1965,7 +1977,7 @@ model Item {
   purchaseOrderLines     PurchaseOrderLine[]
   goodsReceiptLines      GoodsReceiptNoteLine[]
   supplierInvoiceLines   SupplierInvoiceLine[]
-  feedIssues             FeedIssue[]              @relation("FeedIssueItem")
+  feedIssues             FeedIssue[]               @relation("FeedIssueItem")
 
   @@unique([companyId, code])
   @@index([companyId, itemType, active])
@@ -4614,12 +4626,12 @@ model LivestockGroup {
   /// A string rather than an enum, on purpose — see Rule 8 above.
   speciesKey String @map("species_key")
 
-  breed String
+  breed   String
   /// What it is kept for: Layer, Broiler, Breeder colony, Growers.
   purpose String
   /// Where it is in its life: Chick, Grower, Layer, Juvenile, Breeder.
   /// Values come from the module registry, so they are data too.
-  stage String
+  stage   String
 
   /// How many arrived. Never changes — it is the denominator of every
   /// cumulative mortality figure this population will ever have.
@@ -4647,6 +4659,12 @@ model LivestockGroup {
   /// MONEY. What the stock itself cost to acquire, in kobo.
   acquisitionCostKobo BigInt @default(0) @map("acquisition_cost_kobo")
 
+  /// The IAS 41 carrying value per live unit, in kobo. Null until the first
+  /// acquisition or valuation posts. A materialised balance in the same
+  /// spirit as `population` — moved only inside the transaction of the
+  /// posting that changed it, never set directly.
+  currentFvlctsPerUnitKobo BigInt? @map("current_fvlcts_per_unit_kobo")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -4655,12 +4673,13 @@ model LivestockGroup {
   farm     Farm     @relation(fields: [farmId], references: [id])
   penHouse PenHouse @relation("GroupPenHouse", fields: [penHouseId], references: [id])
 
-  dailyRecords  DailyRecord[]
-  healthEvents  HealthEvent[]
-  treatments    TreatmentRecord[]
-  harvests      HarvestRecord[]
-  harvestsInto  HarvestRecord[]  @relation("HarvestMovedTo")
-  stageChanges  StageChange[]
+  dailyRecords DailyRecord[]
+  healthEvents HealthEvent[]
+  treatments   TreatmentRecord[]
+  harvests     HarvestRecord[]
+  harvestsInto HarvestRecord[]   @relation("HarvestMovedTo")
+  stageChanges StageChange[]
+  valuations   BiologicalAssetValuation[]
 
   @@unique([companyId, code])
   @@index([companyId, speciesKey, status])
@@ -4715,7 +4734,7 @@ model ProductionLine {
   dailyRecordId String @map("daily_record_id") @db.Uuid
 
   /// The module registry's field key — 'wholeEggs', 'cracked', 'weightKg'.
-  fieldKey String @map("field_key")
+  fieldKey String  @map("field_key")
   /// QUANTITY. Decimal because some measures are weights.
   quantity Decimal @db.Decimal(18, 6)
 
@@ -4735,9 +4754,9 @@ model FeedIssue {
 
   /// The stock item, once the feed is a real inventory item. Nullable while a
   /// farm is still typing the name of a feed it buys in bags from the market.
-  itemId String? @map("item_id") @db.Uuid
+  itemId   String? @map("item_id") @db.Uuid
   /// What the worker chose, as they chose it — 'Broiler finisher'.
-  feedName String @map("feed_name")
+  feedName String  @map("feed_name")
 
   /// QUANTITY in kilograms.
   quantityKg Decimal @map("quantity_kg") @db.Decimal(18, 6)
@@ -4770,10 +4789,17 @@ model MortalityRecord {
   /// single cause produces a confident answer nobody checked.
   causes String[]
 
+  /// §67.4's threshold test, decided at posting time against
+  /// `BiologicalAssetConfiguration`. Not user-selected — a worker records
+  /// what died, not whether it counts as a normal loss.
+  classification MortalityClassification @default(NORMAL)
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
   notes String?
 
-  dailyRecord DailyRecord      @relation(fields: [dailyRecordId], references: [id], onDelete: Cascade)
-  photos      MortalityPhoto[]
+  dailyRecord  DailyRecord      @relation(fields: [dailyRecordId], references: [id], onDelete: Cascade)
+  photos       MortalityPhoto[]
+  journalEntry JournalEntry?    @relation("MortalityJournal", fields: [journalEntryId], references: [id])
 
   @@index([dailyRecordId])
   @@map("mortality_records")
@@ -4789,9 +4815,9 @@ model MortalityPhoto {
   id                String @id @default(uuid()) @db.Uuid
   mortalityRecordId String @map("mortality_record_id") @db.Uuid
 
-  fileName String @map("file_name")
-  mimeType String @map("mime_type")
-  byteSize Int    @map("byte_size")
+  fileName   String  @map("file_name")
+  mimeType   String  @map("mime_type")
+  byteSize   Int     @map("byte_size")
   /// Base64, as captured and downscaled by the phone.
   data       String? @db.Text
   storageKey String? @map("storage_key")
@@ -4866,7 +4892,7 @@ model TreatmentRecord {
   route   String
   /// Free text rather than a user link: the person who gave it is often not a
   /// system user, and naming the wrong one is worse than naming a string.
-  givenBy String @map("given_by")
+  givenBy String   @map("given_by")
 
   /// COUNT reached, and the population at the time. Both, because coverage is
   /// the ratio and the denominator moves.
@@ -4974,14 +5000,16 @@ model StageChange {
 
   notes String?
 
-  recordedById String   @map("recorded_by_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at")
+  recordedById   String   @map("recorded_by_id") @db.Uuid
+  journalEntryId String?  @map("journal_entry_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
 
   company      Company        @relation(fields: [companyId], references: [id])
   group        LivestockGroup @relation(fields: [groupId], references: [id])
   fromPenHouse PenHouse       @relation("StageChangeFrom", fields: [fromPenHouseId], references: [id])
   toPenHouse   PenHouse       @relation("StageChangeTo", fields: [toPenHouseId], references: [id])
   recordedBy   User           @relation("StageChangeRecorder", fields: [recordedById], references: [id])
+  journalEntry JournalEntry?  @relation("StageChangeJournal", fields: [journalEntryId], references: [id])
 
   @@index([companyId, changedOn])
   @@index([groupId, changedOn])
@@ -5024,7 +5052,7 @@ model Invitation {
   acceptedUserId String?   @map("accepted_user_id") @db.Uuid
   /// Withdrawn before it was used. Kept rather than deleted so "who invited
   /// this person, and who cancelled it" stays answerable.
-  revokedAt DateTime? @map("revoked_at")
+  revokedAt      DateTime? @map("revoked_at")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -5034,4 +5062,304 @@ model Invitation {
   @@index([companyId, email])
   @@index([expiresAt])
   @@map("invitations")
+}
+
+// ---------------------------------------------------------------------------
+// Posting control (Consolidated Reference §66)
+//
+// The rule the specification is most insistent about, and the one this system
+// broke for longest: "A transaction user must never type a GL account. The
+// approved business event selects debit and credit posting keys; the system
+// retrieves both GL code and GL name from POSTING_COA_MASTER, validates the
+// Ledger Flag, dimensions, period and approval, and then posts one balanced
+// atomic journal."
+//
+// Until these tables existed, every posting in this application named its
+// accounts in TypeScript. That is not a style question. A rule written in code
+// cannot be effective-dated, cannot be approved by a Financial Controller,
+// cannot be retired, and cannot be audited without reading a diff — and the
+// specification requires all four. It also meant nothing enforced the Ledger
+// Flag, so a manual journal could be posted straight to GRNI or to a payables
+// control account, which is precisely the hole the flag exists to close.
+//
+// The 86 rules and 172 keys seeded into these tables are the client's own rows,
+// extracted from the workbook rather than retyped.
+// ---------------------------------------------------------------------------
+
+enum PostingKeySide {
+  DEBIT
+  CREDIT
+}
+
+/// §66.3. What may write to an account, and from where.
+enum LedgerFlag {
+  /// AP, AR, GRNI, inventory, biological assets, WIP, recovery, payroll and
+  /// similar control ledgers. Manual journals are blocked outright; only the
+  /// owning subledger or system process may post.
+  CONTROL
+  /// Revenue, expense, gain, loss, variance. A role-authorised, open-period,
+  /// balanced, dimensioned journal is allowed.
+  GENERAL
+  /// Workflow and commitment events that create no accounting at all — a
+  /// requisition approval, a purchase order, activating a period.
+  NO_JOURNAL
+}
+
+enum PostingRuleStatus {
+  DRAFT
+  APPROVED
+  RETIRED
+}
+
+/// One row of POSTING_COA_MASTER: a posting key and the account it resolves to.
+model PostingKey {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// The key a rule refers to, e.g. `PCR-004-DR`.
+  key String
+
+  /// The account code as the workbook states it.
+  ///
+  /// Not always a single account. Thirty-two of the 172 keys carry a dynamic
+  /// expression instead — "Species BA acquisition GL", "210100/210200",
+  /// "1302xx" — because the client has not yet decided which atomic account
+  /// each resolves to. §66.2 step 4 requires a non-atomic result to BLOCK
+  /// posting, so those are stored as written and `atomic` records that they
+  /// cannot yet be posted through.
+  glAccountCode String? @map("gl_account_code")
+  glAccountName String  @map("gl_account_name")
+
+  /// The resolved account, where the code names exactly one that exists.
+  glAccountId String? @map("gl_account_id") @db.Uuid
+
+  /// False when the code is an expression, a range, or a choice between
+  /// accounts. Posting through such a key is refused rather than guessed.
+  atomic Boolean @default(false)
+
+  allowedModule String         @map("allowed_module")
+  cycle         String
+  side          PostingKeySide
+  ledgerFlag    LedgerFlag     @map("ledger_flag")
+
+  /// Draft keys cannot post (§66.4).
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company   Company    @relation(fields: [companyId], references: [id])
+  glAccount GLAccount? @relation("PostingKeyAccount", fields: [glAccountId], references: [id])
+
+  @@unique([companyId, key])
+  @@index([companyId, active])
+  @@map("posting_keys")
+}
+
+/// One row of Posting_Control: a business event and the keys it posts through.
+model PostingRule {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// e.g. `PCR-004`.
+  ruleId String @map("rule_id")
+
+  module   String
+  cycle    String
+  sequence Int    @default(0)
+
+  /// The screen or event that fires it, and what document it comes from.
+  trigger        String
+  sourceDocument String @map("source_document")
+  scenario       String
+
+  debitKey  String @map("debit_key")
+  creditKey String @map("credit_key")
+
+  /// How the amount is arrived at, e.g. "Accepted quantity × PO price/WAC basis".
+  measurementBasis String @map("measurement_basis")
+
+  /// Semicolon-separated, as the workbook states them. Free text rather than a
+  /// relation because the dimension vocabulary is the client's, not ours, and
+  /// pinning it to our enum would silently drop any dimension we lack.
+  requiredDimensions String @map("required_dimensions")
+
+  makerRole    String @map("maker_role")
+  approverRole String @map("approver_role")
+
+  /// What must be true before this rule may post.
+  blockingControl String @map("blocking_control")
+  /// How a posting made under this rule is corrected. Never by editing it.
+  reversalMethod  String @map("reversal_method")
+  reportImpact    String @map("report_impact")
+
+  /// Draft and retired rules cannot post (§66.2 step 2).
+  status PostingRuleStatus @default(DRAFT)
+
+  /// Effective dating, so correcting a rule is a new version rather than an
+  /// edit to one that has already posted.
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  version       Int       @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, ruleId, version])
+  @@index([companyId, status, effectiveFrom])
+  @@index([companyId, module, cycle])
+  @@map("posting_rules")
+}
+
+// ---------------------------------------------------------------------------
+// Biological assets (Consolidated Reference §43, §61, §67 — IAS 41)
+//
+// The gap the client demonstrated in his own voice note: "as soon as I receive
+// the snail into the inventory... the biological asset is debited and the
+// Goods Received Not Yet Invoiced is credited." Nothing in this codebase did
+// that. `LivestockGroup` already tracked a population and its acquisition
+// cost; nothing turned either into a ledger entry, and `operations-posting
+// .service.ts` said plainly why: valuing a dead or growing animal is a policy
+// decision, not a fact, and guessing at one would put an unapproved number in
+// the accounts.
+//
+// The workbook supplies the policy: fair value less costs to sell (§61.7),
+// with seven stated formulas (§61.3) for quantity roll-forward, mortality
+// carrying loss, growth/price gain and closing carrying value. That is what
+// is implemented below — not a new costing method invented here.
+//
+// Two things this deliberately does NOT do.
+//
+// It does not invent a "Market-ready" stage for snails. The product's own
+// stage vocabulary (apps/web/src/lib/modules.ts) is Egg, Hatchling, Juvenile,
+// Grower, Breeder — it has no stage matching the workbook's separate
+// 130204 "BA — Market Snails" account, because harvest/sale in this product
+// happens directly from Grower via `HarvestRecord`, not through a stage
+// transition. `BiologicalAssetStageAccount` maps what the product actually has;
+// 130204 sits unmapped until that product decision is made.
+//
+// It does not decide the abnormal-mortality threshold. §67.4 requires a
+// "threshold test", not a free human choice, but the percentage itself is not
+// stated anywhere in the workbook — it is site policy, the same way the
+// approval ladder is. `BiologicalAssetConfiguration` carries a provisional
+// default, exactly as the workflow ladder does, pending the client's figure.
+// ---------------------------------------------------------------------------
+
+enum MortalityClassification {
+  NORMAL
+  ABNORMAL
+}
+
+/// §61.3 formula 3/4: whether a valuation event raised or lowered carrying value.
+enum ValuationDirection {
+  GAIN
+  LOSS
+}
+
+/// The GL account a lifecycle stage carries its biological asset in.
+///
+/// Explicit, seeded, editable data rather than logic — the same reason
+/// `PostingKey` exists rather than a switch statement. Species differ
+/// structurally: snail has five stage accounts (130200-130204); poultry
+/// carries almost every stage in one account (130210) with eggs split out
+/// (130215/130216). A mapping table says so; a function pretending they are
+/// symmetric would not.
+model BiologicalAssetStageAccount {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  speciesKey String @map("species_key")
+  /// Matches `LivestockGroup.stage` exactly — the product's own vocabulary,
+  /// not the workbook's.
+  stage String
+
+  glAccountId String @map("gl_account_id") @db.Uuid
+
+  active Boolean @default(true)
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  glAccount GLAccount @relation("BiologicalStageAccount", fields: [glAccountId], references: [id])
+
+  @@unique([companyId, speciesKey, stage])
+  @@map("biological_asset_stage_accounts")
+}
+
+/// Company policy this posting needs and the workbook does not state a figure
+/// for. See the file-level note above.
+model BiologicalAssetConfiguration {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// §67.4's "threshold test". A single day's mortality for one population
+  /// above this share is ABNORMAL and requires investigation; at or below it
+  /// is NORMAL and posts as a fair-value loss without one.
+  abnormalMortalityThresholdPercent Decimal @default(2) @map("abnormal_mortality_threshold_percent") @db.Decimal(9, 6)
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("biological_asset_configurations")
+}
+
+/// One IAS 41 fair-value-less-costs-to-sell event (§61.3, §61.6, PCR-046/047).
+///
+/// Maker-checker through the same WorkflowTransaction engine every other
+/// posting document uses — Rule 2 forbids a second approval mechanism, and a
+/// valuation is exactly the kind of number (§61.6: "Farm Accountant /
+/// Financial Controller") that must not post on one person's say-so.
+model BiologicalAssetValuation {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  groupId   String @map("group_id") @db.Uuid
+
+  /// The stage the group was in when this was raised. Snapshotted because a
+  /// stage transfer between raising and approving must not silently move
+  /// which account an already-drafted valuation posts to.
+  stage         String
+  valuationDate DateTime @map("valuation_date") @db.Date
+
+  openingQuantity Int @map("opening_quantity")
+  closingQuantity Int @map("closing_quantity")
+
+  /// The carrying value per unit this valuation started from — usually the
+  /// group's own `currentFvlctsPerUnitKobo` at the time, captured so a later
+  /// valuation's gain/loss is provably against what this one left behind.
+  priorFvlctsPerUnitKobo BigInt @map("prior_fvlcts_per_unit_kobo")
+
+  marketPricePerUnitKobo    BigInt @map("market_price_per_unit_kobo")
+  costsToSellPerUnitKobo    BigInt @map("costs_to_sell_per_unit_kobo")
+  /// = market price − costs to sell (formula 2). Stored rather than only
+  /// computed, so a later change to either input cannot rewrite history.
+  currentFvlctsPerUnitKobo  BigInt @map("current_fvlcts_per_unit_kobo")
+
+  direction    ValuationDirection @map("direction")
+  gainLossKobo BigInt             @map("gain_loss_kobo")
+
+  /// §61.6 blocking control: "approved market evidence and costs-to-sell
+  /// required." A reference to what was approved — a price list, a buyer
+  /// quotation — not the evidence itself.
+  evidenceReference String @map("evidence_reference")
+
+  status                WorkflowStatus @default(DRAFT)
+  workflowTransactionId String?        @map("workflow_transaction_id") @db.Uuid
+  journalEntryId        String?        @map("journal_entry_id") @db.Uuid
+
+  preparedById String   @map("prepared_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company            Company            @relation(fields: [companyId], references: [id])
+  group              LivestockGroup     @relation(fields: [groupId], references: [id])
+  workflowTransaction WorkflowTransaction? @relation(fields: [workflowTransactionId], references: [id])
+  journalEntry        JournalEntry?       @relation(fields: [journalEntryId], references: [id])
+  preparedBy          User                @relation("ValuationPreparer", fields: [preparedById], references: [id])
+
+  @@index([companyId, groupId, valuationDate])
+  @@map("biological_asset_valuations")
 }

@@ -11,7 +11,7 @@ import {
 } from '@/lib/farm-config';
 import { formatNaira, parseNairaToKobo } from '@/lib/money';
 import { Card, PageHeader } from './ui';
-import { Tabs, SETUP_TABS } from './tabs';
+import { Tabs } from './tabs';
 
 /**
  * Everything about how this farm works.
@@ -80,7 +80,7 @@ export function SettingsForm({ config }: { config: FarmConfig }) {
         subtitle="How this farm works. Everything the system decides for you is set here."
       />
 
-      <Tabs tabs={SETUP_TABS} />
+      <Tabs />
 
       <div className="stack">
         <div className="segmented" role="group" aria-label="Settings section">
