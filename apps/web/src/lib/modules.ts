@@ -207,7 +207,24 @@ const POULTRY: SpeciesModule = {
     group: { one: 'flock', many: 'flocks' },
     animal: { one: 'bird', many: 'birds' },
     housing: { one: 'house', many: 'houses' },
-    stages: ['Chick', 'Grower', 'Point of lay', 'Layer', 'Spent'],
+    /*
+     * The spec's own lifecycle forks after Grower — a meat bird moves to
+     * Market-ready, an egg bird moves to Pullet, Point of lay, then Layer —
+     * and `stages` cannot express a fork, only a sequence. Two things fixed
+     * here rather than one: "Pullet" was missing entirely (present only in
+     * `purposes`, so a pullet never got a stage of its own), and "Spent" was
+     * never a term the spec used — end-of-lay is an EXIT from Layer (a cull
+     * or a sale), not a further stage, the same way a snail's Grower exits to
+     * Breeder or Market-ready without a stage after either. `nextStage()`'s
+     * naive "the one after this" will sometimes suggest the wrong branch (a
+     * broiler at Grower gets offered Market-ready correctly; a pullet at
+     * Grower would too, and has to be corrected in the dropdown) — accepted
+     * for the same reason it already is on the snail side: every real stage
+     * name is reachable and correct once picked, a single wrong default
+     * suggestion is a smaller cost than a second data model for branching
+     * lifecycles.
+     */
+    stages: ['Chick', 'Grower', 'Market-ready', 'Pullet', 'Point of lay', 'Layer'],
     output: { one: 'egg', many: 'eggs' },
     outputByPurpose: {
       Broiler: { one: 'bird', many: 'meat birds' },
@@ -270,7 +287,18 @@ const SNAIL: SpeciesModule = {
     group: { one: 'cohort', many: 'cohorts' },
     animal: { one: 'snail', many: 'snails' },
     housing: { one: 'pen', many: 'pens' },
-    stages: ['Egg', 'Hatchling', 'Juvenile', 'Grower', 'Breeder'],
+    /*
+     * Market-ready added: the spec's own age tracker treats it and Breeder as
+     * parallel outcomes of Grower, not a further stage after it, and names an
+     * account for it (130204) that has sat unmapped since the accounting pass
+     * — see the comment on `SNAIL_STAGE_ACCOUNTS` in
+     * `packages/database/src/seed-biological-assets.ts`. This does not change
+     * the existing decision that a harvest can still happen directly out of
+     * Grower without a stage transition first — it makes the classification
+     * reachable and correctly posted for a farm that does record it, without
+     * requiring every farm to.
+     */
+    stages: ['Egg', 'Hatchling', 'Juvenile', 'Grower', 'Market-ready', 'Breeder'],
     output: { one: 'harvest', many: 'harvests' },
     productionRecord: 'Harvest record',
     intake: 'Stocking',

@@ -7,26 +7,34 @@ import { PrismaClient } from '../generated/client';
  * resolved in `posting-control.json` (PCR-037 through PCR-071) rather than
  * invented here.
  *
- * Snail carries five distinct stage accounts (130200-130204) — every stage
- * transfer is a real reclassification the workbook wants visible on its own
- * line. `apps/web/src/lib/modules.ts` gives the product's stage list as
- * `['Egg', 'Hatchling', 'Juvenile', 'Grower', 'Breeder']`; Grower shares
- * Juvenile's account (130203) because the workbook names no separate one.
+ * Snail carries six distinct stage accounts (130200-130204, plus 130203
+ * shared) — every stage transfer is a real reclassification the workbook
+ * wants visible on its own line. `apps/web/src/lib/modules.ts` gives the
+ * product's stage list as `['Egg', 'Hatchling', 'Juvenile', 'Grower',
+ * 'Market-ready', 'Breeder']`; Grower shares Juvenile's account (130203)
+ * because the workbook names no separate one.
  *
- * There is no snail stage matching 130204 "BA — Market Snails". The workbook's
+ * 130204 "BA — Market Snails" WAS left unmapped here, because the workbook's
  * lifecycle treats "market-ready" as its own stage before a live sale or
- * transfer to processing; this product instead harvests/sells directly out of
- * Grower via `HarvestRecord`. That is a product decision to make, not one to
- * default silently — 130204 is left unmapped and unused until it is made.
+ * transfer to processing, and this product instead harvested/sold directly
+ * out of Grower via `HarvestRecord` with no stage in between. That was
+ * flagged as a product decision rather than defaulted silently. The decision:
+ * Market-ready is now a real stage, mapped to the account the workbook
+ * already reserved for it — but `HarvestRecord` still does not require
+ * passing through it first. A farm that wants the explicit reclassification
+ * records a StageChange to Market-ready before harvesting; one that does not
+ * still harvests straight out of Grower exactly as before. Nothing about the
+ * existing harvest path changed.
  *
  * Poultry carries almost everything in one account (130210) — PCR-061 through
  * PCR-066 and PCR-070 through PCR-074 all name it regardless of stage — with
  * eggs split into their own two accounts (130215 collected, 130216 in
  * incubation) per PCR-067/068/069. The product's poultry stages are
- * `['Chick', 'Grower', 'Point of lay', 'Layer', 'Spent']`; none of them is an
- * egg, because eggs are not a life stage of the bird — they are the bird's
- * output, tracked by `ProductionLine`, not by `LivestockGroup`. So every
- * poultry stage maps to 130210, and the egg accounts stay unmapped until
+ * `['Chick', 'Grower', 'Market-ready', 'Pullet', 'Point of lay', 'Layer']`;
+ * none of them is an egg, because eggs are not a life stage of the bird —
+ * they are the bird's output, tracked by `ProductionLine`, not by
+ * `LivestockGroup`. So every poultry stage maps to 130210 regardless of which
+ * branch of the lifecycle it is on, and the egg accounts stay unmapped until
  * table-egg production gets its own accounting pass.
  *
  * A second vocabulary mismatch turned up building this: `LivestockGroup.stage`
@@ -50,6 +58,7 @@ const SNAIL_STAGE_ACCOUNTS: Record<string, string> = {
   Hatchling: '130202',
   Juvenile: '130203',
   Grower: '130203',
+  'Market-ready': '130204',
   // Purposes (`terms.purposes`) — what a placement's initial stage is set
   // from. Mapped to the same account as their nearest lifecycle stage.
   'Breeder colony': '130200',
@@ -60,11 +69,14 @@ const SNAIL_STAGE_ACCOUNTS: Record<string, string> = {
 const POULTRY_STAGE_ACCOUNTS: Record<string, string> = {
   // Every poultry stage and purpose carries the one BA account (§66: PCR-061
   // through PCR-066, PCR-070 through PCR-074 all name 130210 regardless).
+  // 'Spent' removed — it was never a term the spec used; a layer's end-of-lay
+  // sale or cull is an EXIT from Layer, not a further stage (see the comment
+  // on `terms.stages` in modules.ts).
   Chick: '130210',
   Grower: '130210',
+  'Market-ready': '130210',
   'Point of lay': '130210',
   Layer: '130210',
-  Spent: '130210',
   Broiler: '130210',
   Pullet: '130210',
   Cockerel: '130210',
