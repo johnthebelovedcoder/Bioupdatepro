@@ -31,7 +31,7 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  *
  * VALUATION is different. Fixing a current fair value means asserting a market
  * price and a cost to sell, and §61.6 names two people for it — a preparer and
- * a Financial Controller — because a farm's whole quarter of profit can turn
+ * a Finance Controller — because a farm's whole quarter of profit can turn
  * on that number. It goes through the same `WorkflowTransaction` engine as
  * every other approval-gated document, not a bespoke two-step field: Rule 2
  * forbids a second maker-checker mechanism, and building one here would be

@@ -60,10 +60,10 @@ export default async function WelcomePage() {
         <Step
           done={hasPopulations}
           number={1}
-          title={`Add your first ${modules[0]?.terms.group.one ?? 'batch'}`}
+          title={`Add your first ${modules[0]?.terms.group.one ?? 'flock'}`}
           body={`Tell us what you are keeping and how many. Everything else — feed, deaths, treatments — is recorded against it.`}
-          href={`/m/${modules[0]?.key ?? 'poultry'}/${modules[0]?.registerSlug ?? 'batches'}/new`}
-          cta={`Add a ${modules[0]?.terms.group.one ?? 'batch'}`}
+          href={`/m/${modules[0]?.key ?? 'poultry'}/${modules[0]?.registerSlug ?? 'flocks'}/new`}
+          cta={`Add a ${modules[0]?.terms.group.one ?? 'flock'}`}
         />
 
         <Step

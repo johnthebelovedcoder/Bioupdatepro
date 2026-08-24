@@ -4,17 +4,22 @@ import { formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 
-export const metadata = { title: 'What each batch made — BioAssetPro' };
+export const metadata = { title: 'What each population made — BioAssetPro' };
 
 /**
- * Which batches made money, ranked.
+ * Which populations made money, ranked.
+ *
+ * A flock and a cohort rank on the same list here, so the copy stays at the
+ * species-neutral word rather than picking one species' term and mislabelling
+ * the other's rows — see `ResultRow` below for where a row does need its own
+ * species' word.
  *
  * The screen the whole accounting spine exists to produce. Farm apps can tell
- * you how many birds died; this tells you that one batch made ₦5.8m and another
- * lost ₦1.1m, and that feed was 79% of the cost in both cases.
+ * you how many birds died; this tells you that one population made ₦5.8m and
+ * another lost ₦1.1m, and that feed was 79% of the cost in both cases.
  *
  * Closed and open are kept apart on purpose — see the note in profitability.ts.
- * A broiler batch three weeks from sale has spent a lot and earned nothing, and
+ * A broiler flock three weeks from sale has spent a lot and earned nothing, and
  * showing that in the same list as a finished result would call it a loss when
  * it is simply unfinished.
  */
@@ -33,7 +38,7 @@ export default async function BatchProfitPage() {
   return (
     <>
       <PageHeader
-        title="What each batch made"
+        title="What each population made"
         subtitle="Every population, ranked by what it earned against what it cost"
       />
 
@@ -42,7 +47,7 @@ export default async function BatchProfitPage() {
       <div className="stack">
         <div className="stat-grid">
           <Stat
-            label="Finished batches"
+            label="Finished populations"
             value={String(finished.length)}
             hint="complete results"
           />
@@ -51,7 +56,7 @@ export default async function BatchProfitPage() {
             value={formatNaira(totalMargin)}
             money
             goodWhen="up"
-            hint="all finished batches"
+            hint="all finished populations"
           />
           <Stat
             label="Best"
@@ -72,7 +77,7 @@ export default async function BatchProfitPage() {
         >
           {finished.length === 0 ? (
             <div className="card-body muted">
-              No batch has been closed out yet. A result only becomes final when the last
+              No population has been closed out yet. A result only becomes final when the last
               animal has gone.
             </div>
           ) : (
@@ -88,8 +93,8 @@ export default async function BatchProfitPage() {
           <div className="card-body" style={{ paddingBottom: 0 }}>
             <div className="notice notice-info">
               <span>
-                An open batch that has spent money and sold nothing shows a large negative
-                figure. That is <strong>not a loss</strong> — it is what the batch is worth
+                An open population that has spent money and sold nothing shows a large negative
+                figure. That is <strong>not a loss</strong> — it is what the population is worth
                 so far. Judge these when they close.
               </span>
             </div>
@@ -101,7 +106,7 @@ export default async function BatchProfitPage() {
 
         <Card>
           <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-            Cost here is what accumulated <strong>against the batch itself</strong> — its
+            Cost here is what accumulated <strong>against the population itself</strong> — its
             chicks, its feed, its medication, its share of labour and overhead. That is why
             these figures add back to the profit and loss instead of drifting away from it,
             and it is the reason the accounting core exists.
@@ -124,7 +129,7 @@ function ResultRow({ result }: { result: Awaited<ReturnType<typeof getBatchResul
       <div className="result-head">
         <div style={{ minWidth: 0 }}>
           <Link
-            href={`/m/${snail ? 'snail' : 'poultry'}/${snail ? 'colonies' : 'batches'}/${result.group.id}`}
+            href={`/m/${snail ? 'snail' : 'poultry'}/${snail ? 'cohorts' : 'flocks'}/${result.group.id}`}
             className="num"
             style={{ fontWeight: 600, fontSize: 15, textAlign: 'left' }}
           >
@@ -172,7 +177,7 @@ function ResultRow({ result }: { result: Awaited<ReturnType<typeof getBatchResul
 
       {/*
         Where the money went, as one bar. A farmer already knows feed is the big
-        one; what they want is the number, and whether this batch is unusual.
+        one; what they want is the number, and whether this population is unusual.
       */}
       {result.breakdown.length > 0 ? (
         <div style={{ marginTop: 'var(--sp-4)' }}>

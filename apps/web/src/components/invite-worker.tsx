@@ -16,7 +16,7 @@ const ROLES: Array<{ code: string; label: string; what: string }> = [
   {
     code: 'FARM_MANAGER',
     label: 'Farm manager',
-    what: 'Everything a supervisor can do, plus starting batches and ordering feed.',
+    what: 'Everything a supervisor can do, plus starting new populations and ordering feed.',
   },
   {
     code: 'FINANCE_MANAGER',
@@ -24,13 +24,13 @@ const ROLES: Array<{ code: string; label: string; what: string }> = [
     what: 'Sales, purchases, customers and suppliers.',
   },
   {
-    code: 'FINANCIAL_CONTROLLER',
-    label: 'Financial controller',
+    code: 'FINANCE_CONTROLLER',
+    label: 'Finance controller',
     what: 'Approves postings and closes periods.',
   },
   {
-    code: 'MANAGING_DIRECTOR',
-    label: 'Managing director',
+    code: 'CEO',
+    label: 'CEO',
     what: 'Sees everything and approves at the top of the ladder.',
   },
   {

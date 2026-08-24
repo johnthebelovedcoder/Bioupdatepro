@@ -15,7 +15,7 @@ export const metadata = { title: 'Biological assets — BioAssetPro' };
  * population's carrying value arrived through a real `Dr biological asset /
  * Cr GRNI` journal at acquisition, moved through a real mortality or
  * stage-transfer entry, and only ever revalued through a valuation a
- * Financial Controller has approved. There is nothing on this page the ledger
+ * Finance Controller has approved. There is nothing on this page the ledger
  * has not already agreed to.
  */
 export default async function BiologicalAssetsPage() {
@@ -61,7 +61,7 @@ export default async function BiologicalAssetsPage() {
             <EmptyState
               icon={<IconBox size={22} />}
               title="No populations yet"
-              body="Place a batch or a colony from Farm, and its acquisition cost posts here as a biological asset."
+              body="Place a flock or a cohort from Farm, and its acquisition cost posts here as a biological asset."
             />
           ) : (
             <div className="table-wrap">

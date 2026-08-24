@@ -9,7 +9,7 @@ import { Roles } from '../auth/roles.guard';
 
 /** §8 API surface. */
 @Controller()
-@Roles('FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+@Roles('FINANCE_CONTROLLER', 'CEO')
 export class ClosingController {
   constructor(
     private readonly periods: PeriodCloseService,

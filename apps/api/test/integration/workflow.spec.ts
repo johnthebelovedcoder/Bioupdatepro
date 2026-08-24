@@ -39,8 +39,8 @@ describe('Workflow & Approval Engine (§2)', () => {
   const LADDER = [
     { level: 1, roleCode: 'FARM_MANAGER', name: 'Farm Manager', maxAmountKobo: 250_000_00n },
     { level: 2, roleCode: 'FINANCE_MANAGER', name: 'Finance Manager', maxAmountKobo: 2_000_000_00n },
-    { level: 3, roleCode: 'FINANCIAL_CONTROLLER', name: 'Financial Controller', maxAmountKobo: 10_000_000_00n },
-    { level: 4, roleCode: 'MANAGING_DIRECTOR', name: 'Managing Director', maxAmountKobo: null },
+    { level: 3, roleCode: 'FINANCE_CONTROLLER', name: 'Finance Controller', maxAmountKobo: 10_000_000_00n },
+    { level: 4, roleCode: 'CEO', name: 'CEO', maxAmountKobo: null },
   ];
 
   interface TestUser {
@@ -88,8 +88,8 @@ describe('Workflow & Approval Engine (§2)', () => {
       maker: await mkUser('maker@test', 'Maker', ['PRODUCTION_SUPERVISOR']),
       farmManager: await mkUser('farm@test', 'Farm Manager', ['FARM_MANAGER']),
       financeManager: await mkUser('finance@test', 'Finance Manager', ['FINANCE_MANAGER']),
-      controller: await mkUser('controller@test', 'Controller', ['FINANCIAL_CONTROLLER']),
-      md: await mkUser('md@test', 'Managing Director', ['MANAGING_DIRECTOR']),
+      controller: await mkUser('controller@test', 'Controller', ['FINANCE_CONTROLLER']),
+      md: await mkUser('md@test', 'CEO', ['CEO']),
       stranger: await mkUser('stranger@test', 'Stranger', ['WAREHOUSE_CLERK']),
       admin: await mkUser('admin@test', 'Administrator', ['ADMINISTRATOR']),
     };
@@ -202,7 +202,7 @@ describe('Workflow & Approval Engine (§2)', () => {
       expect(steps.map((s) => s.roleCode)).toEqual([
         'FARM_MANAGER',
         'FINANCE_MANAGER',
-        'FINANCIAL_CONTROLLER',
+        'FINANCE_CONTROLLER',
       ]);
     });
 
@@ -213,7 +213,7 @@ describe('Workflow & Approval Engine (§2)', () => {
         orderBy: { level: 'asc' },
       });
       expect(steps).toHaveLength(4);
-      expect(steps[3]!.roleCode).toBe('MANAGING_DIRECTOR');
+      expect(steps[3]!.roleCode).toBe('CEO');
     });
 
     it('treats a ceiling as inclusive at the boundary', async () => {
@@ -242,7 +242,7 @@ describe('Workflow & Approval Engine (§2)', () => {
           effectiveFrom: new Date('2026-01-01'),
           steps: {
             create: [
-              { level: 1, roleCode: 'FINANCIAL_CONTROLLER', name: 'Controller only', maxAmountKobo: null },
+              { level: 1, roleCode: 'FINANCE_CONTROLLER', name: 'Controller only', maxAmountKobo: null },
             ],
           },
         },
@@ -253,7 +253,7 @@ describe('Workflow & Approval Engine (§2)', () => {
         where: { transactionId: result.transactionId },
       });
       expect(steps).toHaveLength(1);
-      expect(steps[0]!.roleCode).toBe('FINANCIAL_CONTROLLER');
+      expect(steps[0]!.roleCode).toBe('FINANCE_CONTROLLER');
     });
 
     it('refuses to guess between two equally specific definitions', async () => {

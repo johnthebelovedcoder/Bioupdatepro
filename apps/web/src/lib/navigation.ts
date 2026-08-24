@@ -251,9 +251,9 @@ export const SECTIONS: NavSection[] = [
       },
       {
         href: '/finance/batches',
-        label: 'What each batch made',
-        hint: 'Profit and cost per batch or colony',
-        keywords: ['profitability', 'margin', 'batch', 'cost'],
+        label: 'What each population made',
+        hint: 'Profit and cost per flock or cohort',
+        keywords: ['profitability', 'margin', 'batch', 'flock', 'cohort', 'cost'],
       },
       {
         href: '/finance/losses',

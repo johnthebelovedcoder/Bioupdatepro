@@ -38,7 +38,7 @@ export class ProcurementController {
    * engine that would refuse it anyway.
    */
   @OwnedRecord('purchaseOrder', 'id')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
   @Post('orders/:id/approve')
   async approveOrder(
     @CurrentCompany() companyId: string,
@@ -61,13 +61,19 @@ export class ProcurementController {
    * than the approval ladder — but recording is not posting. This creates the
    * note and sends it for confirmation; the ledger moves when somebody else
    * approves it.
+   *
+   * STOREKEEPER (ROL-006) is the RACI sheet's actual maker of a goods receipt
+   * — "Receive, issue, transfer and count inventory" is their whole job — and
+   * had no route to this endpoint at all until now, which is exactly the gap
+   * the comment above already named for PRODUCTION_SUPERVISOR.
    */
   @Roles(
     'PRODUCTION_SUPERVISOR',
+    'STOREKEEPER',
     'FARM_MANAGER',
     'FINANCE_MANAGER',
-    'FINANCIAL_CONTROLLER',
-    'MANAGING_DIRECTOR',
+    'FINANCE_CONTROLLER',
+    'CEO',
   )
   @Post('receipts')
   async receive(

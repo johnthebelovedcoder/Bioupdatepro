@@ -31,7 +31,7 @@ interface Rule {
 /**
  * The 86 posting rules, as a person can read them.
  *
- * §66.4 makes adding a rule a controlled act needing a Financial Controller's
+ * §66.4 makes adding a rule a controlled act needing a Finance Controller's
  * approval, which is impossible if the rules live only in a database and a
  * spreadsheet. This is the register: what every business event does to the
  * ledger, which accounts it touches, who raises it and who approves it.
@@ -74,7 +74,7 @@ export default async function PostingRulesPage({
           <p style={{ fontSize: 15, lineHeight: 1.6 }}>
             Nobody types a GL account into this system. An approved business event names two
             posting keys, and the keys resolve to accounts through the posting chart. That is
-            what makes a posting rule something a Financial Controller can approve, date and
+            what makes a posting rule something a Finance Controller can approve, date and
             retire — rather than something only a developer can change.
           </p>
         </Card>

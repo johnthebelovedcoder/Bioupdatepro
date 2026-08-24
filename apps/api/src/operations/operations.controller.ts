@@ -106,7 +106,7 @@ export class OperationsController {
 
   /* --- Writes ----------------------------------------------------------- */
 
-  @Roles('FARM_MANAGER', 'MANAGING_DIRECTOR')
+  @Roles('FARM_MANAGER', 'CEO')
   @Post('placements')
   async placement(
     @CurrentCompany() companyId: string,
@@ -122,7 +122,22 @@ export class OperationsController {
     });
   }
 
-  @Roles('PRODUCTION_SUPERVISOR', 'FARM_MANAGER', 'MANAGING_DIRECTOR')
+  /*
+   * FARM_ATTENDANT's whole RACI line (ROL-001) is "Capture daily
+   * biological/production data by cut-off" — this endpoint IS that job. The
+   * species supervisors and PRODUCTION_LEAD approve what an attendant
+   * captures, so they can also capture it themselves on a farm too small to
+   * split the two.
+   */
+  @Roles(
+    'PRODUCTION_SUPERVISOR',
+    'SNAIL_SUPERVISOR',
+    'POULTRY_SUPERVISOR',
+    'PRODUCTION_LEAD',
+    'FARM_ATTENDANT',
+    'FARM_MANAGER',
+    'CEO',
+  )
   @Post('rounds')
   async round(
     @CurrentCompany() companyId: string,
@@ -138,7 +153,15 @@ export class OperationsController {
     });
   }
 
-  @Roles('PRODUCTION_SUPERVISOR', 'FARM_MANAGER', 'MANAGING_DIRECTOR')
+  @Roles(
+    'PRODUCTION_SUPERVISOR',
+    'SNAIL_SUPERVISOR',
+    'POULTRY_SUPERVISOR',
+    'PRODUCTION_LEAD',
+    'FARM_ATTENDANT',
+    'FARM_MANAGER',
+    'CEO',
+  )
   @Post('treatments')
   async treatment(
     @CurrentCompany() companyId: string,
@@ -154,7 +177,17 @@ export class OperationsController {
     });
   }
 
-  @Roles('PRODUCTION_SUPERVISOR', 'FARM_MANAGER', 'MANAGING_DIRECTOR')
+  // "Approve...harvest readiness" is a named RACI line for both species
+  // supervisors (ROL-002/003) — harvest sits at their tier, not the
+  // attendant's.
+  @Roles(
+    'PRODUCTION_SUPERVISOR',
+    'SNAIL_SUPERVISOR',
+    'POULTRY_SUPERVISOR',
+    'PRODUCTION_LEAD',
+    'FARM_MANAGER',
+    'CEO',
+  )
   @Post('harvests')
   async harvest(
     @CurrentCompany() companyId: string,
@@ -178,7 +211,10 @@ export class OperationsController {
    * and is answerable for, and the actor on every resulting journal is the
    * person who called this.
    */
-  @Roles('FINANCIAL_CONTROLLER', 'FINANCE_MANAGER', 'MANAGING_DIRECTOR')
+  // FARM_ACCOUNTANT (ROL-012) reconciles BA/inventory/WIP/journals day to
+  // day — clearing the posting backlog is part of that, even though they
+  // cannot approve the manual journals it might surface.
+  @Roles('FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'FARM_ACCOUNTANT', 'CEO')
   @Post('postings/retry')
   async retryPostings(
     @CurrentCompany() companyId: string,
@@ -197,7 +233,15 @@ export class OperationsController {
    * received here and handed to O2C and P2P. Neither posts anything: both
    * record a document and submit it for approval.
    */
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  // SALES_OFFICER (ROL-010): "Create order, dispatch and invoice" — this is
+  // that role's entire job, and it had no route to it at all before.
+  @Roles(
+    'FARM_MANAGER',
+    'FINANCE_MANAGER',
+    'FINANCE_CONTROLLER',
+    'SALES_OFFICER',
+    'CEO',
+  )
   @Post('sales')
   async sale(
     @CurrentCompany() companyId: string,
@@ -213,7 +257,15 @@ export class OperationsController {
     });
   }
 
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  // PROCUREMENT_OFFICER (ROL-005): "Source, create PR/PO, monitor delivery"
+  // — this is that role's entire job.
+  @Roles(
+    'FARM_MANAGER',
+    'FINANCE_MANAGER',
+    'FINANCE_CONTROLLER',
+    'PROCUREMENT_OFFICER',
+    'CEO',
+  )
   @Post('purchases')
   async purchase(
     @CurrentCompany() companyId: string,
@@ -229,7 +281,15 @@ export class OperationsController {
     });
   }
 
-  @Roles('PRODUCTION_SUPERVISOR', 'FARM_MANAGER', 'MANAGING_DIRECTOR')
+  // "Transfers" in the same supervisor RACI line as harvest readiness.
+  @Roles(
+    'PRODUCTION_SUPERVISOR',
+    'SNAIL_SUPERVISOR',
+    'POULTRY_SUPERVISOR',
+    'PRODUCTION_LEAD',
+    'FARM_MANAGER',
+    'CEO',
+  )
   @Post('stage-changes')
   async stageChange(
     @CurrentCompany() companyId: string,

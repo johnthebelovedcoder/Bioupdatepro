@@ -19,11 +19,14 @@ import {
  * stages it passes through, feed going in, output coming out, animals dying.
  * That is true of fish, goats, pigs and rabbits too.
  *
- * What differs between them is the LANGUAGE. A poultry manager has batches of
- * birds in houses and collects eggs; a snail farmer has colonies of snails in
- * pens and harvests. Calling a snail colony a "batch" in the interface would be
- * wrong in the way that makes people distrust software. So every user-facing
- * noun comes from `terms` below, and no screen hard-codes "bird" or "flock".
+ * What differs between them is the LANGUAGE. A poultry manager has flocks of
+ * birds in houses and collects eggs; a snail farmer has cohorts of snails in
+ * pens and harvests. Calling a snail cohort a "flock" in the interface would be
+ * wrong in the way that makes people distrust software — and matters here
+ * specifically because the client's own glossary names these terms: "Cohort"
+ * for snail, "Flock" for poultry (`FARMING_GLOSSARY` rows 6 and 14 of the
+ * AgriPro workbook). So every user-facing noun comes from `terms` below, and
+ * no screen hard-codes "bird" or "cohort".
  *
  * Adding FishPro later is a new entry in this file plus its metric definitions.
  * It is deliberately not a new module, route tree, or set of components.
@@ -45,7 +48,7 @@ export interface Word {
 }
 
 export interface Terminology {
-  /** A managed population. Poultry: a batch. Snail: a colony. */
+  /** A managed population. Poultry: a flock. Snail: a cohort. */
   group: Word;
   /** One animal. */
   animal: Word;
@@ -59,7 +62,7 @@ export interface Terminology {
    * What a population produces where that differs by what it is kept for.
    *
    * A module has one headline output, but not every population sells it: a
-   * broiler batch is not sold as eggs and a heifer is not sold as litres. Any
+   * broiler flock is not sold as eggs and a heifer is not sold as litres. Any
    * purpose absent here falls back to `output`.
    */
   outputByPurpose?: Record<string, Word>;
@@ -140,7 +143,7 @@ export interface SpeciesModule {
   subscribed: boolean;
   /**
    * Which nav slug is this module's register — the list of its populations.
-   * Poultry calls it "batches", snails call it "colonies", and the same
+   * Poultry calls it "flocks", snails call it "cohorts", and the same
    * component renders both.
    */
   registerSlug: string;
@@ -199,9 +202,9 @@ const POULTRY: SpeciesModule = {
   label: 'Poultry',
   icon: IconBird,
   subscribed: true,
-  registerSlug: 'batches',
+  registerSlug: 'flocks',
   terms: {
-    group: { one: 'batch', many: 'batches' },
+    group: { one: 'flock', many: 'flocks' },
     animal: { one: 'bird', many: 'birds' },
     housing: { one: 'house', many: 'houses' },
     stages: ['Chick', 'Grower', 'Point of lay', 'Layer', 'Spent'],
@@ -217,13 +220,13 @@ const POULTRY: SpeciesModule = {
     offtake: 'Sale & culling',
   },
   metrics: [
-    { key: 'population', label: 'Live birds', goodWhen: 'neutral', hint: 'across all batches' },
+    { key: 'population', label: 'Live birds', goodWhen: 'neutral', hint: 'across all flocks' },
     { key: 'eggs', label: 'Eggs today', goodWhen: 'up', hint: 'vs yesterday' },
     { key: 'mortality', label: 'Mortality rate', goodWhen: 'down', hint: '30-day rolling' },
-    { key: 'feed', label: 'Feed used today', goodWhen: 'neutral', hint: 'all batches' },
+    { key: 'feed', label: 'Feed used today', goodWhen: 'neutral', hint: 'all flocks' },
   ],
   nav: [
-    { slug: 'batches', label: 'Batches', icon: IconClipboard },
+    { slug: 'flocks', label: 'Flocks', icon: IconClipboard },
     { slug: 'records', label: 'Daily round', icon: IconFarm },
     { slug: 'production', label: 'Eggs', icon: IconEgg },
     { slug: 'feeding', label: 'Feeding', icon: IconFeed },
@@ -262,9 +265,9 @@ const SNAIL: SpeciesModule = {
   label: 'Snails',
   icon: IconSnail,
   subscribed: true,
-  registerSlug: 'colonies',
+  registerSlug: 'cohorts',
   terms: {
-    group: { one: 'colony', many: 'colonies' },
+    group: { one: 'cohort', many: 'cohorts' },
     animal: { one: 'snail', many: 'snails' },
     housing: { one: 'pen', many: 'pens' },
     stages: ['Egg', 'Hatchling', 'Juvenile', 'Grower', 'Breeder'],
@@ -275,13 +278,13 @@ const SNAIL: SpeciesModule = {
     offtake: 'Harvest',
   },
   metrics: [
-    { key: 'population', label: 'Live snails', goodWhen: 'neutral', hint: 'across all colonies' },
+    { key: 'population', label: 'Live snails', goodWhen: 'neutral', hint: 'across all cohorts' },
     { key: 'hatchRate', label: 'Hatch rate', goodWhen: 'up', hint: 'last completed cycle' },
     { key: 'mortality', label: 'Mortality rate', goodWhen: 'down', hint: '30-day rolling' },
-    { key: 'feed', label: 'Feed used today', goodWhen: 'neutral', hint: 'all colonies' },
+    { key: 'feed', label: 'Feed used today', goodWhen: 'neutral', hint: 'all cohorts' },
   ],
   nav: [
-    { slug: 'colonies', label: 'Colonies', icon: IconClipboard },
+    { slug: 'cohorts', label: 'Cohorts', icon: IconClipboard },
     { slug: 'records', label: 'Daily round', icon: IconFarm },
     { slug: 'breeding', label: 'Breeding', icon: IconEgg },
     { slug: 'growth', label: 'Growth', icon: IconChart },

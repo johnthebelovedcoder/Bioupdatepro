@@ -22,7 +22,7 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  * (companies, accounts, periods). This one owns the transacting masters.
  */
 @Controller('masters')
-@Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+@Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
 export class MasterDataController {
   constructor(
     private readonly parties: PartyService,
@@ -46,7 +46,15 @@ export class MasterDataController {
    * registering a feed supplier should not have to answer a question about
    * currency ids, and the answer is never anything but the company's own.
    */
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  // PROCUREMENT_OFFICER (ROL-005) sources suppliers as part of "create PR/PO" —
+  // registering a new one they intend to buy from is part of the same job.
+  @Roles(
+    'FARM_MANAGER',
+    'FINANCE_MANAGER',
+    'FINANCE_CONTROLLER',
+    'PROCUREMENT_OFFICER',
+    'CEO',
+  )
   @Post('suppliers')
   async createSupplier(
     @CurrentCompany() companyId: string,
@@ -152,7 +160,7 @@ export class MasterDataController {
   // --- Items --------------------------------------------------------------
 
   /** Company and actor from the session, never the body — as for suppliers. */
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
   @Post('items')
   async createItem(
     @CurrentCompany() companyId: string,
@@ -349,7 +357,7 @@ export class MasterDataController {
     return this.structure.listFarms(companyId);
   }
 
-  @Roles('FARM_MANAGER', 'MANAGING_DIRECTOR')
+  @Roles('FARM_MANAGER', 'CEO')
   @Post('farms')
   async createFarm(
     @CurrentCompany() companyId: string,
@@ -365,7 +373,7 @@ export class MasterDataController {
     return this.structure.listPens(companyId);
   }
 
-  @Roles('FARM_MANAGER', 'MANAGING_DIRECTOR')
+  @Roles('FARM_MANAGER', 'CEO')
   @Post('pens')
   async createPen(
     @CurrentCompany() companyId: string,
@@ -381,7 +389,9 @@ export class MasterDataController {
     return this.structure.listWarehouses(companyId);
   }
 
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'MANAGING_DIRECTOR')
+  // STOREKEEPER (ROL-006): "Receive, issue, transfer and count inventory;
+  // site scoped" — registering the store they are scoped to is part of that.
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'STOREKEEPER', 'CEO')
   @Post('warehouses')
   async createWarehouse(
     @CurrentCompany() companyId: string,
@@ -423,7 +433,7 @@ export class MasterDataController {
     return this.structure.listCostCentres(companyId);
   }
 
-  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
   @Post('cost-centres')
   async createCostCentre(
     @CurrentCompany() companyId: string,

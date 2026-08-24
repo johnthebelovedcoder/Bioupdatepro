@@ -278,10 +278,9 @@ function StageSheet({
             <span>{problems[0]}</span>
           </div>
         ) : (
-          <div className="notice notice-warning">
+          <div className="notice notice-info">
             <span>
-              <strong>This will be held in the outbox — not saved.</strong> There is no endpoint
-              for stage changes yet, so it cannot reach the server.
+              If there is no signal this waits in the outbox and goes by itself.
             </span>
           </div>
         )}

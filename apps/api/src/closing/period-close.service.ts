@@ -311,7 +311,7 @@ export class PeriodCloseService {
   // -------------------------------------------------------------------------
 
   /**
-   * §8 soft close: only Finance Manager, Financial Controller and Administrator
+   * §8 soft close: only Finance Manager, Finance Controller and Administrator
    * may post adjustments; everyone else is blocked. Phase 1's PeriodService
    * already enforces that at the posting gate — this is the transition into it.
    */

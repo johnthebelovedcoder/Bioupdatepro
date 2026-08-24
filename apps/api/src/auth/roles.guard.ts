@@ -36,7 +36,7 @@ export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
 /**
  * Roles that can reach anything.
  *
- * Only the administrator. The managing director deliberately is NOT here: they
+ * Only the administrator. The CEO deliberately is NOT here: they
  * sit at the top of the approval ladder, which is a different thing from
  * being able to administer the system, and conflating the two would mean the
  * person who approves the largest payments is also the person who can grant

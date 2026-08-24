@@ -35,7 +35,7 @@ export function PenForm({ farms }: { farms: FarmOption[] }) {
         {state.created ? (
           <div className="notice notice-success">
             <span>
-              <strong>{state.created}</strong> added. You can place a batch in it now.
+              <strong>{state.created}</strong> added. You can place a population in it now.
             </span>
           </div>
         ) : null}

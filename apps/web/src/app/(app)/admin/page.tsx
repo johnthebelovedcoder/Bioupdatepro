@@ -45,7 +45,7 @@ export default async function AdminPage() {
       name: 'Farms, houses & pens',
       count: pens,
       unit: 'pens',
-      why: 'Where animals live. A batch cannot be placed without one.',
+      why: 'Where animals live. A population cannot be placed without one.',
       extra: farms === 1 ? '1 farm' : `${farms} farms`,
     },
     {

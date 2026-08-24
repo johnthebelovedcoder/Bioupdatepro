@@ -38,14 +38,93 @@ const ALL: Section[] = [
   'settings',
 ];
 
+/*
+ * The client's own `Role_RACI_KPI` sheet names sixteen roles. Only six had an
+ * entry here — everyone else signing in with a title from the client's own
+ * document got an empty sidebar, because an unrecognised role fails closed
+ * (see `sectionsFor` below) with nothing on screen to say why. The other ten
+ * roles below close that gap.
+ *
+ * This is still the cosmetic layer the file header describes: adding a role
+ * here makes the RIGHT PAGES OFFER THEMSELVES and lets already-`@AnyRole`
+ * reads through, exactly like every existing entry. It does NOT grant a
+ * write action the API doesn't already permit — raising a PO, approving a
+ * valuation and the rest stay behind the API's own `@Roles(...)` guards,
+ * which are not extended here. Wiring those to match this table's shape is a
+ * separate, larger pass: each of the RACI sheet's ~39 controlled endpoints
+ * needs its own judgement call against that role's stated boundary ("cannot
+ * approve own PO", "cannot alter posted invoice", and so on), not a
+ * mechanical copy of this list.
+ */
 const BY_ROLE: Record<string, Section[]> = {
   ADMINISTRATOR: ALL,
-  MANAGING_DIRECTOR: ALL,
+  CEO: ALL,
+
+  // ROL-001. Captures the daily round only — not the full livestock section,
+  // which also holds the register and cost figures a farm attendant has no
+  // reason to see. "Supervisor reviews; cannot post GL."
+  FARM_ATTENDANT: ['dashboard', 'recording'],
+
+  // ROL-002 / ROL-003. The RACI sheet splits the supervisor by species; the
+  // product still has one PRODUCTION_SUPERVISOR role underneath (§ vocabulary
+  // audit flags the split as unbuilt). Both get the same reach that role has
+  // today, so a farm that adopts the RACI titles is not penalised for it.
+  SNAIL_SUPERVISOR: ['dashboard', 'livestock', 'recording', 'inventory'],
+  POULTRY_SUPERVISOR: ['dashboard', 'livestock', 'recording', 'inventory'],
+
+  // ROL-005. Sources and raises purchase orders. Not inventory — receiving
+  // what arrives is the Storekeeper's job, not theirs ("cannot ...receive own PO").
+  PROCUREMENT_OFFICER: ['dashboard', 'trade'],
+
+  // ROL-006. "Receive, issue, transfer and count inventory; site scoped."
+  STOREKEEPER: ['dashboard', 'inventory'],
+
+  // ROL-007. "Inspect, hold, release or reject lots; independent from
+  // production." No dedicated QA section exists yet — inventory is the
+  // closest home for lot-level decisions until one does.
+  QA_OFFICER: ['dashboard', 'inventory'],
+
+  // ROL-008. Processing/production orders are not built (see the core-gap
+  // audit), so this mirrors the supervisor roles until there is a production
+  // section of its own to narrow it to.
+  PRODUCTION_LEAD: ['dashboard', 'livestock', 'recording', 'inventory'],
+
+  // ROL-009. Matches invoices against goods receipt and keeps supplier
+  // accounts — reads the trade side, not the ledger.
+  AP_OFFICER: ['dashboard', 'trade', 'money'],
+
+  // ROL-010. "Create order, dispatch and invoice; cannot override credit/QA hold."
+  SALES_OFFICER: ['dashboard', 'trade'],
+
+  // ROL-011. Applies receipts and reconciles customer balances.
+  AR_OFFICER: ['dashboard', 'trade', 'money'],
+
+  // ROL-012. "Reconcile BA, inventory, WIP, journals and valuations" — needs
+  // to see the ledger to tie it out, not to approve what is posted to it.
+  FARM_ACCOUNTANT: ['dashboard', 'livestock', 'inventory', 'ledger'],
+
+  // ROL-014. Prepares payments and reconciles the bank — the money section,
+  // not the books themselves.
+  TREASURY_OFFICER: ['dashboard', 'money'],
+
+  // ROL-015. Configuration and access, explicitly NOT finance or operations
+  // ("cannot approve finance/operations") — so no money, ledger or approvals.
+  SYSTEM_ADMIN: ['dashboard', 'staff', 'settings'],
+
+  // ROL-016. "Review controls, audit trail and traceability... Read-only."
+  // Broad reach by design — an auditor who cannot see a cycle cannot audit
+  // it — but no approvals, staff admin or settings: those are not what they
+  // are there to review.
+  INTERNAL_AUDITOR: ['dashboard', 'livestock', 'trade', 'inventory', 'money', 'ledger'],
 
   // The books, and everything feeding them.
-  FINANCIAL_CONTROLLER: [
+  FINANCE_CONTROLLER: [
     'dashboard',
     'livestock',
+    // `recording` split out of `livestock` above (the daily-round page now
+    // resolves there specifically) — kept here so this role loses no reach
+    // it already had.
+    'recording',
     'trade',
     'inventory',
     'money',
@@ -58,6 +137,7 @@ const BY_ROLE: Record<string, Section[]> = {
   FINANCE_MANAGER: [
     'dashboard',
     'livestock',
+    'recording',
     'trade',
     'inventory',
     'money',
@@ -140,6 +220,22 @@ const ROUTES: Array<{ prefix: string; section: Section }> = [
   { prefix: '/procurement/receive', section: 'inventory' },
   { prefix: '/procurement/receipts', section: 'inventory' },
   { prefix: '/inventory', section: 'inventory' },
+  /*
+   * The `/admin/*` pages had NO entry here at all — every one of them fell
+   * through to the catch-all `/` -> `dashboard` rule below, which every role
+   * holds. The middleware gate was therefore a no-op for customers, items,
+   * cost centres and the setup overview: it let anyone past regardless of
+   * role, same as the routes below correctly restrict for everything else.
+   * These four map to the section the sidebar already files each page under
+   * in `navigation.ts` (Selling, Store, Store, Setup) — the mismatch between
+   * the URL segment and the nav home is a separate, lower-stakes finding;
+   * this fixes the actual gate.
+   */
+  { prefix: '/admin/customers', section: 'trade' },
+  { prefix: '/admin/items', section: 'inventory' },
+  { prefix: '/admin/stores', section: 'inventory' },
+  { prefix: '/admin/cost-centres', section: 'settings' },
+  { prefix: '/admin', section: 'settings' },
   { prefix: '/staff', section: 'staff' },
   { prefix: '/settings', section: 'settings' },
   { prefix: '/farm', section: 'livestock' },
@@ -148,7 +244,22 @@ const ROUTES: Array<{ prefix: string; section: Section }> = [
   { prefix: '/', section: 'dashboard' },
 ];
 
+/**
+ * `/m/{module}/records` — the daily round — resolves to `recording`, ahead
+ * of the general `/m/` -> `livestock` rule below. Every module key would
+ * otherwise need its own entry in `ROUTES`, which cannot express a wildcard
+ * middle segment; this is what actually makes the `recording` permission
+ * (granted to `FARM_ATTENDANT` and the supervisor roles) mean something
+ * narrower than the rest of `livestock` — previously it was granted by
+ * `permissions.ts` but never matched by any path, so it had no effect.
+ */
+function isDailyRoundPath(pathname: string): boolean {
+  const segments = pathname.split('/').filter(Boolean);
+  return segments[0] === 'm' && segments[2] === 'records';
+}
+
 export function sectionForPath(pathname: string): Section {
+  if (isDailyRoundPath(pathname)) return 'recording';
   const match = [...ROUTES]
     .sort((a, b) => b.prefix.length - a.prefix.length)
     .find((route) => pathname === route.prefix || pathname.startsWith(route.prefix));

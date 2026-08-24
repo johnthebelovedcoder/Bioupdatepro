@@ -14,7 +14,7 @@ import { AccountingRuleViolation } from '../common/errors';
  *
  * Every posting in this application used to name its accounts in TypeScript.
  * That is not a matter of taste. A rule in code cannot be effective-dated,
- * cannot be approved by a Financial Controller, cannot be retired, and cannot
+ * cannot be approved by a Finance Controller, cannot be retired, and cannot
  * be audited without reading a diff — and §66.4 requires all four. It also left
  * nothing enforcing the Ledger Flag, so a manual journal could be posted
  * straight into GRNI or trade payables, which is exactly what the flag exists
@@ -157,7 +157,7 @@ export class PostingControlService {
    * One key, to one active atomic account — or a refusal saying which.
    *
    * The four failure modes §66.2 names are each reported separately, because
-   * "could not post" tells a Financial Controller nothing about whether they
+   * "could not post" tells a Finance Controller nothing about whether they
    * need to activate an account, create one, or decide which of two a dynamic
    * expression means.
    */

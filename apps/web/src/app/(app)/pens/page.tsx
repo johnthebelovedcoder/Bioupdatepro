@@ -50,7 +50,7 @@ export default async function PensPage() {
     <>
       <PageHeader
         title="Houses &amp; pens"
-        subtitle="Every place an animal can live. A batch has to be placed in one"
+        subtitle="Every place an animal can live. A population has to be placed in one"
       />
 
       <div className="stack">
@@ -66,7 +66,7 @@ export default async function PensPage() {
             <EmptyState
               icon={<IconFarm size={22} />}
               title="No houses or pens yet"
-              body="Add the first one below. Until a house exists there is nowhere to put a batch, so nothing else on the livestock side can be recorded."
+              body="Add the first one below. Until a house exists there is nowhere to put a population, so nothing else on the livestock side can be recorded."
             />
           ) : (
             <div className="table-wrap">

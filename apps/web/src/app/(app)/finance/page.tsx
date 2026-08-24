@@ -147,12 +147,12 @@ export default async function FinancePage() {
                       <div className="faint">Entered by {row.by}</div>
                     </td>
                     {/* The module comes from the row, not a guess. A snail
-                        colony linked at /m/poultry/batches/ would 404. */}
+                        cohort linked at /m/poultry/flocks/ would 404. */}
                     <td className="faint">
                       {row.batch ? (
                         <Link
                           href={`/m/${row.batchModule ?? 'poultry'}/${
-                            row.batchModule === 'snail' ? 'colonies' : 'batches'
+                            row.batchModule === 'snail' ? 'cohorts' : 'flocks'
                           }/${row.batch}`}
                         >
                           {row.batch}
@@ -176,8 +176,8 @@ export default async function FinancePage() {
           </div>
           <div className="card-footer">
             <span className="faint">
-              An expense charged to a batch lands on that batch&apos;s work-in-progress
-              account, which is what makes batch profitability tie back to the profit and
+              An expense charged to a population lands on that population&apos;s work-in-progress
+              account, which is what makes its profitability tie back to the profit and
               loss rather than approximate it.
             </span>
           </div>

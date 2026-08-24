@@ -30,15 +30,21 @@ export default async function StaffPage() {
       <div className="stack">
         <InviteWorker invitations={invitations} />
         {/*
-          The most important thing on this page is not a figure — it is that
-          authorisation does not exist yet. Saying so here, where permissions are
-          administered, is where someone would actually look.
+          This used to say the ladder below was not enforced at all. It now is,
+          for both layers — but not evenly, and saying so here, where
+          permissions are administered, is where someone would actually look
+          for the honest boundary rather than the confident-sounding one.
         */}
-        <div className="notice notice-error">
+        <div className="notice notice-warning">
           Company scoping IS enforced — a signed-in user can only reach their own farm&apos;s
-          data, and a record belonging to another farm returns nothing. What is NOT yet
-          enforced is the ladder below: any signed-in user can still reach any screen within
-          their own farm, whatever their role.
+          data, and a record belonging to another farm returns nothing. Screen access IS now
+          enforced too, for every role listed below: signing in as a role the sidebar has no
+          entry for redirects to an explanation rather than a blank page, and the API refuses
+          the write actions that role&apos;s own boundary excludes. What is NOT yet enforced
+          is finer than that — a handful of actions (approving a workflow document, running
+          payroll, closing a period) are still gated by the original six roles only, because
+          extending them safely needs the approval engine to check document type, not just
+          role, and that is a deeper change than adding a role to a list.
         </div>
 
         <div className="stat-grid">
@@ -119,8 +125,10 @@ export default async function StaffPage() {
           <div className="card-footer">
             <span className="faint">
               The approval ladder is enforced by the workflow engine, which is built and
-              tested — a maker cannot approve their own document. What is missing is the
-              guard that decides which screens a role may open at all.
+              tested — a maker cannot approve their own document. The guard that decides
+              which screens a role may open now exists too, for these six roles and the
+              fourteen more the client&apos;s own RACI sheet names — see the notice above
+              for what it still does not reach.
             </span>
           </div>
         </Card>
@@ -128,8 +136,10 @@ export default async function StaffPage() {
         <Card>
           <p className="muted" style={{ fontSize: 14 }}>
             Employee records and payroll — including PAYE and statutory deductions — already
-            exist in the backend and are tested. User management, roles and server-side
-            permission checks do not.
+            exist in the backend and are tested, with no screen yet. Server-side permission
+            checks now exist for most of what each role is meant to do. What is still missing
+            is a screen to change an existing person&apos;s role after they have joined —
+            today that is only set once, at the invitation.
           </p>
         </Card>
       </div>

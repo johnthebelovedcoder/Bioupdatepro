@@ -4,7 +4,7 @@ import { standardAt, standardFor, type FarmConfig } from './farm-config';
 import { getFeeding, getProduction } from './operations';
 import { getGroups } from './operations';
 import { getInventory } from './demo-trade';
-import { subscribedModules, type ModuleKey } from './modules';
+import { getModule, subscribedModules, type ModuleKey } from './modules';
 import { toKobo } from './money';
 
 /**
@@ -100,6 +100,11 @@ async function feedPerHead(
   config: FarmConfig,
   moduleKey: ModuleKey,
 ): Promise<VarianceFinding[]> {
+  // This finding used to say "bird" and "houses" unconditionally, which read as
+  // nonsense on a snail farm even though the check itself already ran per
+  // module (see the comment on `getVarianceFindings`) — the copy just never
+  // caught up to that.
+  const t = getModule(moduleKey)!.terms;
   const [rows, groups, inventory] = await Promise.all([
     getFeeding(moduleKey, config.feed.consumptionWindowDays),
     getGroups(moduleKey),
@@ -158,12 +163,12 @@ async function feedPerHead(
       moduleKey,
       severity: gapPct > config.variance.feedPerHeadTolerancePct * 2 ? 'critical' : 'warning',
       subject: entry.group.house,
-      headline: `${entry.group.house} is using ${gapPct.toFixed(0)}% more feed per bird than the other ${entry.group.purpose.toLowerCase()} houses`,
-      expected: `${norm.toFixed(0)} g per bird per day`,
-      actual: `${entry.perHead.toFixed(0)} g per bird per day`,
+      headline: `${entry.group.house} is using ${gapPct.toFixed(0)}% more feed per ${t.animal.one} than the other ${entry.group.purpose.toLowerCase()} ${t.housing.many}`,
+      expected: `${norm.toFixed(0)} g per ${t.animal.one} per day`,
+      actual: `${entry.perHead.toFixed(0)} g per ${t.animal.one} per day`,
       gapPct: Number(gapPct.toFixed(1)),
       gapValueKobo: gapValue,
-      basis: `${entry.group.code} against ${peers.length} other ${entry.group.purpose.toLowerCase()} ${peers.length === 1 ? 'batch' : 'batches'}, over ${config.feed.consumptionWindowDays} days.`,
+      basis: `${entry.group.code} against ${peers.length} other ${entry.group.purpose.toLowerCase()} ${peers.length === 1 ? t.group.one : t.group.many}, over ${config.feed.consumptionWindowDays} days.`,
       action: { label: 'See feeding', href: `/m/${moduleKey}/feeding` },
     });
   }

@@ -248,8 +248,8 @@ export interface StaffMember {
 
 export async function getStaff(): Promise<StaffMember[]> {
   return [
-    { id: 'u1', name: 'Ngozi Balogun', email: 'md@bioassetpro.ng', role: 'Managing Director', farm: 'All farms', status: 'ACTIVE', lastSeen: daysAgo(0) },
-    { id: 'u2', name: 'Ibrahim Danjuma', email: 'controller@bioassetpro.ng', role: 'Financial Controller', farm: 'All farms', status: 'ACTIVE', lastSeen: daysAgo(0) },
+    { id: 'u1', name: 'Ngozi Balogun', email: 'ceo@bioassetpro.ng', role: 'CEO', farm: 'All farms', status: 'ACTIVE', lastSeen: daysAgo(0) },
+    { id: 'u2', name: 'Ibrahim Danjuma', email: 'controller@bioassetpro.ng', role: 'Finance Controller', farm: 'All farms', status: 'ACTIVE', lastSeen: daysAgo(0) },
     { id: 'u3', name: 'Funmilayo Adeyemi', email: 'finance.manager@bioassetpro.ng', role: 'Finance Manager', farm: 'Main Farm', status: 'ACTIVE', lastSeen: daysAgo(1) },
     { id: 'u4', name: 'Chinedu Eze', email: 'farm.manager@bioassetpro.ng', role: 'Farm Manager', farm: 'Main Farm', status: 'ACTIVE', lastSeen: daysAgo(0) },
     { id: 'u5', name: 'Adaeze Okonkwo', email: 'supervisor@bioassetpro.ng', role: 'Production Supervisor', farm: 'Main Farm', status: 'ACTIVE', lastSeen: daysAgo(0) },
@@ -270,8 +270,8 @@ export async function getRoles(): Promise<RoleDefinition[]> {
     { code: 'PRODUCTION_SUPERVISOR', name: 'Production Supervisor', summary: 'Daily rounds, production, mortality, feeding', approvalLimit: null, canSeeMoney: false },
     { code: 'FARM_MANAGER', name: 'Farm Manager', summary: 'All operations, plus approvals up to the first rung', approvalLimit: '₦250,000.00', canSeeMoney: true },
     { code: 'FINANCE_MANAGER', name: 'Finance Manager', summary: 'Sales, procurement, expenses and payments', approvalLimit: '₦2,000,000.00', canSeeMoney: true },
-    { code: 'FINANCIAL_CONTROLLER', name: 'Financial Controller', summary: 'Full ledger, period close and statutory returns', approvalLimit: '₦10,000,000.00', canSeeMoney: true },
-    { code: 'MANAGING_DIRECTOR', name: 'Managing Director', summary: 'Everything, with unlimited approval authority', approvalLimit: 'Unlimited', canSeeMoney: true },
+    { code: 'FINANCE_CONTROLLER', name: 'Finance Controller', summary: 'Full ledger, period close and statutory returns', approvalLimit: '₦10,000,000.00', canSeeMoney: true },
+    { code: 'CEO', name: 'CEO', summary: 'Everything, with unlimited approval authority', approvalLimit: 'Unlimited', canSeeMoney: true },
     { code: 'ADMINISTRATOR', name: 'Administrator', summary: 'User and configuration management', approvalLimit: null, canSeeMoney: true },
   ];
 }

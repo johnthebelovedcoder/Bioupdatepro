@@ -5,7 +5,7 @@ import { ClosedPeriodError } from '../common/errors';
 
 /**
  * Roles permitted to post into a soft-closed period.
- * Consolidated Reference §8: "only Finance Manager / Financial Controller /
+ * Consolidated Reference §8: "only Finance Manager / Finance Controller /
  * Administrator may post adjustments; all others blocked."
  *
  * Configuration, not a constant to be edited in code later — Phase 11 moves
@@ -14,7 +14,7 @@ import { ClosedPeriodError } from '../common/errors';
  */
 export const SOFT_CLOSE_POSTING_ROLES = [
   'FINANCE_MANAGER',
-  'FINANCIAL_CONTROLLER',
+  'FINANCE_CONTROLLER',
   'ADMINISTRATOR',
 ] as const;
 
@@ -76,7 +76,7 @@ export class PeriodService {
         if (!permitted) {
           throw new ClosedPeriodError(
             period.name,
-            'SOFT_CLOSED (only Finance Manager, Financial Controller or Administrator may post)',
+            'SOFT_CLOSED (only Finance Manager, Finance Controller or Administrator may post)',
           );
         }
         return;

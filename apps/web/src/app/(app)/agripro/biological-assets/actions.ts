@@ -11,7 +11,7 @@ export interface ValuationState {
 
 /**
  * Raise a fair-value valuation — §61.6: a Farm Accountant prepares it, a
- * Financial Controller approves it. Submitting here does not post anything;
+ * Finance Controller approves it. Submitting here does not post anything;
  * it puts the document into the approver's queue at /approvals, the same
  * queue every other approval-gated document in this application uses.
  */
@@ -59,5 +59,5 @@ export async function requestValuation(
 
   revalidatePath('/agripro/biological-assets');
   revalidatePath('/approvals');
-  return { error: null, message: 'Raised. It now needs a Financial Controller to approve it.' };
+  return { error: null, message: 'Raised. It now needs a Finance Controller to approve it.' };
 }

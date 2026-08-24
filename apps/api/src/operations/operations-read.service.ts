@@ -257,16 +257,31 @@ export class OperationsReadService {
     });
 
     const order = stages.length > 0 ? stages : [...new Set(groups.map((g) => g.stage))];
-    return order
-      .map((stage) => {
-        const inStage = groups.filter((group) => group.stage === stage);
-        return {
-          stage,
-          population: inStage.reduce((sum, group) => sum + group.population, 0),
-          groups: inStage.map((group) => group.code),
-        };
-      })
-      .filter((bucket) => bucket.groups.length > 0);
+    const buckets = order.map((stage) => {
+      const inStage = groups.filter((group) => group.stage === stage);
+      return {
+        stage,
+        population: inStage.reduce((sum, group) => sum + group.population, 0),
+        groups: inStage.map((group) => group.code),
+      };
+    });
+
+    // A group whose `stage` isn't any of the caller's declared stages should
+    // never just disappear from the total — that reads as missing population,
+    // not as a data problem. Placement now always writes a real stage (see
+    // `placeGroup`), so this bucket should stay empty going forward; it exists
+    // for whatever the fix doesn't reach — older rows, a bad import.
+    const known = new Set(order);
+    const unclassified = groups.filter((group) => !known.has(group.stage));
+    if (unclassified.length > 0) {
+      buckets.push({
+        stage: 'Not yet staged',
+        population: unclassified.reduce((sum, group) => sum + group.population, 0),
+        groups: unclassified.map((group) => group.code),
+      });
+    }
+
+    return buckets.filter((bucket) => bucket.groups.length > 0);
   }
 
   /* ------------------------------------------------------------------ */

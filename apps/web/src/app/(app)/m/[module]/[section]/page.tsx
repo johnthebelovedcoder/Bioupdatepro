@@ -12,8 +12,8 @@ import { SECTION_COMPONENTS } from '@/components/sections';
  * Any section within a species module.
  *
  * One route for every section of every module. The plan shown is composed from
- * the module's own vocabulary, so the snail version says "colony" and "pen"
- * where the poultry version says "batch" and "house" — without either being
+ * the module's own vocabulary, so the snail version says "cohort" and "pen"
+ * where the poultry version says "flock" and "house" — without either being
  * written out twice.
  */
 export async function generateMetadata({
@@ -143,8 +143,8 @@ function unique(values: string[]): string[] {
 function summaryFor(module: SpeciesModule, section: string): string {
   const t = module.terms;
   switch (section) {
-    case 'batches':
-    case 'colonies':
+    case 'flocks':
+    case 'cohorts':
       return `Every ${t.group.one} of ${t.animal.many}, with population and stage.`;
     case 'records':
       return `What happened today in each ${t.housing.one}.`;
@@ -178,8 +178,8 @@ function plannedFor(module: SpeciesModule, section: string): string[] {
   const H = t.housing.one;
 
   switch (section) {
-    case 'batches':
-    case 'colonies':
+    case 'flocks':
+    case 'cohorts':
       return [
         `Register of every ${G}: breed, purpose, ${H}, opening and current ${As}`,
         `${t.intake} records, with source and cost`,

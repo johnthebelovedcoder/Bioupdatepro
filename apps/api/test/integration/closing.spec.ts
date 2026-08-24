@@ -79,9 +79,9 @@ describe('Period-End & Year-End Closing (§8)', () => {
     const approverUser = await prisma.user.create({
       data: {
         email: 'controller@test',
-        fullName: 'Financial Controller',
+        fullName: 'Finance Controller',
         passwordHash: 'x',
-        roles: ['FINANCIAL_CONTROLLER'],
+        roles: ['FINANCE_CONTROLLER'],
       },
     });
     approver = { userId: approverUser.id, roles: approverUser.roles };
@@ -244,7 +244,7 @@ describe('Period-End & Year-End Closing (§8)', () => {
           effectiveFrom: new Date('2026-01-01'),
           steps: {
             create: [
-              { level: 1, roleCode: 'FINANCIAL_CONTROLLER', name: 'Controller', maxAmountKobo: null },
+              { level: 1, roleCode: 'FINANCE_CONTROLLER', name: 'Controller', maxAmountKobo: null },
             ],
           },
         },
@@ -480,7 +480,7 @@ describe('Period-End & Year-End Closing (§8)', () => {
           effectiveFrom: new Date('2026-01-01'),
           steps: {
             create: [
-              { level: 1, roleCode: 'FINANCIAL_CONTROLLER', name: 'Controller', maxAmountKobo: null },
+              { level: 1, roleCode: 'FINANCE_CONTROLLER', name: 'Controller', maxAmountKobo: null },
             ],
           },
         },
@@ -520,7 +520,7 @@ describe('Period-End & Year-End Closing (§8)', () => {
           effectiveFrom: new Date('2026-01-01'),
           steps: {
             create: [
-              { level: 1, roleCode: 'FINANCIAL_CONTROLLER', name: 'Controller', maxAmountKobo: null },
+              { level: 1, roleCode: 'FINANCE_CONTROLLER', name: 'Controller', maxAmountKobo: null },
             ],
           },
         },

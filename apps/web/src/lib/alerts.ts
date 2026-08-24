@@ -385,7 +385,7 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
         detail: `Normally about ${baseline.toFixed(1)} a day over the past fortnight. ${group.mortalityRate.toFixed(1)}% lost since it started.`,
         action: {
           label: 'Look at it',
-          href: `/m/${group.species === 'SNAIL' ? 'snail' : 'poultry'}/${group.species === 'SNAIL' ? 'colonies' : 'batches'}/${group.id}`,
+          href: `/m/${group.species === 'SNAIL' ? 'snail' : 'poultry'}/${group.species === 'SNAIL' ? 'cohorts' : 'flocks'}/${group.id}`,
         },
         rank: group.mortalityRate > 8 ? 5 : 30,
       });

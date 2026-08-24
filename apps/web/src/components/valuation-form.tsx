@@ -13,7 +13,7 @@ import type { BiologicalAssetGroup } from '@/lib/biological-assets';
  * This form asserts two numbers — a market price and a cost to sell — and
  * nothing else on the page can. §61.6 calls that a decision, not a fact, and
  * singles out who may make it: whoever fills this in is the preparer: a
- * Financial Controller still has to approve it before the gain or loss
+ * Finance Controller still has to approve it before the gain or loss
  * reaches the ledger. Submitting sends it to /approvals; it does not post.
  */
 export function ValuationForm({ groups }: { groups: BiologicalAssetGroup[] }) {

@@ -10,7 +10,7 @@ import { Roles } from '../auth/roles.guard';
 
 /** Consolidated Reference §4 API surface. */
 @Controller('tax')
-@Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+@Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
 export class TaxController {
   constructor(
     private readonly engine: TaxEngineService,

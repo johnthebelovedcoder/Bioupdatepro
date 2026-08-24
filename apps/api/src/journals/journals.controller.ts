@@ -16,8 +16,12 @@ import { Roles } from '../auth/roles.guard';
  * Reverse, Export and Email, and states that Delete is "disabled entirely" —
  * so it is absent here and refused by a database trigger besides.
  */
+// FARM_ACCOUNTANT (ROL-012) is the RACI sheet's actual preparer of a manual
+// journal — "Manual journals require approval" names them as the one being
+// approved, not the approver. Everything here is create/submit/reverse or a
+// read; approval itself happens through WorkflowController, not here.
 @Controller('journal')
-@Roles('FINANCIAL_CONTROLLER', 'FINANCE_MANAGER', 'MANAGING_DIRECTOR')
+@Roles('FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'FARM_ACCOUNTANT', 'CEO')
 export class JournalsController {
   constructor(
     private readonly journals: ManualJournalService,

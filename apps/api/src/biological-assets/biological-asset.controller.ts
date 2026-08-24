@@ -90,13 +90,17 @@ export class BiologicalAssetController {
   }
 
   /**
-   * §61.6: "Farm Accountant / Financial Controller." This codebase has no
-   * Farm Accountant role — the six seeded roles are Administrator, Managing
-   * Director, Farm Manager, Finance Manager, Financial Controller and
-   * Production Supervisor. Finance Manager is used as the nearest analogue for
-   * "prepares the figures"; stated here rather than left implicit.
+   * §61.6: "Farm Accountant / Finance Controller."
+   *
+   * FARM_ACCOUNTANT (ROL-012) now exists — the RACI sheet's actual preparer,
+   * "Reconcile BA, inventory, WIP, journals and valuations." FINANCE_MANAGER
+   * and FINANCE_CONTROLLER are kept too: RACI marks Finance Manager/Head as
+   * the APPROVER of valuations, but a smaller farm without a separate Farm
+   * Accountant still needs someone able to raise one. Approval itself is a
+   * separate step through the workflow engine below, so this list being wide
+   * does not weaken maker-checker.
    */
-  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
   @Post('valuations')
   async requestValuation(
     @CurrentCompany() companyId: string,

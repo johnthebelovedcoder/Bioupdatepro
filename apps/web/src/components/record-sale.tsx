@@ -129,7 +129,7 @@ export function RecordSale({
     }
     if (product.fromPopulation) {
       if (!line.batchId) {
-        problems.push(`Choose which batch the ${product.name.toLowerCase()} came from`);
+        problems.push(`Choose which population the ${product.name.toLowerCase()} came from`);
         continue;
       }
       const batch = batches.find((entry) => entry.id === line.batchId);
@@ -506,8 +506,8 @@ export function RecordSale({
             {/*
               Spelled out because this is the whole argument for the accounting
               spine. A sale is not one entry — it is revenue, it is stock
-              leaving, and for livestock it is cost coming out of the batch.
-              Getting the third one right is what makes batch profit tie to the
+              leaving, and for livestock it is cost coming out of the population.
+              Getting the third one right is what makes population profit tie to the
               profit and loss instead of drifting away from it.
             */}
             <Line
@@ -516,10 +516,10 @@ export function RecordSale({
             />
             <Line label="Dr Cost of sales" value="Cr Finished goods" />
             {sold.some(({ product }) => product.fromPopulation) ? (
-              <Line label="Dr Cost of sales" value="Cr the batch's own costs" />
+              <Line label="Dr Cost of sales" value="Cr the population's own costs" />
             ) : null}
             <p className="faint" style={{ marginTop: 6 }}>
-              Costed when this is wired up, so what a batch earned and what it cost end up
+              Costed when this is wired up, so what a population earned and what it cost end up
               in the same set of books.
             </p>
           </div>

@@ -58,6 +58,10 @@ export function NewGroupForm({
         code: code.trim(),
         breed,
         purpose,
+        // The population's true lifecycle stage, not what it is kept for — the
+        // API stores these separately and has no species vocabulary of its own
+        // to derive one from the other.
+        stage: t.stages[0] ?? purpose,
         house,
         openingPopulation: countValue,
         startedOn,
@@ -78,11 +82,10 @@ export function NewGroupForm({
         />
         <Card>
           <div className="stack" style={{ gap: 'var(--sp-4)' }}>
-            <div className="notice notice-warning">
+            <div className="notice notice-info">
               <span>
-                <strong>Held in the outbox — not saved.</strong> There is no endpoint for
-                this yet, so it cannot reach the server. Open the outbox in the header to
-                see it.
+                <strong>Saved.</strong> If there was no signal it waits in the outbox and
+                goes by itself — open the outbox in the header to check.
               </span>
             </div>
             <div className="row" style={{ gap: 'var(--sp-3)' }}>

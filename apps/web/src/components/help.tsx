@@ -95,7 +95,7 @@ export const TERMS = {
   mortalityRate: (
     <Help term="Mortality">
       Deaths so far as a share of the number placed. It only ever rises, because it counts
-      the whole life of the batch.
+      the whole life of the population.
     </Help>
   ),
   costPerAnimal: (

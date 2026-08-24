@@ -64,6 +64,7 @@ export class OperationsService {
       code: string;
       breed: string;
       purpose: string;
+      stage: string;
       house: string;
       openingPopulation: number;
       startedOn: string;
@@ -77,6 +78,7 @@ export class OperationsService {
     if (!(payload.openingPopulation > 0)) {
       throw new BadRequestException('Opening population must be greater than zero.');
     }
+    if (!payload.stage?.trim()) throw new BadRequestException('A starting stage is required.');
 
     return this.prisma.$transaction(async (tx) => {
       const scope = 'operations.placement';
@@ -96,8 +98,10 @@ export class OperationsService {
           breed: payload.breed,
           purpose: payload.purpose,
           // A population starts at the first stage its module declares. The web
-          // app owns that list, so it is sent rather than guessed here.
-          stage: payload.purpose,
+          // app owns that list, so it is sent rather than guessed here — the
+          // API has no opinion about what a snail's stages are (same rule that
+          // governs `stageBreakdown`), so it cannot derive this from `purpose`.
+          stage: payload.stage,
           openingPopulation: payload.openingPopulation,
           population: payload.openingPopulation,
           startedOn: asDate(payload.startedOn),

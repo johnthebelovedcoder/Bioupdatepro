@@ -82,7 +82,11 @@ export class ReportingController {
     };
   }
 
-  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  // INTERNAL_AUDITOR (ROL-016) is explicitly read-only over "controls, audit
+  // trail and traceability" — the reports below are exactly that. FARM_ACCOUNTANT
+  // (ROL-012) reads the same reports to reconcile against them, without gaining
+  // any ability to post or approve.
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CEO')
   @Get('trial-balance')
   async trialBalanceReport(
     @CurrentCompany() companyId: string,
@@ -106,7 +110,7 @@ export class ReportingController {
    * The journal register. Paged, because a real ledger is not a list you scroll
    * — a year of production postings runs to tens of thousands of entries.
    */
-  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CEO')
   @Get('journals')
   async journals(
     @CurrentCompany() companyId: string,
@@ -193,7 +197,7 @@ export class ReportingController {
    * The audit trail (Rule 9). Append-only at the database, so this is purely a
    * read — there is deliberately no endpoint that edits or deletes one.
    */
-  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CEO')
   @Get('audit')
   async audit(
     @CurrentCompany() companyId: string,
@@ -275,7 +279,14 @@ export class ReportingController {
    * that matters — the cost of the animals currently alive, which is neither an
    * expense yet nor revenue, and is invisible on a normal P&L summary.
    */
-  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR', 'FARM_MANAGER')
+  @Roles(
+    'FINANCE_MANAGER',
+    'FINANCE_CONTROLLER',
+    'CEO',
+    'FARM_MANAGER',
+    'INTERNAL_AUDITOR',
+    'FARM_ACCOUNTANT',
+  )
   @Get('money-summary')
   async moneySummary(@CurrentCompany() companyId: string) {
     const [revenue, expenses, receivables, workInProgress, finishedGoods] = await Promise.all([
@@ -322,7 +333,7 @@ export class ReportingController {
   }
 
   /** Cost centres and farms, for the trial balance dimension filters. */
-  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CEO')
   @Get('dimensions')
   async dimensions(@CurrentCompany() companyId: string) {
     const [costCentres, farms] = await Promise.all([

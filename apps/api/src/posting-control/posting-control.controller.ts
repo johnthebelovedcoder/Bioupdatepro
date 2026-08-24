@@ -8,14 +8,14 @@ import { AnyRole, Roles } from '../auth/roles.guard';
 /**
  * The posting rules, readable.
  *
- * §66.4 makes adding a rule a controlled act with a Financial Controller's
+ * §66.4 makes adding a rule a controlled act with a Finance Controller's
  * approval, so the register has to be something a controller can actually open
  * and read — not a table only the database knows about. Reading is open to any
  * signed-in role: knowing that receiving stock debits inventory and credits
  * GRNI is how somebody learns the system, and none of it is confidential.
  *
  * There is deliberately no route here that changes a rule. §66.4 requires a new
- * effective-dated version approved by a Financial Controller, with positive,
+ * effective-dated version approved by a Finance Controller, with positive,
  * negative, reversal, duplicate, closed-period, missing-dimension,
  * inactive-account and unbalanced-journal tests run against it before it goes
  * active. A PATCH endpoint would quietly make all of that optional.
@@ -108,7 +108,7 @@ export class PostingControlController {
    * Restricted, unlike the register: this decides whether a release may
    * proceed, and it is a controller's judgement rather than general reading.
    */
-  @Roles('FINANCE_MANAGER', 'FINANCIAL_CONTROLLER', 'MANAGING_DIRECTOR')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
   @Get('checks')
   async release(@CurrentCompany() companyId: string) {
     return this.checks.run(companyId);

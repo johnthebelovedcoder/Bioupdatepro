@@ -10,7 +10,7 @@ import { IconClipboard, IconPlus } from './icons';
 /**
  * The register — every managed population in the active module.
  *
- * One component serves poultry batches and snail colonies, and will serve fish
+ * One component serves poultry flocks and snail cohorts, and will serve fish
  * stocks. Every noun on the page comes from the module's terminology; nothing
  * here knows what a bird is.
  *

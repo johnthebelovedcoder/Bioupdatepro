@@ -413,7 +413,7 @@ const DEFAULT_ALERTS: AlertRule[] = [
     description: 'Sent when remaining feed will not last past the supplier lead time.',
     enabled: true,
     channels: ['inApp', 'whatsapp'],
-    recipients: ['FARM_MANAGER', 'MANAGING_DIRECTOR'],
+    recipients: ['FARM_MANAGER', 'CEO'],
   },
   {
     kind: 'lowStock',
@@ -429,7 +429,7 @@ const DEFAULT_ALERTS: AlertRule[] = [
     description: 'Deaths well above the recent average for that population.',
     enabled: true,
     channels: ['inApp', 'whatsapp'],
-    recipients: ['FARM_MANAGER', 'MANAGING_DIRECTOR'],
+    recipients: ['FARM_MANAGER', 'CEO'],
   },
   {
     kind: 'varianceDetected',
@@ -437,7 +437,7 @@ const DEFAULT_ALERTS: AlertRule[] = [
     description: 'Feed, production or stock outside the tolerance you set.',
     enabled: true,
     channels: ['inApp', 'whatsapp'],
-    recipients: ['MANAGING_DIRECTOR', 'FINANCIAL_CONTROLLER'],
+    recipients: ['CEO', 'FINANCE_CONTROLLER'],
   },
   {
     kind: 'vaccinationDue',
@@ -461,7 +461,7 @@ const DEFAULT_ALERTS: AlertRule[] = [
     description: 'Meat birds where another day of feed costs more than it adds.',
     enabled: true,
     channels: ['inApp', 'whatsapp'],
-    recipients: ['MANAGING_DIRECTOR', 'FARM_MANAGER'],
+    recipients: ['CEO', 'FARM_MANAGER'],
   },
   {
     kind: 'dailyRoundMissing',
