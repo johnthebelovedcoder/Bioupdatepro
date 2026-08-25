@@ -221,24 +221,34 @@ const ROUTES: Array<{ prefix: string; section: Section }> = [
   { prefix: '/procurement/receipts', section: 'inventory' },
   { prefix: '/inventory', section: 'inventory' },
   /*
-   * The `/admin/*` pages had NO entry here at all — every one of them fell
-   * through to the catch-all `/` -> `dashboard` rule below, which every role
-   * holds. The middleware gate was therefore a no-op for customers, items,
-   * cost centres and the setup overview: it let anyone past regardless of
-   * role, same as the routes below correctly restrict for everything else.
-   * These four map to the section the sidebar already files each page under
-   * in `navigation.ts` (Selling, Store, Store, Setup) — the mismatch between
-   * the URL segment and the nav home is a separate, lower-stakes finding;
-   * this fixes the actual gate.
+   * Customers, items and stores used to live at `/admin/customers`,
+   * `/admin/items` and `/admin/stores` even though `navigation.ts` files them
+   * under Selling and Store — a URL taxonomy that contradicted the
+   * information taxonomy, and the reason this table once needed three
+   * special-cased entries just to route around its own segment name. Moved
+   * to top-level routes that match where they actually live; the ROUTES
+   * entries below are now the ordinary kind, same shape as everything else.
    */
-  { prefix: '/admin/customers', section: 'trade' },
-  { prefix: '/admin/items', section: 'inventory' },
-  { prefix: '/admin/stores', section: 'inventory' },
+  { prefix: '/customers', section: 'trade' },
+  { prefix: '/items', section: 'inventory' },
+  { prefix: '/stores', section: 'inventory' },
   { prefix: '/admin/cost-centres', section: 'settings' },
   { prefix: '/admin', section: 'settings' },
   { prefix: '/staff', section: 'staff' },
   { prefix: '/settings', section: 'settings' },
   { prefix: '/farm', section: 'livestock' },
+  // Filed under Farm and Buying respectively in `navigation.ts`, but never
+  // had an entry here — both fell through to the catch-all `dashboard` rule,
+  // which every role holds, so the sidebar hid them from a role without
+  // `livestock`/`trade` while a direct URL let that same role straight in.
+  { prefix: '/pens', section: 'livestock' },
+  { prefix: '/suppliers', section: 'trade' },
+  // The AgriPro Core overview is meant to be visible broadly — it is a
+  // build-status report, not a screen with figures on it — but its two child
+  // pages carry real numbers (GL posting rules; biological-asset carrying
+  // values and valuations) and had the same silent-catch-all gap as above.
+  { prefix: '/agripro/posting-rules', section: 'ledger' },
+  { prefix: '/agripro/biological-assets', section: 'livestock' },
   { prefix: '/m/', section: 'livestock' },
   { prefix: '/welcome', section: 'dashboard' },
   { prefix: '/', section: 'dashboard' },

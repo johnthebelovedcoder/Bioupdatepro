@@ -233,7 +233,7 @@ export class SearchService {
       type: 'Customer',
       title: row.name,
       subtitle: `${row.code}${row.status === 'ACTIVE' ? '' : ` · ${plain(row.status)}`}`,
-      href: '/admin/customers',
+      href: '/customers',
       rank: rankOf(`${row.code} ${row.name}`, q, 1),
     }));
   }
@@ -255,7 +255,7 @@ export class SearchService {
       type: 'Item',
       title: `${row.code} — ${row.description}`,
       subtitle: `${plain(row.itemType)}${row.active ? '' : ' · inactive'}`,
-      href: '/admin/items',
+      href: '/items',
       rank: rankOf(`${row.code} ${row.description}`, q, 1),
     }));
   }
@@ -277,7 +277,7 @@ export class SearchService {
       type: 'Store',
       title: row.name,
       subtitle: `${row.code} · ${plain(row.type)}`,
-      href: '/admin/stores',
+      href: '/stores',
       rank: rankOf(`${row.code} ${row.name}`, q, 2),
     }));
   }

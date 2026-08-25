@@ -151,7 +151,7 @@ export const SECTIONS: NavSection[] = [
         keywords: ['new sale', 'sell'],
       },
       {
-        href: '/admin/customers',
+        href: '/customers',
         label: 'Customers',
         hint: 'Everyone the farm sells to',
         keywords: ['buyer', 'customer', 'client', 'debtor'],
@@ -206,13 +206,13 @@ export const SECTIONS: NavSection[] = [
         hidden: true,
       },
       {
-        href: '/admin/items',
+        href: '/items',
         label: 'Items',
         hint: 'Everything the farm buys, stores or sells',
         keywords: ['item', 'product', 'sku', 'material', 'feed'],
       },
       {
-        href: '/admin/stores',
+        href: '/stores',
         label: 'Stores',
         hint: 'Where stock physically sits',
         keywords: ['warehouse', 'store', 'location', 'cold room'],

@@ -83,7 +83,7 @@ export async function createItem(
     return fail(caught, 'Could not save that item.', kept);
   }
 
-  revalidatePath('/admin/items');
+  revalidatePath('/items');
   return { error: null, created: description };
 }
 
@@ -132,7 +132,7 @@ export async function createCustomer(
     return fail(caught, 'Could not save that customer.', kept);
   }
 
-  revalidatePath('/admin/customers');
+  revalidatePath('/customers');
   return { error: null, created: name };
 }
 
@@ -155,7 +155,7 @@ export async function createStore(
     return fail(caught, 'Could not save that store.', kept);
   }
 
-  revalidatePath('/admin/stores');
+  revalidatePath('/stores');
   return { error: null, created: name };
 }
 

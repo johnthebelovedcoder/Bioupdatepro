@@ -2,7 +2,7 @@ import { api } from '@/lib/api';
 import { formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { MasterForm } from '@/components/master-form';
-import { createItem } from '../actions';
+import { createItem } from '../admin/actions';
 import { IconBox } from '@/components/icons';
 
 import { Tabs } from '@/components/tabs';
