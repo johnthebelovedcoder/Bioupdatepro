@@ -19,13 +19,26 @@ import { getFarmConfig } from './farm-config.server';
 export const MODULE_COOKIE = 'bap_module';
 
 /**
- * Null when the organisation has no species module, which is a valid state.
+ * The cookie value that means "AgriPro Core, deliberately, nothing on top" —
+ * as opposed to no cookie at all, which means nobody has chosen yet and the
+ * farm's default module applies. Without this distinction, choosing "AgriPro
+ * Core" in the switcher was indistinguishable from a fresh session: clicking
+ * it navigated to `/agripro`, but with no cookie write behind it the very
+ * next page still resolved the default species module and put its whole nav
+ * group straight back — so "just show me AgriPro Core" never actually held.
+ */
+export const MODULE_NONE = '__core__';
+
+/**
+ * Null when the organisation has no species module, or the farm has
+ * explicitly chosen to work in AgriPro Core alone — both are valid states.
  *
- * This used to throw. That made a claim the specification explicitly denies:
- * §60 describes AgriPro as a core ERP platform with SnailPro and PoultryPro as
- * optional extensions, so a farm that buys the platform on its own — books,
- * buying, selling, payroll, no livestock — is an ordinary customer, and this
- * function crashed their entire application on the first page load.
+ * This used to throw whenever no module applied. That made a claim the
+ * specification explicitly denies: §60 describes AgriPro as a core ERP
+ * platform with SnailPro and PoultryPro as optional extensions, so a farm
+ * that buys the platform on its own — books, buying, selling, payroll, no
+ * livestock — is an ordinary customer, and this function crashed their
+ * entire application on the first page load.
  *
  * Returning null instead means "AgriPro Core, nothing on top", and every
  * consumer already had to handle the shape of a missing module for the case
@@ -33,11 +46,14 @@ export const MODULE_COOKIE = 'bap_module';
  */
 export async function getActiveModule(): Promise<SpeciesModule | null> {
   const [store, config] = await Promise.all([cookies(), getFarmConfig()]);
+  const cookieValue = store.get(MODULE_COOKIE)?.value;
+  if (cookieValue === MODULE_NONE) return null;
+
   const enabled = config.modules;
   const has = (module: SpeciesModule | null) =>
     Boolean(module?.subscribed && (enabled.length === 0 || enabled.includes(module.key)));
 
-  const requested = getModule(store.get(MODULE_COOKIE)?.value);
+  const requested = getModule(cookieValue);
 
   // A cookie naming a module the organisation does not have must not grant
   // access to it. Fall back rather than trust the value.

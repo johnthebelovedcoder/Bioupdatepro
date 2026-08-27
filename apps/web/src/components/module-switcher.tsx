@@ -1,9 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { switchModule } from '@/app/(app)/module-actions';
+import { switchModule, switchToCore } from '@/app/(app)/module-actions';
 import { MODULES, type ModuleKey } from '@/lib/modules';
 import { IconChart } from './icons';
 
@@ -71,16 +70,17 @@ export function ModuleSwitcher({ active }: { active: ModuleKey | null }) {
             {current ? current.productName : 'AgriPro Core'}
           </span>
           {/*
-            Says what the thing above it is, not what the control does.
+            Only says anything when there is something worth saying.
 
-            "Switch module" described the button; "on AgriPro Core" describes
-            the product — that SnailPro is an extension sitting on a platform,
-            which is the single most important fact about how this application
-            is put together and was nowhere on screen.
+            A module's own name ("PoultryPro") already says what it is; adding
+            "on AgriPro Core" underneath every single time repeats a fact the
+            switcher's own menu already states once, on the Core option itself.
+            It only earns a line here when Core is the WHOLE answer — nothing
+            selected on top of it — which is the one case its name alone could
+            be mistaken for "nothing is configured" rather than a deliberate
+            choice.
           */}
-          <span className="module-trigger-sub">
-            {current ? 'on AgriPro Core' : 'no species module'}
-          </span>
+          {!current ? <span className="module-trigger-sub">platform only</span> : null}
         </span>
         <Chevron open={open} />
       </button>
@@ -88,14 +88,9 @@ export function ModuleSwitcher({ active }: { active: ModuleKey | null }) {
       {open ? (
         <div className="module-menu" role="menu" aria-label="Species module">
           <div className="module-menu-head">
-            <Link href="/agripro" className="module-core" onClick={() => setOpen(false)}>
-              <span className="module-option-text">
-                <span className="module-option-name">AgriPro Core</span>
-                <span className="module-option-sub">
-                  The shared platform — ledger, buying, selling, people
-                </span>
-              </span>
-            </Link>
+            <form action={switchToCore} onSubmit={() => setOpen(false)}>
+              <CoreOption selected={!current} />
+            </form>
             <div className="module-menu-label">Species modules on top</div>
           </div>
           {MODULES.map((module) => (
@@ -110,6 +105,34 @@ export function ModuleSwitcher({ active }: { active: ModuleKey | null }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * "AgriPro Core alone" as a real, selectable state — not a link that leaves
+ * whatever species module was active still governing every page underneath
+ * it. See `switchToCore` for why that distinction is the whole fix.
+ */
+function CoreOption({ selected }: { selected: boolean }) {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      role="menuitemradio"
+      aria-checked={selected}
+      className="module-core module-option"
+      disabled={pending}
+    >
+      <IconChart size={17} />
+      <span className="module-option-text">
+        <span className="module-option-name">AgriPro Core</span>
+        <span className="module-option-sub">
+          {pending && !selected ? 'Switching…' : 'The shared platform — ledger, buying, selling, people'}
+        </span>
+      </span>
+      {selected ? <Tick /> : null}
+    </button>
   );
 }
 
