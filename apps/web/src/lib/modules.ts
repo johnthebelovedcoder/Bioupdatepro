@@ -211,7 +211,7 @@ const POULTRY: SpeciesModule = {
     housing: { one: 'house', many: 'houses' },
     /*
      * The spec's own lifecycle forks after Grower — a meat bird moves to
-     * Market-ready, an egg bird moves to Pullet, Point of lay, then Layer —
+     * Market-ready, an egg bird moves to Pullet, Point-of-lay, then Layer —
      * and `stages` cannot express a fork, only a sequence. Two things fixed
      * here rather than one: "Pullet" was missing entirely (present only in
      * `purposes`, so a pullet never got a stage of its own), and "Spent" was
@@ -226,7 +226,7 @@ const POULTRY: SpeciesModule = {
      * suggestion is a smaller cost than a second data model for branching
      * lifecycles.
      */
-    stages: ['Chick', 'Grower', 'Market-ready', 'Pullet', 'Point of lay', 'Layer'],
+    stages: ['Chick', 'Grower', 'Market-ready', 'Pullet', 'Point-of-lay', 'Layer'],
     output: { one: 'egg', many: 'eggs' },
     outputByPurpose: {
       Broiler: { one: 'bird', many: 'meat birds' },
@@ -277,9 +277,9 @@ const POULTRY: SpeciesModule = {
     { name: 'Broiler finisher', suits: ['Broiler'], fromDay: 22 },
     { name: 'Chick mash', suits: ['Chick'], toDay: 42 },
     { name: 'Grower mash', suits: ['Pullet', 'Grower'] },
-    { name: 'Layer mash', suits: ['Layer', 'Point of lay'] },
+    { name: 'Layer mash', suits: ['Layer', 'Point-of-lay'] },
   ],
-  breeds: ['Isa Brown', 'Lohmann Brown', 'Cobb 500', 'Ross 308', 'Noiler', 'Local breed'],
+  breeds: ['ISA Brown', 'Lohmann Brown', 'Cobb 500', 'Ross 308', 'Noiler', 'Local breed'],
   purposes: ['Layer', 'Broiler', 'Pullet', 'Cockerel', 'Breeder'],
 };
 
@@ -354,8 +354,8 @@ const SNAIL: SpeciesModule = {
      */
     { name: 'Calcium supplement' },
   ],
-  breeds: ['Archachatina marginata', 'Achatina achatina', 'Achatina fulica'],
-  purposes: ['Breeder colony', 'Growers', 'Juveniles'],
+  breeds: ['Archachatina marginata', 'Achatina achatina', 'Lissachatina fulica'],
+  purposes: ['Breeder cohort', 'Growers', 'Juveniles'],
 };
 
 /*

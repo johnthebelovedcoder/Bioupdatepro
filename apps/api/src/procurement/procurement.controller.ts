@@ -38,7 +38,7 @@ export class ProcurementController {
    * engine that would refuse it anyway.
    */
   @OwnedRecord('purchaseOrder', 'id')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post('orders/:id/approve')
   async approveOrder(
     @CurrentCompany() companyId: string,
@@ -73,7 +73,7 @@ export class ProcurementController {
     'FARM_MANAGER',
     'FINANCE_MANAGER',
     'FINANCE_CONTROLLER',
-    'CEO',
+    'CFO',
   )
   @Post('receipts')
   async receive(

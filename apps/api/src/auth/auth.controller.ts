@@ -77,7 +77,7 @@ export class AuthController {
 
   // SYSTEM_ADMIN (ROL-015): "Manage configuration, interfaces and access" —
   // access is literally named in their RACI line.
-  @Roles('CEO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
   @Post('invitations')
   async invite(
     @CurrentCompany() companyId: string,
@@ -92,13 +92,13 @@ export class AuthController {
     });
   }
 
-  @Roles('CEO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
   @Get('invitations')
   async listInvitations(@CurrentCompany() companyId: string) {
     return this.invitations.list(companyId);
   }
 
-  @Roles('CEO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
   @Post('invitations/:id/revoke')
   async revokeInvitation(
     @CurrentCompany() companyId: string,

@@ -77,7 +77,7 @@ export class RegistrationService {
             companyId,
             // The person who creates the farm can do everything in it,
             // including inviting the people who cannot.
-            roles: ['ADMINISTRATOR', 'CEO'],
+            roles: ['ADMINISTRATOR', 'CFO'],
           },
         });
       },

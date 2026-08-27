@@ -114,7 +114,7 @@ export default async function StaffPage() {
                     <div className="num" style={{ fontSize: 13 }}>
                       {role.approvalLimit}
                     </div>
-                    <div className="list-time">approval limit</div>
+                    <div className="list-time">provisional limit</div>
                   </>
                 ) : (
                   <span className="faint">no approval</span>
@@ -129,6 +129,18 @@ export default async function StaffPage() {
               which screens a role may open now exists too, for these six roles and the
               fourteen more the client&apos;s own RACI sheet names — see the notice above
               for what it still does not reach.
+              {/*
+                The amounts themselves are a separate fact from the enforcement working —
+                and the one most likely to be read as settled just because it is written in
+                Naira on a screen. It is not: it is the implementing consultant's own
+                illustrative table, not a figure taken from the client's specification. The
+                engine enforces whatever this table says correctly; what it says has not been
+                confirmed.
+              */}{' '}
+              The amounts themselves — ₦250,000 / ₦2,000,000 / ₦10,000,000 — are the
+              consultant&apos;s own illustrative ladder, not figures taken from the client&apos;s
+              specification, which does not state one. They will change once the client
+              confirms real limits.
             </span>
           </div>
         </Card>
@@ -138,7 +150,7 @@ export default async function StaffPage() {
             Employee records and payroll — including PAYE and statutory deductions — exist in
             the backend and are tested. Turning on a company&apos;s statutory rates now has a
             screen (<a href="/finance/payroll">Money → Payroll setup</a> — gated to Finance
-            Manager, Finance Controller and CEO, the same roles the API already restricts it
+            Manager, Finance Controller and CFO, the same roles the API already restricts it
             to); raising and approving an actual monthly run still does not. Server-side
             permission checks now exist for
             most of what each role is meant to do. What is still missing is a screen to change

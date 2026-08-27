@@ -22,7 +22,7 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  * (companies, accounts, periods). This one owns the transacting masters.
  */
 @Controller('masters')
-@Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+@Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
 export class MasterDataController {
   constructor(
     private readonly parties: PartyService,
@@ -53,7 +53,7 @@ export class MasterDataController {
     'FINANCE_MANAGER',
     'FINANCE_CONTROLLER',
     'PROCUREMENT_OFFICER',
-    'CEO',
+    'CFO',
   )
   @Post('suppliers')
   async createSupplier(
@@ -160,7 +160,7 @@ export class MasterDataController {
   // --- Items --------------------------------------------------------------
 
   /** Company and actor from the session, never the body — as for suppliers. */
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post('items')
   async createItem(
     @CurrentCompany() companyId: string,
@@ -357,7 +357,7 @@ export class MasterDataController {
     return this.structure.listFarms(companyId);
   }
 
-  @Roles('FARM_MANAGER', 'CEO')
+  @Roles('FARM_MANAGER', 'CFO')
   @Post('farms')
   async createFarm(
     @CurrentCompany() companyId: string,
@@ -373,7 +373,7 @@ export class MasterDataController {
     return this.structure.listPens(companyId);
   }
 
-  @Roles('FARM_MANAGER', 'CEO')
+  @Roles('FARM_MANAGER', 'CFO')
   @Post('pens')
   async createPen(
     @CurrentCompany() companyId: string,
@@ -391,7 +391,7 @@ export class MasterDataController {
 
   // STOREKEEPER (ROL-006): "Receive, issue, transfer and count inventory;
   // site scoped" — registering the store they are scoped to is part of that.
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'STOREKEEPER', 'CEO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'STOREKEEPER', 'CFO')
   @Post('warehouses')
   async createWarehouse(
     @CurrentCompany() companyId: string,
@@ -433,7 +433,7 @@ export class MasterDataController {
     return this.structure.listCostCentres(companyId);
   }
 
-  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post('cost-centres')
   async createCostCentre(
     @CurrentCompany() companyId: string,

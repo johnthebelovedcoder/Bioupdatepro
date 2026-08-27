@@ -58,7 +58,7 @@ const ALL: Section[] = [
  */
 const BY_ROLE: Record<string, Section[]> = {
   ADMINISTRATOR: ALL,
-  CEO: ALL,
+  CFO: ALL,
 
   // ROL-001. Captures the daily round only — not the full livestock section,
   // which also holds the register and cost figures a farm attendant has no

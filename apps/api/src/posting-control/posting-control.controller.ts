@@ -108,7 +108,7 @@ export class PostingControlController {
    * Restricted, unlike the register: this decides whether a release may
    * proceed, and it is a controller's judgement rather than general reading.
    */
-  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Get('checks')
   async release(@CurrentCompany() companyId: string) {
     return this.checks.run(companyId);

@@ -77,7 +77,7 @@ export interface ActivityEntry {
 }
 
 /**
- * One managed population — a poultry batch or a snail colony.
+ * One managed population — a poultry flock or a snail cohort.
  *
  * Deliberately species-agnostic in shape. Everything species-specific about it
  * is either a free-text value the farm supplies (breed, purpose, stage) or comes
@@ -206,7 +206,7 @@ export async function getUpcomingTasks(): Promise<UpcomingTask[]> {
     },
     {
       id: 't2',
-      title: 'Vaccination — Batch L-2026-003',
+      title: 'Vaccination — Flock L-2026-003',
       detail: 'Lasota booster, 1,950 birds',
       due: 'Tomorrow',
       urgency: 'soon',
@@ -258,7 +258,7 @@ export async function getRecentActivity(): Promise<ActivityEntry[]> {
       id: 'a4',
       time: '11:30',
       title: 'Snail feeding completed',
-      detail: 'Colony S-001 · 18 kg',
+      detail: 'Cohort S-001 · 18 kg',
       tone: 'neutral',
       kind: 'feed',
     },
@@ -266,7 +266,7 @@ export async function getRecentActivity(): Promise<ActivityEntry[]> {
       id: 'a5',
       time: '09:00',
       title: 'Mortality recorded',
-      detail: 'Batch L-2026-001 · 5 birds · heat stress',
+      detail: 'Flock L-2026-001 · 5 birds · heat stress',
       tone: 'danger',
       kind: 'mortality',
     },

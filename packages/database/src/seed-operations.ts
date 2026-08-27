@@ -81,7 +81,7 @@ const GROUPS: GroupSeed[] = [
   {
     code: 'L-2026-001',
     speciesKey: 'poultry',
-    breed: 'Isa Brown',
+    breed: 'ISA Brown',
     purpose: 'Layer',
     stage: 'Layer',
     house: 'Poultry House 1',
@@ -117,7 +117,7 @@ const GROUPS: GroupSeed[] = [
   {
     code: 'L-2026-004',
     speciesKey: 'poultry',
-    breed: 'Isa Brown',
+    breed: 'ISA Brown',
     purpose: 'Pullet',
     stage: 'Grower',
     house: 'Brooder House',
@@ -167,7 +167,7 @@ const GROUPS: GroupSeed[] = [
     code: 'S-001',
     speciesKey: 'snail',
     breed: 'Archachatina marginata',
-    purpose: 'Breeder colony',
+    purpose: 'Breeder cohort',
     stage: 'Breeder',
     house: 'Snail Section A',
     opening: 3300,
@@ -216,7 +216,7 @@ const GROUPS: GroupSeed[] = [
   {
     code: 'S-002',
     speciesKey: 'snail',
-    breed: 'Achatina fulica',
+    breed: 'Lissachatina fulica',
     purpose: 'Growers',
     stage: 'Grower',
     house: 'Snail Section A',
@@ -453,7 +453,7 @@ async function main(): Promise<void> {
             harvestedOn: dayAgo(4 + index * 5),
             grade: closed
               ? 'Finished'
-              : seed.purpose === 'Breeder colony'
+              : seed.purpose === 'Breeder cohort'
                 ? 'Breeding stock'
                 : 'Table size',
             // Twelve to the kilo is this farm's own observed average, recorded

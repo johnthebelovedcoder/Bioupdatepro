@@ -86,7 +86,7 @@ export class ReportingController {
   // trail and traceability" — the reports below are exactly that. FARM_ACCOUNTANT
   // (ROL-012) reads the same reports to reconcile against them, without gaining
   // any ability to post or approve.
-  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CEO')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
   @Get('trial-balance')
   async trialBalanceReport(
     @CurrentCompany() companyId: string,
@@ -110,7 +110,7 @@ export class ReportingController {
    * The journal register. Paged, because a real ledger is not a list you scroll
    * — a year of production postings runs to tens of thousands of entries.
    */
-  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CEO')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
   @Get('journals')
   async journals(
     @CurrentCompany() companyId: string,
@@ -197,7 +197,7 @@ export class ReportingController {
    * The audit trail (Rule 9). Append-only at the database, so this is purely a
    * read — there is deliberately no endpoint that edits or deletes one.
    */
-  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CEO')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
   @Get('audit')
   async audit(
     @CurrentCompany() companyId: string,
@@ -282,7 +282,7 @@ export class ReportingController {
   @Roles(
     'FINANCE_MANAGER',
     'FINANCE_CONTROLLER',
-    'CEO',
+    'CFO',
     'FARM_MANAGER',
     'INTERNAL_AUDITOR',
     'FARM_ACCOUNTANT',
@@ -333,7 +333,7 @@ export class ReportingController {
   }
 
   /** Cost centres and farms, for the trial balance dimension filters. */
-  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CEO')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
   @Get('dimensions')
   async dimensions(@CurrentCompany() companyId: string) {
     const [costCentres, farms] = await Promise.all([

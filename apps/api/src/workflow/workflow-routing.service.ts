@@ -114,7 +114,7 @@ export class WorkflowRoutingService {
    * a null ceiling is unlimited and therefore always ends the chain.
    *
    * So with the consultant's example ladder — Farm Manager ₦250k, Finance
-   * Manager ₦2m, Controller ₦10m, CEO unlimited — a ₦180k requisition needs one
+   * Manager ₦2m, Controller ₦10m, CFO unlimited — a ₦180k requisition needs one
    * approval, a ₦5m one needs three, and a ₦40m one needs all four. Every
    * approver below the deciding level still signs, which is the point of a
    * ladder rather than a lookup.

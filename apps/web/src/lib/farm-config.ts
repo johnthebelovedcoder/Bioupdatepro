@@ -336,7 +336,7 @@ const PUBLISHED_STANDARDS: BreedStandard[] = [
   {
     id: 'std-isabrown',
     moduleKey: 'poultry',
-    breed: 'Isa Brown',
+    breed: 'ISA Brown',
     purpose: 'Layer',
     ageUnit: 'week',
     provenance: 'published',
@@ -398,7 +398,7 @@ const PUBLISHED_STANDARDS: BreedStandard[] = [
     id: 'std-snail-marginata',
     moduleKey: 'snail',
     breed: 'Archachatina marginata',
-    purpose: 'Breeder colony',
+    purpose: 'Breeder cohort',
     ageUnit: 'week',
     provenance: 'placeholder',
     source: 'No published standard. Set from your own records once you have a year of history.',
@@ -413,7 +413,7 @@ const DEFAULT_ALERTS: AlertRule[] = [
     description: 'Sent when remaining feed will not last past the supplier lead time.',
     enabled: true,
     channels: ['inApp', 'whatsapp'],
-    recipients: ['FARM_MANAGER', 'CEO'],
+    recipients: ['FARM_MANAGER', 'CFO'],
   },
   {
     kind: 'lowStock',
@@ -429,7 +429,7 @@ const DEFAULT_ALERTS: AlertRule[] = [
     description: 'Deaths well above the recent average for that population.',
     enabled: true,
     channels: ['inApp', 'whatsapp'],
-    recipients: ['FARM_MANAGER', 'CEO'],
+    recipients: ['FARM_MANAGER', 'CFO'],
   },
   {
     kind: 'varianceDetected',
@@ -437,7 +437,7 @@ const DEFAULT_ALERTS: AlertRule[] = [
     description: 'Feed, production or stock outside the tolerance you set.',
     enabled: true,
     channels: ['inApp', 'whatsapp'],
-    recipients: ['CEO', 'FINANCE_CONTROLLER'],
+    recipients: ['CFO', 'FINANCE_CONTROLLER'],
   },
   {
     kind: 'vaccinationDue',
@@ -461,7 +461,7 @@ const DEFAULT_ALERTS: AlertRule[] = [
     description: 'Meat birds where another day of feed costs more than it adds.',
     enabled: true,
     channels: ['inApp', 'whatsapp'],
-    recipients: ['CEO', 'FARM_MANAGER'],
+    recipients: ['CFO', 'FARM_MANAGER'],
   },
   {
     kind: 'dailyRoundMissing',

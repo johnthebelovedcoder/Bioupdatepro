@@ -29,8 +29,8 @@ const ROLES: Array<{ code: string; label: string; what: string }> = [
     what: 'Approves postings and closes periods.',
   },
   {
-    code: 'CEO',
-    label: 'CEO',
+    code: 'CFO',
+    label: 'CFO',
     what: 'Sees everything and approves at the top of the ladder.',
   },
   {

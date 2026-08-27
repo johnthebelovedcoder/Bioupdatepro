@@ -100,7 +100,7 @@ export class BiologicalAssetController {
    * separate step through the workflow engine below, so this list being wide
    * does not weaken maker-checker.
    */
-  @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post('valuations')
   async requestValuation(
     @CurrentCompany() companyId: string,

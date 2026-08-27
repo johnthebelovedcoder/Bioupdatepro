@@ -32,7 +32,7 @@ const ROLES = {
   farmManager: 'FARM_MANAGER',
   financeManager: 'FINANCE_MANAGER',
   controller: 'FINANCE_CONTROLLER',
-  managingDirector: 'CEO',
+  cfo: 'CFO',
   administrator: 'ADMINISTRATOR',
   // RACI roles with no rung on the approval ladder — see the file header.
   farmAttendant: 'FARM_ATTENDANT',
@@ -57,7 +57,7 @@ const PEOPLE = [
   { email: 'farm.manager@bioassetpro.ng', fullName: 'Chinedu Eze', roles: [ROLES.farmManager] },
   { email: 'finance.manager@bioassetpro.ng', fullName: 'Funmilayo Adeyemi', roles: [ROLES.financeManager] },
   { email: 'controller@bioassetpro.ng', fullName: 'Ibrahim Danjuma', roles: [ROLES.controller] },
-  { email: 'ceo@bioassetpro.ng', fullName: 'Ngozi Balogun', roles: [ROLES.managingDirector] },
+  { email: 'cfo@bioassetpro.ng', fullName: 'Ngozi Balogun', roles: [ROLES.cfo] },
 
   // RACI-named roles — see the file header on what signing in as these does
   // and does not prove.

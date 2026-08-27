@@ -54,7 +54,7 @@ export async function getProduction(
     const producing =
       moduleKey === 'snail'
         ? group.purpose !== 'Juveniles'
-        : group.stage === 'Layer' || group.stage === 'Point of lay';
+        : group.stage === 'Layer' || group.stage === 'Point-of-lay';
     if (!producing) continue;
 
     for (let day = days - 1; day >= 0; day -= 1) {
@@ -273,7 +273,7 @@ export async function getPerformance(moduleKey: string): Promise<PerformanceRow[
   const groups = (await getGroups(moduleKey)).filter((group) => group.status === 'ACTIVE');
 
   return groups.map((group) => {
-    const layer = group.stage === 'Layer' || group.stage === 'Point of lay';
+    const layer = group.stage === 'Layer' || group.stage === 'Point-of-lay';
     const cost = BigInt(group.costToDateKobo);
     return {
       group,
@@ -356,7 +356,7 @@ export interface StageBucket {
   groups: string[];
 }
 
-/** Population by lifecycle stage — the shape of the flock or colony. */
+/** Population by lifecycle stage — the shape of the flock or cohort. */
 export async function getStageBreakdown(
   moduleKey: string,
   stages: string[],
@@ -402,7 +402,7 @@ export async function getHarvests(): Promise<HarvestRow[]> {
     kg,
     count: kg * 12,
     grade,
-    destination: grade === 'Breeding stock' ? 'Colony S-006' : 'Finished goods',
+    destination: grade === 'Breeding stock' ? 'Cohort S-006' : 'Finished goods',
     valueKobo: String(kg * 350_000),
   }));
 }
@@ -487,8 +487,8 @@ export async function getActivityLog(): Promise<ActivityDay[]> {
         { id: 'a1', time: '18:00', title: 'Daily round submitted', detail: 'PoultryPro · 4 houses', kind: 'task', by: 'Adaeze Okonkwo' },
         { id: 'a2', time: '16:40', title: 'Egg order created', detail: 'Sunrise Foods · 120 crates', kind: 'sale', by: 'Funmilayo Adeyemi' },
         { id: 'a3', time: '14:20', title: 'Layer mash received', detail: '2,000 kg from Greenfields Feeds', kind: 'purchase', by: 'Chinedu Eze' },
-        { id: 'a4', time: '11:30', title: 'Snail feeding completed', detail: 'Colony S-001 · 18 kg', kind: 'feed', by: 'Adaeze Okonkwo' },
-        { id: 'a5', time: '09:00', title: 'Mortality recorded', detail: 'Batch L-2026-001 · 5 birds · heat stress', kind: 'mortality', by: 'Adaeze Okonkwo' },
+        { id: 'a4', time: '11:30', title: 'Snail feeding completed', detail: 'Cohort S-001 · 18 kg', kind: 'feed', by: 'Adaeze Okonkwo' },
+        { id: 'a5', time: '09:00', title: 'Mortality recorded', detail: 'Flock L-2026-001 · 5 birds · heat stress', kind: 'mortality', by: 'Adaeze Okonkwo' },
         { id: 'a6', time: '08:15', title: 'Egg collection recorded', detail: 'Poultry House 1 · 1,602 whole, 24 cracked', kind: 'production', by: 'Adaeze Okonkwo' },
         { id: 'a7', time: '06:30', title: 'Feed distributed', detail: 'Poultry House 1 · 245 kg layer mash', kind: 'feed', by: 'Adaeze Okonkwo' },
       ],
@@ -497,8 +497,8 @@ export async function getActivityLog(): Promise<ActivityDay[]> {
       date: daysAgo(1),
       entries: [
         { id: 'b1', time: '17:20', title: 'Daily round submitted', detail: 'SnailPro · 3 pens', kind: 'task', by: 'Chinedu Eze' },
-        { id: 'b2', time: '15:05', title: 'Harvest recorded', detail: 'Colony S-004 · 78 kg table size', kind: 'production', by: 'Chinedu Eze' },
-        { id: 'b3', time: '10:40', title: 'Newcastle booster administered', detail: 'Batch L-2026-003 · 1,950 birds', kind: 'health', by: 'Ibrahim Danjuma' },
+        { id: 'b2', time: '15:05', title: 'Harvest recorded', detail: 'Cohort S-004 · 78 kg table size', kind: 'production', by: 'Chinedu Eze' },
+        { id: 'b3', time: '10:40', title: 'Newcastle booster administered', detail: 'Flock L-2026-003 · 1,950 birds', kind: 'health', by: 'Ibrahim Danjuma' },
         { id: 'b4', time: '08:10', title: 'Egg collection recorded', detail: 'Poultry House 2 · 1,588 whole', kind: 'production', by: 'Adaeze Okonkwo' },
       ],
     },
@@ -506,7 +506,7 @@ export async function getActivityLog(): Promise<ActivityDay[]> {
       date: daysAgo(2),
       entries: [
         { id: 'c1', time: '16:00', title: 'Customer payment received', detail: 'Sunrise Foods · ₦450,000', kind: 'sale', by: 'Funmilayo Adeyemi' },
-        { id: 'c2', time: '12:15', title: 'Mortality recorded', detail: 'Colony S-004 · 24 snails · desiccation', kind: 'mortality', by: 'Chinedu Eze' },
+        { id: 'c2', time: '12:15', title: 'Mortality recorded', detail: 'Cohort S-004 · 24 snails · desiccation', kind: 'mortality', by: 'Chinedu Eze' },
         { id: 'c3', time: '08:05', title: 'Egg collection recorded', detail: 'Poultry House 1 · 1,640 whole', kind: 'production', by: 'Adaeze Okonkwo' },
       ],
     },

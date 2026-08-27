@@ -55,7 +55,7 @@ export class WorkflowController {
    */
 
   @OwnedRecord('workflowTransaction', 'transactionId')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post(':transactionId/approve')
   async approve(
     @Param('transactionId') transactionId: string,
@@ -66,7 +66,7 @@ export class WorkflowController {
   }
 
   @OwnedRecord('workflowTransaction', 'transactionId')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post(':transactionId/reject')
   async reject(
     @Param('transactionId') transactionId: string,
@@ -77,7 +77,7 @@ export class WorkflowController {
   }
 
   @OwnedRecord('workflowTransaction', 'transactionId')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post(':transactionId/return')
   async returnToMaker(
     @Param('transactionId') transactionId: string,
@@ -92,7 +92,7 @@ export class WorkflowController {
   }
 
   @OwnedRecord('workflowTransaction', 'transactionId')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post(':transactionId/cancel')
   async cancel(
     @Param('transactionId') transactionId: string,
@@ -124,7 +124,7 @@ export class WorkflowController {
   }
 
   @OwnedRecord('workflowDelegation', 'id')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post('delegations/:id/revoke')
   async revokeDelegation(
     @Param('id') id: string,
@@ -183,7 +183,7 @@ export class WorkflowController {
     }));
   }
 
-  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Get('dashboard')
   async dashboard(@CurrentCompany() companyId: string) {
     return this.workflow.dashboard(companyId);
@@ -210,7 +210,7 @@ export class WorkflowController {
    * it also lets an administrator run the sweep on demand, and lets tests supply
    * an explicit `now` instead of waiting three days.
    */
-  @Roles('CEO')
+  @Roles('CFO')
   @Post('escalation/sweep')
   async sweep(@CurrentCompany() companyId: string, @Body() body: { now?: string }) {
     return this.escalation.sweep(body.now ? new Date(body.now) : new Date(), companyId);

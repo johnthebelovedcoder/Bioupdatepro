@@ -30,25 +30,29 @@ import { PrismaClient } from '../generated/client';
  * PCR-066 and PCR-070 through PCR-074 all name it regardless of stage — with
  * eggs split into their own two accounts (130215 collected, 130216 in
  * incubation) per PCR-067/068/069. The product's poultry stages are
- * `['Chick', 'Grower', 'Market-ready', 'Pullet', 'Point of lay', 'Layer']`;
+ * `['Chick', 'Grower', 'Market-ready', 'Pullet', 'Point-of-lay', 'Layer']`;
  * none of them is an egg, because eggs are not a life stage of the bird —
  * they are the bird's output, tracked by `ProductionLine`, not by
  * `LivestockGroup`. So every poultry stage maps to 130210 regardless of which
  * branch of the lifecycle it is on, and the egg accounts stay unmapped until
  * table-egg production gets its own accounting pass.
  *
- * A second vocabulary mismatch turned up building this: `LivestockGroup.stage`
- * is not always populated from `terms.stages`. `OperationsService.placeGroup`
- * sets a newly placed population's stage from `payload.purpose` — the "what
- * it's kept for" list (`terms.purposes`) — not from the lifecycle list. A
- * colony placed as a "Breeder colony" carries that exact string as its stage
- * until a `StageChange` event later moves it onto the lifecycle vocabulary
- * ('Breeder', 'Egg', ...). So the mapping below covers both: every value
- * `LivestockGroup.stage` can actually hold at any point in a population's
- * life, not only the lifecycle list a stage transfer moves between. Every
- * purpose maps to the SAME account its nearest lifecycle stage would — this
- * adds no new accounts, it recognises that this product's placement flow and
- * its stage-transfer flow write two different strings into the one field.
+ * A second vocabulary mismatch turned up building this, since fixed at the
+ * source: `OperationsService.placeGroup` used to set a newly placed
+ * population's stage from `payload.purpose` (the "what it's kept for" list,
+ * `terms.purposes`) instead of its real lifecycle stage — a cohort placed
+ * as "Breeder cohort" carried that exact string as its stage until a
+ * `StageChange` event later moved it onto the lifecycle vocabulary. The web
+ * app now sends the true starting stage explicitly and the API stores
+ * `purpose` and `stage` as the two separate facts they are.
+ *
+ * The purpose-keyed entries below (`'Breeder cohort'`, `Growers`,
+ * `Juveniles`) are what that bug left behind: any row placed before the fix
+ * still carries a purpose string in its `stage` column until it goes through
+ * a real `StageChange`. Kept as a defensive mapping rather than removed —
+ * every purpose maps to the SAME account its nearest lifecycle stage would,
+ * so keeping them adds no new accounts, only tolerance for data the old code
+ * path already wrote.
  */
 
 const SNAIL_STAGE_ACCOUNTS: Record<string, string> = {
@@ -59,9 +63,11 @@ const SNAIL_STAGE_ACCOUNTS: Record<string, string> = {
   Juvenile: '130203',
   Grower: '130203',
   'Market-ready': '130204',
-  // Purposes (`terms.purposes`) — what a placement's initial stage is set
-  // from. Mapped to the same account as their nearest lifecycle stage.
-  'Breeder colony': '130200',
+  // Purposes (`terms.purposes`) — defensive only, see the file header: rows
+  // placed before `placeGroup`'s stage/purpose fix may still carry one of
+  // these in `stage`. Mapped to the same account as their nearest lifecycle
+  // stage.
+  'Breeder cohort': '130200',
   Growers: '130203',
   Juveniles: '130203',
 };
@@ -75,7 +81,7 @@ const POULTRY_STAGE_ACCOUNTS: Record<string, string> = {
   Chick: '130210',
   Grower: '130210',
   'Market-ready': '130210',
-  'Point of lay': '130210',
+  'Point-of-lay': '130210',
   Layer: '130210',
   Broiler: '130210',
   Pullet: '130210',

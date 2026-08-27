@@ -10,7 +10,7 @@ import { Roles } from '../auth/roles.guard';
 
 /** §7 API surface. */
 @Controller('payroll')
-@Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+@Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
 export class PayrollController {
   constructor(
     private readonly runs: PayrollRunService,

@@ -358,7 +358,7 @@ const WORKFLOW_ROLES = {
   farmManager: 'FARM_MANAGER',
   financeManager: 'FINANCE_MANAGER',
   controller: 'FINANCE_CONTROLLER',
-  managingDirector: 'CEO',
+  cfo: 'CFO',
   administrator: 'ADMINISTRATOR',
 } as const;
 
@@ -368,16 +368,19 @@ const WORKFLOW_ROLES = {
  *   Farm Manager        up to      ₦250,000
  *   Finance Manager     up to    ₦2,000,000
  *   Finance Controller  up to   ₦10,000,000
- *   CEO                 unlimited
+ *   CFO                 unlimited
  *
  * Each figure is that rung's approval ceiling: a document climbs from level 1
- * up to the first rung whose ceiling covers it.
+ * up to the first rung whose ceiling covers it. The top rung is CFO, not CEO —
+ * `Posting_Control` names "CFO/Controller" and "CFO/Board authority" as the
+ * threshold-holder 60+ times; "CEO" appears in the workbook only as a report
+ * recipient alongside Controller/CFO, never as an approver.
  */
 const APPROVAL_LADDER = [
   { level: 1, roleCode: WORKFLOW_ROLES.farmManager, name: 'Farm Manager', maxAmountKobo: 250_000_00n },
   { level: 2, roleCode: WORKFLOW_ROLES.financeManager, name: 'Finance Manager', maxAmountKobo: 2_000_000_00n },
   { level: 3, roleCode: WORKFLOW_ROLES.controller, name: 'Finance Controller', maxAmountKobo: 10_000_000_00n },
-  { level: 4, roleCode: WORKFLOW_ROLES.managingDirector, name: 'CEO', maxAmountKobo: null },
+  { level: 4, roleCode: WORKFLOW_ROLES.cfo, name: 'CFO', maxAmountKobo: null },
 ];
 
 /**

@@ -21,7 +21,7 @@ import { Roles } from '../auth/roles.guard';
  * Configuration" and "Role Changes" as workflow-governed transactions).
  */
 @Controller('core')
-@Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO')
+@Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
 export class MastersController {
   constructor(
     private readonly prisma: PrismaService,

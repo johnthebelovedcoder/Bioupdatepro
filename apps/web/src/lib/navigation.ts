@@ -264,7 +264,7 @@ export const SECTIONS: NavSection[] = [
       /*
        * Filed here, not under People — the API's own `@Roles(...)` guard on
        * `PayrollController` only ever admitted Finance Manager, Finance
-       * Controller and CEO, and People > Staff is gated to a `staff`
+       * Controller and CFO, and People > Staff is gated to a `staff`
        * permission none of them hold. Nav home should match who can actually
        * use the screen.
        */

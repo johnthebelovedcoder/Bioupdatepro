@@ -37,30 +37,30 @@ export interface SearchHit {
 
 /** Which roles may see each group of records. */
 const VISIBLE_TO: Record<string, string[]> = {
-  buying: ['FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO'],
+  buying: ['FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO'],
   receiving: [
     'PRODUCTION_SUPERVISOR',
     'FARM_MANAGER',
     'FINANCE_MANAGER',
     'FINANCE_CONTROLLER',
-    'CEO',
+    'CFO',
   ],
-  selling: ['FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO'],
-  ledger: ['FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CEO'],
-  people: ['FARM_MANAGER', 'CEO'],
+  selling: ['FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO'],
+  ledger: ['FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO'],
+  people: ['FARM_MANAGER', 'CFO'],
   masters: [
     'PRODUCTION_SUPERVISOR',
     'FARM_MANAGER',
     'FINANCE_MANAGER',
     'FINANCE_CONTROLLER',
-    'CEO',
+    'CFO',
   ],
   livestock: [
     'PRODUCTION_SUPERVISOR',
     'FARM_MANAGER',
     'FINANCE_MANAGER',
     'FINANCE_CONTROLLER',
-    'CEO',
+    'CFO',
   ],
 };
 
@@ -335,15 +335,23 @@ export class SearchService {
       },
     });
 
-    // The module decides the noun. Nothing here is hard-coded to a species —
-    // "colony" and "batch" come from the module registry, same as everywhere.
-    const listFor: Record<string, string> = { snail: 'colonies', poultry: 'batches' };
+    /*
+     * The register slug and noun really do belong to the module registry
+     * (`apps/web/src/lib/modules.ts`), not here — but this endpoint has no
+     * access to it, and until that boundary is worth crossing for one search
+     * category, these have to be kept in step by hand. They drifted once
+     * already: this used to say 'colonies'/'Colony' and 'batches'/'Batch',
+     * which stopped matching the registry's `registerSlug` the moment it was
+     * renamed to 'cohorts'/'flocks' — every snail or poultry search result
+     * linked to a 404 until this was caught.
+     */
+    const listFor: Record<string, string> = { snail: 'cohorts', poultry: 'flocks' };
 
     return rows.map((row) => ({
-      type: row.speciesKey === 'snail' ? 'Colony' : 'Batch',
+      type: row.speciesKey === 'snail' ? 'Cohort' : 'Flock',
       title: row.code,
       subtitle: `${row.breed} · ${plain(row.stage)} · ${row.population.toLocaleString()} alive`,
-      href: `/m/${row.speciesKey}/${listFor[row.speciesKey] ?? 'batches'}`,
+      href: `/m/${row.speciesKey}/${listFor[row.speciesKey] ?? 'flocks'}`,
       rank: rankOf(`${row.code} ${row.breed}`, q, 0),
     }));
   }

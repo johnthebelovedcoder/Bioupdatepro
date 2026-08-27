@@ -40,7 +40,7 @@ describe('Workflow & Approval Engine (§2)', () => {
     { level: 1, roleCode: 'FARM_MANAGER', name: 'Farm Manager', maxAmountKobo: 250_000_00n },
     { level: 2, roleCode: 'FINANCE_MANAGER', name: 'Finance Manager', maxAmountKobo: 2_000_000_00n },
     { level: 3, roleCode: 'FINANCE_CONTROLLER', name: 'Finance Controller', maxAmountKobo: 10_000_000_00n },
-    { level: 4, roleCode: 'CEO', name: 'CEO', maxAmountKobo: null },
+    { level: 4, roleCode: 'CFO', name: 'CFO', maxAmountKobo: null },
   ];
 
   interface TestUser {
@@ -89,7 +89,7 @@ describe('Workflow & Approval Engine (§2)', () => {
       farmManager: await mkUser('farm@test', 'Farm Manager', ['FARM_MANAGER']),
       financeManager: await mkUser('finance@test', 'Finance Manager', ['FINANCE_MANAGER']),
       controller: await mkUser('controller@test', 'Controller', ['FINANCE_CONTROLLER']),
-      md: await mkUser('md@test', 'CEO', ['CEO']),
+      md: await mkUser('md@test', 'CFO', ['CFO']),
       stranger: await mkUser('stranger@test', 'Stranger', ['WAREHOUSE_CLERK']),
       admin: await mkUser('admin@test', 'Administrator', ['ADMINISTRATOR']),
     };
@@ -213,7 +213,7 @@ describe('Workflow & Approval Engine (§2)', () => {
         orderBy: { level: 'asc' },
       });
       expect(steps).toHaveLength(4);
-      expect(steps[3]!.roleCode).toBe('CEO');
+      expect(steps[3]!.roleCode).toBe('CFO');
     });
 
     it('treats a ceiling as inclusive at the boundary', async () => {

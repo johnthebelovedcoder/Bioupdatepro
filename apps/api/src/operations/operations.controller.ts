@@ -106,7 +106,7 @@ export class OperationsController {
 
   /* --- Writes ----------------------------------------------------------- */
 
-  @Roles('FARM_MANAGER', 'CEO')
+  @Roles('FARM_MANAGER', 'CFO')
   @Post('placements')
   async placement(
     @CurrentCompany() companyId: string,
@@ -136,7 +136,7 @@ export class OperationsController {
     'PRODUCTION_LEAD',
     'FARM_ATTENDANT',
     'FARM_MANAGER',
-    'CEO',
+    'CFO',
   )
   @Post('rounds')
   async round(
@@ -160,7 +160,7 @@ export class OperationsController {
     'PRODUCTION_LEAD',
     'FARM_ATTENDANT',
     'FARM_MANAGER',
-    'CEO',
+    'CFO',
   )
   @Post('treatments')
   async treatment(
@@ -186,7 +186,7 @@ export class OperationsController {
     'POULTRY_SUPERVISOR',
     'PRODUCTION_LEAD',
     'FARM_MANAGER',
-    'CEO',
+    'CFO',
   )
   @Post('harvests')
   async harvest(
@@ -214,7 +214,7 @@ export class OperationsController {
   // FARM_ACCOUNTANT (ROL-012) reconciles BA/inventory/WIP/journals day to
   // day — clearing the posting backlog is part of that, even though they
   // cannot approve the manual journals it might surface.
-  @Roles('FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'FARM_ACCOUNTANT', 'CEO')
+  @Roles('FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'FARM_ACCOUNTANT', 'CFO')
   @Post('postings/retry')
   async retryPostings(
     @CurrentCompany() companyId: string,
@@ -240,7 +240,7 @@ export class OperationsController {
     'FINANCE_MANAGER',
     'FINANCE_CONTROLLER',
     'SALES_OFFICER',
-    'CEO',
+    'CFO',
   )
   @Post('sales')
   async sale(
@@ -264,7 +264,7 @@ export class OperationsController {
     'FINANCE_MANAGER',
     'FINANCE_CONTROLLER',
     'PROCUREMENT_OFFICER',
-    'CEO',
+    'CFO',
   )
   @Post('purchases')
   async purchase(
@@ -288,7 +288,7 @@ export class OperationsController {
     'POULTRY_SUPERVISOR',
     'PRODUCTION_LEAD',
     'FARM_MANAGER',
-    'CEO',
+    'CFO',
   )
   @Post('stage-changes')
   async stageChange(

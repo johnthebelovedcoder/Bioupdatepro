@@ -21,7 +21,7 @@ import { Roles } from '../auth/roles.guard';
 // approved, not the approver. Everything here is create/submit/reverse or a
 // read; approval itself happens through WorkflowController, not here.
 @Controller('journal')
-@Roles('FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'FARM_ACCOUNTANT', 'CEO')
+@Roles('FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'FARM_ACCOUNTANT', 'CFO')
 export class JournalsController {
   constructor(
     private readonly journals: ManualJournalService,
