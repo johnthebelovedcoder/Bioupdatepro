@@ -2,8 +2,9 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { PayrollRunService } from './payroll-run.service';
 import { PayeEngineService } from './paye-engine.service';
 import { StatutoryEngineService } from './statutory-engine.service';
+import { PayrollSetupService } from './payroll-setup.service';
 import { WorkflowActor } from '../workflow/workflow.types';
-import { CurrentCompany } from '../auth/current-user.decorator';
+import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
 import { Roles } from '../auth/roles.guard';
 
@@ -15,7 +16,30 @@ export class PayrollController {
     private readonly runs: PayrollRunService,
     private readonly paye: PayeEngineService,
     private readonly statutory: StatutoryEngineService,
+    private readonly setup: PayrollSetupService,
   ) {}
+
+  @Get('setup')
+  async setupStatus(@CurrentCompany() companyId: string) {
+    return this.setup.status(companyId);
+  }
+
+  /**
+   * Turn payroll on for this company — see the service's own doc comment on
+   * why this is one confirm, not a rates form.
+   */
+  @Post('setup')
+  async activateSetup(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { nhfCompanyParticipation?: boolean },
+  ) {
+    return this.setup.activate({
+      companyId,
+      nhfCompanyParticipation: body.nhfCompanyParticipation ?? true,
+      actorId: actor.userId,
+    });
+  }
 
   @Post('runs')
   async createRun(

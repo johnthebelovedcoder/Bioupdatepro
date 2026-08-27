@@ -2,6 +2,7 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { PayeEngineService } from './paye-engine.service';
 import { StatutoryEngineService } from './statutory-engine.service';
 import { PayrollRunService } from './payroll-run.service';
+import { PayrollSetupService } from './payroll-setup.service';
 import { PayrollPostingHandler } from './payroll.handler';
 import { WorkflowService } from '../workflow/workflow.service';
 
@@ -16,9 +17,10 @@ import { WorkflowService } from '../workflow/workflow.service';
     PayeEngineService,
     StatutoryEngineService,
     PayrollRunService,
+    PayrollSetupService,
     PayrollPostingHandler,
   ],
-  exports: [PayeEngineService, StatutoryEngineService, PayrollRunService],
+  exports: [PayeEngineService, StatutoryEngineService, PayrollRunService, PayrollSetupService],
 })
 export class PayrollModule implements OnModuleInit {
   constructor(

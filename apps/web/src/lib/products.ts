@@ -114,7 +114,10 @@ export const CORE_CAPABILITIES: CoreCapability[] = [
     what: 'Employees, PAYE, pension, statutory levies',
     sectionKey: 'people',
     state: 'engine-only',
-    note: 'The 2026 PAYE engine matches the specification and has no screen.',
+    note:
+      'The 2026 PAYE engine matches the specification. Activating a company’s ' +
+      'statutory rates now has a screen (People → Payroll setup); raising and ' +
+      'approving an actual monthly run still does not.',
   },
   {
     name: 'Period close',

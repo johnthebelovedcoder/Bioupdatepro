@@ -135,11 +135,15 @@ export default async function StaffPage() {
 
         <Card>
           <p className="muted" style={{ fontSize: 14 }}>
-            Employee records and payroll — including PAYE and statutory deductions — already
-            exist in the backend and are tested, with no screen yet. Server-side permission
-            checks now exist for most of what each role is meant to do. What is still missing
-            is a screen to change an existing person&apos;s role after they have joined —
-            today that is only set once, at the invitation.
+            Employee records and payroll — including PAYE and statutory deductions — exist in
+            the backend and are tested. Turning on a company&apos;s statutory rates now has a
+            screen (<a href="/finance/payroll">Money → Payroll setup</a> — gated to Finance
+            Manager, Finance Controller and CEO, the same roles the API already restricts it
+            to); raising and approving an actual monthly run still does not. Server-side
+            permission checks now exist for
+            most of what each role is meant to do. What is still missing is a screen to change
+            an existing person&apos;s role after they have joined — today that is only set
+            once, at the invitation.
           </p>
         </Card>
       </div>

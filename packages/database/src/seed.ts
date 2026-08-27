@@ -15,6 +15,13 @@ import { PrismaClient, AccountType, NormalBalance, WarehouseType } from '../gene
 import { seedPostingControl } from './seed-posting-control';
 import { seedSpecChart } from './seed-spec-coa';
 import { seedBiologicalAssets } from './seed-biological-assets';
+import {
+  PAYROLL_EFFECTIVE_FROM,
+  NIGERIA_PAYE_2026_BANDS,
+  NIGERIA_PAYE_2026_CONFIG,
+  NIGERIA_PAYE_2026_SOURCE,
+  NIGERIA_STATUTORY_2026_CONFIG,
+} from './payroll-defaults';
 
 const prisma = new PrismaClient();
 
@@ -1097,24 +1104,13 @@ async function seedJournals(companyId: string) {
 // ---------------------------------------------------------------------------
 
 async function seedPayroll(companyId: string) {
-  const from = new Date('2026-01-01');
-  const SOURCE_PAYE = 'Nigeria_PAYE_2026 workbook, Tax_Bands sheet (Nigeria Tax Act 2025)';
-
-  // Amounts are naira in the workbook; kobo here.
-  const BANDS = [
-    { order: 1, lower: 0n,             upper: 800_000_00n,      width: 800_000_00n,      rate: '0.00000000' },
-    { order: 2, lower: 800_000_00n,    upper: 3_000_000_00n,    width: 2_200_000_00n,    rate: '0.15000000' },
-    { order: 3, lower: 3_000_000_00n,  upper: 12_000_000_00n,   width: 9_000_000_00n,    rate: '0.18000000' },
-    { order: 4, lower: 12_000_000_00n, upper: 25_000_000_00n,   width: 13_000_000_00n,   rate: '0.21000000' },
-    { order: 5, lower: 25_000_000_00n, upper: 50_000_000_00n,   width: 25_000_000_00n,   rate: '0.23000000' },
-    { order: 6, lower: 50_000_000_00n, upper: null,             width: null,             rate: '0.25000000' },
-  ];
+  const from = PAYROLL_EFFECTIVE_FROM;
 
   const existingBands = await prisma.payeBand.count({ where: { companyId } });
   if (existingBands === 0) {
     // Inserted in order: the contiguity trigger checks each band against its
     // neighbour, so band 2 needs band 1 already present.
-    for (const band of BANDS) {
+    for (const band of NIGERIA_PAYE_2026_BANDS) {
       await prisma.payeBand.create({
         data: {
           companyId,
@@ -1124,7 +1120,7 @@ async function seedPayroll(companyId: string) {
           bandWidthKobo: band.width,
           rate: band.rate,
           effectiveFrom: from,
-          sourceReference: SOURCE_PAYE,
+          sourceReference: NIGERIA_PAYE_2026_SOURCE,
         },
       });
     }
@@ -1135,24 +1131,7 @@ async function seedPayroll(companyId: string) {
   });
   if (!existingPaye) {
     await prisma.payeConfiguration.create({
-      data: {
-        companyId,
-        // PAYE_Rules B5: national minimum wage, monthly.
-        minimumWageMonthlyKobo: 70_000_00n,
-        // PAYE_Rules B6/B7: lower of 20% of annual rent, or ₦500,000.
-        rentReliefRate: '0.20000000',
-        rentReliefCapKobo: 500_000_00n,
-        // PAYE_Rules B8: 8% of basic + housing + transport.
-        pensionReliefRate: '0.08000000',
-        rounding: 'HALF_UP',
-        // PAYE_Calculation column AD.
-        ruleVersion: 'NTA-2025-2026.01',
-        effectiveFrom: from,
-        sourceReference:
-          'Nigeria_PAYE_2026 workbook, PAYE_Rules sheet. NOTE: the Consolidated ' +
-          'Relief Allowance is deliberately absent — it was removed under this ' +
-          'framework and rent relief replaces it.',
-      },
+      data: { companyId, effectiveFrom: from, ...NIGERIA_PAYE_2026_CONFIG },
     });
   }
 
@@ -1163,37 +1142,19 @@ async function seedPayroll(companyId: string) {
     await prisma.statutoryConfiguration.create({
       data: {
         companyId,
-        // Statutory_Rules C5/C6: 8% employee, 10% employer, 18% combined.
-        pensionFunding: 'SPLIT_8_10',
-        pensionEmployeeRate: '0.08000000',
-        pensionEmployerRate: '0.10000000',
-        pensionCombinedRate: '0.18000000',
-        // Company_Setup B13: pension applies at 3 or more employees.
-        pensionMinEmployees: 3,
-        // Statutory_Rules C7: 2.5% of monthly income, opt-in for private sector.
-        nhfRate: '0.02500000',
-        // Company_Setup B9.
-        nhfCompanyParticipation: true,
-        // Statutory_Rules C8: 1% of payroll, employer only.
-        nsitfRate: '0.01000000',
-        // NG_Statutory_Rules!E16/D16: 1% of annual payroll, >=5 employees, not in
-        // an FTZ — confirmed against the live workbook's own formula at
-        // NG_PAYE_2026!X5 (`IF(COUNTA(A$5:A$10)>=5,1,0)`). Previously seeded as
-        // 25, which matched neither the spec's stated threshold nor its own
-        // implemented formula — no "C9"/25-employee cell exists in this workbook.
-        itfRate: '0.01000000',
-        itfMinEmployees: 5,
-        minimumWageMonthlyKobo: 70_000_00n,
         effectiveFrom: from,
-        sourceReference:
-          'Nigeria_Statutory_Payroll workbook, Statutory_Rules and Company_Setup sheets',
+        ...NIGERIA_STATUTORY_2026_CONFIG,
+        // Company_Setup B9 — the one field here that is a company decision,
+        // not a statutory figure. Defaulted on for the seed fixtures only.
+        nhfCompanyParticipation: true,
       },
     });
   }
 
   console.log(
-    `Seeded payroll: ${BANDS.length} PAYE bands (NTA 2025, effective 2026-01-01), ` +
-      `PAYE reliefs and the NHF/ITF/NSITF/pension rates — all effective-dated with sources.`,
+    `Seeded payroll: ${NIGERIA_PAYE_2026_BANDS.length} PAYE bands (NTA 2025, effective ` +
+      `2026-01-01), PAYE reliefs and the NHF/ITF/NSITF/pension rates — all effective-dated ` +
+      `with sources.`,
   );
 }
 

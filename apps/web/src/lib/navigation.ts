@@ -261,6 +261,19 @@ export const SECTIONS: NavSection[] = [
         hint: 'Where the farm is losing money, and why',
         keywords: ['loss', 'mortality', 'waste', 'shrinkage'],
       },
+      /*
+       * Filed here, not under People — the API's own `@Roles(...)` guard on
+       * `PayrollController` only ever admitted Finance Manager, Finance
+       * Controller and CEO, and People > Staff is gated to a `staff`
+       * permission none of them hold. Nav home should match who can actually
+       * use the screen.
+       */
+      {
+        href: '/finance/payroll',
+        label: 'Payroll setup',
+        hint: 'Turn on the current PAYE, pension, NHF, NSITF and ITF rates',
+        keywords: ['payroll', 'paye', 'nhf', 'nsitf', 'itf', 'pension', 'statutory', 'tax'],
+      },
     ],
   },
 
@@ -437,7 +450,11 @@ export const NOT_BUILT_YET: Array<{ label: string; belongsUnder: string; why: st
   { label: 'Payments', belongsUnder: 'Buying', why: 'Settles what is owed to a vendor' },
   { label: 'Feed mill', belongsUnder: 'Store', why: 'Making feed rather than buying it' },
   { label: 'Processing', belongsUnder: 'Store', why: 'Turning livestock into product' },
-  { label: 'Payroll', belongsUnder: 'People', why: 'PAYE, pension and net pay' },
+  {
+    label: 'Payroll runs',
+    belongsUnder: 'People',
+    why: 'Raising a monthly run, payslips and approval — activating the statutory rates is now under People → Payroll setup',
+  },
   { label: 'Banking', belongsUnder: 'Money', why: 'Accounts and reconciliation' },
   { label: 'Fixed assets', belongsUnder: 'Money', why: 'Register and depreciation' },
   { label: 'Period close', belongsUnder: 'Books', why: 'Checklist, close and year end' },
