@@ -5164,12 +5164,17 @@ model PostingKey {
 
   /// The account code as the workbook states it.
   ///
-  /// Not always a single account. Thirty-two of the 172 keys carry a dynamic
-  /// expression instead — "Species BA acquisition GL", "210100/210200",
-  /// "1302xx" — because the client has not yet decided which atomic account
-  /// each resolves to. §66.2 step 4 requires a non-atomic result to BLOCK
-  /// posting, so those are stored as written and `atomic` records that they
-  /// cannot yet be posted through.
+  /// Not always a single static account. Thirty-two of the 172 keys carry a
+  /// dynamic expression instead — "Species BA acquisition GL", "210100/210200",
+  /// "1302xx" — meaning WHICH account applies depends on something about the
+  /// transaction (which stage a population is in, which item is being sold,
+  /// which journal is being reversed), not on a client decision still owed.
+  /// §66.2 step 4 requires this generic table-driven resolver to BLOCK when it
+  /// cannot reduce a key to one atomic account — correctly, since guessing
+  /// would put money in an account nobody approved — but roughly a third of
+  /// these are already resolved for real, just not by this resolver: see
+  /// `dynamicResolution` below. `atomic` records only what THIS declarative
+  /// table can do; it is not the last word on whether a rule can post.
   glAccountCode String? @map("gl_account_code")
   glAccountName String  @map("gl_account_name")
 
@@ -5177,8 +5182,26 @@ model PostingKey {
   glAccountId String? @map("gl_account_id") @db.Uuid
 
   /// False when the code is an expression, a range, or a choice between
-  /// accounts. Posting through such a key is refused rather than guessed.
+  /// accounts. Posting through such a key is refused rather than guessed BY
+  /// THIS resolver — see `dynamicResolution` for keys where a different,
+  /// dedicated service already resolves it correctly per transaction.
   atomic Boolean @default(false)
+
+  /// Where a non-atomic key's real account actually comes from, when it does.
+  ///
+  /// `PostingControlService.resolve()` is consulted only by the release gate
+  /// and the posting-rules register — no domain service posts through it. Every
+  /// real transaction (biological assets, sales, procurement, year end) resolves
+  /// its own accounts and calls the one shared `PostingService.post()` directly.
+  /// For roughly a third of the 32 non-atomic keys, that dedicated resolution
+  /// already exists and is tested; this field names it, so the release gate can
+  /// tell "already resolved elsewhere" apart from "genuinely needs the client to
+  /// choose an account" instead of reporting both as the same kind of blocked.
+  /// Null means no dedicated resolution exists yet — the honest, still-blocked
+  /// case, either because a client decision is genuinely owed or because the
+  /// module that would consume it (feed mill, processing, ABC costing) is not
+  /// built yet.
+  dynamicResolution String? @map("dynamic_resolution")
 
   allowedModule String         @map("allowed_module")
   cycle         String

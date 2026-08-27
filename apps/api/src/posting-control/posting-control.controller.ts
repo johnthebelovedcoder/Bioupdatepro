@@ -126,6 +126,7 @@ function describe(
         active: boolean;
         glAccountId: string | null;
         glAccount: { accountNumber: string; name: string; active: boolean } | null;
+        dynamicResolution: string | null;
       }
     | undefined,
   controlled: ReadonlySet<string>,
@@ -145,7 +146,14 @@ function describe(
     ledgerFlag: effective,
     /** Set when this row's own flag is less restrictive than the account's. */
     flagConflict: effective !== stated ? stated : null,
-    /** False when the key names an expression the client has not yet pinned down. */
+    /** True when this row itself names one active account. */
     resolved: Boolean(key.atomic && key.glAccount?.active),
+    /**
+     * Where a non-atomic key's real account comes from instead, when it does.
+     * This table is not consulted by any domain service — each resolves its
+     * own accounts and posts through the one shared engine directly — so a
+     * key can be genuinely working without `resolved` ever being true here.
+     */
+    dynamicResolution: key.dynamicResolution,
   };
 }

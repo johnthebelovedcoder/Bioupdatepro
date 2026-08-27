@@ -11,6 +11,8 @@ interface Side {
   ledgerFlag: 'CONTROL' | 'GENERAL' | 'NO_JOURNAL';
   flagConflict: string | null;
   resolved: boolean;
+  /** Set when a dedicated service resolves this key instead of this table. */
+  dynamicResolution: string | null;
 }
 
 interface Rule {
@@ -36,11 +38,16 @@ interface Rule {
  * spreadsheet. This is the register: what every business event does to the
  * ledger, which accounts it touches, who raises it and who approves it.
  *
- * It also makes the gaps visible. Twenty-eight of the rules cannot post today
- * because a posting key resolves to an expression — "Species BA acquisition GL"
- * — rather than to an account. Those rows say so rather than looking the same
- * as the ones that work, because the difference is a decision somebody has to
- * make, not a bug somebody has to find.
+ * It also makes the gaps visible — carefully. A posting key that resolves to
+ * an expression rather than an account — "Species BA acquisition GL" — is not
+ * always a decision still owed: for some of them, a dedicated service (the
+ * biological-asset ledger, an item's own configured account, the reversal
+ * engine) already resolves the real account per transaction and posts through
+ * the one shared engine directly, just not through this declarative table.
+ * Those are shown as resolved elsewhere, not blocked, because reporting them
+ * as blocked would tell a Finance Controller the client owes an answer for
+ * something the software already handles. What remains genuinely blocked is
+ * either a real open question or a module that is not built yet.
  */
 export default async function PostingRulesPage({
   searchParams,
@@ -56,8 +63,12 @@ export default async function PostingRulesPage({
   const shown = query.cycle ? rules.filter((rule) => rule.cycle === query.cycle) : rules;
 
   const posting = rules.filter((rule) => !rule.postsNothing);
-  const blocked = posting.filter(
-    (rule) => !rule.debit?.resolved || !rule.credit?.resolved,
+  const unresolvedSide = (side: Side | null) => side && !side.resolved && !side.dynamicResolution;
+  const blocked = posting.filter((rule) => unresolvedSide(rule.debit) || unresolvedSide(rule.credit));
+  const dedicated = posting.filter(
+    (rule) =>
+      !blocked.includes(rule) &&
+      ((rule.debit && !rule.debit.resolved) || (rule.credit && !rule.credit.resolved)),
   );
 
   return (
@@ -83,20 +94,36 @@ export default async function PostingRulesPage({
           <Stat label="Rules" value={String(rules.length)} hint="from the approved workbook" />
           <Stat label="That post" value={String(posting.length)} hint="the rest are approval-only" />
           <Stat
+            label="Resolved elsewhere"
+            value={String(dedicated.length)}
+            hint="a dedicated service posts these, not this table"
+          />
+          <Stat
             label="Blocked"
             value={String(blocked.length)}
             goodWhen="down"
-            hint="a key names no single account"
+            hint="no account, and no dedicated resolver either"
           />
           <Stat label="Cycles" value={String(cycles.length)} />
         </div>
 
+        {dedicated.length > 0 ? (
+          <div className="notice notice-info">
+            {dedicated.length} rules post through dedicated application code instead of this
+            table — the biological-asset ledger, an item&rsquo;s own configured account, or the
+            reversal engine already resolves the real account per transaction. Marked{' '}
+            <span className="badge">resolved elsewhere</span> below rather than blocked.
+          </div>
+        ) : null}
+
         {blocked.length > 0 ? (
           <div className="notice notice-warning">
-            {blocked.length} rules cannot post yet. Each one names a posting key that resolves
-            to a description rather than an account — &ldquo;Species BA acquisition GL&rdquo;,
-            &ldquo;Configured revenue GL&rdquo;. Somebody has to decide which account each
-            means; the system refuses rather than choosing on the farm&rsquo;s behalf.
+            {blocked.length} rules cannot post yet, through this table or any dedicated service.
+            Each one names a posting key that resolves to a description rather than an account —
+            &ldquo;Species BA acquisition GL&rdquo;, &ldquo;Configured revenue GL&rdquo; — or
+            belongs to a module (feed mill, processing, ABC costing) that is not built yet.
+            Somebody has to decide which account each means, or the module has to exist first;
+            the system refuses rather than choosing on the farm&rsquo;s behalf.
           </div>
         ) : null}
 
@@ -165,7 +192,16 @@ function SideCell({ side }: { side: Side | null }) {
         ) : (
           <span className="badge">no journal</span>
         )}
-        {!side.resolved ? (
+        {!side.resolved && side.dynamicResolution ? (
+          <span
+            className="badge badge-success"
+            style={{ marginLeft: 'var(--sp-2)' }}
+            title={side.dynamicResolution}
+          >
+            resolved elsewhere
+          </span>
+        ) : null}
+        {!side.resolved && !side.dynamicResolution ? (
           <span className="badge badge-warning" style={{ marginLeft: 'var(--sp-2)' }}>
             not an account yet
           </span>

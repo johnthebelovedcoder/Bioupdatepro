@@ -103,49 +103,69 @@ export class PostingControlChecksService {
     ];
 
     /*
-     * The two checks that cannot pass yet, and say so honestly.
-     *
-     * A key that resolves to an expression rather than an account is not a
-     * defect in this software — it is a decision the client has not made. It
-     * still blocks the rules that depend on it, so it is reported as BLOCKED
-     * rather than FAIL: somebody has to choose an account, and no amount of
-     * work here will produce one.
+     * The two checks that cannot pass yet, and say so honestly — but not
+     * every non-atomic key is the same kind of unresolved. Some are already
+     * posted correctly by a dedicated service (see `dynamicResolution` on the
+     * model) that this table simply isn't consulted for; those are reported
+     * separately from the ones genuinely still waiting on a decision, because
+     * treating them the same would tell a Finance Controller the client owes
+     * an answer for something the software already handles.
      */
-    const unresolvedKeys = await this.prisma.postingKey.findMany({
+    const nonAtomicKeys = await this.prisma.postingKey.findMany({
       where: { companyId, atomic: false, ledgerFlag: { not: LedgerFlag.NO_JOURNAL } },
-      select: { key: true, glAccountCode: true, glAccountName: true },
+      select: { key: true, glAccountCode: true, glAccountName: true, dynamicResolution: true },
       orderBy: { key: 'asc' },
     });
+    const dynamicallyResolvedKeys = nonAtomicKeys.filter((k) => k.dynamicResolution);
+    const unresolvedKeys = nonAtomicKeys.filter((k) => !k.dynamicResolution);
 
     rows.push({
       id: 'PCC-08',
       what: 'Every posting key resolves to one atomic account',
       expected: `${atomic} atomic`,
-      found: `${linked} linked, ${unresolvedKeys.length} unresolved`,
+      found:
+        `${linked} linked, ${dynamicallyResolvedKeys.length} resolved by dedicated code, ` +
+        `${unresolvedKeys.length} unresolved`,
       state: unresolvedKeys.length === 0 ? 'PASS' : 'BLOCKED',
       ...(unresolvedKeys.length > 0
         ? {
             next:
-              `The client has not yet decided which account these mean: ` +
+              `The client has not yet decided which account these mean, or the module ` +
+              `that would use them is not built yet: ` +
               `${unresolvedKeys
                 .slice(0, 4)
                 .map((k) => `${k.key} → "${k.glAccountCode ?? k.glAccountName}"`)
                 .join('; ')}` +
               `${unresolvedKeys.length > 4 ? `, and ${unresolvedKeys.length - 4} more` : ''}. ` +
-              `Each blocks the rules that use it.`,
+              `Each blocks the rules that use it through THIS table — ` +
+              `${dynamicallyResolvedKeys.length} other non-atomic keys already post correctly ` +
+              `through dedicated application code instead (see PCC-09).`,
           }
         : {}),
     });
 
-    // Which rules can actually post today, resolved for real rather than counted.
+    // Which rules can actually post today, resolved for real rather than
+    // counted — but "cannot resolve through this generic table" is only a
+    // real block when neither key has a dedicated resolver elsewhere. No
+    // domain service (biological assets, sales, procurement, year end) posts
+    // through this table at all; each already resolves its own accounts and
+    // calls the one shared PostingService.post() directly. A rule whose keys
+    // are covered that way is reported as resolved by dedicated code, not as
+    // blocked — it already posts, just not through §66's declarative path.
+    const dynamicKeySet = new Set(dynamicallyResolvedKeys.map((k) => k.key));
     let postable = 0;
+    let dedicated = 0;
     const blocked: string[] = [];
     for (const rule of allRules) {
       try {
         await this.control.resolve({ companyId, ruleId: rule.ruleId, on: new Date() });
         postable += 1;
       } catch {
-        blocked.push(rule.ruleId);
+        if (dynamicKeySet.has(rule.debitKey) || dynamicKeySet.has(rule.creditKey)) {
+          dedicated += 1;
+        } else {
+          blocked.push(rule.ruleId);
+        }
       }
     }
 
@@ -153,13 +173,14 @@ export class PostingControlChecksService {
       id: 'PCC-09',
       what: 'Rules that resolve end to end today',
       expected: '86',
-      found: String(postable),
-      state: postable === 86 ? 'PASS' : 'BLOCKED',
-      ...(postable === 86
+      found: `${postable} through this table, ${dedicated} by dedicated code, ${blocked.length} blocked`,
+      state: blocked.length === 0 ? 'PASS' : 'BLOCKED',
+      ...(blocked.length === 0
         ? {}
         : {
             next:
-              `${blocked.length} rule${blocked.length === 1 ? '' : 's'} cannot resolve: ` +
+              `${blocked.length} rule${blocked.length === 1 ? '' : 's'} cannot resolve through ` +
+              `this table AND has no dedicated resolver: ` +
               `${blocked.slice(0, 8).join(', ')}` +
               `${blocked.length > 8 ? `, and ${blocked.length - 8} more` : ''}.`,
           }),
