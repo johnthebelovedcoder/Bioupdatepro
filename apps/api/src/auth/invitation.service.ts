@@ -73,19 +73,7 @@ export class InvitationService {
       throw new BadRequestException('Choose what this person will be allowed to do.');
     }
 
-    /*
-     * Nobody may hand out authority they do not hold. An administrator is
-     * exempt because they already have every role there is to give.
-     */
-    const inviter = params.actor.roles ?? [];
-    if (!inviter.includes('ADMINISTRATOR')) {
-      const beyond = roles.filter((role) => !inviter.includes(role));
-      if (beyond.length > 0) {
-        throw new ForbiddenException(
-          `You cannot give someone a role you do not have yourself: ${beyond.join(', ')}.`,
-        );
-      }
-    }
+    this.assertCanGrant(params.actor.roles ?? [], roles);
 
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -259,6 +247,183 @@ export class InvitationService {
       throw new NotFoundException('No invitation to withdraw.');
     }
     return { revoked: true };
+  }
+
+  /**
+   * Nobody may hand out authority they do not themselves have. An
+   * administrator is exempt because they already have every role there is
+   * to give. Used for the roles being GRANTED — never for "does this actor
+   * outrank the target", which is a different question (`assertCanAct`
+   * below): this system has no role hierarchy, roles are flat capability
+   * grants, so a Farm Manager holding exactly `['FARM_MANAGER']` and a Farm
+   * Attendant holding exactly `['FARM_ATTENDANT']` are siblings, not nested
+   * — requiring the actor to already hold every one of the target's roles
+   * would refuse the Farm Manager acting on the Farm Attendant at all,
+   * which is the ordinary case this exists to allow.
+   */
+  private assertCanGrant(actorRoles: readonly string[], roles: readonly string[]): void {
+    if (actorRoles.includes('ADMINISTRATOR')) return;
+    const beyond = roles.filter((role) => !actorRoles.includes(role));
+    if (beyond.length > 0) {
+      throw new ForbiddenException(
+        `You cannot give someone a role you do not have yourself: ${beyond.join(', ')}.`,
+      );
+    }
+  }
+
+  /**
+   * Roles with effectively unlimited authority — the only ones worth
+   * protecting a target FROM being acted on by a lesser-privileged caller.
+   * Everything else is a flat, sibling-level capability grant (see
+   * `assertCanGrant`'s comment), so ordinary role differences (a Farm
+   * Manager acting on a Farm Attendant, a CFO acting on a Farm Manager) are
+   * exactly what this is meant to allow through unexamined.
+   */
+  private static readonly TOP_TIER = ['ADMINISTRATOR', 'CFO'];
+
+  /**
+   * Can this actor take an administrative action (edit roles, deactivate)
+   * against this target at all? Refuses only when the target holds
+   * top-tier authority the actor does not — otherwise a Farm Manager who
+   * passed the controller's own role gate could still silence a CFO or an
+   * administrator. Everyone else is fair game regardless of which specific
+   * roles they hold, because none of the rest confer authority OVER
+   * another account the way ADMINISTRATOR/CFO do.
+   */
+  private assertCanAct(actorRoles: readonly string[], targetRoles: readonly string[]): void {
+    if (actorRoles.includes('ADMINISTRATOR')) return;
+    const outranks = InvitationService.TOP_TIER.filter(
+      (role) => targetRoles.includes(role) && !actorRoles.includes(role),
+    );
+    if (outranks.length > 0) {
+      throw new ForbiddenException(
+        'You cannot act on an account with more authority than your own.',
+      );
+    }
+  }
+
+  /**
+   * Real people, for the Staff page — this used to be fixture data that
+   * never changed no matter who actually signed up or accepted an
+   * invitation, which is a dangerous thing for an access-control screen to
+   * get wrong: an admin auditing who has access would see names that do not
+   * exist and not see the real ones who do.
+   */
+  async listUsers(companyId: string) {
+    const rows = await this.prisma.user.findMany({
+      where: { companyId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, fullName: true, email: true, roles: true, active: true },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.fullName,
+      email: row.email,
+      roles: row.roles,
+      status: row.active ? 'ACTIVE' : ('SUSPENDED' as const),
+    }));
+  }
+
+  /**
+   * Change what an existing person may do.
+   *
+   * Deliberately refuses to touch the caller's own roles — not a technical
+   * limit, a judgement call: allowing self-service role edits is exactly how
+   * one compromised session turns into standing privilege escalation, and
+   * the alternative it would exist to solve ("I need to demote myself") is
+   * vanishingly rare next to that risk. Ask another administrator.
+   */
+  async updateRoles(params: {
+    companyId: string;
+    actor: WorkflowActor;
+    userId: string;
+    roles: string[];
+  }) {
+    if (params.userId === params.actor.userId) {
+      throw new ForbiddenException('You cannot change your own roles. Ask another administrator.');
+    }
+    const roles = [...new Set(params.roles.filter(Boolean))];
+    if (roles.length === 0) {
+      throw new BadRequestException('Choose what this person is allowed to do.');
+    }
+    this.assertCanGrant(params.actor.roles ?? [], roles);
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: params.userId, companyId: params.companyId },
+    });
+    if (!user) throw new NotFoundException('No such person on this farm.');
+
+    // The target's CURRENT roles only need checking for top-tier authority
+    // (see assertCanAct) — an ordinary Farm Manager editing an ordinary Farm
+    // Attendant is exactly the common case, not something to refuse.
+    this.assertCanAct(params.actor.roles ?? [], user.roles);
+
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { roles },
+    });
+
+    await this.audit.write({
+      transactionId: updated.id,
+      module: 'AUTH',
+      entityType: 'User',
+      entityId: updated.id,
+      status: 'UPDATED',
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      ipAddress: params.actor.ipAddress ?? null,
+      device: params.actor.device ?? null,
+      comments: `Roles changed: ${user.roles.join(', ')} -> ${roles.join(', ')}`,
+    });
+
+    return { id: updated.id, roles: updated.roles };
+  }
+
+  /**
+   * Turn a person's access on or off, without deleting them — their name
+   * stays on every journal, audit record and approval they ever touched.
+   * Same self-service refusal as `updateRoles`, for the same reason: nobody
+   * should be able to lock themselves out or, worse, keep themselves active
+   * while pretending to deactivate an account under investigation.
+   */
+  async setActive(params: {
+    companyId: string;
+    actor: WorkflowActor;
+    userId: string;
+    active: boolean;
+  }) {
+    if (params.userId === params.actor.userId) {
+      throw new ForbiddenException(
+        params.active
+          ? 'You are already active.'
+          : 'You cannot deactivate your own account. Ask another administrator.',
+      );
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { id: params.userId, companyId: params.companyId },
+    });
+    if (!user) throw new NotFoundException('No such person on this farm.');
+    this.assertCanAct(params.actor.roles ?? [], user.roles);
+
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { active: params.active },
+    });
+
+    await this.audit.write({
+      transactionId: updated.id,
+      module: 'AUTH',
+      entityType: 'User',
+      entityId: updated.id,
+      status: 'UPDATED',
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      ipAddress: params.actor.ipAddress ?? null,
+      device: params.actor.device ?? null,
+      comments: params.active ? 'Reactivated' : 'Deactivated',
+    });
+
+    return { id: updated.id, active: updated.active };
   }
 
   private assertUsable(invitation: {

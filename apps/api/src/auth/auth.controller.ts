@@ -108,6 +108,45 @@ export class AuthController {
     return this.invitations.revoke({ companyId, id, actor });
   }
 
+  /* --- People already on the farm ---------------------------------------- */
+
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Get('users')
+  async listUsers(@CurrentCompany() companyId: string) {
+    return this.invitations.listUsers(companyId);
+  }
+
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Post('users/:id/roles')
+  async updateUserRoles(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: { roles: string[] },
+  ) {
+    return this.invitations.updateRoles({ companyId, actor, userId: id, roles: body.roles ?? [] });
+  }
+
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Post('users/:id/deactivate')
+  async deactivateUser(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+  ) {
+    return this.invitations.setActive({ companyId, actor, userId: id, active: false });
+  }
+
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Post('users/:id/reactivate')
+  async reactivateUser(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+  ) {
+    return this.invitations.setActive({ companyId, actor, userId: id, active: true });
+  }
+
   /*
    * Public: the person following the link has no account yet, so there is
    * nothing to authenticate them with. The token IS the credential, which is

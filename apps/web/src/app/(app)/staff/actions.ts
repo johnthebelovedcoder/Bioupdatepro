@@ -74,3 +74,61 @@ export async function listInvitations(): Promise<PendingInvitation[]> {
     return [];
   }
 }
+
+export interface Person {
+  id: string;
+  name: string;
+  email: string;
+  roles: string[];
+  status: 'ACTIVE' | 'SUSPENDED';
+}
+
+/**
+ * The people actually on this farm — real `User` rows, not a fixture.
+ *
+ * This used to be a hardcoded list of six names that never changed no matter
+ * who signed up or accepted an invitation, which is exactly the wrong thing
+ * for an access-control screen to get wrong: an admin auditing who has
+ * access would see people who do not exist and not see the ones who do.
+ */
+export async function listPeople(): Promise<Person[]> {
+  try {
+    return await api<Person[]>('/auth/users');
+  } catch {
+    return [];
+  }
+}
+
+export interface RoleEditResult {
+  error: string | null;
+  ok?: boolean;
+}
+
+export async function updatePersonRoles(
+  userId: string,
+  _previous: RoleEditResult,
+  formData: FormData,
+): Promise<RoleEditResult> {
+  const roles = formData.getAll('roles').map(String).filter(Boolean);
+  if (roles.length === 0) return { error: 'Choose what this person is allowed to do.' };
+
+  try {
+    await api(`/auth/users/${userId}/roles`, { method: 'POST', body: { roles } });
+    revalidatePath('/staff');
+    return { error: null, ok: true };
+  } catch (caught) {
+    return {
+      error: caught instanceof Error ? caught.message : 'That did not work. Please try again.',
+    };
+  }
+}
+
+export async function deactivatePerson(id: string): Promise<void> {
+  await api(`/auth/users/${id}/deactivate`, { method: 'POST' });
+  revalidatePath('/staff');
+}
+
+export async function reactivatePerson(id: string): Promise<void> {
+  await api(`/auth/users/${id}/reactivate`, { method: 'POST' });
+  revalidatePath('/staff');
+}

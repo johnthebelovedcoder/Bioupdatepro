@@ -6,8 +6,14 @@ import { createInvitation, revokeInvitation, type InviteResult, type PendingInvi
 import { Card } from './ui';
 import { Sheet } from './sheet';
 
-/** The rungs of the approval ladder, in the order authority increases. */
-const ROLES: Array<{ code: string; label: string; what: string }> = [
+/**
+ * The rungs of the approval ladder, in the order authority increases.
+ *
+ * Exported so `people-editor.tsx` offers the exact same set an existing
+ * person's roles can be changed to — one list, so inviting and editing can
+ * never disagree about what a role is called or what it does.
+ */
+export const ROLES: Array<{ code: string; label: string; what: string }> = [
   {
     code: 'PRODUCTION_SUPERVISOR',
     label: 'Production supervisor',
@@ -40,7 +46,7 @@ const ROLES: Array<{ code: string; label: string; what: string }> = [
   },
 ];
 
-function humanRole(code: string): string {
+export function humanRole(code: string): string {
   return ROLES.find((role) => role.code === code)?.label ?? code;
 }
 
@@ -58,6 +64,18 @@ export function InviteWorker({ invitations }: { invitations: PendingInvitation[]
   });
 
   const pending = invitations.filter((entry) => entry.status === 'PENDING');
+  const [email, setEmail] = useState('');
+  // A second invite to an email that already has one pending does not fail
+  // and does not warn — it silently kills the earlier link (see
+  // `InvitationService.invite()`'s "found-then-superseded" step). Resending
+  // the SAME link back out is not something re-architecting can fix: the
+  // server only ever keeps the token's hash, on purpose, so there is no raw
+  // value left to resend once the sheet that showed it once is closed. The
+  // honest fix is warning before the old one dies, not pretending it can be
+  // recovered.
+  const alreadyPending = pending.some(
+    (entry) => entry.email.toLowerCase() === email.trim().toLowerCase(),
+  );
 
   return (
     <>
@@ -172,11 +190,26 @@ export function InviteWorker({ invitations }: { invitations: PendingInvitation[]
 
             <label className="field">
               Their email address
-              <input name="email" type="email" required autoComplete="off" />
+              <input
+                name="email"
+                type="email"
+                required
+                autoComplete="off"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
               <span className="faint">
                 They will sign in with this. It cannot be changed by whoever opens the link.
               </span>
             </label>
+
+            {alreadyPending ? (
+              <div className="notice notice-warning">
+                {email.trim()} already has an invitation waiting. Creating another one
+                invalidates that link immediately — anyone who still has it will find it
+                stopped working.
+              </div>
+            ) : null}
 
             <div className="field">
               What will they be allowed to do?

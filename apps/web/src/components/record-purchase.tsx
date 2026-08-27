@@ -401,8 +401,8 @@ export function RecordPurchase({
             )}
           </div>
 
-          <div className="notice notice-warning">
-            Nothing is saved yet — there is no purchasing endpoint. This goes to the outbox.
+          <div className="notice notice-info">
+            Goes to the outbox on this device and sends when there is a connection.
           </div>
         </div>
       </Sheet>

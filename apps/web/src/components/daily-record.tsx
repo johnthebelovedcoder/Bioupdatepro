@@ -671,11 +671,10 @@ export function DailyRecordEntry({
         }
       >
         <div className="stack" style={{ gap: 'var(--sp-4)' }}>
-          <div className="notice notice-warning">
+          <div className="notice notice-info">
             Submitting puts this round in the outbox on this device, where it is safe
-            and keyed so it can never post twice. The server endpoint does not exist
-            yet, so it will sit there marked &ldquo;not sent&rdquo; rather than reaching
-            the farm&apos;s records.
+            and keyed so it can never post twice. It will send when there is a
+            connection.
           </div>
 
           <Line label="Date" value={date} />

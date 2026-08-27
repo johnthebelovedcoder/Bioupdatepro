@@ -1,18 +1,21 @@
-import { getRoles, getStaff } from '@/lib/demo-trade';
-import { listInvitations } from './actions';
+import { getRoles } from '@/lib/demo-trade';
+import { listInvitations, listPeople } from './actions';
 import { InviteWorker } from '@/components/invite-worker';
-import { formatDate } from '@/lib/money';
+import { PeopleTable } from '@/components/people-table';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { IconUsers } from '@/components/icons';
 import { Tabs } from '@/components/tabs';
+import { api } from '@/lib/api';
+import type { SessionUser } from '@/lib/session';
 
 export const metadata = { title: 'Staff & roles — BioAssetPro' };
 
 export default async function StaffPage() {
-  const [staff, roles, invitations] = await Promise.all([
-    getStaff(),
+  const [staff, roles, invitations, me] = await Promise.all([
+    listPeople(),
     getRoles(),
     listInvitations(),
+    api<SessionUser>('/auth/me'),
   ]);
 
   const active = staff.filter((person) => person.status === 'ACTIVE');
@@ -55,44 +58,7 @@ export default async function StaffPage() {
         </div>
 
         <Card title="People" padded={false}>
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th style={{ width: 250 }}>Email</th>
-                  <th style={{ width: 180 }}>Role</th>
-                  <th style={{ width: 130 }}>Farm</th>
-                  <th style={{ width: 110 }}>Last seen</th>
-                  <th style={{ width: 100 }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {staff.map((person) => (
-                  <tr key={person.id}>
-                    <td className="strong">{person.name}</td>
-                    <td className="num faint" style={{ textAlign: 'left' }}>
-                      {person.email}
-                    </td>
-                    <td>{person.role}</td>
-                    <td className="faint">{person.farm}</td>
-                    <td className="num" style={{ textAlign: 'left' }}>
-                      {formatDate(person.lastSeen)}
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${
-                          person.status === 'ACTIVE' ? 'badge-success' : 'badge-danger'
-                        }`}
-                      >
-                        {person.status.toLowerCase()}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <PeopleTable people={staff} currentUserId={me.userId} />
         </Card>
 
         <Card title="Roles" subtitle="The intended permission model" padded={false}>
@@ -152,10 +118,10 @@ export default async function StaffPage() {
             screen (<a href="/finance/payroll">Money → Payroll setup</a> — gated to Finance
             Manager, Finance Controller and CFO, the same roles the API already restricts it
             to); raising and approving an actual monthly run still does not. Server-side
-            permission checks now exist for
-            most of what each role is meant to do. What is still missing is a screen to change
-            an existing person&apos;s role after they have joined — today that is only set
-            once, at the invitation.
+            permission checks now exist for most of what each role is meant to do. The People
+            table above can now change an existing person&apos;s roles or turn their access off
+            — neither works on your own row, on purpose: ask another administrator rather than
+            edit your own way around the ceiling.
           </p>
         </Card>
       </div>

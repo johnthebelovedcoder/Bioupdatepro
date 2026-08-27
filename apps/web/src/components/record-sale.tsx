@@ -524,8 +524,9 @@ export function RecordSale({
             </p>
           </div>
 
-          <div className="notice notice-warning">
-            Nothing is saved yet — there is no sales endpoint. This goes to the outbox.
+          <div className="notice notice-info">
+            Goes to the outbox on this device and sends when there is a connection —
+            it reaches the ledger once someone with the authority approves it.
           </div>
         </div>
       </Sheet>
