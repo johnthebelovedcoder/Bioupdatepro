@@ -59,8 +59,8 @@ export default async function AgriProCorePage() {
             effect, it calls Core. <strong>They never create a second set of books.</strong>
           </p>
           <p className="muted" style={{ fontSize: 14, marginTop: 'var(--sp-3)' }}>
-            That boundary is the specification&rsquo;s §60, and it is why a farm can buy
-            AgriPro on its own and add a species module later.
+            That boundary is why a farm can buy AgriPro on its own and add a species
+            module later.
           </p>
         </Card>
 

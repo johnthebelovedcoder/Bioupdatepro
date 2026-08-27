@@ -75,7 +75,7 @@ export default async function PostingRulesPage({
     <>
       <PageHeader
         title="Posting rules"
-        subtitle="What every business event does to the ledger — Consolidated Reference §66"
+        subtitle="What every business event does to the ledger, and which accounts it touches"
       />
 
       <div className="stack">
@@ -91,7 +91,7 @@ export default async function PostingRulesPage({
         </Card>
 
         <div className="stat-grid">
-          <Stat label="Rules" value={String(rules.length)} hint="from the approved workbook" />
+          <Stat label="Rules" value={String(rules.length)} hint="the farm's approved chart of accounts" />
           <Stat label="That post" value={String(posting.length)} hint="the rest are approval-only" />
           <Stat
             label="Resolved elsewhere"
@@ -206,12 +206,15 @@ function SideCell({ side }: { side: Side | null }) {
             not an account yet
           </span>
         ) : null}
-        {/* The workbook marks this row GENERAL and the account CONTROL
-            elsewhere. Shown so a controller is not told they may journal an
-            account the system will refuse. */}
+        {/* This specification names this row GENERAL while the account
+            itself is marked CONTROL elsewhere — shown so a controller is not
+            told they may journal an account the system will refuse. A real
+            conflict in the source data, not resolved here; awaiting a
+            decision on which flag actually governs. */}
         {side.flagConflict ? (
           <div className="faint">
-            workbook says {side.flagConflict.toLowerCase()} on this row — raised with the client
+            Marked {side.flagConflict.toLowerCase()} here, but restricted elsewhere — pending
+            a decision on which applies
           </div>
         ) : null}
       </div>
