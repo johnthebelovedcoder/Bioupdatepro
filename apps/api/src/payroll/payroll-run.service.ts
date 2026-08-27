@@ -229,6 +229,7 @@ export class PayrollRunService {
       const grossKobo = BigInt(salary.grossPayKobo);
       const taxableKobo = BigInt(salary.taxableGrossKobo);
       const pensionableKobo = BigInt(salary.pensionableEmolumentsKobo);
+      const nhfBaseKobo = BigInt(salary.nhfBaseKobo);
 
       const payeResult = await this.paye.calculate({
         companyId: run.companyId,
@@ -250,6 +251,7 @@ export class PayrollRunService {
         companyId: run.companyId,
         grossPayKobo: grossKobo,
         pensionableEmolumentsKobo: pensionableKobo,
+        nhfBaseKobo,
         pensionEnrolled: employee.pensionEnrolled,
         nhfEnrolled: employee.nhfEnrolled,
         employeeCount: headcount,

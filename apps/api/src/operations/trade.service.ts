@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
 import { SalesOrderService } from '../sales/sales-order.service';
 import { PurchaseOrderService } from '../procurement/purchase-order.service';
+import { BiologicalAssetService } from '../biological-assets/biological-asset.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
 /**
@@ -33,11 +34,14 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  */
 @Injectable()
 export class TradeService {
+  private readonly logger = new Logger(TradeService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly idempotency: IdempotencyService,
     private readonly salesOrders: SalesOrderService,
     private readonly purchaseOrders: PurchaseOrderService,
+    private readonly biologicalAssets: BiologicalAssetService,
   ) {}
 
   /* --- Sales ------------------------------------------------------------ */
@@ -125,6 +129,21 @@ export class TradeService {
             data: { population: { decrement: line.animalsRemoved! } },
           });
           reduced.push(group.code);
+
+          // Dr COGS / Cr carrying value, after the population actually moved
+          // — §61.3 formula 6. Tolerant of failure like every other posting
+          // here: the sale is recorded whether or not the ledger can take the
+          // disposal entry today, and `rollForward()` will show the gap
+          // rather than hide it.
+          const outcome = await this.biologicalAssets.postDisposal({
+            groupId: group.id,
+            quantity: line.animalsRemoved!,
+            occurredOn: new Date(payload.date),
+            actor,
+          });
+          if (!outcome.posted && outcome.reason) {
+            this.logger.warn(`Disposal for sale of ${group.code} did not post: ${outcome.reason}`);
+          }
         }
 
         return {

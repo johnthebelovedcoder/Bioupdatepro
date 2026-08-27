@@ -775,18 +775,19 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
   // --- Salary components (§7 Payroll Setup) --------------------------------
   // Every §7 earning and deduction is a row. The pensionable flags follow the
   // statutory workbook exactly: the pension base is Basic + Housing +
-  // Transport, NOT gross.
+  // Transport, NOT gross — and the NHF base is Basic ALONE
+  // (`NG_PAYE_2026!K5` = `Basic x rate`, not gross and not the pension base).
   const SALARY_COMPONENTS = [
-    { code: 'BASIC', name: 'Basic', type: 'EARNING', taxable: true, pensionable: true },
-    { code: 'HOUSING', name: 'Housing', type: 'EARNING', taxable: true, pensionable: true },
-    { code: 'TRANSPORT', name: 'Transport', type: 'EARNING', taxable: true, pensionable: true },
-    { code: 'UTILITY', name: 'Utility', type: 'EARNING', taxable: true, pensionable: false },
-    { code: 'MEAL', name: 'Meal', type: 'EARNING', taxable: true, pensionable: false },
-    { code: 'RESPONSIBILITY', name: 'Responsibility', type: 'EARNING', taxable: true, pensionable: false },
-    { code: 'LEAVE', name: 'Leave allowance', type: 'EARNING', taxable: true, pensionable: false },
-    { code: 'BONUS', name: 'Bonus', type: 'EARNING', taxable: true, pensionable: false },
-    { code: 'OVERTIME', name: 'Overtime', type: 'EARNING', taxable: true, pensionable: false },
-    { code: 'COMMISSION', name: 'Commission', type: 'EARNING', taxable: true, pensionable: false },
+    { code: 'BASIC', name: 'Basic', type: 'EARNING', taxable: true, pensionable: true, nhfBase: true },
+    { code: 'HOUSING', name: 'Housing', type: 'EARNING', taxable: true, pensionable: true, nhfBase: false },
+    { code: 'TRANSPORT', name: 'Transport', type: 'EARNING', taxable: true, pensionable: true, nhfBase: false },
+    { code: 'UTILITY', name: 'Utility', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },
+    { code: 'MEAL', name: 'Meal', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },
+    { code: 'RESPONSIBILITY', name: 'Responsibility', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },
+    { code: 'LEAVE', name: 'Leave allowance', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },
+    { code: 'BONUS', name: 'Bonus', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },
+    { code: 'OVERTIME', name: 'Overtime', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },
+    { code: 'COMMISSION', name: 'Commission', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },
   ] as const;
 
   for (const spec of SALARY_COMPONENTS) {
@@ -800,6 +801,7 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
         type: spec.type,
         isTaxable: spec.taxable,
         isPensionable: spec.pensionable,
+        isNhfBase: spec.nhfBase,
         isGrossPayComponent: true,
         expenseGlAccountId: accounts['5101'] ?? null,
         payableGlAccountId: accounts['2101'] ?? null,
@@ -1174,9 +1176,13 @@ async function seedPayroll(companyId: string) {
         nhfCompanyParticipation: true,
         // Statutory_Rules C8: 1% of payroll, employer only.
         nsitfRate: '0.01000000',
-        // Statutory_Rules C9: 1% of annual payroll, 25+ employees, not in an FTZ.
+        // NG_Statutory_Rules!E16/D16: 1% of annual payroll, >=5 employees, not in
+        // an FTZ — confirmed against the live workbook's own formula at
+        // NG_PAYE_2026!X5 (`IF(COUNTA(A$5:A$10)>=5,1,0)`). Previously seeded as
+        // 25, which matched neither the spec's stated threshold nor its own
+        // implemented formula — no "C9"/25-employee cell exists in this workbook.
         itfRate: '0.01000000',
-        itfMinEmployees: 25,
+        itfMinEmployees: 5,
         minimumWageMonthlyKobo: 70_000_00n,
         effectiveFrom: from,
         sourceReference:

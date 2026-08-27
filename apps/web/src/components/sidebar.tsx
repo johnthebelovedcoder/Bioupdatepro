@@ -64,6 +64,7 @@ export function SidebarNav({
             label={HOME.label}
             icon={HOME.icon}
             active={pathname === '/'}
+            hint={openingHint(HOME)}
           />
         ) : null}
         {/*
@@ -80,6 +81,7 @@ export function SidebarNav({
             label={CORE.label}
             icon={CORE.icon}
             active={pathname.startsWith('/agripro')}
+            hint={openingHint(CORE)}
           />
         ) : null}
       </div>
@@ -92,6 +94,7 @@ export function SidebarNav({
             label="Overview"
             icon={module.icon}
             active={pathname === `/m/${module.key}`}
+            hint={`${module.productName}'s own numbers — population, mortality, feed, output`}
           />
           {module.nav.map((entry) => (
             <NavLink
@@ -103,6 +106,7 @@ export function SidebarNav({
                 pathname === `/m/${module.key}/${entry.slug}` ||
                 pathname.startsWith(`/m/${module.key}/${entry.slug}/`)
               }
+              hint={entry.hint}
             />
           ))}
         </div>
@@ -125,6 +129,7 @@ export function SidebarNav({
             label={section.label}
             icon={section.icon}
             active={isActive(section)}
+            hint={openingHint(section)}
           />
         ))}
       </div>
@@ -137,18 +142,38 @@ function NavLink({
   label,
   icon: Icon,
   active,
+  hint,
 }: {
   href: string;
   label: string;
   icon: React.ComponentType<IconProps>;
   active: boolean;
+  hint?: string;
 }) {
   return (
-    <Link href={href} className="nav-link" aria-current={active ? 'page' : undefined}>
+    <Link
+      href={href}
+      className="nav-link"
+      aria-current={active ? 'page' : undefined}
+      title={hint}
+    >
       <Icon size={18} />
       <span className="nav-link-label">{label}</span>
     </Link>
   );
+}
+
+/**
+ * What a section's own opening page is for, reused as the section's tooltip.
+ *
+ * `NavSection` carries no hint of its own — its first child already has one
+ * (`children[0].hint`, per that page's own doc comment: "always the first
+ * child unless stated"), and that is the exact sentence a hover over the
+ * section itself should say. Writing a second, separate string per section
+ * would just be the same fact told twice, with the two eventually drifting.
+ */
+function openingHint(section: NavSection): string | undefined {
+  return section.children.find((child) => child.href === section.href)?.hint;
 }
 
 export { IconChart };

@@ -88,6 +88,8 @@ export interface ModuleNavItem {
   slug: string;
   label: string;
   icon: React.ComponentType<IconProps>;
+  /** One line for the sidebar's hover — what you would come here for. */
+  hint?: string;
 }
 
 /**
@@ -243,12 +245,17 @@ const POULTRY: SpeciesModule = {
     { key: 'feed', label: 'Feed used today', goodWhen: 'neutral', hint: 'all flocks' },
   ],
   nav: [
-    { slug: 'flocks', label: 'Flocks', icon: IconClipboard },
-    { slug: 'records', label: 'Daily round', icon: IconFarm },
-    { slug: 'production', label: 'Eggs', icon: IconEgg },
-    { slug: 'feeding', label: 'Feeding', icon: IconFeed },
-    { slug: 'health', label: 'Health', icon: IconCheckCircle },
-    { slug: 'performance', label: 'How they are doing', icon: IconChart },
+    { slug: 'flocks', label: 'Flocks', icon: IconClipboard, hint: 'Every flock, its stage and how many birds' },
+    { slug: 'records', label: 'Daily round', icon: IconFarm, hint: 'Eggs, feed and mortality — one entry per flock' },
+    { slug: 'production', label: 'Eggs', icon: IconEgg, hint: 'What has been collected, whole, cracked and dirty' },
+    { slug: 'feeding', label: 'Feeding', icon: IconFeed, hint: 'What has gone out, and what it cost' },
+    { slug: 'health', label: 'Health', icon: IconCheckCircle, hint: 'Treatments and mortality, by cause' },
+    {
+      slug: 'performance',
+      label: 'How they are doing',
+      icon: IconChart,
+      hint: 'Lay rate and mortality against the breed standard',
+    },
   ],
   productionFields: [
     { key: 'whole', label: 'Whole eggs', step: 10, hint: 'Saleable' },
@@ -312,12 +319,12 @@ const SNAIL: SpeciesModule = {
     { key: 'feed', label: 'Feed used today', goodWhen: 'neutral', hint: 'all cohorts' },
   ],
   nav: [
-    { slug: 'cohorts', label: 'Cohorts', icon: IconClipboard },
-    { slug: 'records', label: 'Daily round', icon: IconFarm },
-    { slug: 'breeding', label: 'Breeding', icon: IconEgg },
-    { slug: 'growth', label: 'Growth', icon: IconChart },
-    { slug: 'feeding', label: 'Feeding', icon: IconFeed },
-    { slug: 'harvest', label: 'Harvest', icon: IconBox },
+    { slug: 'cohorts', label: 'Cohorts', icon: IconClipboard, hint: 'Every cohort, its stage and how many snails' },
+    { slug: 'records', label: 'Daily round', icon: IconFarm, hint: 'Feed and mortality — one entry per cohort' },
+    { slug: 'breeding', label: 'Breeding', icon: IconEgg, hint: 'Breeder colonies, clutches and hatch rate' },
+    { slug: 'growth', label: 'Growth', icon: IconChart, hint: 'Population by lifecycle stage' },
+    { slug: 'feeding', label: 'Feeding', icon: IconFeed, hint: 'What has gone out, and what it cost' },
+    { slug: 'harvest', label: 'Harvest', icon: IconBox, hint: 'What has been picked, and its grade' },
   ],
   productionFields: [
     { key: 'harvestKg', label: 'Harvested', unit: 'kg', step: 1, hint: 'Table size' },

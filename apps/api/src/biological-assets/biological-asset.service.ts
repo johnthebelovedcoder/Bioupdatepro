@@ -472,6 +472,139 @@ export class BiologicalAssetService {
   }
 
   /* ------------------------------------------------------------------ */
+  /* Disposal — PCR-050/073                                             */
+  /* ------------------------------------------------------------------ */
+
+  private async disposalExpenseAccount(
+    companyId: string,
+    speciesKey: string,
+  ): Promise<{ glAccountId: string }> {
+    // PCR-050-DR (COGS — Live Snails) / PCR-073-DR (COGS — Live Birds/Eggs),
+    // read straight off POSTING_COA_MASTER — not the usual species-offset-by-
+    // 100 pattern the other resolvers here use, so this is looked up by its
+    // actual stated code rather than derived.
+    const accountNumber = speciesKey === 'snail' ? '510100' : '510300';
+    const account = await this.prisma.gLAccount.findFirst({
+      where: { companyId, accountNumber, active: true },
+      select: { id: true },
+    });
+    if (!account) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §66 — Posting chart',
+        `No active COGS account (${accountNumber}) exists for ${speciesKey} live sales.`,
+        { accountNumber },
+      );
+    }
+    return { glAccountId: account.id };
+  }
+
+  /**
+   * Dr COGS / Cr [stage account], for a population sold or transferred out
+   * live — §61.3 formula 6, "Quantity sold or transferred to processing x
+   * FVLCTS per unit". This is what `rollForward()`'s reconciliation was
+   * missing: `trade.service.ts` decrements `LivestockGroup.population` the
+   * moment a sale is recorded, and until this posts, nothing removes the
+   * carrying value those animals took with them.
+   *
+   * Posts immediately, same tier as mortality and stage transfer — the rate
+   * is read off the group's own current FVLCTS/unit, not asserted, so there
+   * is no judgement call for a Financial Controller to make here.
+   */
+  async postDisposal(params: {
+    groupId: string;
+    quantity: number;
+    occurredOn: Date;
+    actor: WorkflowActor;
+  }): Promise<{ posted: boolean; reason?: string }> {
+    const group = await this.prisma.livestockGroup.findUniqueOrThrow({
+      where: { id: params.groupId },
+    });
+
+    if (group.currentFvlctsPerUnitKobo === null || group.currentFvlctsPerUnitKobo <= 0n) {
+      // Nothing to derecognise — matches the mortality convention. Not
+      // recorded either: a zero-value row would only exist to be filtered
+      // back out by `rollForward()`, and every other resolver here already
+      // refuses rather than write a placeholder.
+      return { posted: false, reason: 'No carrying value yet — acquisition has not posted.' };
+    }
+
+    const rateKobo = group.currentFvlctsPerUnitKobo;
+    const valueKobo = BigInt(params.quantity) * rateKobo;
+
+    const disposal = await this.prisma.livestockGroupDisposal.create({
+      data: {
+        groupId: group.id,
+        quantity: params.quantity,
+        fvlctsPerUnitKobo: rateKobo,
+        carryingAmountKobo: valueKobo,
+        occurredOn: params.occurredOn,
+      },
+    });
+
+    try {
+      const stage = await this.stageAccount({
+        companyId: group.companyId,
+        speciesKey: group.speciesKey,
+        stage: group.stage,
+      });
+      const expense = await this.disposalExpenseAccount(group.companyId, group.speciesKey);
+      const context = await this.postingContext(group.companyId, params.occurredOn);
+      if (!context) {
+        return { posted: false, reason: 'No open period or cost centre for that date.' };
+      }
+
+      const dimensions = {
+        companyId: group.companyId,
+        branchId: group.branchId,
+        financialYearId: context.period.financialYearId,
+        financialPeriodId: context.period.id,
+        currencyId: context.company.baseCurrencyId,
+        exchangeRate: '1',
+        costCentreId: context.costCentre.id,
+        farmId: group.farmId,
+        penHouseId: group.penHouseId,
+      };
+
+      const result = await this.posting.post({
+        sourceModule: 'BIOLOGICAL_ASSETS',
+        sourceDocumentType: 'LIVESTOCK_GROUP_DISPOSAL',
+        sourceDocumentId: disposal.id,
+        journalNumber: `BA-DISP-${disposal.id.slice(0, 8).toUpperCase()}`,
+        journalDate: params.occurredOn,
+        narration: `${params.quantity} sold live — ${group.code}`,
+        ...dimensions,
+        lines: [
+          {
+            glAccountId: expense.glAccountId,
+            description: `Carrying value of ${group.code} sold`,
+            debit: kobo(valueKobo),
+            dimensions,
+          },
+          {
+            glAccountId: stage.glAccountId,
+            description: `Carrying value derecognised — ${group.code}`,
+            credit: kobo(valueKobo),
+            dimensions,
+          },
+        ],
+        idempotencyKey: `ba-disposal:${disposal.id}`,
+        actor: params.actor,
+      });
+
+      await this.prisma.livestockGroupDisposal.update({
+        where: { id: disposal.id },
+        data: { journalEntryId: result.journalEntryId },
+      });
+
+      return { posted: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Disposal ${disposal.id} did not post: ${message}`);
+      return { posted: false, reason: message };
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Valuation — PCR-046/047/070/071, maker-checker via WorkflowService  */
   /* ------------------------------------------------------------------ */
 
@@ -665,7 +798,7 @@ export class BiologicalAssetService {
   async rollForward(groupId: string) {
     const group = await this.prisma.livestockGroup.findUniqueOrThrow({ where: { id: groupId } });
 
-    const [mortalityJournals, valuations] = await Promise.all([
+    const [mortalityJournals, valuations, disposals] = await Promise.all([
       this.prisma.mortalityRecord.findMany({
         where: { dailyRecord: { groupId }, journalEntryId: { not: null } },
         select: { journalEntryId: true },
@@ -673,6 +806,15 @@ export class BiologicalAssetService {
       this.prisma.biologicalAssetValuation.findMany({
         where: { groupId, status: WorkflowStatus.POSTED },
         orderBy: { valuationDate: 'asc' },
+      }),
+      // Read what was actually posted, not recomputed from today's rate —
+      // same reasoning as the mortality journals below: a disposal keeps the
+      // FVLCTS rate in force the day it happened, so a later revaluation
+      // cannot silently rewrite what this population's carrying amount was
+      // when the animals left.
+      this.prisma.livestockGroupDisposal.findMany({
+        where: { groupId, journalEntryId: { not: null } },
+        select: { carryingAmountKobo: true },
       }),
     ]);
 
@@ -692,10 +834,17 @@ export class BiologicalAssetService {
       (sum, v) => sum + (v.direction === 'GAIN' ? v.gainLossKobo : -v.gainLossKobo),
       0n,
     );
+    // Formula 6: quantity sold or transferred to processing x FVLCTS/unit.
+    const disposalCarryingAmountKobo = disposals.reduce(
+      (sum, d) => sum + d.carryingAmountKobo,
+      0n,
+    );
 
     const openingBaKobo = group.acquisitionCostKobo;
     const closingBaKobo = BigInt(group.population) * (group.currentFvlctsPerUnitKobo ?? 0n);
-    const expectedClosing = openingBaKobo - mortalityLossKobo + growthGainKobo;
+    // Formula 7: Closing BA = Opening BA - mortality loss + growth/price gain
+    // - disposal carrying amount.
+    const expectedClosing = openingBaKobo - mortalityLossKobo + growthGainKobo - disposalCarryingAmountKobo;
     const differenceKobo = closingBaKobo - expectedClosing;
 
     return {
@@ -706,6 +855,7 @@ export class BiologicalAssetService {
       openingBaKobo: openingBaKobo.toString(),
       mortalityLossKobo: mortalityLossKobo.toString(),
       growthGainKobo: growthGainKobo.toString(),
+      disposalCarryingAmountKobo: disposalCarryingAmountKobo.toString(),
       closingBaKobo: closingBaKobo.toString(),
       differenceKobo: differenceKobo.toString(),
       reconciled: differenceKobo === 0n,

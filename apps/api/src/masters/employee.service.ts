@@ -30,11 +30,14 @@ export interface SalarySnapshot {
     amountKobo: string;
     isTaxable: boolean;
     isPensionable: boolean;
+    isNhfBase: boolean;
   }>;
   /** MONEY, all integer kobo. The bases Phase 9's engines read. */
   grossPayKobo: string;
   taxableGrossKobo: string;
   pensionableEmolumentsKobo: string;
+  /** MONEY. Basic salary alone — the NHF base, not gross. */
+  nhfBaseKobo: string;
 }
 
 /**
@@ -265,6 +268,7 @@ export class EmployeeService {
     let gross = 0n;
     let taxable = 0n;
     let pensionable = 0n;
+    let nhfBase = 0n;
 
     const components = assignments
       .filter((a) => a.salaryComponent.type === SalaryComponentType.EARNING)
@@ -273,6 +277,7 @@ export class EmployeeService {
         if (a.salaryComponent.isGrossPayComponent) gross += amount;
         if (a.salaryComponent.isTaxable) taxable += amount;
         if (a.salaryComponent.isPensionable) pensionable += amount;
+        if (a.salaryComponent.isNhfBase) nhfBase += amount;
 
         return {
           code: a.salaryComponent.code,
@@ -281,6 +286,7 @@ export class EmployeeService {
           amountKobo: amount.toString(),
           isTaxable: a.salaryComponent.isTaxable,
           isPensionable: a.salaryComponent.isPensionable,
+          isNhfBase: a.salaryComponent.isNhfBase,
         };
       });
 
@@ -292,6 +298,7 @@ export class EmployeeService {
       grossPayKobo: gross.toString(),
       taxableGrossKobo: taxable.toString(),
       pensionableEmolumentsKobo: pensionable.toString(),
+      nhfBaseKobo: nhfBase.toString(),
     };
   }
 

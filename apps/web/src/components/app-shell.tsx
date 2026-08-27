@@ -6,6 +6,7 @@ import type { SessionUser } from '@/lib/session';
 import type { ModuleKey } from '@/lib/modules';
 import type { LanguageCode } from '@/lib/farm-config';
 import { SidebarNav } from './sidebar';
+import { Breadcrumbs } from './breadcrumbs';
 import { SearchPalette } from './search-palette';
 import { RolesProvider } from './roles-context';
 import { ModuleSwitcher } from './module-switcher';
@@ -135,7 +136,10 @@ export function AppShell({
           <SyncStatus />
           <UserMenu user={user} />
         </header>
-        <main className="page">{children}</main>
+        <main className="page">
+          <Breadcrumbs />
+          {children}
+        </main>
       </div>
 
       {/* Phone only. The drawer is still there behind "More" for everything

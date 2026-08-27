@@ -474,6 +474,28 @@ export function allEntries(): Array<NavEntry & { section: NavSection }> {
 }
 
 /**
+ * The specific entry a path resolves to, and the section that owns it.
+ *
+ * Built for breadcrumbs, which need the exact child page — `sectionFor` only
+ * needs to know which section, so it stops at that. Same longest-match rule
+ * as `sectionFor`: `/procurement/receipts` resolves to "Goods received", not
+ * to "Purchase orders", because its own href is the longer, more specific
+ * match. Covers `HOME` and `CORE` too, which `sectionFor` does not — a
+ * breadcrumb on an AgriPro Core page with no trail would be a worse bug than
+ * one that never renders.
+ */
+export function entryFor(pathname: string): { section: NavSection; entry: NavEntry } | undefined {
+  const matches = allEntries().filter(
+    (entry) => pathname === entry.href || pathname.startsWith(`${entry.href}/`),
+  );
+  if (matches.length === 0) return undefined;
+
+  const best = matches.sort((a, b) => b.href.length - a.href.length)[0]!;
+  const { section, ...entry } = best;
+  return { section, entry };
+}
+
+/**
  * Fail loudly if a route acquires a second home.
  *
  * Called from the sidebar in development. The duplication this exists to catch

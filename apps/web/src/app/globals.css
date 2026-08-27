@@ -1446,6 +1446,42 @@ td input.num {
   flex: 1;
 }
 
+/* --- Breadcrumbs ------------------------------------------------------------ */
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: var(--sp-3);
+}
+
+.breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.breadcrumb-sep {
+  color: var(--text-faint);
+}
+
+.breadcrumb-link {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.breadcrumb-link:hover {
+  color: var(--brand-700);
+  text-decoration: underline;
+}
+
+.breadcrumb-current {
+  color: var(--gray-900);
+  font-weight: 500;
+}
+
 /* --- Tabs ----------------------------------------------------------------- */
 
 .tabs {

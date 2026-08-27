@@ -132,6 +132,10 @@ export class PayrollController {
     body: {
       grossPayKobo: string | number;
       pensionableEmolumentsKobo: string | number;
+      /** Basic salary alone — the NHF base. Falls back to gross if omitted,
+       * which overstates NHF for anyone with non-basic earnings; callers
+       * that know the real basic figure should always send it. */
+      nhfBaseKobo?: string | number;
       pensionEnrolled?: boolean;
       nhfEnrolled?: boolean;
       employeeCount: number;
@@ -142,6 +146,7 @@ export class PayrollController {
       companyId,
       grossPayKobo: BigInt(body.grossPayKobo),
       pensionableEmolumentsKobo: BigInt(body.pensionableEmolumentsKobo),
+      nhfBaseKobo: BigInt(body.nhfBaseKobo ?? body.grossPayKobo),
       pensionEnrolled: body.pensionEnrolled ?? false,
       nhfEnrolled: body.nhfEnrolled ?? false,
       employeeCount: body.employeeCount,

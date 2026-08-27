@@ -124,51 +124,51 @@ model User {
 
   company Company? @relation("CompanyUsers", fields: [companyId], references: [id])
 
-  createdJournals           JournalEntry[]            @relation("JournalCreatedBy")
-  postedJournals            JournalEntry[]            @relation("JournalPostedBy")
+  createdJournals           JournalEntry[]             @relation("JournalCreatedBy")
+  postedJournals            JournalEntry[]             @relation("JournalPostedBy")
   auditRecords              AuditRecord[]
-  workflowMade              WorkflowTransaction[]     @relation("WorkflowMaker")
-  workflowStepsActed        WorkflowTransactionStep[] @relation("StepActor")
-  workflowStepsOnBehalf     WorkflowTransactionStep[] @relation("StepDelegator")
-  workflowHistory           WorkflowHistory[]         @relation("HistoryActor")
-  workflowHistoryOnBehalf   WorkflowHistory[]         @relation("HistoryDelegator")
-  delegationsGiven          WorkflowDelegation[]      @relation("Delegator")
-  delegationsReceived       WorkflowDelegation[]      @relation("Delegate")
-  delegationsCreated        WorkflowDelegation[]      @relation("DelegationCreator")
-  workflowComments          WorkflowComment[]         @relation("CommentAuthor")
-  workflowNotifications     WorkflowNotification[]    @relation("NotificationRecipient")
-  workflowAttachments       WorkflowAttachment[]      @relation("AttachmentUploader")
-  taxPeriodsFiled           TaxPeriod[]               @relation("TaxPeriodFiler")
-  taxAdjustments            TaxAdjustment[]           @relation("TaxAdjustmentCreator")
-  employeeDocumentsUploaded EmployeeDocument[]        @relation("EmployeeDocumentUploader")
-  recipeVersionsApproved    ProductRecipeVersion[]    @relation("RecipeApprover")
-  manualJournalsCreated     ManualJournal[]           @relation("ManualJournalCreator")
-  manualJournalAttachments  ManualJournalAttachment[] @relation("ManualJournalAttachmentUploader")
-  recurringJournalsCreated  RecurringJournal[]        @relation("RecurringJournalCreator")
-  payrollRunsCreated        PayrollRun[]              @relation("PayrollRunCreator")
-  quotationsCreated         SalesQuotation[]          @relation("QuotationCreator")
-  quotationsSold            SalesQuotation[]          @relation("QuotationSalesperson")
-  salesOrdersCreated        SalesOrder[]              @relation("SalesOrderCreator")
-  deliveriesCreated         DeliveryNote[]            @relation("DeliveryCreator")
-  invoicesCreated           SalesInvoice[]            @relation("InvoiceCreator")
-  receiptsCreated           CustomerReceipt[]         @relation("ReceiptCreator")
-  creditNotesCreated        CreditNote[]              @relation("CreditNoteCreator")
-  requisitionsRequested     PurchaseRequisition[]     @relation("RequisitionRequester")
-  rfqsCreated               Rfq[]                     @relation("RfqCreator")
-  purchaseOrdersCreated     PurchaseOrder[]           @relation("PurchaseOrderCreator")
-  grnsCreated               GoodsReceiptNote[]        @relation("GrnCreator")
-  grnsInspected             GoodsReceiptNote[]        @relation("GrnInspector")
-  supplierInvoicesCreated   SupplierInvoice[]         @relation("SupplierInvoiceCreator")
-  supplierPaymentsCreated   SupplierPayment[]         @relation("PaymentCreator")
-  checklistsCompleted       PeriodCloseChecklist[]    @relation("ChecklistCompleter")
-  periodCloseLogs           PeriodCloseLog[]          @relation("CloseLogActor")
-  reopenRequested           PeriodReopenRequest[]     @relation("ReopenRequester")
-  reopenApproved            PeriodReopenRequest[]     @relation("ReopenApprover")
-  dailyRecordsRecorded      DailyRecord[]             @relation("DailyRecordRecorder")
-  treatmentsRecorded        TreatmentRecord[]         @relation("TreatmentRecorder")
-  harvestsRecorded          HarvestRecord[]           @relation("HarvestRecorder")
-  stageChangesRecorded      StageChange[]             @relation("StageChangeRecorder")
-  invitationsSent           Invitation[]              @relation("InvitationSender")
+  workflowMade              WorkflowTransaction[]      @relation("WorkflowMaker")
+  workflowStepsActed        WorkflowTransactionStep[]  @relation("StepActor")
+  workflowStepsOnBehalf     WorkflowTransactionStep[]  @relation("StepDelegator")
+  workflowHistory           WorkflowHistory[]          @relation("HistoryActor")
+  workflowHistoryOnBehalf   WorkflowHistory[]          @relation("HistoryDelegator")
+  delegationsGiven          WorkflowDelegation[]       @relation("Delegator")
+  delegationsReceived       WorkflowDelegation[]       @relation("Delegate")
+  delegationsCreated        WorkflowDelegation[]       @relation("DelegationCreator")
+  workflowComments          WorkflowComment[]          @relation("CommentAuthor")
+  workflowNotifications     WorkflowNotification[]     @relation("NotificationRecipient")
+  workflowAttachments       WorkflowAttachment[]       @relation("AttachmentUploader")
+  taxPeriodsFiled           TaxPeriod[]                @relation("TaxPeriodFiler")
+  taxAdjustments            TaxAdjustment[]            @relation("TaxAdjustmentCreator")
+  employeeDocumentsUploaded EmployeeDocument[]         @relation("EmployeeDocumentUploader")
+  recipeVersionsApproved    ProductRecipeVersion[]     @relation("RecipeApprover")
+  manualJournalsCreated     ManualJournal[]            @relation("ManualJournalCreator")
+  manualJournalAttachments  ManualJournalAttachment[]  @relation("ManualJournalAttachmentUploader")
+  recurringJournalsCreated  RecurringJournal[]         @relation("RecurringJournalCreator")
+  payrollRunsCreated        PayrollRun[]               @relation("PayrollRunCreator")
+  quotationsCreated         SalesQuotation[]           @relation("QuotationCreator")
+  quotationsSold            SalesQuotation[]           @relation("QuotationSalesperson")
+  salesOrdersCreated        SalesOrder[]               @relation("SalesOrderCreator")
+  deliveriesCreated         DeliveryNote[]             @relation("DeliveryCreator")
+  invoicesCreated           SalesInvoice[]             @relation("InvoiceCreator")
+  receiptsCreated           CustomerReceipt[]          @relation("ReceiptCreator")
+  creditNotesCreated        CreditNote[]               @relation("CreditNoteCreator")
+  requisitionsRequested     PurchaseRequisition[]      @relation("RequisitionRequester")
+  rfqsCreated               Rfq[]                      @relation("RfqCreator")
+  purchaseOrdersCreated     PurchaseOrder[]            @relation("PurchaseOrderCreator")
+  grnsCreated               GoodsReceiptNote[]         @relation("GrnCreator")
+  grnsInspected             GoodsReceiptNote[]         @relation("GrnInspector")
+  supplierInvoicesCreated   SupplierInvoice[]          @relation("SupplierInvoiceCreator")
+  supplierPaymentsCreated   SupplierPayment[]          @relation("PaymentCreator")
+  checklistsCompleted       PeriodCloseChecklist[]     @relation("ChecklistCompleter")
+  periodCloseLogs           PeriodCloseLog[]           @relation("CloseLogActor")
+  reopenRequested           PeriodReopenRequest[]      @relation("ReopenRequester")
+  reopenApproved            PeriodReopenRequest[]      @relation("ReopenApprover")
+  dailyRecordsRecorded      DailyRecord[]              @relation("DailyRecordRecorder")
+  treatmentsRecorded        TreatmentRecord[]          @relation("TreatmentRecorder")
+  harvestsRecorded          HarvestRecord[]            @relation("HarvestRecorder")
+  stageChangesRecorded      StageChange[]              @relation("StageChangeRecorder")
+  invitationsSent           Invitation[]               @relation("InvitationSender")
   valuationsPrepared        BiologicalAssetValuation[] @relation("ValuationPreparer")
 
   @@map("users")
@@ -191,79 +191,79 @@ model Company {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  baseCurrency              Currency                       @relation(fields: [baseCurrencyId], references: [id])
-  users                     User[]                         @relation("CompanyUsers")
-  auditRecords              AuditRecord[]
-  invitations               Invitation[]
-  livestockGroups           LivestockGroup[]
-  dailyRecords              DailyRecord[]
-  healthEvents              HealthEvent[]
-  treatmentRecords          TreatmentRecord[]
-  harvestRecords            HarvestRecord[]
-  stageChanges              StageChange[]
-  branches                  Branch[]
-  departments               Department[]
-  costCentres               CostCentre[]
-  glAccounts                GLAccount[]
-  financialYears            FinancialYear[]
-  farms                     Farm[]
-  projects                  Project[]
-  warehouses                Warehouse[]
-  exchangeRates             ExchangeRate[]
-  journalEntries            JournalEntry[]
-  journalLines              JournalLine[]
-  workflowDefinitions       WorkflowDefinition[]
-  workflowTransactions      WorkflowTransaction[]
-  workflowDelegations       WorkflowDelegation[]
-  workflowEscalationRules   WorkflowEscalationRule[]
-  taxCodes                  TaxCode[]
-  taxConfigurations         TaxConfiguration[]
-  taxGlMappings             TaxGLMapping[]
-  taxPeriods                TaxPeriod[]
-  vatRegisterEntries        VatRegisterEntry[]
-  whtRegisterEntries        WhtRegisterEntry[]
-  taxAdjustments            TaxAdjustment[]
-  paymentTerms              PaymentTerm[]
-  unitsOfMeasure            UnitOfMeasure[]
-  suppliers                 Supplier[]
-  customers                 Customer[]
-  items                     Item[]
-  employees                 Employee[]
-  salaryComponents          SalaryComponent[]
-  productRecipes            ProductRecipe[]
-  journalTypes              JournalType[]
-  reasonCodes               ReasonCode[]
-  manualJournals            ManualJournal[]
-  recurringJournals         RecurringJournal[]
-  payeBands                 PayeBand[]
-  payeConfigurations        PayeConfiguration[]
-  statutoryConfigurations   StatutoryConfiguration[]
-  payrollRuns               PayrollRun[]
-  salesConfigurations       SalesConfiguration[]
-  stockMovements            StockMovement[]
-  salesQuotations           SalesQuotation[]
-  salesOrders               SalesOrder[]
-  deliveryNotes             DeliveryNote[]
-  salesInvoices             SalesInvoice[]
-  customerReceipts          CustomerReceipt[]
-  creditNotes               CreditNote[]
-  salesReturns              SalesReturn[]
-  procurementConfigurations ProcurementConfiguration[]
-  purchaseRequisitions      PurchaseRequisition[]
-  rfqs                      Rfq[]
-  purchaseOrders            PurchaseOrder[]
-  goodsReceiptNotes         GoodsReceiptNote[]
-  supplierInvoices          SupplierInvoice[]
-  supplierPayments          SupplierPayment[]
-  closeChecklistTemplates   PeriodCloseChecklistTemplate[]
-  periodCloseLogs           PeriodCloseLog[]
-  accountBalances           AccountBalance[]
-  periodReopenRequests      PeriodReopenRequest[]
-  postingKeys               PostingKey[]
-  postingRules              PostingRule[]
-  biologicalAssetStageAccounts   BiologicalAssetStageAccount[]
-  biologicalAssetConfigurations  BiologicalAssetConfiguration[]
-  biologicalAssetValuations      BiologicalAssetValuation[]
+  baseCurrency                  Currency                       @relation(fields: [baseCurrencyId], references: [id])
+  users                         User[]                         @relation("CompanyUsers")
+  auditRecords                  AuditRecord[]
+  invitations                   Invitation[]
+  livestockGroups               LivestockGroup[]
+  dailyRecords                  DailyRecord[]
+  healthEvents                  HealthEvent[]
+  treatmentRecords              TreatmentRecord[]
+  harvestRecords                HarvestRecord[]
+  stageChanges                  StageChange[]
+  branches                      Branch[]
+  departments                   Department[]
+  costCentres                   CostCentre[]
+  glAccounts                    GLAccount[]
+  financialYears                FinancialYear[]
+  farms                         Farm[]
+  projects                      Project[]
+  warehouses                    Warehouse[]
+  exchangeRates                 ExchangeRate[]
+  journalEntries                JournalEntry[]
+  journalLines                  JournalLine[]
+  workflowDefinitions           WorkflowDefinition[]
+  workflowTransactions          WorkflowTransaction[]
+  workflowDelegations           WorkflowDelegation[]
+  workflowEscalationRules       WorkflowEscalationRule[]
+  taxCodes                      TaxCode[]
+  taxConfigurations             TaxConfiguration[]
+  taxGlMappings                 TaxGLMapping[]
+  taxPeriods                    TaxPeriod[]
+  vatRegisterEntries            VatRegisterEntry[]
+  whtRegisterEntries            WhtRegisterEntry[]
+  taxAdjustments                TaxAdjustment[]
+  paymentTerms                  PaymentTerm[]
+  unitsOfMeasure                UnitOfMeasure[]
+  suppliers                     Supplier[]
+  customers                     Customer[]
+  items                         Item[]
+  employees                     Employee[]
+  salaryComponents              SalaryComponent[]
+  productRecipes                ProductRecipe[]
+  journalTypes                  JournalType[]
+  reasonCodes                   ReasonCode[]
+  manualJournals                ManualJournal[]
+  recurringJournals             RecurringJournal[]
+  payeBands                     PayeBand[]
+  payeConfigurations            PayeConfiguration[]
+  statutoryConfigurations       StatutoryConfiguration[]
+  payrollRuns                   PayrollRun[]
+  salesConfigurations           SalesConfiguration[]
+  stockMovements                StockMovement[]
+  salesQuotations               SalesQuotation[]
+  salesOrders                   SalesOrder[]
+  deliveryNotes                 DeliveryNote[]
+  salesInvoices                 SalesInvoice[]
+  customerReceipts              CustomerReceipt[]
+  creditNotes                   CreditNote[]
+  salesReturns                  SalesReturn[]
+  procurementConfigurations     ProcurementConfiguration[]
+  purchaseRequisitions          PurchaseRequisition[]
+  rfqs                          Rfq[]
+  purchaseOrders                PurchaseOrder[]
+  goodsReceiptNotes             GoodsReceiptNote[]
+  supplierInvoices              SupplierInvoice[]
+  supplierPayments              SupplierPayment[]
+  closeChecklistTemplates       PeriodCloseChecklistTemplate[]
+  periodCloseLogs               PeriodCloseLog[]
+  accountBalances               AccountBalance[]
+  periodReopenRequests          PeriodReopenRequest[]
+  postingKeys                   PostingKey[]
+  postingRules                  PostingRule[]
+  biologicalAssetStageAccounts  BiologicalAssetStageAccount[]
+  biologicalAssetConfigurations BiologicalAssetConfiguration[]
+  biologicalAssetValuations     BiologicalAssetValuation[]
 
   @@map("companies")
 }
@@ -409,31 +409,31 @@ model GLAccount {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company                    Company                    @relation(fields: [companyId], references: [id])
-  parent                     GLAccount?                 @relation("GLAccountHierarchy", fields: [parentId], references: [id])
-  children                   GLAccount[]                @relation("GLAccountHierarchy")
-  journalLines               JournalLine[]
-  taxGlMappings              TaxGLMapping[]
-  itemsInventoryDefault      Item[]                     @relation("ItemInventoryAccount")
-  itemsExpenseDefault        Item[]                     @relation("ItemExpenseAccount")
-  itemsRevenueDefault        Item[]                     @relation("ItemRevenueAccount")
-  salaryComponentExpense     SalaryComponent[]          @relation("SalaryComponentExpense")
-  salaryComponentPayable     SalaryComponent[]          @relation("SalaryComponentPayable")
-  manualJournalLines         ManualJournalLine[]
-  recurringJournalLines      RecurringJournalLine[]
-  salesReceivableConfigs     SalesConfiguration[]       @relation("SalesReceivableAccount")
-  salesRevenueConfigs        SalesConfiguration[]       @relation("SalesRevenueAccount")
-  salesCostOfSalesConfigs    SalesConfiguration[]       @relation("SalesCostOfSalesAccount")
-  salesInventoryConfigs      SalesConfiguration[]       @relation("SalesInventoryAccount")
-  salesWhtReceivableConfigs  SalesConfiguration[]       @relation("SalesWhtReceivableAccount")
-  receiptBankAccounts        CustomerReceipt[]          @relation("ReceiptBankAccount")
-  procurementGrniConfigs     ProcurementConfiguration[] @relation("ProcurementGrniAccount")
-  procurementPayablesConfigs ProcurementConfiguration[] @relation("ProcurementPayablesAccount")
-  procurementWhtConfigs      ProcurementConfiguration[] @relation("ProcurementWhtPayableAccount")
-  supplierInvoiceLineCosts   SupplierInvoiceLine[]      @relation("SupplierInvoiceLineCostAccount")
-  paymentBankAccounts        SupplierPayment[]          @relation("PaymentBankAccount")
-  accountBalances            AccountBalance[]
-  postingKeys                PostingKey[]               @relation("PostingKeyAccount")
+  company                      Company                       @relation(fields: [companyId], references: [id])
+  parent                       GLAccount?                    @relation("GLAccountHierarchy", fields: [parentId], references: [id])
+  children                     GLAccount[]                   @relation("GLAccountHierarchy")
+  journalLines                 JournalLine[]
+  taxGlMappings                TaxGLMapping[]
+  itemsInventoryDefault        Item[]                        @relation("ItemInventoryAccount")
+  itemsExpenseDefault          Item[]                        @relation("ItemExpenseAccount")
+  itemsRevenueDefault          Item[]                        @relation("ItemRevenueAccount")
+  salaryComponentExpense       SalaryComponent[]             @relation("SalaryComponentExpense")
+  salaryComponentPayable       SalaryComponent[]             @relation("SalaryComponentPayable")
+  manualJournalLines           ManualJournalLine[]
+  recurringJournalLines        RecurringJournalLine[]
+  salesReceivableConfigs       SalesConfiguration[]          @relation("SalesReceivableAccount")
+  salesRevenueConfigs          SalesConfiguration[]          @relation("SalesRevenueAccount")
+  salesCostOfSalesConfigs      SalesConfiguration[]          @relation("SalesCostOfSalesAccount")
+  salesInventoryConfigs        SalesConfiguration[]          @relation("SalesInventoryAccount")
+  salesWhtReceivableConfigs    SalesConfiguration[]          @relation("SalesWhtReceivableAccount")
+  receiptBankAccounts          CustomerReceipt[]             @relation("ReceiptBankAccount")
+  procurementGrniConfigs       ProcurementConfiguration[]    @relation("ProcurementGrniAccount")
+  procurementPayablesConfigs   ProcurementConfiguration[]    @relation("ProcurementPayablesAccount")
+  procurementWhtConfigs        ProcurementConfiguration[]    @relation("ProcurementWhtPayableAccount")
+  supplierInvoiceLineCosts     SupplierInvoiceLine[]         @relation("SupplierInvoiceLineCostAccount")
+  paymentBankAccounts          SupplierPayment[]             @relation("PaymentBankAccount")
+  accountBalances              AccountBalance[]
+  postingKeys                  PostingKey[]                  @relation("PostingKeyAccount")
   biologicalAssetStageAccounts BiologicalAssetStageAccount[] @relation("BiologicalStageAccount")
 
   @@unique([companyId, accountNumber])
@@ -702,37 +702,38 @@ model JournalEntry {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  company              Company               @relation(fields: [companyId], references: [id])
-  branch               Branch                @relation(fields: [branchId], references: [id])
-  financialYear        FinancialYear         @relation(fields: [financialYearId], references: [id])
-  financialPeriod      FinancialPeriod       @relation(fields: [financialPeriodId], references: [id])
-  currency             Currency              @relation(fields: [currencyId], references: [id])
-  createdBy            User                  @relation("JournalCreatedBy", fields: [createdById], references: [id])
-  postedBy             User?                 @relation("JournalPostedBy", fields: [postedById], references: [id])
-  reversalOf           JournalEntry?         @relation("JournalReversal", fields: [reversalOfId], references: [id])
-  reversedBy           JournalEntry?         @relation("JournalReversal")
-  lines                JournalLine[]
-  workflowTransactions WorkflowTransaction[]
-  vatRegisterEntries   VatRegisterEntry[]
-  whtRegisterEntries   WhtRegisterEntry[]
-  taxAdjustments       TaxAdjustment[]
-  manualJournals       ManualJournal[]
-  payrollRuns          PayrollRun[]
-  stockMovements       StockMovement[]
-  deliveryNotes        DeliveryNote[]
-  salesInvoices        SalesInvoice[]
-  customerReceipts     CustomerReceipt[]
-  creditNotes          CreditNote[]
-  goodsReceiptNotes    GoodsReceiptNote[]
-  supplierInvoices     SupplierInvoice[]
-  supplierPayments     SupplierPayment[]
-  accountBalances      AccountBalance[]
-  feedIssues           FeedIssue[]           @relation("FeedIssueJournal")
-  treatmentRecords     TreatmentRecord[]     @relation("TreatmentJournal")
-  harvestRecords       HarvestRecord[]       @relation("HarvestJournal")
-  mortalityRecords     MortalityRecord[]     @relation("MortalityJournal")
-  stageChanges         StageChange[]         @relation("StageChangeJournal")
+  company                   Company                    @relation(fields: [companyId], references: [id])
+  branch                    Branch                     @relation(fields: [branchId], references: [id])
+  financialYear             FinancialYear              @relation(fields: [financialYearId], references: [id])
+  financialPeriod           FinancialPeriod            @relation(fields: [financialPeriodId], references: [id])
+  currency                  Currency                   @relation(fields: [currencyId], references: [id])
+  createdBy                 User                       @relation("JournalCreatedBy", fields: [createdById], references: [id])
+  postedBy                  User?                      @relation("JournalPostedBy", fields: [postedById], references: [id])
+  reversalOf                JournalEntry?              @relation("JournalReversal", fields: [reversalOfId], references: [id])
+  reversedBy                JournalEntry?              @relation("JournalReversal")
+  lines                     JournalLine[]
+  workflowTransactions      WorkflowTransaction[]
+  vatRegisterEntries        VatRegisterEntry[]
+  whtRegisterEntries        WhtRegisterEntry[]
+  taxAdjustments            TaxAdjustment[]
+  manualJournals            ManualJournal[]
+  payrollRuns               PayrollRun[]
+  stockMovements            StockMovement[]
+  deliveryNotes             DeliveryNote[]
+  salesInvoices             SalesInvoice[]
+  customerReceipts          CustomerReceipt[]
+  creditNotes               CreditNote[]
+  goodsReceiptNotes         GoodsReceiptNote[]
+  supplierInvoices          SupplierInvoice[]
+  supplierPayments          SupplierPayment[]
+  accountBalances           AccountBalance[]
+  feedIssues                FeedIssue[]                @relation("FeedIssueJournal")
+  treatmentRecords          TreatmentRecord[]          @relation("TreatmentJournal")
+  harvestRecords            HarvestRecord[]            @relation("HarvestJournal")
+  mortalityRecords          MortalityRecord[]          @relation("MortalityJournal")
+  stageChanges              StageChange[]              @relation("StageChangeJournal")
   biologicalAssetValuations BiologicalAssetValuation[]
+  livestockDisposals        LivestockGroupDisposal[]   @relation("LivestockDisposalJournal")
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -1072,20 +1073,20 @@ model WorkflowTransaction {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  company       Company                   @relation(fields: [companyId], references: [id])
-  currency      Currency                  @relation(fields: [currencyId], references: [id])
-  branch        Branch?                   @relation(fields: [branchId], references: [id])
-  farm          Farm?                     @relation(fields: [farmId], references: [id])
-  department    Department?               @relation(fields: [departmentId], references: [id])
-  costCentre    CostCentre?               @relation(fields: [costCentreId], references: [id])
-  definition    WorkflowDefinition        @relation(fields: [definitionId], references: [id])
-  maker         User                      @relation("WorkflowMaker", fields: [makerId], references: [id])
-  journalEntry  JournalEntry?             @relation(fields: [journalEntryId], references: [id])
-  steps         WorkflowTransactionStep[]
-  history       WorkflowHistory[]
-  comments      WorkflowComment[]
-  notifications WorkflowNotification[]
-  attachments   WorkflowAttachment[]
+  company                   Company                    @relation(fields: [companyId], references: [id])
+  currency                  Currency                   @relation(fields: [currencyId], references: [id])
+  branch                    Branch?                    @relation(fields: [branchId], references: [id])
+  farm                      Farm?                      @relation(fields: [farmId], references: [id])
+  department                Department?                @relation(fields: [departmentId], references: [id])
+  costCentre                CostCentre?                @relation(fields: [costCentreId], references: [id])
+  definition                WorkflowDefinition         @relation(fields: [definitionId], references: [id])
+  maker                     User                       @relation("WorkflowMaker", fields: [makerId], references: [id])
+  journalEntry              JournalEntry?              @relation(fields: [journalEntryId], references: [id])
+  steps                     WorkflowTransactionStep[]
+  history                   WorkflowHistory[]
+  comments                  WorkflowComment[]
+  notifications             WorkflowNotification[]
+  attachments               WorkflowAttachment[]
   biologicalAssetValuations BiologicalAssetValuation[]
 
   @@unique([module, documentType, documentId])
@@ -2146,7 +2147,13 @@ model SalaryComponent {
   /// explicit that the base is Basic + Housing + Transport, NOT gross — so this
   /// is a per-component flag rather than an assumption in the payroll engine.
   isPensionable       Boolean @default(false) @map("is_pensionable")
-  /// Whether it counts toward the NHF and NSITF bases, which use gross.
+  /// Whether it forms part of the NHF base — the workbook's own formula
+  /// (`NG_PAYE_2026!K5`) is `Basic x rate`, not gross. A per-component flag
+  /// for the same reason `isPensionable` is one: NSITF genuinely does use
+  /// gross (`isGrossPayComponent` below), and the two bases must not collapse
+  /// into each other just because they are usually seeded together.
+  isNhfBase           Boolean @default(false) @map("is_nhf_base")
+  /// Whether it counts toward gross pay — the base NSITF and ITF use.
   isGrossPayComponent Boolean @default(true) @map("is_gross_pay_component")
 
   /// For PERCENTAGE_OF_BASE components: the rate, effective-dated on the
@@ -4677,14 +4684,50 @@ model LivestockGroup {
   healthEvents HealthEvent[]
   treatments   TreatmentRecord[]
   harvests     HarvestRecord[]
-  harvestsInto HarvestRecord[]   @relation("HarvestMovedTo")
+  harvestsInto HarvestRecord[]            @relation("HarvestMovedTo")
   stageChanges StageChange[]
   valuations   BiologicalAssetValuation[]
+  disposals    LivestockGroupDisposal[]
 
   @@unique([companyId, code])
   @@index([companyId, speciesKey, status])
   @@index([penHouseId])
   @@map("livestock_groups")
+}
+
+/// A population leaving live — §61.3 formula 6, PCR-050/073.
+///
+/// `trade.service.ts` decrements `LivestockGroup.population` the moment a
+/// sale is recorded, but that alone has no accounting consequence: nothing
+/// removed the carrying value the animals took with them, which is exactly
+/// why `rollForward()`'s reconciliation never closed for a population that
+/// had been sold. This is the disposal-carrying-amount side of that formula,
+/// captured the same way `MortalityRecord` captures its own: the FVLCTS rate
+/// in force AT THE MOMENT of disposal, so a later revaluation cannot rewrite
+/// what was actually posted.
+model LivestockGroupDisposal {
+  id      String @id @default(uuid()) @db.Uuid
+  groupId String @map("group_id") @db.Uuid
+
+  /// COUNT. Whole animals.
+  quantity Int
+
+  /// MONEY. The group's `currentFvlctsPerUnitKobo` at the moment of disposal.
+  fvlctsPerUnitKobo  BigInt @map("fvlcts_per_unit_kobo")
+  /// MONEY. quantity x fvlctsPerUnitKobo — what PCR-050/073 posts to COGS.
+  carryingAmountKobo BigInt @map("carrying_amount_kobo")
+
+  occurredOn DateTime @map("occurred_on") @db.Date
+
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  group        LivestockGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  journalEntry JournalEntry?  @relation("LivestockDisposalJournal", fields: [journalEntryId], references: [id])
+
+  @@index([groupId])
+  @@map("livestock_group_disposals")
 }
 
 /// One population, one day: what it ate, what it produced, what it lost.
@@ -4793,7 +4836,7 @@ model MortalityRecord {
   /// `BiologicalAssetConfiguration`. Not user-selected — a worker records
   /// what died, not whether it counts as a normal loss.
   classification MortalityClassification @default(NORMAL)
-  journalEntryId String? @map("journal_entry_id") @db.Uuid
+  journalEntryId String?                 @map("journal_entry_id") @db.Uuid
 
   notes String?
 
@@ -5273,7 +5316,7 @@ model BiologicalAssetStageAccount {
   speciesKey String @map("species_key")
   /// Matches `LivestockGroup.stage` exactly — the product's own vocabulary,
   /// not the workbook's.
-  stage String
+  stage      String
 
   glAccountId String @map("gl_account_id") @db.Uuid
 
@@ -5333,11 +5376,11 @@ model BiologicalAssetValuation {
   /// valuation's gain/loss is provably against what this one left behind.
   priorFvlctsPerUnitKobo BigInt @map("prior_fvlcts_per_unit_kobo")
 
-  marketPricePerUnitKobo    BigInt @map("market_price_per_unit_kobo")
-  costsToSellPerUnitKobo    BigInt @map("costs_to_sell_per_unit_kobo")
+  marketPricePerUnitKobo   BigInt @map("market_price_per_unit_kobo")
+  costsToSellPerUnitKobo   BigInt @map("costs_to_sell_per_unit_kobo")
   /// = market price − costs to sell (formula 2). Stored rather than only
   /// computed, so a later change to either input cannot rewrite history.
-  currentFvlctsPerUnitKobo  BigInt @map("current_fvlcts_per_unit_kobo")
+  currentFvlctsPerUnitKobo BigInt @map("current_fvlcts_per_unit_kobo")
 
   direction    ValuationDirection @map("direction")
   gainLossKobo BigInt             @map("gain_loss_kobo")
@@ -5354,11 +5397,11 @@ model BiologicalAssetValuation {
   preparedById String   @map("prepared_by_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at")
 
-  company            Company            @relation(fields: [companyId], references: [id])
-  group              LivestockGroup     @relation(fields: [groupId], references: [id])
+  company             Company              @relation(fields: [companyId], references: [id])
+  group               LivestockGroup       @relation(fields: [groupId], references: [id])
   workflowTransaction WorkflowTransaction? @relation(fields: [workflowTransactionId], references: [id])
-  journalEntry        JournalEntry?       @relation(fields: [journalEntryId], references: [id])
-  preparedBy          User                @relation("ValuationPreparer", fields: [preparedById], references: [id])
+  journalEntry        JournalEntry?        @relation(fields: [journalEntryId], references: [id])
+  preparedBy          User                 @relation("ValuationPreparer", fields: [preparedById], references: [id])
 
   @@index([companyId, groupId, valuationDate])
   @@map("biological_asset_valuations")

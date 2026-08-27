@@ -6,10 +6,12 @@ import { AccountingRuleViolation } from '../common/errors';
 
 export interface StatutoryCalculationInput {
   companyId: string;
-  /** MONEY. Total monthly emoluments — the NHF and NSITF base. */
+  /** MONEY. Total monthly emoluments — the NSITF and ITF base. */
   grossPayKobo: bigint;
   /** MONEY. Basic + housing + transport — the PENSION base, not gross. */
   pensionableEmolumentsKobo: bigint;
+  /** MONEY. Basic salary alone — the NHF base, not gross. */
+  nhfBaseKobo: bigint;
   pensionEnrolled: boolean;
   nhfEnrolled: boolean;
   /** Headcount as at the run, which drives the applicability tests. */
@@ -42,11 +44,13 @@ export interface StatutoryCalculation {
  * sheet. Every rate and threshold comes from effective-dated configuration.
  *
  * THE ONE THING MOST EASILY GOT WRONG, STATED BY THE SOURCE ITSELF: the pension
- * base is Basic + Housing + Transport, NOT gross pay. The workbook's
- * Developer_Logic sheet says "Do not calculate pension on gross pay by default",
- * and the two bases are separate parameters here so they cannot be confused —
- * NHF and NSITF genuinely do use gross, and passing one where the other belongs
- * would be silently wrong rather than a type error.
+ * base is Basic + Housing + Transport, NOT gross pay, and NHF is Basic ALONE —
+ * neither is gross. The workbook's Developer_Logic sheet says "Do not calculate
+ * pension on gross pay by default", and `NG_PAYE_2026!K5`'s own NHF formula is
+ * `Basic x rate`, not `Gross x rate`. All three bases are separate parameters
+ * here so they cannot be confused — NSITF and ITF genuinely do use gross, and
+ * passing one base where another belongs would be silently wrong rather than a
+ * type error.
  *
  * NSITF is employer-only. The workbook is explicit that deducting it from an
  * employee is prohibited, so there is no employee-side NSITF field to populate
@@ -101,7 +105,7 @@ export class StatutoryEngineService {
 
     const nhf = nhfEligible
       ? this.round(
-          new Decimal(input.grossPayKobo.toString()).mul(
+          new Decimal(input.nhfBaseKobo.toString()).mul(
             new Decimal(config.nhfRate.toString()),
           ),
           RoundingRule.HALF_UP,
