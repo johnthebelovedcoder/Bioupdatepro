@@ -6,6 +6,7 @@ import { Tabs } from '@/components/tabs';
 import { IconTag } from '@/components/icons';
 import { CustomerReceiptForm } from '@/components/customer-receipt-form';
 import { RaiseInvoiceButton } from '@/components/raise-invoice-button';
+import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Sales invoices — BioAssetPro' };
 
@@ -58,6 +59,13 @@ export default async function SalesInvoicesPage({
           </div>
         ) : null}
 
+        <CustomerReceiptForm
+          customers={customers}
+          invoices={receivable}
+          bankAccounts={bankAccounts}
+          today={today}
+        />
+
         {invoiceable.length > 0 ? (
           <Card
             title="Ready to invoice"
@@ -91,74 +99,69 @@ export default async function SalesInvoicesPage({
           </Card>
         ) : null}
 
-        <CustomerReceiptForm
-          customers={customers}
-          invoices={receivable}
-          bankAccounts={bankAccounts}
-          today={today}
-        />
-
-        <Card title="All invoices" padded={false}>
-          {invoices.length === 0 ? (
-            <EmptyState
-              icon={<IconTag size={22} />}
-              title="No invoices raised yet"
-              body="Once a delivery has posted, raise the invoice for it above."
-            />
-          ) : (
-            <div className="table-wrap">
-              <table className="data wide">
-                <thead>
-                  <tr>
-                    <th style={{ width: 150 }}>Invoice</th>
-                    <th>Customer</th>
-                    <th style={{ width: 110 }}>Date</th>
-                    <th style={{ width: 110 }}>Status</th>
-                    <th className="right" style={{ width: 130 }}>
-                      Gross
-                    </th>
-                    <th className="right" style={{ width: 130 }}>
-                      Outstanding
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map((invoice) => (
-                    <tr key={invoice.id}>
-                      <td className="num strong" style={{ textAlign: 'left' }}>
-                        {invoice.invoiceNumber}
-                        {invoice.orderNumber ? (
-                          <div className="faint">{invoice.orderNumber}</div>
-                        ) : null}
-                      </td>
-                      <td>{invoice.customer}</td>
-                      <td className="num" style={{ textAlign: 'left' }}>
-                        {formatDate(invoice.invoiceDate)}
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            invoice.status === 'PAID'
-                              ? 'badge-success'
-                              : invoice.status === 'REJECTED'
-                                ? 'badge-danger'
-                                : invoice.status === 'POSTED' || invoice.status === 'PART_PAID'
-                                  ? 'badge-accent'
-                                  : 'badge-warning'
-                          }`}
-                        >
-                          {invoice.status.toLowerCase().replace(/_/g, ' ')}
-                        </span>
-                      </td>
-                      <td className="num">{formatNaira(invoice.grossAmountKobo)}</td>
-                      <td className="num">{formatNaira(invoice.outstandingKobo)}</td>
+        <TableSearch placeholder="Search invoices">
+          <Card title="All invoices" padded={false}>
+            {invoices.length === 0 ? (
+              <EmptyState
+                icon={<IconTag size={22} />}
+                title="No invoices raised yet"
+                body="Once a delivery has posted, raise the invoice for it above."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data wide">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 150 }}>Invoice</th>
+                      <th>Customer</th>
+                      <th style={{ width: 110 }}>Date</th>
+                      <th style={{ width: 110 }}>Status</th>
+                      <th className="right" style={{ width: 130 }}>
+                        Gross
+                      </th>
+                      <th className="right" style={{ width: 130 }}>
+                        Outstanding
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+                  </thead>
+                  <tbody>
+                    {invoices.map((invoice) => (
+                      <tr key={invoice.id}>
+                        <td className="num strong" style={{ textAlign: 'left' }}>
+                          {invoice.invoiceNumber}
+                          {invoice.orderNumber ? (
+                            <div className="faint">{invoice.orderNumber}</div>
+                          ) : null}
+                        </td>
+                        <td>{invoice.customer}</td>
+                        <td className="num" style={{ textAlign: 'left' }}>
+                          {formatDate(invoice.invoiceDate)}
+                        </td>
+                        <td>
+                          <span
+                            className={`badge ${
+                              invoice.status === 'PAID'
+                                ? 'badge-success'
+                                : invoice.status === 'REJECTED'
+                                  ? 'badge-danger'
+                                  : invoice.status === 'POSTED' || invoice.status === 'PART_PAID'
+                                    ? 'badge-accent'
+                                    : 'badge-warning'
+                            }`}
+                          >
+                            {invoice.status.toLowerCase().replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="num">{formatNaira(invoice.grossAmountKobo)}</td>
+                        <td className="num">{formatNaira(invoice.outstandingKobo)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </TableSearch>
       </div>
     </>
   );

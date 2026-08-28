@@ -4,6 +4,7 @@ import { defaultYear, getContext } from '@/lib/org';
 import { TrialBalanceFilters } from './filters';
 import { PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
+import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Trial balance — BioAssetPro' };
 
@@ -88,23 +89,27 @@ export default async function TrialBalancePage({
 
       <Tabs />
 
-      <TrialBalanceFilters
-        years={context.financialYears}
-        branches={context.branches}
-        costCentres={dimensions.costCentres}
-        farms={dimensions.farms}
-        selected={{
-          financialYearId: year?.id ?? '',
-          financialPeriodId: periodId,
-          branchId,
-          costCentreId,
-          farmId,
-        }}
-      />
-
       {error ? <div className="notice notice-error">{error}</div> : null}
 
       {report ? (
+        <TableSearch
+          placeholder="Search accounts"
+          filter={
+            <TrialBalanceFilters
+              years={context.financialYears}
+              branches={context.branches}
+              costCentres={dimensions.costCentres}
+              farms={dimensions.farms}
+              selected={{
+                financialYearId: year?.id ?? '',
+                financialPeriodId: periodId,
+                branchId,
+                costCentreId,
+                farmId,
+              }}
+            />
+          }
+        >
         <div className="card">
           <div className="card-header">
             <h2>
@@ -185,6 +190,7 @@ export default async function TrialBalancePage({
             </div>
           )}
         </div>
+        </TableSearch>
       ) : null}
     </div>
   );

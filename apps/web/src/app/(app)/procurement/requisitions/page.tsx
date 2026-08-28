@@ -6,6 +6,7 @@ import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { IconBox } from '@/components/icons';
 import { RequisitionForm } from '@/components/requisition-form';
+import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Requisitions — BioAssetPro' };
 
@@ -49,77 +50,79 @@ export default async function RequisitionsPage({
 
         <RequisitionForm items={items} today={today} />
 
-        <Card title="All requisitions" padded={false}>
-          {requisitions.length === 0 ? (
-            <EmptyState
-              icon={<IconBox size={22} />}
-              title="Nothing requested yet"
-              body="Raise a requisition above when the farm needs something bought."
-            />
-          ) : (
-            <div className="table-wrap">
-              <table className="data wide">
-                <thead>
-                  <tr>
-                    <th style={{ width: 170 }}>Requisition</th>
-                    <th style={{ width: 110 }}>Date</th>
-                    <th style={{ width: 130 }}>Status</th>
-                    <th className="right" style={{ width: 140 }}>
-                      Estimated
-                    </th>
-                    <th style={{ width: 160 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {requisitions.map((requisition) => (
-                    <tr key={requisition.id}>
-                      <td className="num strong" style={{ textAlign: 'left' }}>
-                        {requisition.requisitionNumber}
-                        <div className="faint">
-                          {requisition.lineCount} line{requisition.lineCount === 1 ? '' : 's'}
-                        </div>
-                      </td>
-                      <td className="num" style={{ textAlign: 'left' }}>
-                        {formatDate(requisition.requestDate)}
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            requisition.status === 'APPROVED'
-                              ? 'badge-success'
-                              : requisition.status === 'REJECTED' ||
-                                  requisition.status === 'CANCELLED'
-                                ? 'badge-danger'
-                                : 'badge-warning'
-                          }`}
-                        >
-                          {requisition.status.toLowerCase().replace(/_/g, ' ')}
-                        </span>
-                      </td>
-                      <td className="num">{formatNaira(requisition.estimatedCostKobo)}</td>
-                      <td>
-                        {requisition.canConvert ? (
-                          <Link
-                            href={`/procurement/requisitions/${requisition.id}`}
-                            className="btn btn-primary"
-                          >
-                            Convert to PO
-                          </Link>
-                        ) : requisition.pendingTransactionId ? (
-                          <Link href="/approvals" className="faint">
-                            Awaiting approval
-                          </Link>
-                        ) : (
-                          <span className="faint">—</span>
-                        )}
-                      </td>
+        <TableSearch placeholder="Search requisitions">
+          <Card title="All requisitions" padded={false}>
+            {requisitions.length === 0 ? (
+              <EmptyState
+                icon={<IconBox size={22} />}
+                title="Nothing requested yet"
+                body="Raise a requisition above when the farm needs something bought."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data wide">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 170 }}>Requisition</th>
+                      <th style={{ width: 110 }}>Date</th>
+                      <th style={{ width: 130 }}>Status</th>
+                      <th className="right" style={{ width: 140 }}>
+                        Estimated
+                      </th>
+                      <th style={{ width: 160 }}></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+                  </thead>
+                  <tbody>
+                    {requisitions.map((requisition) => (
+                      <tr key={requisition.id}>
+                        <td className="num strong" style={{ textAlign: 'left' }}>
+                          {requisition.requisitionNumber}
+                          <div className="faint">
+                            {requisition.lineCount} line{requisition.lineCount === 1 ? '' : 's'}
+                          </div>
+                        </td>
+                        <td className="num" style={{ textAlign: 'left' }}>
+                          {formatDate(requisition.requestDate)}
+                        </td>
+                        <td>
+                          <span
+                            className={`badge ${
+                              requisition.status === 'APPROVED'
+                                ? 'badge-success'
+                                : requisition.status === 'REJECTED' ||
+                                    requisition.status === 'CANCELLED'
+                                  ? 'badge-danger'
+                                  : 'badge-warning'
+                            }`}
+                          >
+                            {requisition.status.toLowerCase().replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="num">{formatNaira(requisition.estimatedCostKobo)}</td>
+                        <td>
+                          {requisition.canConvert ? (
+                            <Link
+                              href={`/procurement/requisitions/${requisition.id}`}
+                              className="btn btn-primary"
+                            >
+                              Convert to PO
+                            </Link>
+                          ) : requisition.pendingTransactionId ? (
+                            <Link href="/approvals" className="faint">
+                              Awaiting approval
+                            </Link>
+                          ) : (
+                            <span className="faint">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </TableSearch>
       </div>
     </>
   );

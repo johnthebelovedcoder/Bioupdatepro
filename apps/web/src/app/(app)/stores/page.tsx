@@ -5,6 +5,7 @@ import { createStore } from '../admin/actions';
 import { IconBox } from '@/components/icons';
 
 import { Tabs } from '@/components/tabs';
+import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Stores — BioAssetPro' };
 
@@ -45,47 +46,6 @@ export default async function StoresPage() {
 
       <div className="stack">
         <Tabs />
-        <Card
-          title={`${stores.length} ${stores.length === 1 ? 'store' : 'stores'}`}
-          padded={false}
-        >
-          {stores.length === 0 ? (
-            <EmptyState
-              icon={<IconBox size={22} />}
-              title="No stores yet"
-              body="Add one below. Goods cannot be received without somewhere to receive them into."
-            />
-          ) : (
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th style={{ width: 150 }}>Code</th>
-                    <th>Name</th>
-                    <th>Holds</th>
-                    <th style={{ width: 100 }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stores.map((store) => (
-                    <tr key={store.id}>
-                      <td className="num strong" style={{ textAlign: 'left' }}>
-                        {store.code}
-                      </td>
-                      <td>{store.name}</td>
-                      <td className="faint">{TYPE_LABEL[store.type] ?? store.type}</td>
-                      <td>
-                        <span className={`badge ${store.active ? 'badge-success' : ''}`}>
-                          {store.active ? 'in use' : 'closed'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
 
         <MasterForm
           title="Add a store"
@@ -108,6 +68,50 @@ export default async function StoresPage() {
             },
           ]}
         />
+
+        <TableSearch placeholder="Search stores">
+          <Card
+            title={`${stores.length} ${stores.length === 1 ? 'store' : 'stores'}`}
+            padded={false}
+          >
+            {stores.length === 0 ? (
+              <EmptyState
+                icon={<IconBox size={22} />}
+                title="No stores yet"
+                body="Add one above. Goods cannot be received without somewhere to receive them into."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 150 }}>Code</th>
+                      <th>Name</th>
+                      <th>Holds</th>
+                      <th style={{ width: 100 }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stores.map((store) => (
+                      <tr key={store.id}>
+                        <td className="num strong" style={{ textAlign: 'left' }}>
+                          {store.code}
+                        </td>
+                        <td>{store.name}</td>
+                        <td className="faint">{TYPE_LABEL[store.type] ?? store.type}</td>
+                        <td>
+                          <span className={`badge ${store.active ? 'badge-success' : ''}`}>
+                            {store.active ? 'in use' : 'closed'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </TableSearch>
       </div>
     </>
   );

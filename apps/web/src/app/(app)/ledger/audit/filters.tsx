@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { FilterPanel } from '@/components/filter-panel';
+import { IconSearch } from '@/components/icons';
 
 export function AuditFilters({
   modules,
@@ -24,16 +25,8 @@ export function AuditFilters({
   }
 
   return (
-    <FilterPanel>
-      <form
-        className="stack"
-        style={{ gap: 'var(--sp-4)' }}
-        onSubmit={(event) => {
-          event.preventDefault();
-          const data = new FormData(event.currentTarget);
-          update({ search: String(data.get('search') ?? '') });
-        }}
-      >
+    <div className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+      <FilterPanel>
         <label className="field">
           Module
           <select
@@ -48,20 +41,23 @@ export function AuditFilters({
             ))}
           </select>
         </label>
+      </FilterPanel>
 
-        <label className="field">
-          Search
-          <input
-            name="search"
-            defaultValue={selected.search}
-            placeholder="Entity, comment or transaction id"
-          />
-        </label>
-
-        <button type="submit" className="btn">
-          Apply
-        </button>
+      <form
+        className="table-search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          update({ search: String(data.get('search') ?? '') });
+        }}
+      >
+        <IconSearch size={16} />
+        <input
+          name="search"
+          defaultValue={selected.search}
+          placeholder="Entity, comment or transaction id"
+        />
       </form>
-    </FilterPanel>
+    </div>
   );
 }

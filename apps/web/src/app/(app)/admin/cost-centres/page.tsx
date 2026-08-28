@@ -5,6 +5,7 @@ import { createCostCentre } from '../actions';
 import { IconChart } from '@/components/icons';
 
 import { Tabs } from '@/components/tabs';
+import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Cost centres — BioAssetPro' };
 
@@ -42,49 +43,6 @@ export default async function CostCentresPage() {
 
       <div className="stack">
         <Tabs />
-        <Card
-          title={`${centres.length} ${centres.length === 1 ? 'cost centre' : 'cost centres'}`}
-          padded={false}
-        >
-          {centres.length === 0 ? (
-            <EmptyState
-              icon={<IconChart size={22} />}
-              title="No cost centres yet"
-              body="Add one below. Production costs cannot be posted without somewhere to attribute them, so feed issues will be refused until at least one exists."
-            />
-          ) : (
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th style={{ width: 140 }}>Code</th>
-                    <th>Name</th>
-                    <th>Sits under</th>
-                    <th>Manager</th>
-                    <th style={{ width: 100 }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {centres.map((centre) => (
-                    <tr key={centre.id}>
-                      <td className="num strong" style={{ textAlign: 'left' }}>
-                        {centre.code}
-                      </td>
-                      <td>{centre.name}</td>
-                      <td className="faint">{centre.parentName ?? '—'}</td>
-                      <td className="faint">{centre.managerName ?? '—'}</td>
-                      <td>
-                        <span className={`badge ${centre.active ? 'badge-success' : ''}`}>
-                          {centre.active ? 'active' : 'closed'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
 
         <MasterForm
           title="Add a cost centre"
@@ -116,6 +74,52 @@ export default async function CostCentresPage() {
             { name: 'managerName', label: 'Manager', hint: 'Who answers for it.', half: true },
           ]}
         />
+
+        <TableSearch placeholder="Search cost centres">
+          <Card
+            title={`${centres.length} ${centres.length === 1 ? 'cost centre' : 'cost centres'}`}
+            padded={false}
+          >
+            {centres.length === 0 ? (
+              <EmptyState
+                icon={<IconChart size={22} />}
+                title="No cost centres yet"
+                body="Add one above. Production costs cannot be posted without somewhere to attribute them, so feed issues will be refused until at least one exists."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 140 }}>Code</th>
+                      <th>Name</th>
+                      <th>Sits under</th>
+                      <th>Manager</th>
+                      <th style={{ width: 100 }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {centres.map((centre) => (
+                      <tr key={centre.id}>
+                        <td className="num strong" style={{ textAlign: 'left' }}>
+                          {centre.code}
+                        </td>
+                        <td>{centre.name}</td>
+                        <td className="faint">{centre.parentName ?? '—'}</td>
+                        <td className="faint">{centre.managerName ?? '—'}</td>
+                        <td>
+                          <span className={`badge ${centre.active ? 'badge-success' : ''}`}>
+                            {centre.active ? 'active' : 'closed'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </TableSearch>
       </div>
     </>
   );

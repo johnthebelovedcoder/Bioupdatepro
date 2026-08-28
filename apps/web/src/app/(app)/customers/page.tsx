@@ -6,6 +6,7 @@ import { createCustomer } from '../admin/actions';
 import { IconTag } from '@/components/icons';
 
 import { Tabs } from '@/components/tabs';
+import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Customers — BioAssetPro' };
 
@@ -33,59 +34,6 @@ export default async function CustomersPage() {
 
       <div className="stack">
         <Tabs />
-        <Card
-          title={`${customers.length} ${customers.length === 1 ? 'customer' : 'customers'}`}
-          padded={false}
-        >
-          {customers.length === 0 ? (
-            <EmptyState
-              icon={<IconTag size={22} />}
-              title="No customers yet"
-              body="Add one below. A sale on credit has to name a customer, so the money owed can be chased."
-            />
-          ) : (
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th style={{ width: 160 }}>Code</th>
-                    <th>Name</th>
-                    <th style={{ width: 140 }}>TIN</th>
-                    <th className="right" style={{ width: 150 }}>
-                      Credit limit
-                    </th>
-                    <th style={{ width: 100 }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {customers.map((customer) => (
-                    <tr key={customer.id}>
-                      <td className="num strong" style={{ textAlign: 'left' }}>
-                        {customer.code}
-                      </td>
-                      <td>{customer.name}</td>
-                      <td className="num" style={{ textAlign: 'left' }}>
-                        {customer.tin ?? '—'}
-                      </td>
-                      <td className="num">
-                        {customer.creditLimitKobo
-                          ? formatNaira(customer.creditLimitKobo)
-                          : '—'}
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${customer.status === 'ACTIVE' ? 'badge-success' : ''}`}
-                        >
-                          {customer.status.toLowerCase()}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
 
         <MasterForm
           title="Add a customer"
@@ -109,6 +57,62 @@ export default async function CustomersPage() {
             },
           ]}
         />
+
+        <TableSearch placeholder="Search customers">
+          <Card
+            title={`${customers.length} ${customers.length === 1 ? 'customer' : 'customers'}`}
+            padded={false}
+          >
+            {customers.length === 0 ? (
+              <EmptyState
+                icon={<IconTag size={22} />}
+                title="No customers yet"
+                body="Add one above. A sale on credit has to name a customer, so the money owed can be chased."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 160 }}>Code</th>
+                      <th>Name</th>
+                      <th style={{ width: 140 }}>TIN</th>
+                      <th className="right" style={{ width: 150 }}>
+                        Credit limit
+                      </th>
+                      <th style={{ width: 100 }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customers.map((customer) => (
+                      <tr key={customer.id}>
+                        <td className="num strong" style={{ textAlign: 'left' }}>
+                          {customer.code}
+                        </td>
+                        <td>{customer.name}</td>
+                        <td className="num" style={{ textAlign: 'left' }}>
+                          {customer.tin ?? '—'}
+                        </td>
+                        <td className="num">
+                          {customer.creditLimitKobo
+                            ? formatNaira(customer.creditLimitKobo)
+                            : '—'}
+                        </td>
+                        <td>
+                          <span
+                            className={`badge ${customer.status === 'ACTIVE' ? 'badge-success' : ''}`}
+                          >
+                            {customer.status.toLowerCase()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </TableSearch>
       </div>
     </>
   );

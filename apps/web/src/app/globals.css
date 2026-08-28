@@ -2494,6 +2494,40 @@ body:has(.offline-banner) .app-sidebar {
   white-space: nowrap;
 }
 
+/* --- Table search -------------------------------------------------------- */
+
+.table-search {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1 1 240px;
+  max-width: 320px;
+  min-height: 40px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  color: var(--text-muted);
+}
+
+.table-search svg {
+  flex: 0 0 auto;
+}
+
+.table-search input {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  min-height: 0;
+  width: 100%;
+  background: transparent;
+}
+
+.table-search input:focus {
+  box-shadow: none;
+}
+
 .search-trigger-key {
   flex: 0 0 auto;
   font-family: var(--font-mono, ui-monospace, monospace);

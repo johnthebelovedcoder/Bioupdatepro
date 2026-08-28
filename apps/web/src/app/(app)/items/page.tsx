@@ -6,6 +6,7 @@ import { createItem } from '../admin/actions';
 import { IconBox } from '@/components/icons';
 
 import { Tabs } from '@/components/tabs';
+import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Items — BioAssetPro' };
 
@@ -95,55 +96,6 @@ export default async function ItemsPage() {
 
       <div className="stack">
         <Tabs />
-        <Card title={`${items.length} ${items.length === 1 ? 'item' : 'items'}`} padded={false}>
-          {items.length === 0 ? (
-            <EmptyState
-              icon={<IconBox size={22} />}
-              title="No items yet"
-              body="Add the first one below. A purchase order has to name an item, so nothing can be bought until one exists."
-            />
-          ) : (
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th style={{ width: 150 }}>Code</th>
-                    <th>Description</th>
-                    <th style={{ width: 120 }}>Type</th>
-                    <th style={{ width: 80 }}>Unit</th>
-                    <th style={{ width: 100 }}>VAT</th>
-                    <th className="right" style={{ width: 140 }}>
-                      Standard cost
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="num strong" style={{ textAlign: 'left' }}>
-                        {item.code}
-                      </td>
-                      <td>
-                        {item.description}
-                        {item.isBiologicalFeed ? (
-                          <span className="badge" style={{ marginLeft: 'var(--sp-2)' }}>
-                            feed
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="faint">{item.itemType.toLowerCase()}</td>
-                      <td className="faint">{item.unitOfMeasure}</td>
-                      <td className="faint">{item.vatCode ?? '—'}</td>
-                      <td className="num">
-                        {item.standardCostKobo ? formatNaira(item.standardCostKobo) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
 
         <MasterForm
           title="Add an item"
@@ -217,6 +169,58 @@ export default async function ItemsPage() {
             },
           ]}
         />
+
+        <TableSearch placeholder="Search items">
+          <Card title={`${items.length} ${items.length === 1 ? 'item' : 'items'}`} padded={false}>
+            {items.length === 0 ? (
+              <EmptyState
+                icon={<IconBox size={22} />}
+                title="No items yet"
+                body="Add the first one above. A purchase order has to name an item, so nothing can be bought until one exists."
+              />
+            ) : (
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 150 }}>Code</th>
+                      <th>Description</th>
+                      <th style={{ width: 120 }}>Type</th>
+                      <th style={{ width: 80 }}>Unit</th>
+                      <th style={{ width: 100 }}>VAT</th>
+                      <th className="right" style={{ width: 140 }}>
+                        Standard cost
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item.id}>
+                        <td className="num strong" style={{ textAlign: 'left' }}>
+                          {item.code}
+                        </td>
+                        <td>
+                          {item.description}
+                          {item.isBiologicalFeed ? (
+                            <span className="badge" style={{ marginLeft: 'var(--sp-2)' }}>
+                              feed
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="faint">{item.itemType.toLowerCase()}</td>
+                        <td className="faint">{item.unitOfMeasure}</td>
+                        <td className="faint">{item.vatCode ?? '—'}</td>
+                        <td className="num">
+                          {item.standardCostKobo ? formatNaira(item.standardCostKobo) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </TableSearch>
       </div>
     </>
   );
