@@ -55,6 +55,11 @@ const ACCOUNTS: AccountSeed[] = [
   { number: '2140', name: 'Goods Received Not Invoiced', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
   { number: '2201', name: 'Trade Payables', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
 
+  // The number `YearEndService.findRetainedEarnings()` looks for first — without
+  // this, a freshly provisioned company can never close its first year, and a
+  // balance sheet has nowhere for the current year's result to sit.
+  { number: '3200', name: 'Retained Earnings', type: AccountType.EQUITY, normal: NormalBalance.CREDIT },
+
   { number: '4101', name: 'Revenue', type: AccountType.REVENUE, normal: NormalBalance.CREDIT },
 
   { number: '5001', name: 'Cost of Sales', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },

@@ -73,6 +73,12 @@ const ACCOUNTS: AccountSeed[] = [
   { number: '2130', name: 'WHT Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT,
     source: 'Consolidated Reference §5 — Supplier Payment posting' },
 
+  // --- Equity ---------------------------------------------------------------
+  // The number `YearEndService.findRetainedEarnings()` looks for first —
+  // without it this company can never close a year.
+  { number: '3200', name: 'Retained Earnings', type: AccountType.EQUITY, normal: NormalBalance.CREDIT,
+    source: 'Consolidated Reference §9 — Year-end close' },
+
   // --- Revenue ------------------------------------------------------------
   { number: '4101', name: 'Revenue', type: AccountType.REVENUE, normal: NormalBalance.CREDIT,
     source: 'SnailPro Masters J5' },
