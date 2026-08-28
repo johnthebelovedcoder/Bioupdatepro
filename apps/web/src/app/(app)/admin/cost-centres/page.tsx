@@ -44,38 +44,41 @@ export default async function CostCentresPage() {
       <div className="stack">
         <Tabs />
 
-        <MasterForm
-          title="Add a cost centre"
-          subtitle="One per part of the business you want to see costs for separately"
-          submitLabel="Add cost centre"
-          action={createCostCentre}
-          fields={[
-            { name: 'code', label: 'Code', hint: '130, PL-GROW.', required: true, half: true },
-            {
-              name: 'name',
-              label: 'Name',
-              hint: 'Farm operations, brooding, processing.',
-              required: true,
-              half: true,
-            },
-            {
-              name: 'parentId',
-              label: 'Sits under',
-              hint: 'Leave blank for a top-level centre.',
-              options: [
-                { value: '', label: 'Nothing — top level' },
-                ...centres.map((centre) => ({
-                  value: centre.id,
-                  label: `${centre.code} — ${centre.name}`,
-                })),
-              ],
-              half: true,
-            },
-            { name: 'managerName', label: 'Manager', hint: 'Who answers for it.', half: true },
-          ]}
-        />
-
-        <TableSearch placeholder="Search cost centres">
+        <TableSearch
+          placeholder="Search cost centres"
+          actions={
+            <MasterForm
+              title="Add a cost centre"
+              subtitle="One per part of the business you want to see costs for separately"
+              submitLabel="Add cost centre"
+              action={createCostCentre}
+              fields={[
+                { name: 'code', label: 'Code', hint: '130, PL-GROW.', required: true, half: true },
+                {
+                  name: 'name',
+                  label: 'Name',
+                  hint: 'Farm operations, brooding, processing.',
+                  required: true,
+                  half: true,
+                },
+                {
+                  name: 'parentId',
+                  label: 'Sits under',
+                  hint: 'Leave blank for a top-level centre.',
+                  options: [
+                    { value: '', label: 'Nothing — top level' },
+                    ...centres.map((centre) => ({
+                      value: centre.id,
+                      label: `${centre.code} — ${centre.name}`,
+                    })),
+                  ],
+                  half: true,
+                },
+                { name: 'managerName', label: 'Manager', hint: 'Who answers for it.', half: true },
+              ]}
+            />
+          }
+        >
           <Card
             title={`${centres.length} ${centres.length === 1 ? 'cost centre' : 'cost centres'}`}
             padded={false}

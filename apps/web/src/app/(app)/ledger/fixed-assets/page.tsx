@@ -52,12 +52,15 @@ export default async function FixedAssetsPage() {
         </div>
       ) : null}
 
-      <div className="row" style={{ gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
-        <CapitaliseAssetForm costCentres={dimensions.costCentres} today={today} />
-        <RunDepreciationForm periods={year?.periods ?? []} />
-      </div>
-
-      <TableSearch placeholder="Search the register">
+      <TableSearch
+        placeholder="Search the register"
+        actions={
+          <>
+            <CapitaliseAssetForm costCentres={dimensions.costCentres} today={today} />
+            <RunDepreciationForm periods={year?.periods ?? []} />
+          </>
+        }
+      >
         <Card title="Register" padded={false}>
           {assets.length === 0 ? (
             <EmptyState

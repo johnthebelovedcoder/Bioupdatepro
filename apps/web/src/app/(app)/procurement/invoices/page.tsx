@@ -54,14 +54,17 @@ export default async function SupplierInvoicesPage({
           </div>
         ) : null}
 
-        <SupplierPaymentForm
-          suppliers={suppliers}
-          invoices={payable}
-          bankAccounts={bankAccounts}
-          today={today}
-        />
-
-        <TableSearch placeholder="Search invoices">
+        <TableSearch
+          placeholder="Search invoices"
+          actions={
+            <SupplierPaymentForm
+              suppliers={suppliers}
+              invoices={payable}
+              bankAccounts={bankAccounts}
+              today={today}
+            />
+          }
+        >
           <Card title="All invoices" padded={false}>
             {invoices.length === 0 ? (
               <EmptyState

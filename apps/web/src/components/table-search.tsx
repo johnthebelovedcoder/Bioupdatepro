@@ -8,16 +8,19 @@ import { IconSearch } from './icons';
  *
  * These lists are short enough to render in full, so there is nothing to ask
  * the server for — filtering the rows already in the DOM by their own text is
- * both simpler and instant. Sitting next to `filter`, when a page has one, so
- * search is not one more thing hidden behind a button: search is how someone
- * finds the row they came for, a filter is how they narrow the set.
+ * both simpler and instant. `actions` (the button that creates a new row),
+ * `filter` and the search box all sit in one row, not stacked — a page's
+ * whole toolbar for one list belongs together rather than spread across
+ * several lines above it.
  */
 export function TableSearch({
   placeholder = 'Search this list',
+  actions,
   filter,
   children,
 }: {
   placeholder?: string;
+  actions?: React.ReactNode;
   filter?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -36,6 +39,7 @@ export function TableSearch({
   return (
     <>
       <div className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+        {actions}
         {filter}
         <label className="table-search">
           <IconSearch size={16} />

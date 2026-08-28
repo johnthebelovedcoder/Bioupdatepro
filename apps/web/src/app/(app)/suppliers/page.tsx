@@ -49,9 +49,7 @@ export default async function SuppliersPage() {
         <Tabs />
         {error ? <div className="notice notice-error">{error}</div> : null}
 
-        <SupplierForm />
-
-        <TableSearch placeholder="Search vendors">
+        <TableSearch placeholder="Search vendors" actions={<SupplierForm />}>
           <Card
             title={`${suppliers.length} ${suppliers.length === 1 ? 'vendor' : 'vendors'}`}
             padded={false}

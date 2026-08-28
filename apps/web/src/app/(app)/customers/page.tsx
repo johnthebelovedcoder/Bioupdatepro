@@ -35,30 +35,33 @@ export default async function CustomersPage() {
       <div className="stack">
         <Tabs />
 
-        <MasterForm
-          title="Add a customer"
-          subtitle="A credit limit here is what warns you before selling to somebody who already owes too much"
-          submitLabel="Add customer"
-          action={createCustomer}
-          fields={[
-            { name: 'code', label: 'Customer code', hint: 'CUS-SUNRISE.', required: true, half: true },
-            { name: 'name', label: 'Name', required: true, half: true },
-            { name: 'category', label: 'Type', hint: 'Wholesale, retail, hotel.', half: true },
-            { name: 'tin', label: 'TIN', half: true },
-            { name: 'phone', label: 'Phone', half: true },
-            { name: 'email', label: 'Email', type: 'email', half: true },
-            { name: 'state', label: 'State', hint: 'Decides withholding tax jurisdiction.', half: true },
-            {
-              name: 'creditLimit',
-              label: 'Credit limit (₦)',
-              hint: 'Leave blank for cash-only.',
-              type: 'number',
-              half: true,
-            },
-          ]}
-        />
-
-        <TableSearch placeholder="Search customers">
+        <TableSearch
+          placeholder="Search customers"
+          actions={
+            <MasterForm
+              title="Add a customer"
+              subtitle="A credit limit here is what warns you before selling to somebody who already owes too much"
+              submitLabel="Add customer"
+              action={createCustomer}
+              fields={[
+                { name: 'code', label: 'Customer code', hint: 'CUS-SUNRISE.', required: true, half: true },
+                { name: 'name', label: 'Name', required: true, half: true },
+                { name: 'category', label: 'Type', hint: 'Wholesale, retail, hotel.', half: true },
+                { name: 'tin', label: 'TIN', half: true },
+                { name: 'phone', label: 'Phone', half: true },
+                { name: 'email', label: 'Email', type: 'email', half: true },
+                { name: 'state', label: 'State', hint: 'Decides withholding tax jurisdiction.', half: true },
+                {
+                  name: 'creditLimit',
+                  label: 'Credit limit (₦)',
+                  hint: 'Leave blank for cash-only.',
+                  type: 'number',
+                  half: true,
+                },
+              ]}
+            />
+          }
+        >
           <Card
             title={`${customers.length} ${customers.length === 1 ? 'customer' : 'customers'}`}
             padded={false}

@@ -59,13 +59,6 @@ export default async function SalesInvoicesPage({
           </div>
         ) : null}
 
-        <CustomerReceiptForm
-          customers={customers}
-          invoices={receivable}
-          bankAccounts={bankAccounts}
-          today={today}
-        />
-
         {invoiceable.length > 0 ? (
           <Card
             title="Ready to invoice"
@@ -99,7 +92,17 @@ export default async function SalesInvoicesPage({
           </Card>
         ) : null}
 
-        <TableSearch placeholder="Search invoices">
+        <TableSearch
+          placeholder="Search invoices"
+          actions={
+            <CustomerReceiptForm
+              customers={customers}
+              invoices={receivable}
+              bankAccounts={bankAccounts}
+              today={today}
+            />
+          }
+        >
           <Card title="All invoices" padded={false}>
             {invoices.length === 0 ? (
               <EmptyState

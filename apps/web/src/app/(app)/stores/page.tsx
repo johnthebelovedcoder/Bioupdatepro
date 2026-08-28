@@ -47,29 +47,32 @@ export default async function StoresPage() {
       <div className="stack">
         <Tabs />
 
-        <MasterForm
-          title="Add a store"
-          subtitle="What it holds decides which movements can use it"
-          submitLabel="Add store"
-          action={createStore}
-          fields={[
-            { name: 'code', label: 'Store code', hint: 'RAW-WH, FG-WH.', required: true, half: true },
-            { name: 'name', label: 'Name', hint: 'Feed store, cold room.', required: true, half: true },
-            {
-              name: 'type',
-              label: 'What it holds',
-              options: [
-                { value: 'RAW_MATERIAL', label: 'Feed & supplies — what you buy in' },
-                { value: 'FINISHED_GOODS', label: 'Produce ready to sell' },
-                { value: 'WORK_IN_PROGRESS', label: 'Processing floor' },
-                { value: 'BY_PRODUCT', label: 'By-products — shells, manure' },
-                { value: 'GENERAL', label: 'General' },
-              ],
-            },
-          ]}
-        />
-
-        <TableSearch placeholder="Search stores">
+        <TableSearch
+          placeholder="Search stores"
+          actions={
+            <MasterForm
+              title="Add a store"
+              subtitle="What it holds decides which movements can use it"
+              submitLabel="Add store"
+              action={createStore}
+              fields={[
+                { name: 'code', label: 'Store code', hint: 'RAW-WH, FG-WH.', required: true, half: true },
+                { name: 'name', label: 'Name', hint: 'Feed store, cold room.', required: true, half: true },
+                {
+                  name: 'type',
+                  label: 'What it holds',
+                  options: [
+                    { value: 'RAW_MATERIAL', label: 'Feed & supplies — what you buy in' },
+                    { value: 'FINISHED_GOODS', label: 'Produce ready to sell' },
+                    { value: 'WORK_IN_PROGRESS', label: 'Processing floor' },
+                    { value: 'BY_PRODUCT', label: 'By-products — shells, manure' },
+                    { value: 'GENERAL', label: 'General' },
+                  ],
+                },
+              ]}
+            />
+          }
+        >
           <Card
             title={`${stores.length} ${stores.length === 1 ? 'store' : 'stores'}`}
             padded={false}

@@ -57,8 +57,6 @@ export default async function BiologicalAssetsPage() {
           />
         </div>
 
-        <ValuationForm groups={groups} />
-
         <TableSearch placeholder="Search populations">
           <Card title="Populations" padded={false}>
             {groups.length === 0 ? (
@@ -119,7 +117,10 @@ export default async function BiologicalAssetsPage() {
           </Card>
         </TableSearch>
 
-        <TableSearch placeholder="Search valuations">
+        <TableSearch
+          placeholder="Search valuations"
+          actions={<ValuationForm groups={groups} />}
+        >
           <Card title="Valuations" subtitle="Raised, and where each one stands" padded={false}>
             {valuations.length === 0 ? (
               <EmptyState

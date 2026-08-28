@@ -48,9 +48,10 @@ export default async function RequisitionsPage({
           </div>
         ) : null}
 
-        <RequisitionForm items={items} today={today} />
-
-        <TableSearch placeholder="Search requisitions">
+        <TableSearch
+          placeholder="Search requisitions"
+          actions={<RequisitionForm items={items} today={today} />}
+        >
           <Card title="All requisitions" padded={false}>
             {requisitions.length === 0 ? (
               <EmptyState

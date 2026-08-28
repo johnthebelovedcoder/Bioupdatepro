@@ -58,10 +58,13 @@ export default async function PensPage() {
         <Tabs />
         {error ? <div className="notice notice-error">{error}</div> : null}
 
-        {/* A pen needs a farm. Where there is none, that is the first thing to fix. */}
-        {farms.length === 0 ? <FarmForm /> : <PenForm farms={farms} />}
-
-        <TableSearch placeholder="Search houses & pens">
+        <TableSearch
+          placeholder="Search houses & pens"
+          actions={
+            // A pen needs a farm. Where there is none, that is the first thing to fix.
+            farms.length === 0 ? <FarmForm /> : <PenForm farms={farms} />
+          }
+        >
           <Card
             title={`${pens.length} ${pens.length === 1 ? 'place' : 'places'}`}
             {...(farms.length > 1 ? { subtitle: `Across ${farms.length} farms` } : {})}

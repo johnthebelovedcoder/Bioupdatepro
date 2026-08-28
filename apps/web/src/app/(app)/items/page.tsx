@@ -97,80 +97,83 @@ export default async function ItemsPage() {
       <div className="stack">
         <Tabs />
 
-        <MasterForm
-          title="Add an item"
-          subtitle="How it is measured and taxed decides where its money lands"
-          submitLabel="Add item"
-          action={createItem}
-          fields={[
-            { name: 'code', label: 'Item code', hint: 'FD-LAYER, MD-LASOTA.', required: true, half: true },
-            { name: 'description', label: 'Description', hint: 'Layer mash.', required: true, half: true },
-            {
-              name: 'unitOfMeasureCode',
-              label: 'Measured in',
-              options: unitOptions.length > 0 ? unitOptions : [{ value: 'Kg', label: 'Kg' }],
-              required: true,
-              half: true,
-            },
-            {
-              name: 'itemType',
-              label: 'Type',
-              options: [
-                { value: 'INVENTORY', label: 'Inventory — stocked and counted' },
-                { value: 'SERVICE', label: 'Service — not stocked' },
-                { value: 'ASSET', label: 'Asset' },
-              ],
-              half: true,
-            },
-            {
-              name: 'vatTaxCode',
-              label: 'VAT treatment',
-              hint: 'Farm produce and inputs are usually zero-rated.',
-              options: vatOptions,
-              half: true,
-            },
-            { name: 'category', label: 'Category', hint: 'Feed, Medication.', half: true },
-            {
-              name: 'inventoryGlAccountId',
-              label: 'Stock account',
-              hint: 'Where receiving this debits. Required for anything stocked.',
-              options:
-                assetOptions.length > 0
-                  ? assetOptions
-                  : [{ value: '', label: 'No accounts found' }],
-              half: true,
-            },
-            {
-              name: 'expenseGlAccountId',
-              label: 'Expense account',
-              hint: 'Used when it is consumed rather than stocked.',
-              options: expenseOptions,
-              half: true,
-            },
-            {
-              name: 'reorderLevel',
-              label: 'Reorder level',
-              hint: 'Warn when stock falls below this.',
-              type: 'number',
-              half: true,
-            },
-            {
-              name: 'standardCost',
-              label: 'Standard cost (₦)',
-              hint: 'What you expect to pay, per unit.',
-              type: 'number',
-              half: true,
-            },
-            {
-              name: 'isBiologicalFeed',
-              label: 'This is animal feed',
-              hint: 'Feed issued to a population is costed against it',
-              type: 'checkbox',
-            },
-          ]}
-        />
-
-        <TableSearch placeholder="Search items">
+        <TableSearch
+          placeholder="Search items"
+          actions={
+            <MasterForm
+              title="Add an item"
+              subtitle="How it is measured and taxed decides where its money lands"
+              submitLabel="Add item"
+              action={createItem}
+              fields={[
+                { name: 'code', label: 'Item code', hint: 'FD-LAYER, MD-LASOTA.', required: true, half: true },
+                { name: 'description', label: 'Description', hint: 'Layer mash.', required: true, half: true },
+                {
+                  name: 'unitOfMeasureCode',
+                  label: 'Measured in',
+                  options: unitOptions.length > 0 ? unitOptions : [{ value: 'Kg', label: 'Kg' }],
+                  required: true,
+                  half: true,
+                },
+                {
+                  name: 'itemType',
+                  label: 'Type',
+                  options: [
+                    { value: 'INVENTORY', label: 'Inventory — stocked and counted' },
+                    { value: 'SERVICE', label: 'Service — not stocked' },
+                    { value: 'ASSET', label: 'Asset' },
+                  ],
+                  half: true,
+                },
+                {
+                  name: 'vatTaxCode',
+                  label: 'VAT treatment',
+                  hint: 'Farm produce and inputs are usually zero-rated.',
+                  options: vatOptions,
+                  half: true,
+                },
+                { name: 'category', label: 'Category', hint: 'Feed, Medication.', half: true },
+                {
+                  name: 'inventoryGlAccountId',
+                  label: 'Stock account',
+                  hint: 'Where receiving this debits. Required for anything stocked.',
+                  options:
+                    assetOptions.length > 0
+                      ? assetOptions
+                      : [{ value: '', label: 'No accounts found' }],
+                  half: true,
+                },
+                {
+                  name: 'expenseGlAccountId',
+                  label: 'Expense account',
+                  hint: 'Used when it is consumed rather than stocked.',
+                  options: expenseOptions,
+                  half: true,
+                },
+                {
+                  name: 'reorderLevel',
+                  label: 'Reorder level',
+                  hint: 'Warn when stock falls below this.',
+                  type: 'number',
+                  half: true,
+                },
+                {
+                  name: 'standardCost',
+                  label: 'Standard cost (₦)',
+                  hint: 'What you expect to pay, per unit.',
+                  type: 'number',
+                  half: true,
+                },
+                {
+                  name: 'isBiologicalFeed',
+                  label: 'This is animal feed',
+                  hint: 'Feed issued to a population is costed against it',
+                  type: 'checkbox',
+                },
+              ]}
+            />
+          }
+        >
           <Card title={`${items.length} ${items.length === 1 ? 'item' : 'items'}`} padded={false}>
             {items.length === 0 ? (
               <EmptyState
