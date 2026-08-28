@@ -13,6 +13,7 @@ import {
   IconAlert,
   IconArrowRight,
   IconBox,
+  IconChart,
   IconCheckCircle,
   IconEgg,
   IconFeed,
@@ -99,8 +100,9 @@ export default async function GroupDetailPage({
           <span className="faint">{group.code}</span>
         </div>
 
-        {/* Three figures: how many are alive, how many were lost, what it cost
-            to get here. Everything else is a detail below. */}
+        {/* How many are alive, how many were lost, what it has cost, what it
+            has earned, and what it would carry at if valued today —
+            everything else is a detail below. */}
         <div className="stat-grid">
           <Stat
             label={`Live ${t.animal.many}`}
@@ -126,6 +128,26 @@ export default async function GroupDetailPage({
             value={formatNaira(totalCost)}
             money
             hint={`since ${t.intake.toLowerCase()}`}
+          />
+          <Stat
+            label="Revenue to date"
+            value={formatNaira(group.revenueToDateKobo)}
+            money
+            hint={
+              toKobo(group.revenueToDateKobo) > 0n
+                ? `from sales against ${group.code}`
+                : 'nothing sold from this group yet'
+            }
+          />
+          <Stat
+            label="Current value"
+            value={group.carryingValueKobo ? formatNaira(group.carryingValueKobo) : '—'}
+            money={Boolean(group.carryingValueKobo)}
+            hint={
+              group.currentFvlctsPerUnitKobo
+                ? `${formatNaira(group.currentFvlctsPerUnitKobo)} per ${t.animal.one}, last valued`
+                : 'not yet valued'
+            }
           />
         </div>
 
@@ -153,7 +175,11 @@ export default async function GroupDetailPage({
               />
             </Card>
 
-            <Card title="History" subtitle="Most recent first" padded={false}>
+            <Card
+              title="Lifecycle"
+              subtitle={`Everything recorded against ${group.code}, most recent first`}
+              padded={false}
+            >
               {group.events.map((event) => (
                 <div className="list-row" key={event.id}>
                   <span className={`list-icon ${toneFor(event.type)}`}>
@@ -320,6 +346,8 @@ function toneFor(type: string): string {
       return 'tone-danger';
     case 'PRODUCTION':
     case 'HARVEST':
+    case 'VALUATION':
+    case 'DISPOSAL':
       return 'tone-success';
     case 'TREATMENT':
       return 'tone-info';
@@ -339,9 +367,12 @@ function iconFor(type: string) {
     case 'FEED':
       return <IconFeed size={16} />;
     case 'HARVEST':
+    case 'DISPOSAL':
       return <IconBox size={16} />;
     case 'TREATMENT':
       return <IconCheckCircle size={16} />;
+    case 'VALUATION':
+      return <IconChart size={16} />;
     default:
       return <IconClipboard size={16} />;
   }

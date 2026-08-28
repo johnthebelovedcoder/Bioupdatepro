@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { formatKobo, kobo } from '../common/money';
 
 /**
  * Reading the livestock back.
@@ -62,6 +63,11 @@ export class OperationsReadService {
           orderBy: { changedOn: 'desc' },
           include: { recordedBy: { select: { fullName: true } } },
         },
+        disposals: { orderBy: { occurredOn: 'desc' } },
+        valuations: {
+          where: { status: 'POSTED' },
+          orderBy: { valuationDate: 'desc' },
+        },
       },
     });
     if (!group) return null;
@@ -71,6 +77,16 @@ export class OperationsReadService {
       dailyRecords: group.dailyRecords.map((d) => ({ feedIssues: d.feedIssues })),
       treatments: group.treatments.map((t) => ({ costKobo: t.costKobo })),
     });
+
+    // What this population has actually earned. Summed from invoice lines
+    // carrying its code as a batch reference, so it is real revenue rather
+    // than the flat zero every screen showed before a sale line could name
+    // the population it came from (see `TradeService.resolveBatchCodes`).
+    const revenueLines = await this.prisma.salesInvoiceLine.findMany({
+      where: { batchReference: group.code, invoice: { companyId, status: 'POSTED' } },
+      select: { netAmountKobo: true },
+    });
+    const revenueToDateKobo = revenueLines.reduce((sum, line) => sum + line.netAmountKobo, 0n);
 
     /*
      * The population on each of the last fourteen days, worked BACKWARDS from
@@ -118,6 +134,15 @@ export class OperationsReadService {
         { label: 'Health and treatment', kobo: treatmentKobo.toString() },
       ],
       expectedEndOn: null,
+      revenueToDateKobo: revenueToDateKobo.toString(),
+      // What the last approved IAS 41 valuation says this population is worth
+      // right now — null rather than zero when nobody has valued it yet, so
+      // the screen can say "not yet valued" instead of a misleading ₦0.
+      currentFvlctsPerUnitKobo: group.currentFvlctsPerUnitKobo?.toString() ?? null,
+      carryingValueKobo:
+        group.currentFvlctsPerUnitKobo != null
+          ? (group.currentFvlctsPerUnitKobo * BigInt(group.population)).toString()
+          : null,
       events: this.eventsFor(group),
     };
   }
@@ -370,11 +395,35 @@ export class OperationsReadService {
       toStage: string;
       recordedBy: { fullName: string };
     }>;
+    disposals: Array<{
+      id: string;
+      occurredOn: Date;
+      quantity: number;
+      carryingAmountKobo: bigint;
+      journalEntryId: string | null;
+    }>;
+    valuations: Array<{
+      id: string;
+      valuationDate: Date;
+      direction: string;
+      gainLossKobo: bigint;
+      currentFvlctsPerUnitKobo: bigint;
+      evidenceReference: string;
+      journalEntryId: string | null;
+    }>;
   }) {
     type Event = {
       id: string;
       occurredOn: string;
-      type: 'PLACEMENT' | 'FEED' | 'MORTALITY' | 'PRODUCTION' | 'TREATMENT' | 'STAGE' | 'HARVEST';
+      type:
+        | 'PLACEMENT'
+        | 'MORTALITY'
+        | 'PRODUCTION'
+        | 'TREATMENT'
+        | 'STAGE'
+        | 'HARVEST'
+        | 'VALUATION'
+        | 'DISPOSAL';
       summary: string;
       detail: string;
       quantity: string | null;
@@ -382,7 +431,13 @@ export class OperationsReadService {
     };
     const events: Event[] = [];
 
-    for (const record of group.dailyRecords.slice(-14)) {
+    // The whole life, not a recent window — a population's mortality is
+    // exactly what "capture the entire lifecycle" means, and a cohort placed
+    // a year ago should not lose everything before its last two weeks.
+    // Routine feeding is deliberately left out of this milestone view: it is
+    // recorded daily, it is not a lifecycle event, and it already has its own
+    // screen.
+    for (const record of group.dailyRecords) {
       for (const death of record.mortality) {
         events.push({
           id: death.id,
@@ -391,17 +446,6 @@ export class OperationsReadService {
           summary: `${death.quantity} lost`,
           detail: death.causes.join(', ') || 'No cause recorded',
           quantity: String(death.quantity),
-          recordedBy: record.recordedBy.fullName,
-        });
-      }
-      for (const issue of record.feedIssues) {
-        events.push({
-          id: issue.id,
-          occurredOn: iso(record.recordedOn),
-          type: 'FEED',
-          summary: `${issue.feedName} issued`,
-          detail: `${Number(issue.quantityKg)} kg`,
-          quantity: `${Number(issue.quantityKg)} kg`,
           recordedBy: record.recordedBy.fullName,
         });
       }
@@ -443,6 +487,31 @@ export class OperationsReadService {
       });
     }
 
+    for (const valuation of group.valuations) {
+      const gain = valuation.direction === 'GAIN';
+      events.push({
+        id: valuation.id,
+        occurredOn: iso(valuation.valuationDate),
+        type: 'VALUATION',
+        summary: `Valued at ${formatKobo(kobo(valuation.currentFvlctsPerUnitKobo))}/unit — ${gain ? 'gain' : 'loss'} of ${formatKobo(kobo(valuation.gainLossKobo < 0n ? -valuation.gainLossKobo : valuation.gainLossKobo))}`,
+        detail: valuation.evidenceReference,
+        quantity: valuation.journalEntryId ? 'Posted' : null,
+        recordedBy: 'System',
+      });
+    }
+
+    for (const disposal of group.disposals) {
+      events.push({
+        id: disposal.id,
+        occurredOn: iso(disposal.occurredOn),
+        type: 'DISPOSAL',
+        summary: `${disposal.quantity.toLocaleString('en-NG')} sold or disposed`,
+        detail: `Carrying value relieved: ${formatKobo(kobo(disposal.carryingAmountKobo))}`,
+        quantity: String(disposal.quantity),
+        recordedBy: 'System',
+      });
+    }
+
     events.push({
       id: 'placement',
       occurredOn: iso(group.startedOn),
@@ -453,7 +522,10 @@ export class OperationsReadService {
       recordedBy: 'System',
     });
 
-    return events.sort((a, b) => b.occurredOn.localeCompare(a.occurredOn)).slice(0, 40);
+    // A full lifecycle, not a recent slice — 300 is a defensive ceiling, not
+    // a window; a population would need to change hands several times a week
+    // for its whole life to reach it.
+    return events.sort((a, b) => b.occurredOn.localeCompare(a.occurredOn)).slice(0, 300);
   }
 }
 

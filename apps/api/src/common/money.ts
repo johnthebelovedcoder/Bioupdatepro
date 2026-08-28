@@ -80,7 +80,10 @@ export function formatKobo(
   symbol = '₦',
 ): string {
   const major = toMajorUnits(amount, minorUnitScale);
-  return `${symbol}${major.toFixed(minorUnitScale)}`;
+  const negative = major.isNegative();
+  const [whole, fraction] = major.abs().toFixed(minorUnitScale).split('.');
+  const grouped = whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${negative ? '-' : ''}${symbol}${grouped}${fraction ? `.${fraction}` : ''}`;
 }
 
 /**

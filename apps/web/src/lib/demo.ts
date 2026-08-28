@@ -110,7 +110,16 @@ export interface BatchSummary {
 export interface GroupEvent {
   id: string;
   occurredOn: string;
-  type: 'PLACEMENT' | 'FEED' | 'MORTALITY' | 'PRODUCTION' | 'TREATMENT' | 'STAGE' | 'HARVEST';
+  type:
+    | 'PLACEMENT'
+    | 'FEED'
+    | 'MORTALITY'
+    | 'PRODUCTION'
+    | 'TREATMENT'
+    | 'STAGE'
+    | 'HARVEST'
+    | 'VALUATION'
+    | 'DISPOSAL';
   summary: string;
   detail: string;
   quantity: string | null;
@@ -122,9 +131,16 @@ export interface GroupDetail extends BatchSummary {
   populationSeries: Array<{ date: string; value: number }>;
   /** Deaths on each of the last fourteen days. */
   mortalitySeries: Array<{ date: string; value: number }>;
+  /** The whole life, most recent first — not windowed to a recent slice. */
   events: GroupEvent[];
   costBreakdown: Array<{ label: string; kobo: string }>;
   expectedEndOn: string | null;
+  /** What the last approved IAS 41 valuation says a unit is worth. Null until
+   * the population has been valued at least once. */
+  currentFvlctsPerUnitKobo: string | null;
+  /** currentFvlctsPerUnitKobo × population — what this population would carry
+   * at, right now, if valued today. Null on the same terms. */
+  carryingValueKobo: string | null;
 }
 
 /* -------------------------------------------------------------------------- */

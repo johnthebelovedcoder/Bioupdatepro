@@ -73,11 +73,21 @@ export class TradeService {
           payload.lines.map((line) => line.itemId ?? line.code),
         );
 
+        // Which population a line came out of, by its own code — so the
+        // invoice this order eventually becomes can attribute revenue back to
+        // it. Resolved here rather than trusting `batchId` verbatim, since the
+        // phone may have sent either a uuid or the code itself.
+        const batchCodes = await this.resolveBatchCodes(
+          companyId,
+          payload.lines.map((line) => line.batchId).filter((id): id is string => Boolean(id)),
+        );
+
         const lines = payload.lines.map((line, index) => ({
           lineNumber: index + 1,
           itemId: items.get(line.itemId ?? line.code)!,
           quantity: new Decimal(line.quantity),
           unitPriceKobo: BigInt(line.unitPriceKobo),
+          batchReference: line.batchId ? (batchCodes.get(line.batchId) ?? null) : null,
         }));
 
         if (lines.length === 0) {
@@ -343,6 +353,39 @@ export class TradeService {
       throw new BadRequestException(
         `These are not in the item master: ${missing.join(', ')}. They have to exist before they can be bought or sold.`,
       );
+    }
+    return byReference;
+  }
+
+  /**
+   * Turn whatever a line called its population into that population's code.
+   *
+   * Accepts either a uuid or a code, the same tolerance `recordSale`'s own
+   * disposal loop already has — and unlike that loop, a reference that
+   * resolves to nothing is silently dropped rather than refused: a sale line
+   * naming a population is a bonus for traceability, not something worth
+   * blocking a sale over.
+   */
+  private async resolveBatchCodes(
+    companyId: string,
+    references: string[],
+  ): Promise<Map<string, string>> {
+    const wanted = [...new Set(references)];
+    if (wanted.length === 0) return new Map();
+
+    const ids = wanted.filter(isUuid);
+    const found = await this.prisma.livestockGroup.findMany({
+      where: {
+        companyId,
+        OR: [...(ids.length > 0 ? [{ id: { in: ids } }] : []), { code: { in: wanted } }],
+      },
+      select: { id: true, code: true },
+    });
+
+    const byReference = new Map<string, string>();
+    for (const group of found) {
+      byReference.set(group.id, group.code);
+      byReference.set(group.code, group.code);
     }
     return byReference;
   }

@@ -312,6 +312,7 @@ export class SalesOrderService {
               taxCodeId: line.taxCodeId,
               netAmountKobo: line.netAmountKobo,
               vatAmountKobo: line.vatAmountKobo,
+              batchReference: line.batchReference,
             })),
           },
         },

@@ -337,6 +337,10 @@ export async function getGroupDetail(
     mortalitySeries: dates.map((date, index) => ({ date, value: deaths[index] ?? 0 })),
     expectedEndOn: group.purpose === 'Broiler' ? daysAgo(-11) : null,
     costBreakdown: splitCost(group.costToDateKobo, snail),
+    // Not invented — this fixture predates the fair-value valuation screen,
+    // so "not yet valued" is the honest state rather than a plausible figure.
+    currentFvlctsPerUnitKobo: null,
+    carryingValueKobo: null,
     events: snail
       ? [
           {

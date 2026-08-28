@@ -17,6 +17,10 @@ export interface PricedLineInput {
   discountKobo?: bigint;
   /** Overrides the item master's VAT code where supplied. */
   taxCode?: string | null;
+  /** The livestock group this line came out of, if any. Carried through to
+   * the invoice line so revenue can be attributed back to the population that
+   * earned it — the same reference a delivery or disposal already carries. */
+  batchReference?: string | null;
 }
 
 export interface PricedLine {
@@ -30,6 +34,7 @@ export interface PricedLine {
   netAmountKobo: bigint;
   vatAmountKobo: bigint;
   grossAmountKobo: bigint;
+  batchReference: string | null;
 }
 
 export interface PricedDocument {
@@ -162,6 +167,7 @@ export class SalesPricingService {
         netAmountKobo: net,
         vatAmountKobo: vat,
         grossAmountKobo: net + vat,
+        batchReference: line.batchReference ?? null,
       });
     }
 
