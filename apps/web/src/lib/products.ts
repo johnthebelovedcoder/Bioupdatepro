@@ -66,7 +66,7 @@ export const CORE_CAPABILITIES: CoreCapability[] = [
     what: 'Orders, goods receipt, supplier invoices, payments',
     sectionKey: 'buying',
     state: 'engine-only',
-    note: 'Orders and goods receipt have screens; invoices and payments post only through the API.',
+    note: 'Orders and goods receipt have screens; invoices and payments only post in the background, with no screen yet.',
   },
   {
     name: 'Order to cash',
@@ -97,7 +97,7 @@ export const CORE_CAPABILITIES: CoreCapability[] = [
     name: 'Tax',
     what: 'VAT and withholding through one shared engine',
     state: 'engine-only',
-    note: 'Rates are configured through the API; there is no tax screen.',
+    note: 'Rates are configured in the background; there is no tax screen yet.',
   },
   {
     name: 'Biological assets',
@@ -115,23 +115,25 @@ export const CORE_CAPABILITIES: CoreCapability[] = [
     sectionKey: 'people',
     state: 'engine-only',
     note:
-      'The 2026 PAYE engine matches the specification. Activating a company’s ' +
-      'statutory rates now has a screen (People → Payroll setup); raising and ' +
-      'approving an actual monthly run still does not.',
+      'You can turn on a company’s statutory rates from Money → Payroll setup; ' +
+      'raising and approving an actual monthly payroll run is not available yet.',
   },
   {
     name: 'Period close',
     what: 'Checklist, reconciliations, close and year end',
     state: 'engine-only',
-    note: 'Closing runs through the API only.',
+    note: 'Closing runs in the background only; there is no screen yet.',
   },
   { name: 'Fixed assets', what: 'Register, depreciation, disposal', state: 'not-built' },
   { name: 'Banking', what: 'Accounts, transactions, reconciliation', state: 'not-built' },
   {
     name: 'Posting control',
     what: 'Table-driven posting rules and the ledger-flag guard',
-    state: 'not-built',
-    note: 'Specification §66. Postings are currently written in code, not resolved from a rule table.',
+    href: '/agripro/posting-rules',
+    state: 'live',
+    note:
+      'Every business event names two posting keys, and the keys resolve to accounts ' +
+      'through the posting chart — visible and auditable, not code only a developer can change.',
   },
 ];
 

@@ -33,21 +33,15 @@ export default async function StaffPage() {
       <div className="stack">
         <InviteWorker invitations={invitations} />
         {/*
-          This used to say the ladder below was not enforced at all. It now is,
-          for both layers — but not evenly, and saying so here, where
-          permissions are administered, is where someone would actually look
-          for the honest boundary rather than the confident-sounding one.
+          Kept honest rather than confident-sounding: says plainly what is
+          and is not yet enforced, where someone administering permissions
+          would actually look for it.
         */}
         <div className="notice notice-warning">
-          Company scoping IS enforced — a signed-in user can only reach their own farm&apos;s
-          data, and a record belonging to another farm returns nothing. Screen access IS now
-          enforced too, for every role listed below: signing in as a role the sidebar has no
-          entry for redirects to an explanation rather than a blank page, and the API refuses
-          the write actions that role&apos;s own boundary excludes. What is NOT yet enforced
-          is finer than that — a handful of actions (approving a workflow document, running
-          payroll, closing a period) are still gated by the original six roles only, because
-          extending them safely needs the approval engine to check document type, not just
-          role, and that is a deeper change than adding a role to a list.
+          Each person can only see and change records that belong to their own farm. What
+          they can open and do is controlled by their role, shown below. A few actions —
+          approving certain documents, running payroll, closing a period — are still
+          limited to the senior roles only; finer control for those is coming.
         </div>
 
         <div className="stat-grid">
@@ -90,38 +84,30 @@ export default async function StaffPage() {
           ))}
           <div className="card-footer">
             <span className="faint">
-              The approval ladder is enforced by the workflow engine, which is built and
-              tested — a maker cannot approve their own document. The guard that decides
-              which screens a role may open now exists too, for these six roles and the
-              fourteen more the client&apos;s own RACI sheet names — see the notice above
-              for what it still does not reach.
+              Nobody can approve their own document — that is enforced everywhere. Screen
+              access is enforced for these six roles; the other fourteen roles in your
+              organisation&apos;s structure are not fully wired up to screen permissions yet.
               {/*
-                The amounts themselves are a separate fact from the enforcement working —
-                and the one most likely to be read as settled just because it is written in
-                Naira on a screen. It is not: it is the implementing consultant's own
-                illustrative table, not a figure taken from the client's specification. The
-                engine enforces whatever this table says correctly; what it says has not been
-                confirmed.
+                Worth keeping honest rather than letting a Naira figure on screen read as
+                settled: these are starting figures, not numbers taken from a confirmed
+                policy. See how far to go with that disclosure without lapsing back into
+                build-status language a farm user has no reason to parse.
               */}{' '}
-              The amounts themselves — ₦250,000 / ₦2,000,000 / ₦10,000,000 — are the
-              consultant&apos;s own illustrative ladder, not figures taken from the client&apos;s
-              specification, which does not state one. They will change once the client
-              confirms real limits.
+              The amounts shown — ₦250,000 / ₦2,000,000 / ₦10,000,000 — are starting
+              figures, not yet confirmed against your organisation&apos;s real approval
+              policy. There is no screen to change them yet; for now, treat them as
+              provisional.
             </span>
           </div>
         </Card>
 
         <Card>
           <p className="muted" style={{ fontSize: 14 }}>
-            Employee records and payroll — including PAYE and statutory deductions — exist in
-            the backend and are tested. Turning on a company&apos;s statutory rates now has a
-            screen (<a href="/finance/payroll">Money → Payroll setup</a> — gated to Finance
-            Manager, Finance Controller and CFO, the same roles the API already restricts it
-            to); raising and approving an actual monthly run still does not. Server-side
-            permission checks now exist for most of what each role is meant to do. The People
-            table above can now change an existing person&apos;s roles or turn their access off
-            — neither works on your own row, on purpose: ask another administrator rather than
-            edit your own way around the ceiling.
+            Employee records and statutory payroll deductions are supported. You can turn
+            on your statutory rates under <a href="/finance/payroll">Money → Payroll setup</a>;
+            raising and approving an actual monthly payroll run is not available yet. You can
+            change another person&apos;s roles or switch off their access from the table above
+            — you cannot do this to your own account; ask another administrator instead.
           </p>
         </Card>
       </div>

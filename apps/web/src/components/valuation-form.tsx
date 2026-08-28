@@ -73,7 +73,7 @@ export function ValuationForm({ groups }: { groups: BiologicalAssetGroup[] }) {
             placeholder="A price list, a buyer quotation, a market survey"
             required
           />
-          <span className="faint">§61.6 blocks a valuation raised with no approved evidence.</span>
+          <span className="faint">A valuation cannot be raised without something backing the price — a price list, a quotation, a survey.</span>
         </label>
 
         <Submit />

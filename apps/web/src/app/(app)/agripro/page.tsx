@@ -73,7 +73,7 @@ export default async function AgriProCorePage() {
           <Stat
             label="Built but unreachable"
             value={String(progress.engine)}
-            hint="posts through the API only"
+            hint="works in the background, no screen yet"
             goodWhen="down"
           />
           <Stat

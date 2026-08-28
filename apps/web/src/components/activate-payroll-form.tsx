@@ -28,9 +28,8 @@ export function ActivatePayrollForm() {
         <p style={{ fontSize: 14, lineHeight: 1.6 }}>
           This applies the Nigeria Tax Act 2025 PAYE bands, rent and pension reliefs, and the
           pension, NHF, NSITF and ITF rates effective 1 January 2026 — the same figures every
-          payslip in this application is calculated against, verified against the client&rsquo;s
-          own workbook. There is nothing to type in: these are statutory rates, not company
-          preferences.
+          payslip in this application is calculated against. There is nothing to type in:
+          these are statutory rates, not company preferences.
         </p>
 
         <label className="field row" style={{ gap: 'var(--sp-3)', alignItems: 'center' }}>

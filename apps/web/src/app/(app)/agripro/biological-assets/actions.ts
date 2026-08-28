@@ -28,7 +28,7 @@ export async function requestValuation(
   if (!groupId) return { error: 'No population was named.', message: null };
   if (!evidenceReference) {
     return {
-      error: 'State the market evidence — §61.6 refuses a valuation raised on nothing.',
+      error: 'State the market evidence — a valuation cannot be raised with nothing to support it.',
       message: null,
     };
   }
