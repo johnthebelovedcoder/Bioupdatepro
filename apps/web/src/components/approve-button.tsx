@@ -8,6 +8,7 @@ import {
   rejectTransaction,
   type FlowState,
 } from '@/app/(app)/procurement/actions';
+import { approveSalesOrder } from '@/app/(app)/sales/actions';
 
 const EMPTY: FlowState = { error: null, message: null };
 
@@ -21,6 +22,20 @@ const EMPTY: FlowState = { error: null, message: null };
  */
 export function ApproveOrderButton({ orderId }: { orderId: string }) {
   const [state, formAction] = useActionState<FlowState, FormData>(approveOrder, EMPTY);
+
+  return (
+    <form action={formAction}>
+      <input type="hidden" name="orderId" value={orderId} />
+      <Pending idle="Approve" busy="Approving…" />
+      {state.error ? <div className="faint" style={{ color: 'var(--error-700)' }}>{state.error}</div> : null}
+      {state.message ? <div className="faint">{state.message}</div> : null}
+    </form>
+  );
+}
+
+/** Same shape as `ApproveOrderButton`, for a sales order instead of a purchase order. */
+export function ApproveSalesOrderButton({ orderId }: { orderId: string }) {
+  const [state, formAction] = useActionState<FlowState, FormData>(approveSalesOrder, EMPTY);
 
   return (
     <form action={formAction}>

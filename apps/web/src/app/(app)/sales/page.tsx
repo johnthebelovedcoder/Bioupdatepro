@@ -1,205 +1,152 @@
-import { getCustomers, getReceivablesAgeing, getSalesInvoices } from '@/lib/demo-trade';
-import { formatDate, formatNaira, toKobo } from '@/lib/money';
-import { Card, PageHeader, Stat } from '@/components/ui';
 import Link from 'next/link';
+import { getSalesOrders } from '@/lib/sales';
+import { getCustomers } from '@/lib/trade';
+import { formatDate, formatNaira, toKobo } from '@/lib/money';
+import { Card, EmptyState, PageHeader, Stat } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
-import { IconPlus } from '@/components/icons';
+import { ApproveSalesOrderButton } from '@/components/approve-button';
+import { IconTag } from '@/components/icons';
 
-export const metadata = { title: 'Sales — BioAssetPro' };
+export const metadata = { title: 'Selling — BioAssetPro' };
 
 const STATUS_TONE: Record<string, string> = {
   DRAFT: '',
-  UNPAID: 'badge-warning',
-  PART_PAID: 'badge-warning',
-  PAID: 'badge-success',
-  OVERDUE: 'badge-danger',
+  SUBMITTED: 'badge-warning',
+  APPROVED: 'badge-accent',
+  PARTIALLY_DELIVERED: 'badge-warning',
+  FULLY_DELIVERED: 'badge-accent',
+  CLOSED: 'badge-success',
+  CANCELLED: '',
 };
 
+/**
+ * Sales orders — the farm's own, from the API.
+ *
+ * Mirrors Buying exactly: what was ordered, by whom, what it is worth, where
+ * it has got to, and what can be done about it now. The old version of this
+ * page read `demo-trade.ts` fixtures — invented invoices and customer
+ * balances shown as if they were real, which is how a client came to ask
+ * where the numbers on his farm's app had come from.
+ */
 export default async function SalesPage() {
-  const [invoices, customers, ageing] = await Promise.all([
-    getSalesInvoices(),
-    getCustomers(),
-    getReceivablesAgeing(),
-  ]);
+  const [orders, customers] = await Promise.all([getSalesOrders(), getCustomers()]);
 
-  const outstanding = invoices.reduce((sum, invoice) => sum + toKobo(invoice.outstandingKobo), 0n);
-  const overdue = invoices
-    .filter((invoice) => invoice.status === 'OVERDUE')
-    .reduce((sum, invoice) => sum + toKobo(invoice.outstandingKobo), 0n);
-  const billed = invoices.reduce((sum, invoice) => sum + toKobo(invoice.totalKobo), 0n);
-  const ageingTotal = ageing.reduce((sum, bucket) => sum + toKobo(bucket.amountKobo), 0n);
+  const awaiting = orders.filter((order) => order.pendingTransactionId);
+  const deliverable = orders.filter((order) => order.canDeliver);
+  const openValue = orders
+    .filter((order) => order.status !== 'CLOSED' && order.status !== 'CANCELLED')
+    .reduce((sum, order) => sum + toKobo(order.netKobo), 0n);
 
   return (
     <>
-      <PageHeader
-        title="Sales"
-        subtitle="Customers, invoices and what is still owed"
-        actions={
-          <>
-            <Link className="btn btn-primary" href="/sales/new">
-              <IconPlus size={16} />
-              Record a sale
-            </Link>
-          </>
-        }
-      />
+      <PageHeader title="Selling" subtitle="Sales orders, and what has gone out against them" />
 
       <Tabs />
 
       <div className="stack">
         <div className="stat-grid">
-          <Stat label="Invoiced" value={formatNaira(billed)} money hint="all shown" />
-          <Stat label="Outstanding" value={formatNaira(outstanding)} money goodWhen="down" />
+          <Stat label="Customers" value={String(customers.length)} hint="registered" />
+          <Stat label="Orders" value={String(orders.length)} />
+          <Stat label="Order value" value={formatNaira(openValue)} money hint="excluding VAT" />
           <Stat
-            label="Overdue"
-            value={formatNaira(overdue)}
-            money
+            label="Waiting for approval"
+            value={String(awaiting.length)}
             goodWhen="down"
-            hint="past due date"
+            hint={awaiting.length > 0 ? 'blocking delivery' : 'none pending'}
           />
-          <Stat label="Customers" value={String(customers.length)} />
         </div>
 
-        <div className="two-col">
-          <Card title="Invoices" padded={false}>
+        {awaiting.length > 0 ? (
+          <div className="notice notice-warning">
+            {awaiting.length} order{awaiting.length === 1 ? ' is' : 's are'} waiting for
+            approval. Goods cannot ship against an order nobody has approved.
+          </div>
+        ) : null}
+
+        {deliverable.length > 0 ? (
+          <div className="notice notice-success">
+            {deliverable.length} order{deliverable.length === 1 ? '' : 's'} approved and ready
+            to ship. <Link href="/sales/deliveries">Record the delivery</Link> to move stock and
+            open the door to invoicing.
+          </div>
+        ) : null}
+
+        <Card
+          title="Sales orders"
+          subtitle="Raised on this farm"
+          padded={false}
+          action={
+            <Link href="/sales/new" className="btn btn-primary">
+              Record a sale
+            </Link>
+          }
+        >
+          {orders.length === 0 ? (
+            <EmptyState
+              icon={<IconTag size={22} />}
+              title="No orders yet"
+              body="Nothing has been sold. Raise one with “Record a sale”, and it goes for approval before anything can ship against it."
+            />
+          ) : (
             <div className="table-wrap">
-              <table className="data">
+              <table className="data wide">
                 <thead>
                   <tr>
-                    <th style={{ width: 150 }}>Invoice</th>
+                    <th style={{ width: 150 }}>Order</th>
                     <th>Customer</th>
-                    <th style={{ width: 100 }}>Due</th>
-                    <th className="right" style={{ width: 130 }}>
-                      Outstanding
+                    <th style={{ width: 110 }}>Raised</th>
+                    <th className="right" style={{ width: 140 }}>
+                      Value
                     </th>
-                    <th style={{ width: 110 }}>Status</th>
+                    <th style={{ width: 150 }}>Status</th>
+                    <th style={{ width: 180 }}>Next step</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.map((invoice) => (
-                    <tr key={invoice.id}>
+                  {orders.map((order) => (
+                    <tr key={order.id}>
                       <td className="num strong" style={{ textAlign: 'left' }}>
-                        {invoice.number}
-                        <div className="faint">{formatDate(invoice.issuedOn)}</div>
+                        {order.orderNumber}
+                        <div className="faint">
+                          {order.lineCount} line{order.lineCount === 1 ? '' : 's'}
+                        </div>
                       </td>
-                      <td>{invoice.customer}</td>
+                      <td>{order.customer}</td>
                       <td className="num" style={{ textAlign: 'left' }}>
-                        {formatDate(invoice.dueOn)}
+                        {formatDate(order.orderDate)}
                       </td>
-                      <td className="num">
-                        {toKobo(invoice.outstandingKobo) === 0n ? (
-                          <span className="num-zero">—</span>
-                        ) : (
-                          formatNaira(invoice.outstandingKobo)
-                        )}
+                      <td className="num">{formatNaira(order.netKobo)}</td>
+                      <td>
+                        <span className={`badge ${STATUS_TONE[order.status] ?? ''}`}>
+                          {order.status.replace(/_/g, ' ').toLowerCase()}
+                        </span>
                       </td>
                       <td>
-                        <span className={`badge ${STATUS_TONE[invoice.status] ?? ''}`}>
-                          {invoice.status.replace(/_/g, ' ').toLowerCase()}
-                        </span>
+                        {order.pendingTransactionId ? (
+                          <ApproveSalesOrderButton orderId={order.id} />
+                        ) : order.canDeliver ? (
+                          <Link href={`/sales/deliver/${order.id}`} className="btn btn-primary">
+                            Ship goods
+                          </Link>
+                        ) : (
+                          <span className="faint">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </Card>
-
-          <Card title="Receivables ageing" subtitle="From the due date">
-            <div className="stack" style={{ gap: 'var(--sp-4)' }}>
-              {ageing.map((bucket) => {
-                const amount = toKobo(bucket.amountKobo);
-                const share = ageingTotal > 0n ? Number((amount * 100n) / ageingTotal) : 0;
-                const late = bucket.label !== 'Not yet due' && amount > 0n;
-                return (
-                  <div key={bucket.label}>
-                    <div className="row" style={{ justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 14 }}>{bucket.label}</span>
-                      <span className="num" style={{ fontSize: 13 }}>
-                        {formatNaira(bucket.amountKobo)}
-                      </span>
-                    </div>
-                    <div className="meter">
-                      <div
-                        className={`meter-fill ${late ? 'is-low' : ''}`}
-                        style={{ width: `${share}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ marginTop: 'var(--sp-4)' }}>
-              <p className="faint">
-                Aged from the DUE date, not the invoice date — an invoice on 60-day terms is
-                not late on day 31.
-              </p>
-            </div>
-          </Card>
-        </div>
-
-        <Card title="Customers" padded={false}>
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Customer</th>
-                  <th style={{ width: 140 }}>Type</th>
-                  <th style={{ width: 150 }}>Phone</th>
-                  <th style={{ width: 110 }}>Last order</th>
-                  <th className="right" style={{ width: 130 }}>
-                    Balance
-                  </th>
-                  <th className="right" style={{ width: 130 }}>
-                    Overdue
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {customers.map((customer) => (
-                  <tr key={customer.id}>
-                    <td className="strong">{customer.name}</td>
-                    <td className="faint">{customer.type}</td>
-                    <td className="num" style={{ textAlign: 'left' }}>
-                      {customer.phone}
-                    </td>
-                    <td className="num" style={{ textAlign: 'left' }}>
-                      {formatDate(customer.lastOrderOn)}
-                    </td>
-                    <td className="num">
-                      {toKobo(customer.balanceKobo) === 0n ? (
-                        <span className="num-zero">—</span>
-                      ) : (
-                        formatNaira(customer.balanceKobo)
-                      )}
-                    </td>
-                    <td className="num">
-                      {toKobo(customer.overdueKobo) === 0n ? (
-                        <span className="num-zero">—</span>
-                      ) : (
-                        <span style={{ color: 'var(--error-700)' }}>
-                          {formatNaira(customer.overdueKobo)}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="card-footer">
-            <span className="faint">
-              Customer balances are a view over the ledger, not a separate figure that can
-              drift away from it.
-            </span>
-          </div>
+          )}
         </Card>
 
-        <Card>
+        <Card padded>
           <p className="muted" style={{ fontSize: 14 }}>
-            The sales pipeline already exists in the backend and is tested — quotation,
-            order, delivery note, invoice, receipt, allocation, credit note and returns,
-            including where cost of sales is recognised. Only the interface is missing.
+            Nothing on this page has touched the accounts yet. An order is a promise, not a
+            sale — the first ledger entry happens when goods ship (or, if this company defers
+            cost of sales, when the invoice is raised). See{' '}
+            <Link href="/sales/deliveries">Deliveries</Link> and{' '}
+            <Link href="/sales/invoices">Invoices</Link>.
           </p>
         </Card>
       </div>

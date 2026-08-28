@@ -16,6 +16,7 @@ import { BiologicalAssetModule } from './biological-assets/biological-asset.modu
 import { MastersController } from './masters/masters.controller';
 import { MasterDataController } from './masters/master-data.controller';
 import { ProcurementController } from './procurement/procurement.controller';
+import { SalesController } from './sales/sales.controller';
 import { SearchController } from './search/search.controller';
 import { PostingControlController } from './posting-control/posting-control.controller';
 import { BiologicalAssetController } from './biological-assets/biological-asset.controller';
@@ -64,6 +65,7 @@ const developmentOnlyControllers =
     ClosingController,
     ReportingController,
     ProcurementController,
+    SalesController,
     SearchController,
     PostingControlController,
     BiologicalAssetController,

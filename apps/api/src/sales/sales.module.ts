@@ -5,6 +5,7 @@ import { DeliveryService } from './delivery.service';
 import { SalesInvoiceService } from './sales-invoice.service';
 import { CustomerReceiptService } from './customer-receipt.service';
 import { CreditNoteService } from './credit-note.service';
+import { SalesFlowService } from './sales-flow.service';
 import {
   CreditNotePostingHandler,
   CustomerReceiptPostingHandler,
@@ -22,6 +23,7 @@ import { WorkflowService } from '../workflow/workflow.service';
     SalesInvoiceService,
     CustomerReceiptService,
     CreditNoteService,
+    SalesFlowService,
     DeliveryPostingHandler,
     SalesInvoicePostingHandler,
     CustomerReceiptPostingHandler,
@@ -34,6 +36,8 @@ import { WorkflowService } from '../workflow/workflow.service';
     SalesInvoiceService,
     CustomerReceiptService,
     CreditNoteService,
+    // Exported because SalesController is registered in AppModule.
+    SalesFlowService,
   ],
 })
 export class SalesModule implements OnModuleInit {

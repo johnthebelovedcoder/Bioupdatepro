@@ -147,6 +147,10 @@ const RESOLVERS = {
     (await prisma.purchaseRequisition.findUnique({ where: { id }, select: { companyId: true } }))
       ?.companyId ?? null,
 
+  salesOrder: async (prisma: PrismaService, id: string) =>
+    (await prisma.salesOrder.findUnique({ where: { id }, select: { companyId: true } }))
+      ?.companyId ?? null,
+
   workflowDelegation: async (prisma: PrismaService, id: string) =>
     (await prisma.workflowDelegation.findUnique({ where: { id }, select: { companyId: true } }))
       ?.companyId ?? null,

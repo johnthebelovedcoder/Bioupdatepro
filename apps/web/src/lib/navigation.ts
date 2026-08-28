@@ -163,6 +163,25 @@ export const SECTIONS: NavSection[] = [
         keywords: ['new sale', 'sell'],
       },
       {
+        href: '/sales/deliveries',
+        label: 'Deliveries',
+        hint: 'Goods shipped to customers, and the entries each one made',
+        keywords: ['delivery', 'ship', 'goods out', 'dispatch'],
+      },
+      {
+        href: '/sales/deliver',
+        label: 'Ship goods',
+        hint: 'Enter what is going out against an approved order',
+        keywords: ['ship', 'deliver', 'goods out', 'dispatch'],
+        hidden: true,
+      },
+      {
+        href: '/sales/invoices',
+        label: 'Invoices',
+        hint: 'What customers have been billed, and what is still owed',
+        keywords: ['invoice', 'bill', 'receivable', 'receipt', 'ar'],
+      },
+      {
         href: '/customers',
         label: 'Customers',
         hint: 'Everyone the farm sells to',
