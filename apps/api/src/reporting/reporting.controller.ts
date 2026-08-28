@@ -2,6 +2,8 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
 import { ProfitLossService } from './profit-loss.service';
+import { BalanceSheetService } from './balance-sheet.service';
+import { currentFinancialYearId } from './current-financial-year';
 import { CurrentCompany } from '../auth/current-user.decorator';
 import { Roles, AnyRole } from '../auth/roles.guard';
 
@@ -25,6 +27,7 @@ export class ReportingController {
     private readonly prisma: PrismaService,
     private readonly trialBalance: TrialBalanceService,
     private readonly profitLoss: ProfitLossService,
+    private readonly balanceSheet: BalanceSheetService,
   ) {}
 
   /**
@@ -125,7 +128,7 @@ export class ReportingController {
   ) {
     const defaultYearId =
       !financialYearId && !financialPeriodId
-        ? (await this.currentFinancialYear(companyId))?.id
+        ? await currentFinancialYearId(this.prisma, companyId)
         : undefined;
 
     return this.profitLoss.build({
@@ -139,12 +142,24 @@ export class ReportingController {
     });
   }
 
-  /** The financial year whose date range covers today, if one is open. */
-  private async currentFinancialYear(companyId: string) {
-    const today = new Date();
-    return this.prisma.financialYear.findFirst({
-      where: { companyId, startDate: { lte: today }, endDate: { gte: today } },
-      select: { id: true },
+  /**
+   * Assets, liabilities and equity as at now — permanent accounts, so there is
+   * no period/year filter here at all, only the dimension filters trial
+   * balance already supports.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('balance-sheet')
+  async balanceSheetReport(
+    @CurrentCompany() companyId: string,
+    @Query('branchId') branchId?: string,
+    @Query('costCentreId') costCentreId?: string,
+    @Query('farmId') farmId?: string,
+  ) {
+    return this.balanceSheet.build({
+      companyId,
+      ...(branchId ? { branchId } : {}),
+      ...(costCentreId ? { costCentreId } : {}),
+      ...(farmId ? { farmId } : {}),
     });
   }
 

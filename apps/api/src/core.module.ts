@@ -7,6 +7,7 @@ import { DimensionValidatorService } from './enterprise-dimensions/dimension-val
 import { PostingService } from './posting/posting.service';
 import { TrialBalanceService } from './reporting/trial-balance.service';
 import { ProfitLossService } from './reporting/profit-loss.service';
+import { BalanceSheetService } from './reporting/balance-sheet.service';
 
 /**
  * The shared platform every later module builds on.
@@ -27,6 +28,7 @@ import { ProfitLossService } from './reporting/profit-loss.service';
     PostingService,
     TrialBalanceService,
     ProfitLossService,
+    BalanceSheetService,
   ],
   exports: [
     PrismaService,
@@ -37,6 +39,7 @@ import { ProfitLossService } from './reporting/profit-loss.service';
     PostingService,
     TrialBalanceService,
     ProfitLossService,
+    BalanceSheetService,
   ],
 })
 export class CoreModule {}

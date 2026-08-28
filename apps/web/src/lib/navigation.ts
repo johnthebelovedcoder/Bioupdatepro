@@ -337,6 +337,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['p&l', 'profit', 'loss', 'income statement', 'revenue', 'expense'],
       },
       {
+        href: '/ledger/balance-sheet',
+        label: 'Balance sheet',
+        hint: 'What the company owns, owes, and is worth',
+        keywords: ['balance sheet', 'bs', 'assets', 'liabilities', 'equity'],
+      },
+      {
         href: '/ledger/journals',
         label: 'Journal entries',
         hint: 'Every posting, with what caused it',
