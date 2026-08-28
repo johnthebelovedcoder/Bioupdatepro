@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { Card } from './ui';
+import { Sheet } from './sheet';
 import { raiseRequisition, type FlowState } from '@/app/(app)/procurement/actions';
 import type { Product } from '@/lib/demo-products';
 
@@ -29,69 +29,78 @@ export function RequisitionForm({ items, today }: { items: Product[]; today: str
           item.code.toLowerCase().includes(query.toLowerCase()),
       )
     : items;
+  const [open, setOpen] = useState(false);
 
   return (
-    <Card title="Raise a requisition" subtitle="What is needed — not yet what it costs or who supplies it">
-      <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+    <>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+        Raise a requisition
+      </button>
 
-        <div className="grid-auto">
+      <Sheet open={open} onClose={() => setOpen(false)} title="Raise a requisition">
+        <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">What is needed — not yet what it costs or who supplies it.</p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+
+          <div className="grid-auto">
+            <label className="field">
+              Date needed by<span className="faint"> (optional)</span>
+              <input type="date" name="requiredDate" min={today} />
+            </label>
+            <label className="field">
+              Why<span className="faint"> (optional)</span>
+              <input name="justification" placeholder="What this is for" />
+            </label>
+          </div>
+          <input type="hidden" name="requestDate" value={today} />
+
           <label className="field">
-            Date needed by<span className="faint"> (optional)</span>
-            <input type="date" name="requiredDate" min={today} />
+            Find an item
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by name or code"
+            />
           </label>
-          <label className="field">
-            Why<span className="faint"> (optional)</span>
-            <input name="justification" placeholder="What this is for" />
-          </label>
-        </div>
-        <input type="hidden" name="requestDate" value={today} />
 
-        <label className="field">
-          Find an item
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by name or code"
-          />
-        </label>
-
-        <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}>
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th style={{ width: 130 }}>Quantity</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <input type="hidden" name="itemId" value={item.id} />
-                    <span className="strong">{item.code}</span>
-                    <div className="faint">{item.name}</div>
-                  </td>
-                  <td>
-                    <input
-                      name={`quantity:${item.id}`}
-                      type="number"
-                      step="any"
-                      inputMode="decimal"
-                      min="0"
-                      placeholder="0"
-                      style={{ minHeight: 0 }}
-                    />
-                  </td>
+          <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th style={{ width: 130 }}>Quantity</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filtered.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <input type="hidden" name="itemId" value={item.id} />
+                      <span className="strong">{item.code}</span>
+                      <div className="faint">{item.name}</div>
+                    </td>
+                    <td>
+                      <input
+                        name={`quantity:${item.id}`}
+                        type="number"
+                        step="any"
+                        inputMode="decimal"
+                        min="0"
+                        placeholder="0"
+                        style={{ minHeight: 0 }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-        <Submit />
-      </form>
-    </Card>
+          <Submit />
+        </form>
+      </Sheet>
+    </>
   );
 }
 

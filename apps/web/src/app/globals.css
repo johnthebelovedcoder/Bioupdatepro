@@ -1516,6 +1516,11 @@ td input.num {
   font-weight: 600;
 }
 
+.tabs-select {
+  margin-bottom: var(--sp-5);
+  max-width: 280px;
+}
+
 /* --- Segmented control (period filter) ------------------------------------ */
 
 .segmented {
@@ -2244,6 +2249,11 @@ body:has(.offline-banner) .app-sidebar {
   /* The register's card list is a block, not an inline row of cards. */
   .show-on-phone.record-list {
     display: block;
+  }
+
+  .tabs-select.show-on-phone {
+    display: block;
+    max-width: none;
   }
 
   /* Sheet sticks to the bottom edge, where a thumb can reach it. */

@@ -1,9 +1,9 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import type { MasterState } from '@/app/(app)/admin/actions';
-import { Card } from './ui';
+import { Sheet } from './sheet';
 
 export interface FieldSpec {
   name: string;
@@ -54,27 +54,37 @@ export function MasterForm({
     else rows.push([field]);
   }
 
+  const [open, setOpen] = useState(false);
+
   return (
-    <Card title={title} subtitle={subtitle}>
-      <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
-        {state.created ? (
-          <div className="notice notice-success">
-            <strong>{state.created}</strong> saved.
-          </div>
-        ) : null}
+    <>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+        {title}
+      </button>
 
-        {rows.map((row, index) => (
-          <div key={index} className={row.length > 1 ? 'grid-auto' : undefined}>
-            {row.map((field) => (
-              <Field key={field.name} field={field} value={state.values?.[field.name]} />
-            ))}
-          </div>
-        ))}
+      <Sheet open={open} onClose={() => setOpen(false)} title={title}>
+        <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">{subtitle}</p>
 
-        <Submit label={submitLabel} />
-      </form>
-    </Card>
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+          {state.created ? (
+            <div className="notice notice-success">
+              <strong>{state.created}</strong> saved.
+            </div>
+          ) : null}
+
+          {rows.map((row, index) => (
+            <div key={index} className={row.length > 1 ? 'grid-auto' : undefined}>
+              {row.map((field) => (
+                <Field key={field.name} field={field} value={state.values?.[field.name]} />
+              ))}
+            </div>
+          ))}
+
+          <Submit label={submitLabel} />
+        </form>
+      </Sheet>
+    </>
   );
 }
 

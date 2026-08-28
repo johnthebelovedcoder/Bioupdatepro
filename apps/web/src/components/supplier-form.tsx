@@ -1,9 +1,9 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createSupplier, type SupplierFormState } from '@/app/(app)/suppliers/actions';
-import { Card } from './ui';
+import { Sheet } from './sheet';
 
 /**
  * Registering a vendor.
@@ -23,76 +23,86 @@ export function SupplierForm() {
     created: null,
   });
 
+  const [open, setOpen] = useState(false);
+
   return (
-    <Card title="Register a vendor" subtitle="You cannot buy from somebody the system has never heard of">
-      <form action={action} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
-        {state.created ? (
-          <div className="notice notice-success">
-            <span>
-              <strong>{state.created}</strong> is registered. You can raise a purchase
-              against them now.
-            </span>
+    <>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+        Register a vendor
+      </button>
+
+      <Sheet open={open} onClose={() => setOpen(false)} title="Register a vendor">
+        <form action={action} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">You cannot buy from somebody the system has never heard of.</p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+          {state.created ? (
+            <div className="notice notice-success">
+              <span>
+                <strong>{state.created}</strong> is registered. You can raise a purchase
+                against them now.
+              </span>
+            </div>
+          ) : null}
+
+          <div className="grid-auto">
+            <Field
+              name="code"
+              label="Vendor code"
+              hint="Short and unique — SUP-GREENFIELDS."
+              defaultValue={state.values?.code}
+              required
+            />
+            <Field
+              name="name"
+              label="Vendor name"
+              hint="As it appears on their invoice."
+              defaultValue={state.values?.name}
+              required
+            />
           </div>
-        ) : null}
 
-        <div className="grid-auto">
-          <Field
-            name="code"
-            label="Vendor code"
-            hint="Short and unique — SUP-GREENFIELDS."
-            defaultValue={state.values?.code}
-            required
-          />
-          <Field
-            name="name"
-            label="Vendor name"
-            hint="As it appears on their invoice."
-            defaultValue={state.values?.name}
-            required
-          />
-        </div>
+          <div className="grid-auto">
+            <Field
+              name="category"
+              label="What they supply"
+              hint="Feed, veterinary, equipment."
+              defaultValue={state.values?.category}
+            />
+            <Field
+              name="tin"
+              label="TIN"
+              hint="Their tax identification number, if you have it."
+              defaultValue={state.values?.tin}
+            />
+          </div>
 
-        <div className="grid-auto">
-          <Field
-            name="category"
-            label="What they supply"
-            hint="Feed, veterinary, equipment."
-            defaultValue={state.values?.category}
-          />
-          <Field
-            name="tin"
-            label="TIN"
-            hint="Their tax identification number, if you have it."
-            defaultValue={state.values?.tin}
-          />
-        </div>
+          <div className="grid-auto">
+            <Field name="phone" label="Phone" defaultValue={state.values?.phone} />
+            <Field name="email" label="Email" type="email" defaultValue={state.values?.email} />
+          </div>
 
-        <div className="grid-auto">
-          <Field name="phone" label="Phone" defaultValue={state.values?.phone} />
-          <Field name="email" label="Email" type="email" defaultValue={state.values?.email} />
-        </div>
+          <Field name="address" label="Address" defaultValue={state.values?.address} />
 
-        <Field name="address" label="Address" defaultValue={state.values?.address} />
+          <div className="grid-auto">
+            <Field
+              name="bankName"
+              label="Bank"
+              hint="Where payments go when you settle their invoice."
+              defaultValue={state.values?.bankName}
+            />
+            <Field
+              name="accountNumber"
+              label="Account number"
+              defaultValue={state.values?.accountNumber}
+            />
+          </div>
+          <Field name="accountName" label="Account name" defaultValue={state.values?.accountName} />
 
-        <div className="grid-auto">
-          <Field
-            name="bankName"
-            label="Bank"
-            hint="Where payments go when you settle their invoice."
-            defaultValue={state.values?.bankName}
-          />
-          <Field
-            name="accountNumber"
-            label="Account number"
-            defaultValue={state.values?.accountNumber}
-          />
-        </div>
-        <Field name="accountName" label="Account name" defaultValue={state.values?.accountName} />
-
-        <Submit />
-      </form>
-    </Card>
+          <Submit />
+        </form>
+      </Sheet>
+    </>
   );
 }
 

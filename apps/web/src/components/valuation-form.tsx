@@ -1,8 +1,8 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { Card } from './ui';
+import { Sheet } from './sheet';
 import { formatNaira } from '@/lib/money';
 import { requestValuation, type ValuationState } from '@/app/(app)/agripro/biological-assets/actions';
 import type { BiologicalAssetGroup } from '@/lib/biological-assets';
@@ -22,63 +22,74 @@ export function ValuationForm({ groups }: { groups: BiologicalAssetGroup[] }) {
     message: null,
   });
   const valued = groups.filter((g) => g.acquisitionPosted);
+  const [open, setOpen] = useState(false);
 
   return (
-    <Card
-      title="Raise a valuation"
-      subtitle="Fair value less costs to sell — the market price and what it costs to realise it"
-    >
-      <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
-        {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+    <>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+        Raise a valuation
+      </button>
 
-        <label className="field">
-          Population
-          <select name="groupId" required defaultValue="">
-            <option value="" disabled>
-              Choose a population
-            </option>
-            {valued.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.code} — {g.breed} ({g.stage}, {g.population} alive
-                {g.currentFvlctsPerUnitKobo
-                  ? `, currently ${formatNaira(g.currentFvlctsPerUnitKobo)}/unit`
-                  : ''}
-                )
+      <Sheet open={open} onClose={() => setOpen(false)} title="Raise a valuation">
+        <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">
+            Fair value less costs to sell — the market price and what it costs to realise it.
+          </p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+          {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+
+          <label className="field">
+            Population
+            <select name="groupId" required defaultValue="">
+              <option value="" disabled>
+                Choose a population
               </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="grid-auto">
-          <label className="field">
-            Valuation date
-            <input type="date" name="valuationDate" defaultValue={today()} required />
+              {valued.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.code} — {g.breed} ({g.stage}, {g.population} alive
+                  {g.currentFvlctsPerUnitKobo
+                    ? `, currently ${formatNaira(g.currentFvlctsPerUnitKobo)}/unit`
+                    : ''}
+                  )
+                </option>
+              ))}
+            </select>
           </label>
-          <label className="field">
-            Market price per unit (₦)
-            <input name="marketPricePerUnit" type="number" step="any" inputMode="decimal" required />
-          </label>
-          <label className="field">
-            Costs to sell per unit (₦)
-            <span className="faint"> (optional)</span>
-            <input name="costsToSellPerUnit" type="number" step="any" inputMode="decimal" />
-          </label>
-        </div>
 
-        <label className="field">
-          Market evidence
-          <input
-            name="evidenceReference"
-            placeholder="A price list, a buyer quotation, a market survey"
-            required
-          />
-          <span className="faint">A valuation cannot be raised without something backing the price — a price list, a quotation, a survey.</span>
-        </label>
+          <div className="grid-auto">
+            <label className="field">
+              Valuation date
+              <input type="date" name="valuationDate" defaultValue={today()} required />
+            </label>
+            <label className="field">
+              Market price per unit (₦)
+              <input name="marketPricePerUnit" type="number" step="any" inputMode="decimal" required />
+            </label>
+            <label className="field">
+              Costs to sell per unit (₦)
+              <span className="faint"> (optional)</span>
+              <input name="costsToSellPerUnit" type="number" step="any" inputMode="decimal" />
+            </label>
+          </div>
 
-        <Submit />
-      </form>
-    </Card>
+          <label className="field">
+            Market evidence
+            <input
+              name="evidenceReference"
+              placeholder="A price list, a buyer quotation, a market survey"
+              required
+            />
+            <span className="faint">
+              A valuation cannot be raised without something backing the price — a price list, a
+              quotation, a survey.
+            </span>
+          </label>
+
+          <Submit />
+        </form>
+      </Sheet>
+    </>
   );
 }
 

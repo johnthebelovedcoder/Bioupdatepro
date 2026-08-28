@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { FinancialYear } from '@/lib/org';
+import { FilterPanel } from '@/components/filter-panel';
 
 interface Named {
   id: string;
@@ -51,8 +52,8 @@ export function TrialBalanceFilters({
   const periods = years.find((year) => year.id === selected.financialYearId)?.periods ?? [];
 
   return (
-    <div className="card">
-      <div className="card-body grid-auto">
+    <FilterPanel>
+      <div className="stack" style={{ gap: 'var(--sp-4)' }}>
         <label className="field">
           Financial year
           <select
@@ -104,7 +105,7 @@ export function TrialBalanceFilters({
           onChange={(value) => update('farmId', value)}
         />
       </div>
-    </div>
+    </FilterPanel>
   );
 }
 

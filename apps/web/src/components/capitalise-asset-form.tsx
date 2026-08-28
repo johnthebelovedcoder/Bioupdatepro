@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { Card } from './ui';
+import { Sheet } from './sheet';
 import { parseNairaToKobo } from '@/lib/money';
 import { capitaliseAsset, type FlowState } from '@/app/(app)/ledger/fixed-assets/actions';
 
@@ -31,14 +31,21 @@ export function CapitaliseAssetForm({
     message: null,
   });
   const [cost, setCost] = useState('');
+  const [open, setOpen] = useState(false);
 
   return (
-    <Card title="Capitalise an asset" subtitle="Landed cost and useful life, for approval">
-      <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
-        {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+    <>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+        Capitalise an asset
+      </button>
 
-        <div className="grid-auto">
+      <Sheet open={open} onClose={() => setOpen(false)} title="Capitalise an asset">
+        <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">Landed cost and useful life, for approval.</p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+          {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+
           <label className="field">
             Name
             <input name="name" placeholder="e.g. Delivery van" required />
@@ -78,11 +85,11 @@ export function CapitaliseAssetForm({
               ))}
             </select>
           </label>
-        </div>
 
-        <Submit />
-      </form>
-    </Card>
+          <Submit />
+        </form>
+      </Sheet>
+    </>
   );
 }
 

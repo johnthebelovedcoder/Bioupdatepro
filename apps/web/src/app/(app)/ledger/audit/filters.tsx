@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import { FilterPanel } from '@/components/filter-panel';
 
 export function AuditFilters({
   modules,
@@ -23,10 +24,10 @@ export function AuditFilters({
   }
 
   return (
-    <div className="card">
+    <FilterPanel>
       <form
-        className="card-body grid-auto"
-        style={{ alignItems: 'end' }}
+        className="stack"
+        style={{ gap: 'var(--sp-4)' }}
         onSubmit={(event) => {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
@@ -61,6 +62,6 @@ export function AuditFilters({
           Apply
         </button>
       </form>
-    </div>
+    </FilterPanel>
   );
 }

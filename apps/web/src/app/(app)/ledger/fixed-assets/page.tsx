@@ -51,7 +51,7 @@ export default async function FixedAssetsPage() {
         </div>
       ) : null}
 
-      <div className="two-col">
+      <div className="row" style={{ gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
         <CapitaliseAssetForm costCentres={dimensions.costCentres} today={today} />
         <RunDepreciationForm periods={year?.periods ?? []} />
       </div>

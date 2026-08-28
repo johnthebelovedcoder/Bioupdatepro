@@ -1,8 +1,8 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { Card } from './ui';
+import { Sheet } from './sheet';
 import { runDepreciation, type FlowState } from '@/app/(app)/ledger/fixed-assets/actions';
 import type { Period } from '@/lib/org';
 
@@ -12,32 +12,41 @@ export function RunDepreciationForm({ periods }: { periods: Period[] }) {
     error: null,
     message: null,
   });
+  const [open, setOpen] = useState(false);
 
   const openPeriods = periods.filter((period) => period.status === 'OPEN');
 
   return (
-    <Card title="Run depreciation" subtitle="One straight-line charge per in-service asset, for a period">
-      <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
-        {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+    <>
+      <button type="button" className="btn" onClick={() => setOpen(true)}>
+        Run depreciation
+      </button>
 
-        <label className="field">
-          Period
-          <select name="financialPeriodId" defaultValue="" required>
-            <option value="" disabled>
-              Choose a period
-            </option>
-            {openPeriods.map((period) => (
-              <option key={period.id} value={period.id}>
-                {period.name}
+      <Sheet open={open} onClose={() => setOpen(false)} title="Run depreciation">
+        <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">One straight-line charge per in-service asset, for a period.</p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+          {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+
+          <label className="field">
+            Period
+            <select name="financialPeriodId" defaultValue="" required>
+              <option value="" disabled>
+                Choose a period
               </option>
-            ))}
-          </select>
-        </label>
+              {openPeriods.map((period) => (
+                <option key={period.id} value={period.id}>
+                  {period.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <Submit />
-      </form>
-    </Card>
+          <Submit />
+        </form>
+      </Sheet>
+    </>
   );
 }
 

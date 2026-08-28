@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { sectionFor } from '@/lib/navigation';
 import { canSee } from '@/lib/permissions';
 import { useRoles } from './roles-context';
@@ -19,6 +19,7 @@ import { useRoles } from './roles-context';
  */
 export function Tabs() {
   const pathname = usePathname();
+  const router = useRouter();
   const roles = useRoles();
   const section = sectionFor(pathname);
 
@@ -35,24 +36,46 @@ export function Tabs() {
   const tabs = section.children.filter((child) => !child.hidden);
   if (tabs.length < 2) return null;
 
+  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  const activeTab = tabs.find((tab) => isActive(tab.href));
+
   return (
-    <div className="tabs" role="tablist" aria-label={section.label}>
-      {tabs.map((tab) => {
-        const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
-        return (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            role="tab"
-            aria-selected={active}
-            className="tab"
-            title={tab.hint}
-          >
+    <>
+      <div className="tabs hide-on-phone" role="tablist" aria-label={section.label}>
+        {tabs.map((tab) => {
+          const active = isActive(tab.href);
+          return (
+            <Link
+              key={tab.href}
+              href={tab.href}
+              role="tab"
+              aria-selected={active}
+              className="tab"
+              title={tab.hint}
+            >
+              {tab.label}
+            </Link>
+          );
+        })}
+      </div>
+      {/*
+       * A horizontal row that scrolls sideways is awkward to browse by touch,
+       * so the phone gets a dropdown over the same tabs instead — one section,
+       * one list of tabs, two ways of picking from it.
+       */}
+      <select
+        className="tabs-select show-on-phone"
+        aria-label={section.label}
+        value={activeTab?.href ?? tabs[0]?.href ?? ''}
+        onChange={(event) => router.push(event.target.value)}
+      >
+        {tabs.map((tab) => (
+          <option key={tab.href} value={tab.href}>
             {tab.label}
-          </Link>
-        );
-      })}
-    </div>
+          </option>
+        ))}
+      </select>
+    </>
   );
 }
 

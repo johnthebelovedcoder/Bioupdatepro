@@ -1,9 +1,9 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createFarm, createPen, type StructureState } from '@/app/(app)/pens/actions';
-import { Card } from './ui';
+import { Sheet } from './sheet';
 
 interface FarmOption {
   id: string;
@@ -24,53 +24,61 @@ export function PenForm({ farms }: { farms: FarmOption[] }) {
     error: null,
     created: null,
   });
+  const [open, setOpen] = useState(false);
 
   return (
-    <Card
-      title="Add a house or pen"
-      subtitle="Where the animals actually live — a poultry house, a snail pen, a nursery section"
-    >
-      <form action={action} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
-        {state.created ? (
-          <div className="notice notice-success">
-            <span>
-              <strong>{state.created}</strong> added. You can place a population in it now.
-            </span>
+    <>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+        Add a house or pen
+      </button>
+
+      <Sheet open={open} onClose={() => setOpen(false)} title="Add a house or pen">
+        <form action={action} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">
+            Where the animals actually live — a poultry house, a snail pen, a nursery section.
+          </p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+          {state.created ? (
+            <div className="notice notice-success">
+              <span>
+                <strong>{state.created}</strong> added. You can place a population in it now.
+              </span>
+            </div>
+          ) : null}
+
+          {farms.length > 1 ? (
+            <label className="field">
+              Which farm?
+              <select name="farmId" defaultValue={state.values?.farmId ?? farms[0]?.id}>
+                {farms.map((farm) => (
+                  <option key={farm.id} value={farm.id}>
+                    {farm.name} ({farm.code})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <input type="hidden" name="farmId" value={farms[0]?.id ?? ''} />
+          )}
+
+          <div className="grid-auto">
+            <label className="field">
+              Code
+              <input name="code" defaultValue={state.values?.code} required />
+              <span className="faint">Short — PH-01, PEN-A, NURSERY.</span>
+            </label>
+            <label className="field">
+              Name
+              <input name="name" defaultValue={state.values?.name} required />
+              <span className="faint">What people call it out loud.</span>
+            </label>
           </div>
-        ) : null}
 
-        {farms.length > 1 ? (
-          <label className="field">
-            Which farm?
-            <select name="farmId" defaultValue={state.values?.farmId ?? farms[0]?.id}>
-              {farms.map((farm) => (
-                <option key={farm.id} value={farm.id}>
-                  {farm.name} ({farm.code})
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <input type="hidden" name="farmId" value={farms[0]?.id ?? ''} />
-        )}
-
-        <div className="grid-auto">
-          <label className="field">
-            Code
-            <input name="code" defaultValue={state.values?.code} required />
-            <span className="faint">Short — PH-01, PEN-A, NURSERY.</span>
-          </label>
-          <label className="field">
-            Name
-            <input name="name" defaultValue={state.values?.name} required />
-            <span className="faint">What people call it out loud.</span>
-          </label>
-        </div>
-
-        <Submit label="Add house or pen" pendingLabel="Adding…" />
-      </form>
-    </Card>
+          <Submit label="Add house or pen" pendingLabel="Adding…" />
+        </form>
+      </Sheet>
+    </>
   );
 }
 
@@ -80,32 +88,41 @@ export function FarmForm() {
     error: null,
     created: null,
   });
+  const [open, setOpen] = useState(false);
 
   return (
-    <Card title="Add a farm" subtitle="A site. Most businesses have one; some have several">
-      <form action={action} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
-        {state.created ? (
-          <div className="notice notice-success">
-            <strong>{state.created}</strong> added.
+    <>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+        Add a farm
+      </button>
+
+      <Sheet open={open} onClose={() => setOpen(false)} title="Add a farm">
+        <form action={action} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">A site. Most businesses have one; some have several.</p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+          {state.created ? (
+            <div className="notice notice-success">
+              <strong>{state.created}</strong> added.
+            </div>
+          ) : null}
+
+          <div className="grid-auto">
+            <label className="field">
+              Code
+              <input name="farmCode" defaultValue={state.values?.farmCode} required />
+              <span className="faint">MAIN, IBADAN, SITE-2.</span>
+            </label>
+            <label className="field">
+              Name
+              <input name="farmName" defaultValue={state.values?.farmName} required />
+            </label>
           </div>
-        ) : null}
 
-        <div className="grid-auto">
-          <label className="field">
-            Code
-            <input name="farmCode" defaultValue={state.values?.farmCode} required />
-            <span className="faint">MAIN, IBADAN, SITE-2.</span>
-          </label>
-          <label className="field">
-            Name
-            <input name="farmName" defaultValue={state.values?.farmName} required />
-          </label>
-        </div>
-
-        <Submit label="Add farm" pendingLabel="Adding…" />
-      </form>
-    </Card>
+          <Submit label="Add farm" pendingLabel="Adding…" />
+        </form>
+      </Sheet>
+    </>
   );
 }
 

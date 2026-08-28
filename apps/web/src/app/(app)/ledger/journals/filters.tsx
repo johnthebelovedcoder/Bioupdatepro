@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { FinancialYear } from '@/lib/org';
+import { FilterPanel } from '@/components/filter-panel';
 
 export function JournalFilters({
   years,
@@ -33,10 +34,10 @@ export function JournalFilters({
   const periods = years.find((year) => year.id === selected.financialYearId)?.periods ?? [];
 
   return (
-    <div className="card">
+    <FilterPanel>
       <form
-        className="card-body grid-auto"
-        style={{ alignItems: 'end' }}
+        className="stack"
+        style={{ gap: 'var(--sp-4)' }}
         onSubmit={(event) => {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
@@ -98,6 +99,6 @@ export function JournalFilters({
           Apply
         </button>
       </form>
-    </div>
+    </FilterPanel>
   );
 }

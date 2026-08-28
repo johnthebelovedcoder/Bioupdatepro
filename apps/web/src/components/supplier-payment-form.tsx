@@ -2,7 +2,7 @@
 
 import { useActionState, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { Card } from './ui';
+import { Sheet } from './sheet';
 import { formatNaira, parseNairaToKobo } from '@/lib/money';
 import { recordSupplierPayment, type FlowState } from '@/app/(app)/procurement/actions';
 import type { SupplierInvoice } from '@/lib/procurement';
@@ -44,92 +44,99 @@ export function SupplierPaymentForm({
 
   const [supplierId, setSupplierId] = useState(payableSuppliers[0]?.id ?? '');
   const supplierInvoices = invoices.filter((invoice) => invoice.supplierId === supplierId);
+  const [open, setOpen] = useState(false);
 
   if (payableSuppliers.length === 0) {
     return (
-      <Card title="Pay a supplier">
-        <div className="notice notice-warning">
-          Nothing is approved and payable yet. An invoice has to clear approval before it can be
-          paid.
-        </div>
-      </Card>
+      <div className="notice notice-warning">
+        Nothing is approved and payable yet. An invoice has to clear approval before it can be
+        paid.
+      </div>
     );
   }
 
   return (
-    <Card title="Pay a supplier" subtitle="Only approved, unpaid invoices are shown">
-      <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+    <>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+        Pay a supplier
+      </button>
 
-        <div className="grid-auto">
-          <label className="field">
-            Supplier
-            <select
-              name="supplierId"
-              value={supplierId}
-              onChange={(event) => setSupplierId(event.target.value)}
-              required
-            >
-              {payableSuppliers.map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>
-                  {supplier.name}
+      <Sheet open={open} onClose={() => setOpen(false)} title="Pay a supplier">
+        <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">Only approved, unpaid invoices are shown.</p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+
+          <div className="grid-auto">
+            <label className="field">
+              Supplier
+              <select
+                name="supplierId"
+                value={supplierId}
+                onChange={(event) => setSupplierId(event.target.value)}
+                required
+              >
+                {payableSuppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Payment date
+              <input type="date" name="paymentDate" defaultValue={today} required />
+            </label>
+            <label className="field">
+              Method
+              <select name="method" defaultValue="BANK_TRANSFER">
+                <option value="BANK_TRANSFER">Bank transfer</option>
+                <option value="CASH">Cash</option>
+                <option value="CHEQUE">Cheque</option>
+              </select>
+            </label>
+            <label className="field">
+              Paid from
+              <select name="bankGlAccountId" defaultValue="" required>
+                <option value="" disabled>
+                  Choose an account
                 </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Payment date
-            <input type="date" name="paymentDate" defaultValue={today} required />
-          </label>
-          <label className="field">
-            Method
-            <select name="method" defaultValue="BANK_TRANSFER">
-              <option value="BANK_TRANSFER">Bank transfer</option>
-              <option value="CASH">Cash</option>
-              <option value="CHEQUE">Cheque</option>
-            </select>
-          </label>
-          <label className="field">
-            Paid from
-            <select name="bankGlAccountId" defaultValue="" required>
-              <option value="" disabled>
-                Choose an account
-              </option>
-              {bankAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.accountNumber} — {account.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Reference<span className="faint"> (optional)</span>
-            <input name="reference" placeholder="Transfer or cheque reference" />
-          </label>
-        </div>
+                {bankAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.accountNumber} — {account.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Reference<span className="faint"> (optional)</span>
+              <input name="reference" placeholder="Transfer or cheque reference" />
+            </label>
+          </div>
 
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Invoice</th>
-                <th className="right" style={{ width: 130 }}>
-                  Outstanding
-                </th>
-                <th style={{ width: 160 }}>Amount to pay</th>
-              </tr>
-            </thead>
-            <tbody>
-              {supplierInvoices.map((invoice) => (
-                <InvoiceRow key={invoice.id} invoice={invoice} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th className="right" style={{ width: 130 }}>
+                    Outstanding
+                  </th>
+                  <th style={{ width: 160 }}>Amount to pay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supplierInvoices.map((invoice) => (
+                  <InvoiceRow key={invoice.id} invoice={invoice} />
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-        <Submit />
-      </form>
-    </Card>
+          <Submit />
+        </form>
+      </Sheet>
+    </>
   );
 }
 

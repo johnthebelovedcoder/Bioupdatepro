@@ -2,7 +2,7 @@
 
 import { useActionState, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { Card } from './ui';
+import { Sheet } from './sheet';
 import { formatNaira, parseNairaToKobo } from '@/lib/money';
 import { recordCustomerReceipt, type FlowState } from '@/app/(app)/sales/actions';
 import type { SalesInvoiceRow } from '@/lib/sales';
@@ -43,92 +43,99 @@ export function CustomerReceiptForm({
 
   const [customerId, setCustomerId] = useState(receivableCustomers[0]?.id ?? '');
   const customerInvoices = invoices.filter((invoice) => invoice.customerId === customerId);
+  const [open, setOpen] = useState(false);
 
   if (receivableCustomers.length === 0) {
     return (
-      <Card title="Receive a payment">
-        <div className="notice notice-warning">
-          Nothing is posted and outstanding yet. An invoice has to clear approval before a
-          payment can be received against it.
-        </div>
-      </Card>
+      <div className="notice notice-warning">
+        Nothing is posted and outstanding yet. An invoice has to clear approval before a payment
+        can be received against it.
+      </div>
     );
   }
 
   return (
-    <Card title="Receive a payment" subtitle="Only posted, unpaid invoices are shown">
-      <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
-        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+    <>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+        Receive a payment
+      </button>
 
-        <div className="grid-auto">
-          <label className="field">
-            Customer
-            <select
-              name="customerId"
-              value={customerId}
-              onChange={(event) => setCustomerId(event.target.value)}
-              required
-            >
-              {receivableCustomers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name}
+      <Sheet open={open} onClose={() => setOpen(false)} title="Receive a payment">
+        <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">Only posted, unpaid invoices are shown.</p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+
+          <div className="grid-auto">
+            <label className="field">
+              Customer
+              <select
+                name="customerId"
+                value={customerId}
+                onChange={(event) => setCustomerId(event.target.value)}
+                required
+              >
+                {receivableCustomers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Receipt date
+              <input type="date" name="receiptDate" defaultValue={today} required />
+            </label>
+            <label className="field">
+              Method
+              <select name="method" defaultValue="BANK_TRANSFER">
+                <option value="BANK_TRANSFER">Bank transfer</option>
+                <option value="CASH">Cash</option>
+                <option value="CHEQUE">Cheque</option>
+              </select>
+            </label>
+            <label className="field">
+              Received into
+              <select name="bankGlAccountId" defaultValue="" required>
+                <option value="" disabled>
+                  Choose an account
                 </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Receipt date
-            <input type="date" name="receiptDate" defaultValue={today} required />
-          </label>
-          <label className="field">
-            Method
-            <select name="method" defaultValue="BANK_TRANSFER">
-              <option value="BANK_TRANSFER">Bank transfer</option>
-              <option value="CASH">Cash</option>
-              <option value="CHEQUE">Cheque</option>
-            </select>
-          </label>
-          <label className="field">
-            Received into
-            <select name="bankGlAccountId" defaultValue="" required>
-              <option value="" disabled>
-                Choose an account
-              </option>
-              {bankAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.accountNumber} — {account.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            Reference<span className="faint"> (optional)</span>
-            <input name="reference" placeholder="Transfer or cheque reference" />
-          </label>
-        </div>
+                {bankAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.accountNumber} — {account.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Reference<span className="faint"> (optional)</span>
+              <input name="reference" placeholder="Transfer or cheque reference" />
+            </label>
+          </div>
 
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Invoice</th>
-                <th className="right" style={{ width: 130 }}>
-                  Outstanding
-                </th>
-                <th style={{ width: 160 }}>Amount received</th>
-              </tr>
-            </thead>
-            <tbody>
-              {customerInvoices.map((invoice) => (
-                <InvoiceRow key={invoice.id} invoice={invoice} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th className="right" style={{ width: 130 }}>
+                    Outstanding
+                  </th>
+                  <th style={{ width: 160 }}>Amount received</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customerInvoices.map((invoice) => (
+                  <InvoiceRow key={invoice.id} invoice={invoice} />
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-        <Submit />
-      </form>
-    </Card>
+          <Submit />
+        </form>
+      </Sheet>
+    </>
   );
 }
 
