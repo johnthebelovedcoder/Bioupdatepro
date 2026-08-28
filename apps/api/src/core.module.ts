@@ -6,6 +6,7 @@ import { PeriodService } from './periods/period.service';
 import { DimensionValidatorService } from './enterprise-dimensions/dimension-validator.service';
 import { PostingService } from './posting/posting.service';
 import { TrialBalanceService } from './reporting/trial-balance.service';
+import { ProfitLossService } from './reporting/profit-loss.service';
 
 /**
  * The shared platform every later module builds on.
@@ -25,6 +26,7 @@ import { TrialBalanceService } from './reporting/trial-balance.service';
     DimensionValidatorService,
     PostingService,
     TrialBalanceService,
+    ProfitLossService,
   ],
   exports: [
     PrismaService,
@@ -34,6 +36,7 @@ import { TrialBalanceService } from './reporting/trial-balance.service';
     DimensionValidatorService,
     PostingService,
     TrialBalanceService,
+    ProfitLossService,
   ],
 })
 export class CoreModule {}

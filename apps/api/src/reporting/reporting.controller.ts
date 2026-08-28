@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
+import { ProfitLossService } from './profit-loss.service';
 import { CurrentCompany } from '../auth/current-user.decorator';
 import { Roles, AnyRole } from '../auth/roles.guard';
 
@@ -23,6 +24,7 @@ export class ReportingController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly trialBalance: TrialBalanceService,
+    private readonly profitLoss: ProfitLossService,
   ) {}
 
   /**
@@ -103,6 +105,46 @@ export class ReportingController {
       ...(branchId ? { branchId } : {}),
       ...(costCentreId ? { costCentreId } : {}),
       ...(farmId ? { farmId } : {}),
+    });
+  }
+
+  /**
+   * Revenue, cost of sales and operating expense for a period — defaulting to
+   * the current financial year to date when neither is named, since "how has
+   * this year gone so far" is the question this screen exists to answer.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('profit-loss')
+  async profitLossReport(
+    @CurrentCompany() companyId: string,
+    @Query('financialYearId') financialYearId?: string,
+    @Query('financialPeriodId') financialPeriodId?: string,
+    @Query('branchId') branchId?: string,
+    @Query('costCentreId') costCentreId?: string,
+    @Query('farmId') farmId?: string,
+  ) {
+    const defaultYearId =
+      !financialYearId && !financialPeriodId
+        ? (await this.currentFinancialYear(companyId))?.id
+        : undefined;
+
+    return this.profitLoss.build({
+      companyId,
+      ...(financialYearId ? { financialYearId } : {}),
+      ...(financialPeriodId ? { financialPeriodId } : {}),
+      ...(defaultYearId ? { financialYearId: defaultYearId } : {}),
+      ...(branchId ? { branchId } : {}),
+      ...(costCentreId ? { costCentreId } : {}),
+      ...(farmId ? { farmId } : {}),
+    });
+  }
+
+  /** The financial year whose date range covers today, if one is open. */
+  private async currentFinancialYear(companyId: string) {
+    const today = new Date();
+    return this.prisma.financialYear.findFirst({
+      where: { companyId, startDate: { lte: today }, endDate: { gte: today } },
+      select: { id: true },
     });
   }
 

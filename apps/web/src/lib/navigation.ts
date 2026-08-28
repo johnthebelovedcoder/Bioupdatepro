@@ -331,6 +331,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['tb', 'trial balance', 'balances'],
       },
       {
+        href: '/ledger/profit-loss',
+        label: 'Profit & loss',
+        hint: 'Revenue and expense for the period',
+        keywords: ['p&l', 'profit', 'loss', 'income statement', 'revenue', 'expense'],
+      },
+      {
         href: '/ledger/journals',
         label: 'Journal entries',
         hint: 'Every posting, with what caused it',
