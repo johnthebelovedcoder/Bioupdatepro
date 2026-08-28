@@ -343,6 +343,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['balance sheet', 'bs', 'assets', 'liabilities', 'equity'],
       },
       {
+        href: '/ledger/fixed-assets',
+        label: 'Fixed assets',
+        hint: 'The asset register, and depreciation runs',
+        keywords: ['fixed asset', 'ppe', 'depreciation', 'asset register'],
+      },
+      {
         href: '/ledger/journals',
         label: 'Journal entries',
         hint: 'Every posting, with what caused it',

@@ -13,6 +13,7 @@ import { OperationsModule } from './operations/operations.module';
 import { SearchModule } from './search/search.module';
 import { PostingControlModule } from './posting-control/posting-control.module';
 import { BiologicalAssetModule } from './biological-assets/biological-asset.module';
+import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { MastersController } from './masters/masters.controller';
 import { MasterDataController } from './masters/master-data.controller';
 import { ProcurementController } from './procurement/procurement.controller';
@@ -20,6 +21,7 @@ import { SalesController } from './sales/sales.controller';
 import { SearchController } from './search/search.controller';
 import { PostingControlController } from './posting-control/posting-control.controller';
 import { BiologicalAssetController } from './biological-assets/biological-asset.controller';
+import { FixedAssetsController } from './fixed-assets/fixed-assets.controller';
 import { WorkflowController } from './workflow/workflow.controller';
 import { TaxController } from './tax/tax.controller';
 import { JournalsController } from './journals/journals.controller';
@@ -54,6 +56,7 @@ const developmentOnlyControllers =
     SearchModule,
     PostingControlModule,
     BiologicalAssetModule,
+    FixedAssetsModule,
   ],
   controllers: [
     MastersController,
@@ -69,6 +72,7 @@ const developmentOnlyControllers =
     SearchController,
     PostingControlController,
     BiologicalAssetController,
+    FixedAssetsController,
     ...developmentOnlyControllers,
   ],
 })

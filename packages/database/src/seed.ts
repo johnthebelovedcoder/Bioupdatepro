@@ -96,6 +96,17 @@ const ACCOUNTS: AccountSeed[] = [
     source: 'SnailPro GL_Journal JRN-SN-0002 / TB_WIP_Control R9' },
   { number: '5305', name: 'Production Loss Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT,
     requiresCostCentre: true, source: 'SnailPro GL_Journal JRN-SN-0004 / TB_WIP_Control R10' },
+
+  // --- Fixed assets ---------------------------------------------------------
+  // Additive to this chart's own convention, not the client's six-digit spec
+  // chart (posting-control.json PCR-029/030 name 140100/149100/630100) — see
+  // ProvisioningService.ACCOUNTS, which this mirrors.
+  { number: '1701', name: 'Property, Plant & Equipment', type: AccountType.ASSET, normal: NormalBalance.DEBIT,
+    source: 'Posting-control PCR-029, provisional numbering' },
+  { number: '1702', name: 'Accumulated Depreciation', type: AccountType.ASSET, normal: NormalBalance.CREDIT,
+    source: 'Posting-control PCR-030, provisional numbering' },
+  { number: '5501', name: 'Depreciation Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT,
+    source: 'Posting-control PCR-030, provisional numbering' },
 ];
 
 /** Consolidated Reference §1.2 hierarchy, then the workbook's own codes. */
@@ -452,6 +463,10 @@ const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> =
 
   // Biological assets (§43, §61, §67).
   { type: 'BA_VALUATION', name: 'Biological Asset Valuation', autoPost: true },
+
+  // Fixed assets (US-897-025).
+  { type: 'FIXED_ASSET_CAPITALISATION', name: 'Fixed Asset Capitalisation', autoPost: true },
+  { type: 'DEPRECIATION_RUN', name: 'Depreciation Run', autoPost: true },
 
   // Payroll and period control.
   { type: 'PAYROLL_RUN', name: 'Payroll Processing', autoPost: true },

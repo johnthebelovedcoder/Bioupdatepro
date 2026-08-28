@@ -66,6 +66,14 @@ const ACCOUNTS: AccountSeed[] = [
   { number: '5101', name: 'Salaries and Wages', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
   { number: '5305', name: 'Production Loss Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT, requiresCostCentre: true },
   { number: '5401', name: 'Operating Expenses', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
+
+  // Fixed assets. Numbers are additive to this chart's own convention, not the
+  // client's six-digit spec chart (posting-control.json PCR-029/030 name
+  // 140100/149100/630100) — that migration is a separate, still-open client
+  // decision. Provisional pending it, same as the posting-control keys.
+  { number: '1701', name: 'Property, Plant & Equipment', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  { number: '1702', name: 'Accumulated Depreciation', type: AccountType.ASSET, normal: NormalBalance.CREDIT },
+  { number: '5501', name: 'Depreciation Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
 ];
 
 /** Enough hierarchy to attribute farm costs. The farm can add its own. */
@@ -77,6 +85,83 @@ const COST_CENTRES = [
 const WAREHOUSES = [
   { code: 'RAW-WH', name: 'Feed & Supplies Store', type: WarehouseType.RAW_MATERIAL },
   { code: 'FG-WH', name: 'Produce Store', type: WarehouseType.FINISHED_GOODS },
+];
+
+/**
+ * The company-wide default approval routing, duplicated from
+ * packages/database seed.ts's `seedWorkflow` for the same reason the chart of
+ * accounts above is duplicated: that file runs a seed on import, so it cannot
+ * be imported here.
+ *
+ * Without this, `WorkflowRoutingService.resolveDefinition()` finds nothing
+ * for a freshly registered company and refuses every workflow-gated
+ * submission — purchase requisitions, orders, sales documents, payroll runs,
+ * biological-asset valuations, all of it — because a transaction type with no
+ * route must not bypass approval.
+ *
+ * PROVISIONAL, same caveat as the seed: this ladder is the consultant's
+ * illustrative thresholds, not the client's confirmed delegated-authority
+ * policy. Keep this list and the seed's in sync until it moves to real
+ * configuration.
+ */
+const WORKFLOW_ROLES = {
+  supervisor: 'PRODUCTION_SUPERVISOR',
+  farmManager: 'FARM_MANAGER',
+  financeManager: 'FINANCE_MANAGER',
+  controller: 'FINANCE_CONTROLLER',
+  cfo: 'CFO',
+  administrator: 'ADMINISTRATOR',
+} as const;
+
+const APPROVAL_LADDER = [
+  { level: 1, roleCode: WORKFLOW_ROLES.farmManager, name: 'Farm Manager', maxAmountKobo: 250_000_00n },
+  { level: 2, roleCode: WORKFLOW_ROLES.financeManager, name: 'Finance Manager', maxAmountKobo: 2_000_000_00n },
+  { level: 3, roleCode: WORKFLOW_ROLES.controller, name: 'Finance Controller', maxAmountKobo: 10_000_000_00n },
+  { level: 4, roleCode: WORKFLOW_ROLES.cfo, name: 'CFO', maxAmountKobo: null as bigint | null },
+];
+
+const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> = [
+  { type: 'MANUAL_JOURNAL', name: 'Manual Journal', autoPost: true },
+  { type: 'GL_JOURNAL', name: 'General Ledger Journal', autoPost: true },
+  { type: 'CUSTOMER_ADJUSTMENT', name: 'Customer Adjustment Journal', autoPost: true },
+  { type: 'SUPPLIER_ADJUSTMENT', name: 'Supplier Adjustment Journal', autoPost: true },
+  { type: 'JOURNAL_REVERSAL', name: 'Journal Reversal', autoPost: true },
+
+  { type: 'PURCHASE_REQUISITION', name: 'Purchase Requisition', autoPost: false },
+  { type: 'PURCHASE_ORDER', name: 'Purchase Order', autoPost: false },
+  { type: 'GOODS_RECEIPT', name: 'Goods Receipt', autoPost: true },
+  { type: 'SUPPLIER_INVOICE', name: 'Supplier Invoice', autoPost: true },
+  {
+    type: 'SUPPLIER_INVOICE_EXCEPTION',
+    name: 'Supplier Invoice — match exception',
+    autoPost: true,
+  },
+  { type: 'SUPPLIER_PAYMENT', name: 'Supplier Payment', autoPost: true },
+
+  { type: 'SALES_QUOTATION', name: 'Sales Quotation', autoPost: false },
+  { type: 'SALES_ORDER', name: 'Sales Order', autoPost: false },
+  {
+    type: 'SALES_ORDER_CREDIT_OVERRIDE',
+    name: 'Sales Order — credit override',
+    autoPost: false,
+  },
+  { type: 'GOODS_ISSUE', name: 'Goods Issue', autoPost: true },
+  { type: 'SALES_INVOICE', name: 'Sales Invoice', autoPost: true },
+  { type: 'CUSTOMER_RECEIPT', name: 'Customer Receipt', autoPost: true },
+  { type: 'CREDIT_NOTE', name: 'Credit Note', autoPost: true },
+
+  { type: 'INVENTORY_ADJUSTMENT', name: 'Inventory Adjustment', autoPost: false },
+  { type: 'PRODUCTION_ORDER', name: 'Production Order', autoPost: false },
+  { type: 'MATERIAL_ISSUE', name: 'Material Issue', autoPost: false },
+
+  { type: 'BA_VALUATION', name: 'Biological Asset Valuation', autoPost: true },
+
+  { type: 'FIXED_ASSET_CAPITALISATION', name: 'Fixed Asset Capitalisation', autoPost: true },
+  { type: 'DEPRECIATION_RUN', name: 'Depreciation Run', autoPost: true },
+
+  { type: 'PAYROLL_RUN', name: 'Payroll Processing', autoPost: true },
+  { type: 'PERIOD_CLOSE', name: 'Period Close', autoPost: false },
+  { type: 'PERIOD_REOPEN', name: 'Period Reopen', autoPost: false },
 ];
 
 const MONTHS = [
@@ -175,9 +260,58 @@ export class ProvisioningService {
     }
 
     await this.openFinancialYear(tx, company.id, input.financialYearStartMonth ?? 1);
+    await this.seedWorkflow(tx, company.id);
 
     this.logger.log(`Provisioned ${company.name} (${code})`);
     return { companyId: company.id, branchId: branch.id, farmId: farm.id };
+  }
+
+  /**
+   * The default company-wide approval routing for every workflow-gated
+   * transaction type. Without this, `WorkflowRoutingService.resolveDefinition`
+   * has nothing to find and every submission for this company is refused.
+   *
+   * No existence checks: the company was just created in this same
+   * transaction, so there is nothing to collide with — unlike the demo seed,
+   * which re-runs against the same company and has to be idempotent.
+   */
+  private async seedWorkflow(tx: Prisma.TransactionClient, companyId: string): Promise<void> {
+    for (const spec of WORKFLOW_TYPES) {
+      const definition = await tx.workflowDefinition.create({
+        data: {
+          companyId,
+          transactionType: spec.type,
+          name: `${spec.name} — standard approval`,
+          description:
+            'Company-wide default route. Add a narrower definition to give a ' +
+            'branch, farm or cost centre its own ladder.',
+          autoPostOnApproval: spec.autoPost,
+          effectiveFrom: new Date('2026-01-01'),
+        },
+      });
+
+      for (const rung of APPROVAL_LADDER) {
+        await tx.workflowStep.create({
+          data: {
+            definitionId: definition.id,
+            level: rung.level,
+            roleCode: rung.roleCode,
+            name: rung.name,
+            maxAmountKobo: rung.maxAmountKobo,
+          },
+        });
+      }
+    }
+
+    await tx.workflowEscalationRule.create({
+      data: {
+        companyId,
+        transactionType: null,
+        remindAfterHours: 24,
+        notifyManagerAfterHours: 48,
+        escalateAfterHours: 72,
+      },
+    });
   }
 
   /**

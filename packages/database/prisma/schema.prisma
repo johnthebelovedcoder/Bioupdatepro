@@ -170,6 +170,8 @@ model User {
   stageChangesRecorded      StageChange[]              @relation("StageChangeRecorder")
   invitationsSent           Invitation[]               @relation("InvitationSender")
   valuationsPrepared        BiologicalAssetValuation[] @relation("ValuationPreparer")
+  fixedAssetsCapitalised    FixedAsset[]               @relation("FixedAssetCapitaliser")
+  depreciationRunsCreated   DepreciationRun[]          @relation("DepreciationRunCreator")
 
   @@map("users")
 }
@@ -264,6 +266,8 @@ model Company {
   biologicalAssetStageAccounts  BiologicalAssetStageAccount[]
   biologicalAssetConfigurations BiologicalAssetConfiguration[]
   biologicalAssetValuations     BiologicalAssetValuation[]
+  fixedAssets                   FixedAsset[]
+  depreciationRuns              DepreciationRun[]
 
   @@map("companies")
 }
@@ -375,6 +379,7 @@ model CostCentre {
   purchaseRequisitions PurchaseRequisition[] @relation("RequisitionCostCentre")
   purchaseOrders       PurchaseOrder[]       @relation("PurchaseOrderCostCentre")
   supplierInvoices     SupplierInvoice[]     @relation("SupplierInvoiceCostCentre")
+  fixedAssets          FixedAsset[]
 
   @@unique([companyId, code])
   @@index([parentId])
@@ -562,6 +567,7 @@ model FinancialPeriod {
   closeChecklists   PeriodCloseChecklist[]
   periodCloseLogs   PeriodCloseLog[]
   reopenRequests    PeriodReopenRequest[]
+  depreciationRuns  DepreciationRun[]
 
   @@unique([financialYearId, periodNumber])
   @@index([startDate, endDate])
@@ -734,6 +740,8 @@ model JournalEntry {
   stageChanges              StageChange[]              @relation("StageChangeJournal")
   biologicalAssetValuations BiologicalAssetValuation[]
   livestockDisposals        LivestockGroupDisposal[]   @relation("LivestockDisposalJournal")
+  fixedAssetCapitalisations FixedAsset[]               @relation("FixedAssetCapitalisationJournal")
+  depreciationRuns          DepreciationRun[]
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -5428,4 +5436,119 @@ model BiologicalAssetValuation {
 
   @@index([companyId, groupId, valuationDate])
   @@map("biological_asset_valuations")
+}
+
+// ---------------------------------------------------------------------------
+// Fixed Assets (US-897-025)
+//
+// Account numbers below (1701/1702/5501) are additive to the current,
+// actually-provisioned four-digit chart — see ProvisioningService.ACCOUNTS —
+// not the client's own six-digit spec chart (posting-control.json PCR-029/
+// 030/031 name 140100/149100/630100). That six-digit migration is a separate,
+// still-unresolved client decision; these numbers are provisional pending it,
+// the same disclosed-provisional pattern already used for the posting-control
+// keys and the approval-ladder thresholds.
+// ---------------------------------------------------------------------------
+
+enum DepreciationMethod {
+  STRAIGHT_LINE
+}
+
+model FixedAsset {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  assetNumber String @map("asset_number")
+  name        String
+  /// Free text — "Vehicle", "Machinery", "Building" — not a governed master
+  /// yet; the spec's own PCR-029 basis names class as a required dimension,
+  /// not a controlled list.
+  assetClass  String @map("asset_class")
+
+  acquisitionDate  DateTime           @map("acquisition_date") @db.Date
+  /// MONEY. Landed cost at capitalisation (PCR-029: "landed cost meeting
+  /// capitalisation policy").
+  costKobo         BigInt             @map("cost_kobo")
+  usefulLifeMonths Int                @map("useful_life_months")
+  method           DepreciationMethod @default(STRAIGHT_LINE)
+
+  costCentreId String? @map("cost_centre_id") @db.Uuid
+
+  /// MONEY. Running balance — the sum of every posted DepreciationEntry
+  /// against this asset. Denormalised so the register doesn't need to sum
+  /// entries to show a book value.
+  accumulatedDepreciationKobo BigInt @default(0) @map("accumulated_depreciation_kobo")
+
+  /// The capitalisation's own approval pipeline — DRAFT through POSTED, the
+  /// same shared enum every other document type here uses. Whether the asset
+  /// is currently in service is a separate question, answered by
+  /// `disposedOn`: null means active, set means disposed.
+  status     WorkflowStatus @default(DRAFT)
+  disposedOn DateTime?      @map("disposed_on") @db.Date
+
+  /// Opaque to the workflow engine, same convention as every other document
+  /// type here — a bare id, not a Prisma relation (see PurchaseOrder).
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  journalEntryId        String? @map("journal_entry_id") @db.Uuid
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company             Company             @relation(fields: [companyId], references: [id])
+  costCentre          CostCentre?         @relation(fields: [costCentreId], references: [id])
+  journalEntry        JournalEntry?       @relation("FixedAssetCapitalisationJournal", fields: [journalEntryId], references: [id])
+  createdBy           User                @relation("FixedAssetCapitaliser", fields: [createdById], references: [id])
+  depreciationEntries DepreciationEntry[]
+
+  @@unique([companyId, assetNumber])
+  @@index([companyId, status])
+  @@map("fixed_assets")
+}
+
+/// One depreciation run per company per period — the unique constraint is
+/// what stops a run from posting the same period twice, mirroring
+/// PayrollRun's one-run-per-month shape: many assets, one journal.
+model DepreciationRun {
+  id                String         @id @default(uuid()) @db.Uuid
+  companyId         String         @map("company_id") @db.Uuid
+  financialPeriodId String         @map("financial_period_id") @db.Uuid
+  status            WorkflowStatus @default(DRAFT)
+
+  /// MONEY. Sum of every entry's amountKobo — the amount the workflow routes
+  /// on and the journal posts.
+  totalAmountKobo BigInt @default(0) @map("total_amount_kobo")
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  journalEntryId        String? @map("journal_entry_id") @db.Uuid
+
+  createdById String    @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  postedAt    DateTime? @map("posted_at")
+
+  company         Company             @relation(fields: [companyId], references: [id])
+  financialPeriod FinancialPeriod     @relation(fields: [financialPeriodId], references: [id])
+  journalEntry    JournalEntry?       @relation(fields: [journalEntryId], references: [id])
+  createdBy       User                @relation("DepreciationRunCreator", fields: [createdById], references: [id])
+  entries         DepreciationEntry[]
+
+  @@unique([companyId, financialPeriodId])
+  @@map("depreciation_runs")
+}
+
+/// One line per asset within a run — this period's straight-line charge and
+/// the asset it belongs to.
+model DepreciationEntry {
+  id      String @id @default(uuid()) @db.Uuid
+  runId   String @map("run_id") @db.Uuid
+  assetId String @map("asset_id") @db.Uuid
+
+  /// MONEY.
+  amountKobo BigInt @map("amount_kobo")
+
+  run   DepreciationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  asset FixedAsset      @relation(fields: [assetId], references: [id])
+
+  @@unique([runId, assetId])
+  @@map("depreciation_entries")
 }
