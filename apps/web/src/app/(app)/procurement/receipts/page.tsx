@@ -169,6 +169,13 @@ export default async function GoodsReceivedPage({
                               {receipt.journalNumber ?? 'journal written'}
                             </div>
                             <div className="faint">Dr Inventory / Cr GRNI</div>
+                            <Link
+                              href={`/procurement/receipts/${receipt.id}`}
+                              className="faint"
+                              style={{ display: 'block', marginTop: 4 }}
+                            >
+                              Enter the supplier&rsquo;s invoice →
+                            </Link>
                           </>
                         ) : (
                           <>

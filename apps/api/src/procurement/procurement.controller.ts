@@ -101,4 +101,162 @@ export class ProcurementController {
       lines: body.lines ?? [],
     });
   }
+
+  @OwnedRecord('goodsReceiptNote', 'id')
+  @AnyRole('What can still be billed against a receipt is what anyone entering an invoice needs.')
+  @Get('receipts/:id')
+  async receipt(@CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.flow.receiptDetail(companyId, id);
+  }
+
+  @AnyRole('What has been billed, and what is still owed.')
+  @Get('invoices')
+  async invoices(@CurrentCompany() companyId: string) {
+    return this.flow.listInvoices(companyId);
+  }
+
+  @AnyRole('Approved invoices are what the payment screen needs to offer.')
+  @Get('invoices/payable')
+  async payableInvoices(@CurrentCompany() companyId: string) {
+    return this.flow.payableInvoices(companyId);
+  }
+
+  /**
+   * Enter a supplier's invoice against a goods receipt.
+   *
+   * §5's AP Officer (ROL-009) makes this; a Storekeeper or supervisor who can
+   * receive goods cannot also bill for them — that split is the point of a
+   * three-way match. Recording is not posting: this submits for approval the
+   * same way `receive()` does above.
+   */
+  @Roles('AP_OFFICER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('invoices')
+  async recordInvoice(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: {
+      goodsReceiptNoteId: string;
+      supplierInvoiceNumber: string;
+      invoiceDate?: string;
+      lines: Array<{ goodsReceiptNoteLineId: string; quantity: string; unitPriceKobo: string }>;
+    },
+  ) {
+    return this.flow.recordSupplierInvoice({
+      companyId,
+      actor,
+      goodsReceiptNoteId: body.goodsReceiptNoteId,
+      supplierInvoiceNumber: body.supplierInvoiceNumber,
+      invoiceDate: body.invoiceDate ? new Date(body.invoiceDate) : new Date(),
+      lines: body.lines ?? [],
+    });
+  }
+
+  /**
+   * Pay a supplier against one or more of their approved invoices.
+   *
+   * §5's Treasury Officer (ROL-014) makes this. Same tier as approving the
+   * order itself — releasing the farm's cash is a finance decision, not an
+   * operational one.
+   */
+  @Roles('TREASURY_OFFICER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('payments')
+  async recordPayment(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: {
+      supplierId: string;
+      paymentDate?: string;
+      method: 'BANK_TRANSFER' | 'CASH' | 'CHEQUE';
+      bankGlAccountId: string;
+      reference?: string | null;
+      allocations: Array<{ invoiceId: string; amountKobo: string }>;
+    },
+  ) {
+    return this.flow.recordSupplierPayment({
+      companyId,
+      actor,
+      supplierId: body.supplierId,
+      paymentDate: body.paymentDate ? new Date(body.paymentDate) : new Date(),
+      method: body.method,
+      bankGlAccountId: body.bankGlAccountId,
+      reference: body.reference ?? null,
+      allocations: body.allocations ?? [],
+    });
+  }
+
+  @AnyRole('What has been requested, and what is ready to become an order.')
+  @Get('requisitions')
+  async requisitions(@CurrentCompany() companyId: string) {
+    return this.flow.listRequisitions(companyId);
+  }
+
+  @OwnedRecord('purchaseRequisition', 'id')
+  @AnyRole('Its own lines are what a conversion to an order needs.')
+  @Get('requisitions/:id')
+  async requisition(@CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.flow.requisitionDetail(companyId, id);
+  }
+
+  /**
+   * Raise a purchase requisition.
+   *
+   * §5's Procurement Officer (ROL-005) makes this — sourcing and raising a
+   * PR/PO is that role's whole job.
+   */
+  @Roles('PROCUREMENT_OFFICER', 'FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('requisitions')
+  async raiseRequisition(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: {
+      requestDate?: string;
+      requiredDate?: string | null;
+      justification?: string | null;
+      lines: Array<{ itemId: string; quantity: string }>;
+    },
+  ) {
+    return this.flow.raiseRequisition({
+      companyId,
+      actor,
+      requestDate: body.requestDate ? new Date(body.requestDate) : new Date(),
+      requiredDate: body.requiredDate ? new Date(body.requiredDate) : null,
+      justification: body.justification ?? null,
+      lines: body.lines ?? [],
+    });
+  }
+
+  /** Convert an approved requisition into a purchase order. */
+  @OwnedRecord('purchaseRequisition', 'requisitionId')
+  @Roles('PROCUREMENT_OFFICER', 'FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('requisitions/:requisitionId/convert')
+  async convertRequisition(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('requisitionId') requisitionId: string,
+    @Body()
+    body: {
+      supplierId: string;
+      orderDate?: string;
+      expectedDeliveryDate?: string | null;
+      lines: Array<{
+        requisitionLineId: string;
+        itemId: string;
+        quantity: string;
+        unitPriceKobo: string;
+      }>;
+    },
+  ) {
+    return this.flow.convertRequisitionToOrder({
+      companyId,
+      actor,
+      requisitionId,
+      supplierId: body.supplierId,
+      orderDate: body.orderDate ? new Date(body.orderDate) : new Date(),
+      expectedDeliveryDate: body.expectedDeliveryDate ? new Date(body.expectedDeliveryDate) : null,
+      lines: body.lines ?? [],
+    });
+  }
 }

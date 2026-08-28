@@ -576,6 +576,50 @@ export class PurchaseOrderService {
     }
   }
 
+  /**
+   * Keep a requisition's status in line with its workflow.
+   *
+   * Same gap as `syncStatus` above, one document type over: approving a
+   * requisition posts nothing, so no handler runs, so nothing was writing
+   * the outcome back onto the row — it stayed SUBMITTED with an APPROVED
+   * workflow behind it, and nothing could ever be converted from it.
+   */
+  async syncRequisitionStatus(requisitionId: string): Promise<void> {
+    const requisition = await this.prisma.purchaseRequisition.findUniqueOrThrow({
+      where: { id: requisitionId },
+    });
+
+    if (
+      requisition.status === RequisitionStatus.CONVERTED ||
+      requisition.status === RequisitionStatus.CLOSED ||
+      requisition.status === RequisitionStatus.CANCELLED ||
+      !requisition.workflowTransactionId
+    ) {
+      return;
+    }
+
+    const transaction = await this.prisma.workflowTransaction.findUnique({
+      where: { id: requisition.workflowTransactionId },
+      select: { status: true },
+    });
+
+    if (transaction?.status === 'REJECTED' || transaction?.status === 'CANCELLED') {
+      await this.prisma.purchaseRequisition.update({
+        where: { id: requisition.id },
+        data: { status: RequisitionStatus.REJECTED },
+      });
+      return;
+    }
+
+    const approved = transaction?.status === 'APPROVED' || transaction?.status === 'POSTED';
+    if (approved && requisition.status !== RequisitionStatus.APPROVED) {
+      await this.prisma.purchaseRequisition.update({
+        where: { id: requisition.id },
+        data: { status: RequisitionStatus.APPROVED },
+      });
+    }
+  }
+
   /** §5: a blocked or inactive supplier cannot transact. */
   private assertSupplierTransactable(supplier: {
     code: string;

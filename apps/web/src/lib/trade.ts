@@ -139,6 +139,18 @@ export async function getPurchasableItems(): Promise<Product[]> {
   })) as Product[];
 }
 
+export interface GlAccount {
+  id: string;
+  accountNumber: string;
+  name: string;
+  accountType: string;
+}
+
+/** Active posting accounts, for a bank/cash picker on a payment form. */
+export async function getGlAccounts(): Promise<GlAccount[]> {
+  return api<GlAccount[]>('/masters/gl-accounts');
+}
+
 export interface LedgerMoney {
   revenueKobo: string;
   expenseKobo: string;

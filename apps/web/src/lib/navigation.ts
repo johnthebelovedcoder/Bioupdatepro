@@ -123,10 +123,22 @@ export const SECTIONS: NavSection[] = [
         keywords: ['new order', 'raise', 'requisition'],
       },
       {
+        href: '/procurement/requisitions',
+        label: 'Requisitions',
+        hint: 'What has been requested, before a supplier or price is decided',
+        keywords: ['requisition', 'pr', 'request', 'need'],
+      },
+      {
         href: '/suppliers',
         label: 'Vendors',
         hint: 'Everyone the farm buys from',
         keywords: ['supplier', 'vendor', 'seller'],
+      },
+      {
+        href: '/procurement/invoices',
+        label: 'Invoices',
+        hint: 'What suppliers have billed, and what is still owed',
+        keywords: ['invoice', 'bill', 'payable', 'pay', 'ap', 'grni'],
       },
     ],
   },

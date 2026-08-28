@@ -136,3 +136,206 @@ export async function receiveGoods(_previous: FlowState, formData: FormData): Pr
   revalidatePath('/procurement/receipts');
   redirect('/procurement/receipts?received=1');
 }
+
+/**
+ * Enter a supplier's invoice against a goods receipt.
+ *
+ * One row per receipt line, same "blank rows are dropped, not refused"
+ * discipline as `receiveGoods` — a vendor rarely bills every line of a
+ * delivery in one document.
+ */
+export async function recordSupplierInvoice(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const goodsReceiptNoteId = String(formData.get('goodsReceiptNoteId') ?? '');
+  if (!goodsReceiptNoteId) return { error: 'No goods receipt was named.', message: null };
+
+  const supplierInvoiceNumber = String(formData.get('supplierInvoiceNumber') ?? '').trim();
+  if (!supplierInvoiceNumber) {
+    return { error: "Enter the supplier's own invoice number.", message: null };
+  }
+
+  const lineIds = formData.getAll('lineId').map(String);
+  const lines = lineIds
+    .map((goodsReceiptNoteLineId) => ({
+      goodsReceiptNoteLineId,
+      quantity: String(formData.get(`quantity:${goodsReceiptNoteLineId}`) ?? '').trim(),
+      unitPriceKobo: String(formData.get(`price:${goodsReceiptNoteLineId}`) ?? '').trim(),
+    }))
+    .filter((line) => line.quantity !== '' && Number(line.quantity) > 0);
+
+  if (lines.length === 0) {
+    return { error: 'Enter what the supplier billed for at least one line.', message: null };
+  }
+
+  const invoiceDate = String(formData.get('invoiceDate') ?? '').trim();
+
+  try {
+    await api('/procurement/invoices', {
+      method: 'POST',
+      body: {
+        goodsReceiptNoteId,
+        supplierInvoiceNumber,
+        ...(invoiceDate ? { invoiceDate: new Date(invoiceDate).toISOString() } : {}),
+        lines,
+      },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not enter that invoice.');
+  }
+
+  revalidatePath('/procurement/receipts');
+  revalidatePath('/procurement/invoices');
+  redirect('/procurement/invoices?entered=1');
+}
+
+/**
+ * Pay a supplier against one or more of their approved invoices.
+ *
+ * One allocation per invoice shown; blank amounts are dropped the same way a
+ * blank receipt line is — paying two of a supplier's five open invoices is
+ * the ordinary case, not a partial form.
+ */
+export async function recordSupplierPayment(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const supplierId = String(formData.get('supplierId') ?? '');
+  if (!supplierId) return { error: 'Choose a supplier.', message: null };
+
+  const bankGlAccountId = String(formData.get('bankGlAccountId') ?? '');
+  if (!bankGlAccountId) return { error: 'Choose which account this is paid from.', message: null };
+
+  const method = String(formData.get('method') ?? 'BANK_TRANSFER');
+
+  const invoiceIds = formData.getAll('invoiceId').map(String);
+  const allocations = invoiceIds
+    .map((invoiceId) => ({
+      invoiceId,
+      amountKobo: String(formData.get(`amount:${invoiceId}`) ?? '').trim(),
+    }))
+    .filter((line) => line.amountKobo !== '' && Number(line.amountKobo) > 0);
+
+  if (allocations.length === 0) {
+    return { error: 'Enter how much is being paid against at least one invoice.', message: null };
+  }
+
+  const paymentDate = String(formData.get('paymentDate') ?? '').trim();
+  const reference = String(formData.get('reference') ?? '').trim();
+
+  try {
+    await api('/procurement/payments', {
+      method: 'POST',
+      body: {
+        supplierId,
+        bankGlAccountId,
+        method,
+        ...(paymentDate ? { paymentDate: new Date(paymentDate).toISOString() } : {}),
+        ...(reference ? { reference } : {}),
+        allocations,
+      },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not record that payment.');
+  }
+
+  revalidatePath('/procurement/invoices');
+  redirect('/procurement/invoices?paid=1');
+}
+
+/**
+ * Raise a purchase requisition — a request, not a commitment.
+ *
+ * One row per item wanted; blank rows are dropped the same way an empty
+ * receipt line is. Nothing here touches a supplier or a price — that is
+ * decided when the requisition is converted into an order.
+ */
+export async function raiseRequisition(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const itemIds = formData.getAll('itemId').map(String);
+  const lines = itemIds
+    .map((itemId) => ({
+      itemId,
+      quantity: String(formData.get(`quantity:${itemId}`) ?? '').trim(),
+    }))
+    .filter((line) => line.quantity !== '' && Number(line.quantity) > 0);
+
+  if (lines.length === 0) {
+    return { error: 'Enter how much of at least one item is needed.', message: null };
+  }
+
+  const requestDate = String(formData.get('requestDate') ?? '').trim();
+  const requiredDate = String(formData.get('requiredDate') ?? '').trim();
+  const justification = String(formData.get('justification') ?? '').trim();
+
+  try {
+    await api('/procurement/requisitions', {
+      method: 'POST',
+      body: {
+        ...(requestDate ? { requestDate: new Date(requestDate).toISOString() } : {}),
+        ...(requiredDate ? { requiredDate: new Date(requiredDate).toISOString() } : {}),
+        ...(justification ? { justification } : {}),
+        lines,
+      },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not raise that requisition.');
+  }
+
+  revalidatePath('/procurement/requisitions');
+  redirect('/procurement/requisitions?raised=1');
+}
+
+/**
+ * Convert an approved requisition into a purchase order.
+ *
+ * One row per requisition line; quantity defaults to what is still
+ * outstanding, and the person converting it is the one who now names a
+ * supplier and a price — a requisition carries neither.
+ */
+export async function convertRequisitionToOrder(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const requisitionId = String(formData.get('requisitionId') ?? '');
+  if (!requisitionId) return { error: 'No requisition was named.', message: null };
+
+  const supplierId = String(formData.get('supplierId') ?? '');
+  if (!supplierId) return { error: 'Choose a supplier.', message: null };
+
+  const lineIds = formData.getAll('lineId').map(String);
+  const lines = lineIds
+    .map((requisitionLineId) => ({
+      requisitionLineId,
+      itemId: String(formData.get(`itemId:${requisitionLineId}`) ?? ''),
+      quantity: String(formData.get(`quantity:${requisitionLineId}`) ?? '').trim(),
+      unitPriceKobo: String(formData.get(`price:${requisitionLineId}`) ?? '').trim(),
+    }))
+    .filter((line) => line.quantity !== '' && Number(line.quantity) > 0);
+
+  if (lines.length === 0) {
+    return { error: 'Enter what to order for at least one line.', message: null };
+  }
+
+  const orderDate = String(formData.get('orderDate') ?? '').trim();
+
+  try {
+    await api(`/procurement/requisitions/${requisitionId}/convert`, {
+      method: 'POST',
+      body: {
+        supplierId,
+        ...(orderDate ? { orderDate: new Date(orderDate).toISOString() } : {}),
+        lines,
+      },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not convert that requisition.');
+  }
+
+  revalidatePath('/procurement/requisitions');
+  revalidatePath('/procurement');
+  redirect('/procurement?ordered=1');
+}
