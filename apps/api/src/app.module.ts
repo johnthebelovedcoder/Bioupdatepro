@@ -28,6 +28,7 @@ import { JournalsController } from './journals/journals.controller';
 import { PayrollController } from './payroll/payroll.controller';
 import { ClosingController } from './closing/closing.controller';
 import { ReportingController } from './reporting/reporting.controller';
+import { KpiService } from './reporting/kpi.service';
 import { DemoController } from './demo/demo.controller';
 import { PanelController } from './demo/panel.controller';
 
@@ -58,6 +59,7 @@ const developmentOnlyControllers =
     BiologicalAssetModule,
     FixedAssetsModule,
   ],
+  providers: [KpiService],
   controllers: [
     MastersController,
     MasterDataController,

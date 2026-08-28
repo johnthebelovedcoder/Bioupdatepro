@@ -4,6 +4,9 @@ import { TrialBalanceService } from './trial-balance.service';
 import { ProfitLossService } from './profit-loss.service';
 import { BalanceSheetService } from './balance-sheet.service';
 import { CashFlowService } from './cash-flow.service';
+import { KpiService } from './kpi.service';
+import { CustomerReceiptService } from '../sales/customer-receipt.service';
+import { SupplierPaymentService } from '../procurement/supplier-payment.service';
 import { currentFinancialYearId, currentFinancialPeriodId } from './current-financial-year';
 import { CurrentCompany } from '../auth/current-user.decorator';
 import { Roles, AnyRole } from '../auth/roles.guard';
@@ -30,6 +33,9 @@ export class ReportingController {
     private readonly profitLoss: ProfitLossService,
     private readonly balanceSheet: BalanceSheetService,
     private readonly cashFlow: CashFlowService,
+    private readonly kpis: KpiService,
+    private readonly customerReceipts: CustomerReceiptService,
+    private readonly supplierPayments: SupplierPaymentService,
   ) {}
 
   /**
@@ -180,6 +186,33 @@ export class ReportingController {
       return { error: 'No financial period covers today for this company.' };
     }
     return this.cashFlow.build({ companyId, financialPeriodId: periodId });
+  }
+
+  /**
+   * The nine named KPIs, each computed or explicitly refused with a reason —
+   * never a guessed number for one this chart cannot yet support.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('kpis')
+  async kpiReport(@CurrentCompany() companyId: string) {
+    return this.kpis.build(companyId);
+  }
+
+  /**
+   * Accounts receivable ageing, by customer — built and proven weeks ago as
+   * part of customer receipts, with no HTTP endpoint until now.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('ar-ageing')
+  async arAgeing(@CurrentCompany() companyId: string) {
+    return this.customerReceipts.ageing({ companyId, asAt: new Date() });
+  }
+
+  /** Accounts payable ageing, by supplier — the same stranded-service pattern. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('ap-ageing')
+  async apAgeing(@CurrentCompany() companyId: string) {
+    return this.supplierPayments.ageing({ companyId, asAt: new Date() });
   }
 
   /**
