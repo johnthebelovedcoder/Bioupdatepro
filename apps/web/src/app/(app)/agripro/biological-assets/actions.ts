@@ -58,6 +58,7 @@ export async function requestValuation(
   }
 
   revalidatePath('/agripro/biological-assets');
+  revalidatePath('/agripro/valuations');
   revalidatePath('/approvals');
   return { error: null, message: 'Raised. It now needs a Finance Controller to approve it.' };
 }

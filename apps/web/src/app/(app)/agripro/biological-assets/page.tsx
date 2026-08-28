@@ -1,29 +1,23 @@
-import Link from 'next/link';
-import { getBiologicalAssetGroups, getValuations } from '@/lib/biological-assets';
-import { formatDate, formatNaira } from '@/lib/money';
+import { getBiologicalAssetGroups } from '@/lib/biological-assets';
+import { formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader, Stat } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
-import { ValuationForm } from '@/components/valuation-form';
 import { TableSearch } from '@/components/table-search';
 import { IconBox } from '@/components/icons';
 
 export const metadata = { title: 'Biological assets — BioAssetPro' };
 
 /**
- * The biological-asset ledger — §43, §61, §67, IAS 41.
+ * The biological-asset register — §43, §61, §67, IAS 41.
  *
  * Every figure here is a posted position, not a display calculation. A
  * population's carrying value arrived through a real `Dr biological asset /
- * Cr GRNI` journal at acquisition, moved through a real mortality or
- * stage-transfer entry, and only ever revalued through a valuation a
- * Finance Controller has approved. There is nothing on this page the ledger
- * has not already agreed to.
+ * Cr GRNI` journal at acquisition and moved through a real mortality or
+ * stage-transfer entry. Valuations live on their own tab — raising one is a
+ * separate action from browsing what the farm currently holds.
  */
 export default async function BiologicalAssetsPage() {
-  const [groups, valuations] = await Promise.all([
-    getBiologicalAssetGroups(),
-    getValuations(),
-  ]);
+  const groups = await getBiologicalAssetGroups();
 
   const totalCarryingKobo = groups.reduce(
     (sum, g) => sum + BigInt(g.carryingValueKobo ?? '0'),
@@ -44,11 +38,6 @@ export default async function BiologicalAssetsPage() {
         <div className="stat-grid">
           <Stat label="Populations" value={String(groups.length)} />
           <Stat label="Total carrying value" value={formatNaira(totalCarryingKobo)} money />
-          <Stat
-            label="Valuations raised"
-            value={String(valuations.length)}
-            hint="fair value less costs to sell"
-          />
           <Stat
             label="Not yet posted"
             value={String(unposted.length)}
@@ -116,87 +105,6 @@ export default async function BiologicalAssetsPage() {
             )}
           </Card>
         </TableSearch>
-
-        <TableSearch
-          placeholder="Search valuations"
-          actions={<ValuationForm groups={groups} />}
-        >
-          <Card title="Valuations" subtitle="Raised, and where each one stands" padded={false}>
-            {valuations.length === 0 ? (
-              <EmptyState
-                icon={<IconBox size={22} />}
-                title="No valuations yet"
-                body="Raise one above once a population has a posted acquisition."
-              />
-            ) : (
-              <div className="table-wrap">
-                <table className="data wide">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 140 }}>Population</th>
-                      <th style={{ width: 110 }}>Date</th>
-                      <th className="right" style={{ width: 140 }}>
-                        Rate change
-                      </th>
-                      <th className="right" style={{ width: 140 }}>
-                        Gain / loss
-                      </th>
-                      <th style={{ width: 200 }}>Evidence</th>
-                      <th style={{ width: 130 }}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {valuations.map((v) => (
-                      <tr key={v.id}>
-                        <td className="strong" style={{ textAlign: 'left' }}>
-                          {v.groupCode}
-                          <div className="faint">by {v.preparedBy}</div>
-                        </td>
-                        <td className="num" style={{ textAlign: 'left' }}>
-                          {formatDate(v.valuationDate)}
-                        </td>
-                        <td className="num">
-                          {formatNaira(v.priorFvlctsPerUnitKobo)} →{' '}
-                          {formatNaira(v.currentFvlctsPerUnitKobo)}
-                        </td>
-                        <td className="num">
-                          <span
-                            style={{
-                              color: v.direction === 'GAIN' ? 'var(--success-700)' : 'var(--error-700)',
-                            }}
-                          >
-                            {v.direction === 'GAIN' ? '+' : '−'}
-                            {formatNaira(v.gainLossKobo)}
-                          </span>
-                        </td>
-                        <td className="faint">{v.evidenceReference}</td>
-                        <td>
-                          {v.status === 'POSTED' ? (
-                            <span className="badge badge-success">posted</span>
-                          ) : v.status === 'REJECTED' ? (
-                            <span className="badge badge-danger">rejected</span>
-                          ) : (
-                            <span className="badge badge-warning">
-                              {v.status.toLowerCase().replace(/_/g, ' ')}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-        </TableSearch>
-
-        <Card>
-          <p className="muted" style={{ fontSize: 14 }}>
-            A valuation waiting for approval sits in{' '}
-            <Link href="/approvals">the same approvals queue</Link> as every other document —
-            approving it is the moment the gain or loss reaches the ledger.
-          </p>
-        </Card>
       </div>
     </>
   );

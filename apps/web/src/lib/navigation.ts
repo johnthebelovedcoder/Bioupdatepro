@@ -349,10 +349,34 @@ export const SECTIONS: NavSection[] = [
         keywords: ['cash flow', 'cash', 'operating', 'investing', 'indirect method'],
       },
       {
+        href: '/ledger/kpis',
+        label: 'KPIs',
+        hint: 'Nine measures management uses, each computed or explicitly not',
+        keywords: ['kpi', 'survival', 'mortality', 'margin', 'dso', 'dpo', 'payroll cost'],
+      },
+      {
+        href: '/ledger/ar-ageing',
+        label: 'AR ageing',
+        hint: 'Who owes the company, and how overdue',
+        keywords: ['ar', 'receivable', 'ageing', 'aging', 'debtors'],
+      },
+      {
+        href: '/ledger/ap-ageing',
+        label: 'AP ageing',
+        hint: 'Who the company owes, and how overdue',
+        keywords: ['ap', 'payable', 'ageing', 'aging', 'creditors'],
+      },
+      {
         href: '/ledger/fixed-assets',
         label: 'Fixed assets',
         hint: 'The asset register, and depreciation runs',
         keywords: ['fixed asset', 'ppe', 'depreciation', 'asset register'],
+      },
+      {
+        href: '/ledger/reports',
+        label: 'Reports',
+        hint: 'Every report this company can run, in one place',
+        keywords: ['report', 'catalogue', 'catalog', 'index'],
       },
       {
         href: '/ledger/journals',
@@ -462,18 +486,31 @@ export const CORE: NavSection = {
     },
     {
       href: '/agripro/biological-assets',
-      label: 'Biological assets',
-      hint: 'Every population’s carrying value, mortality, stage transfers and valuations',
+      label: 'Populations',
+      hint: 'Every population’s carrying value, mortality and stage transfers',
       keywords: [
         'biological asset',
         'ias 41',
         'fvlcts',
-        'fair value',
-        'valuation',
         'carrying value',
         'mortality',
         'stage transfer',
         'roll-forward',
+        'section 61',
+        'section 67',
+      ],
+    },
+    {
+      href: '/agripro/valuations',
+      label: 'Valuations',
+      hint: 'Fair value less costs to sell, raised per population',
+      keywords: [
+        'valuation',
+        'fvlcts',
+        'fair value',
+        'ias 41',
+        'gain',
+        'loss',
         'section 61',
         'section 67',
       ],
@@ -520,7 +557,11 @@ export const NOT_BUILT_YET: Array<{ label: string; belongsUnder: string; why: st
 
 /** The section a path belongs to, longest match first. */
 export function sectionFor(pathname: string): NavSection | undefined {
-  const candidates = SECTIONS.filter((section) =>
+  // CORE is included so its own multi-page children — Populations and
+  // Valuations among them — get the same tab strip every other section's
+  // pages do, not just a breadcrumb. HOME is left out: it has exactly one
+  // child, so Tabs' own `tabs.length < 2` check would hide it anyway.
+  const candidates = [CORE, ...SECTIONS].filter((section) =>
     section.children.some(
       (child) => pathname === child.href || pathname.startsWith(`${child.href}/`),
     ),

@@ -36,14 +36,23 @@ export function Tabs() {
   const tabs = section.children.filter((child) => !child.hidden);
   if (tabs.length < 2) return null;
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
-  const activeTab = tabs.find((tab) => isActive(tab.href));
+  /*
+   * Longest-match wins, the same rule `sectionFor` uses to pick between
+   * sections. Needed here too: AgriPro Core's "Overview" sits at the bare
+   * section root (`/agripro`), which is a path-prefix of every one of its
+   * own siblings (`/agripro/valuations`, etc.) — a plain "does my href
+   * prefix the URL" check would mark Overview active everywhere in the
+   * section, not just on itself.
+   */
+  const activeTab = tabs
+    .filter((tab) => pathname === tab.href || pathname.startsWith(`${tab.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
 
   return (
     <>
       <div className="tabs hide-on-phone" role="tablist" aria-label={section.label}>
         {tabs.map((tab) => {
-          const active = isActive(tab.href);
+          const active = tab.href === activeTab?.href;
           return (
             <Link
               key={tab.href}

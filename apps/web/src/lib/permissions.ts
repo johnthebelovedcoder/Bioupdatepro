@@ -249,6 +249,7 @@ const ROUTES: Array<{ prefix: string; section: Section }> = [
   // values and valuations) and had the same silent-catch-all gap as above.
   { prefix: '/agripro/posting-rules', section: 'ledger' },
   { prefix: '/agripro/biological-assets', section: 'livestock' },
+  { prefix: '/agripro/valuations', section: 'livestock' },
   { prefix: '/m/', section: 'livestock' },
   { prefix: '/welcome', section: 'dashboard' },
   { prefix: '/', section: 'dashboard' },
