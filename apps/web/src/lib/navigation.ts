@@ -343,6 +343,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['balance sheet', 'bs', 'assets', 'liabilities', 'equity'],
       },
       {
+        href: '/ledger/cash-flow',
+        label: 'Cash flow',
+        hint: 'Where the cash moved, for one period',
+        keywords: ['cash flow', 'cash', 'operating', 'investing', 'indirect method'],
+      },
+      {
         href: '/ledger/fixed-assets',
         label: 'Fixed assets',
         hint: 'The asset register, and depreciation runs',

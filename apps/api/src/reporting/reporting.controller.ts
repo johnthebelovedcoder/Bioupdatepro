@@ -3,7 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
 import { ProfitLossService } from './profit-loss.service';
 import { BalanceSheetService } from './balance-sheet.service';
-import { currentFinancialYearId } from './current-financial-year';
+import { CashFlowService } from './cash-flow.service';
+import { currentFinancialYearId, currentFinancialPeriodId } from './current-financial-year';
 import { CurrentCompany } from '../auth/current-user.decorator';
 import { Roles, AnyRole } from '../auth/roles.guard';
 
@@ -28,6 +29,7 @@ export class ReportingController {
     private readonly trialBalance: TrialBalanceService,
     private readonly profitLoss: ProfitLossService,
     private readonly balanceSheet: BalanceSheetService,
+    private readonly cashFlow: CashFlowService,
   ) {}
 
   /**
@@ -161,6 +163,23 @@ export class ReportingController {
       ...(costCentreId ? { costCentreId } : {}),
       ...(farmId ? { farmId } : {}),
     });
+  }
+
+  /**
+   * Cash flow for one period, indirect method — defaulting to the current
+   * period when none is named.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('cash-flow')
+  async cashFlowReport(
+    @CurrentCompany() companyId: string,
+    @Query('financialPeriodId') financialPeriodId?: string,
+  ) {
+    const periodId = financialPeriodId ?? (await currentFinancialPeriodId(this.prisma, companyId));
+    if (!periodId) {
+      return { error: 'No financial period covers today for this company.' };
+    }
+    return this.cashFlow.build({ companyId, financialPeriodId: periodId });
   }
 
   /**

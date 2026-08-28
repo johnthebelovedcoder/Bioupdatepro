@@ -12,3 +12,20 @@ export async function currentFinancialYearId(
   });
   return year?.id ?? null;
 }
+
+/** The financial period whose date range covers today, if one is open. */
+export async function currentFinancialPeriodId(
+  prisma: PrismaService,
+  companyId: string,
+): Promise<string | null> {
+  const today = new Date();
+  const period = await prisma.financialPeriod.findFirst({
+    where: {
+      financialYear: { companyId },
+      startDate: { lte: today },
+      endDate: { gte: today },
+    },
+    select: { id: true },
+  });
+  return period?.id ?? null;
+}
