@@ -196,6 +196,7 @@ export class MasterDataController {
       unitOfMeasure: i.unitOfMeasure.code,
       vatCode: i.vatTaxCode?.code ?? null,
       standardCostKobo: i.standardCosts[0]?.standardCostKobo.toString() ?? null,
+      weightedAverageCostKobo: i.weightedAverageCostKobo?.toString() ?? null,
     }));
   }
 

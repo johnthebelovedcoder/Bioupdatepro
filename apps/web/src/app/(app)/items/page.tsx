@@ -19,6 +19,7 @@ interface Item {
   unitOfMeasure: string;
   vatCode: string | null;
   standardCostKobo: string | null;
+  weightedAverageCostKobo: string | null;
 }
 
 interface Uom {
@@ -194,6 +195,9 @@ export default async function ItemsPage() {
                       <th className="right" style={{ width: 140 }}>
                         Standard cost
                       </th>
+                      <th className="right" style={{ width: 140 }}>
+                        Actual cost (WAC)
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -215,6 +219,11 @@ export default async function ItemsPage() {
                         <td className="faint">{item.vatCode ?? '—'}</td>
                         <td className="num">
                           {item.standardCostKobo ? formatNaira(item.standardCostKobo) : '—'}
+                        </td>
+                        <td className="num">
+                          {item.weightedAverageCostKobo
+                            ? formatNaira(item.weightedAverageCostKobo)
+                            : '—'}
                         </td>
                       </tr>
                     ))}

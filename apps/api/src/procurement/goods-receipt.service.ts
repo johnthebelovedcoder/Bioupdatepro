@@ -399,6 +399,17 @@ export class GoodsReceiptService {
       const accepted = new Decimal(line.acceptedQuantity.toString());
       if (accepted.lessThanOrEqualTo(0)) continue;
 
+      // The moving weighted-average cost, from on-hand quantity/value just
+      // before this receipt lands — before the movement below is created, or
+      // this receipt would be averaged against itself.
+      await this.advanceWeightedAverageCost({
+        tx: params.tx,
+        companyId: grn.companyId,
+        itemId: line.itemId,
+        receivedQuantity: accepted,
+        receivedValueKobo: line.valueKobo,
+      });
+
       await params.tx.stockMovement.create({
         data: {
           companyId: grn.companyId,
@@ -477,6 +488,53 @@ export class GoodsReceiptService {
 
     this.logger.log(`Posted goods receipt ${grn.grnNumber}`);
     return { journalEntryId };
+  }
+
+  /**
+   * Roll the item's moving weighted-average cost forward by one receipt
+   * (US-897-007) — the same materialised-balance discipline
+   * `LivestockGroup.population` uses: computed from on-hand quantity/value
+   * summed across every existing stock movement, never adjusted directly.
+   *
+   * Company-wide per item, not per warehouse — the same scope
+   * ItemStandardCost already uses, so this sits beside it as a second, ACTUAL
+   * figure rather than a third granularity nothing else in the product has.
+   */
+  private async advanceWeightedAverageCost(params: {
+    tx: Prisma.TransactionClient;
+    companyId: string;
+    itemId: string;
+    receivedQuantity: Decimal;
+    receivedValueKobo: bigint;
+  }): Promise<void> {
+    const priorMovements = await params.tx.stockMovement.findMany({
+      where: { companyId: params.companyId, itemId: params.itemId },
+      select: { direction: true, quantity: true, valueKobo: true },
+    });
+
+    let priorQuantity = new Decimal(0);
+    let priorValueKobo = 0n;
+    for (const movement of priorMovements) {
+      const sign = movement.direction === StockDirection.IN ? 1 : -1;
+      priorQuantity = priorQuantity.plus(new Decimal(movement.quantity.toString()).mul(sign));
+      priorValueKobo += movement.valueKobo * BigInt(sign);
+    }
+
+    const newQuantity = priorQuantity.plus(params.receivedQuantity);
+    if (newQuantity.lessThanOrEqualTo(0)) return; // Nothing on hand to average.
+
+    const newValueKobo = priorValueKobo + params.receivedValueKobo;
+    const newWac = BigInt(
+      new Decimal(newValueKobo.toString())
+        .div(newQuantity)
+        .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+        .toFixed(0),
+    );
+
+    await params.tx.item.update({
+      where: { id: params.itemId },
+      data: { weightedAverageCostKobo: newWac, weightedAverageCostSetAt: new Date() },
+    });
   }
 
   /**

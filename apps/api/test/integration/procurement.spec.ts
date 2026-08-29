@@ -711,6 +711,31 @@ describe('Procure-to-Pay (§5)', () => {
 
   // =========================================================================
 
+  describe('moving weighted-average cost (US-897-007)', () => {
+    it('sets the item WAC to the received unit cost on the first receipt', async () => {
+      const order = await approvedOrder();
+      await receiveAll(order.id);
+
+      const item = await prisma.item.findUniqueOrThrow({ where: { id: inventoryItemId } });
+      expect(item.weightedAverageCostKobo).toBe(UNIT_PRICE);
+      expect(item.weightedAverageCostSetAt).not.toBeNull();
+    });
+
+    it('rolls the WAC forward as a moving average across two receipts at different prices', async () => {
+      const first = await approvedOrder(inventoryItemId, 100, 600_00n);
+      await receiveAll(first.id, 'GRN-WAC-1', 100);
+
+      // (100 x 600) + (100 x 900) over 200 units = 750/unit.
+      const second = await approvedOrder(inventoryItemId, 100, 900_00n);
+      await receiveAll(second.id, 'GRN-WAC-2', 100);
+
+      const item = await prisma.item.findUniqueOrThrow({ where: { id: inventoryItemId } });
+      expect(item.weightedAverageCostKobo).toBe(750_00n);
+    });
+  });
+
+  // =========================================================================
+
   describe('three-way match (§5)', () => {
     it('matches cleanly and takes the standard route', async () => {
       const order = await approvedOrder();

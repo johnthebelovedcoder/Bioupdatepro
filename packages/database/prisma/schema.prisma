@@ -1991,6 +1991,17 @@ model Item {
 
   defaultWarehouseId String? @map("default_warehouse_id") @db.Uuid
 
+  /// The moving weighted-average cost per unit, across every warehouse —
+  /// recomputed on each approved goods receipt (US-897-007) from the on-hand
+  /// quantity and value just before that receipt lands, the same materialised-
+  /// balance pattern LivestockGroup.population uses. Null until the item's
+  /// first receipt. This is ACTUAL cost, distinct from ItemStandardCost's
+  /// effective-dated PLANNED cost — nothing currently reads this one for
+  /// consumption postings, which stay on standard cost until a general
+  /// inventory-issue module (US-897-008) exists to switch them over.
+  weightedAverageCostKobo  BigInt?   @map("weighted_average_cost_kobo")
+  weightedAverageCostSetAt DateTime? @map("weighted_average_cost_set_at")
+
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
