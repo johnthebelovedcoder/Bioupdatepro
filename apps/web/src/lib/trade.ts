@@ -144,6 +144,8 @@ export interface GlAccount {
   accountNumber: string;
   name: string;
   accountType: string;
+  fsCategory: string | null;
+  fsCategorySetAt: string | null;
 }
 
 /** Active posting accounts, for a bank/cash picker on a payment form. */

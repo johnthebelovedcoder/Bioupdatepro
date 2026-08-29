@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   EmploymentStatus,
+  FsCategory,
   ItemType,
   PartyStatus,
 } from '@bioassetpro/database';
@@ -419,6 +420,28 @@ export class MasterDataController {
   @Get('gl-accounts')
   async listGlAccounts(@CurrentCompany() companyId: string) {
     return this.structure.listGlAccounts(companyId);
+  }
+
+  /**
+   * Set an account's FS category (US-897-002) — where it sits within a
+   * statement, not just its accountType. Finance-tier only: this decides
+   * where a balance is presented, the same governance level as everything
+   * else in the chart.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('gl-accounts/:id/classify')
+  async classifyGlAccount(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: { fsCategory: FsCategory },
+  ) {
+    return this.structure.classifyAccount({
+      companyId,
+      actor,
+      accountId: id,
+      fsCategory: body.fsCategory,
+    });
   }
 
   @AnyRole('Reference lists that every create form needs to render.')

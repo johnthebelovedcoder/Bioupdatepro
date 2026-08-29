@@ -43,6 +43,27 @@ enum AccountType {
   EXPENSE
 }
 
+/// A governed financial-statement placement for an account (US-897-002),
+/// distinct from `AccountType`: type says asset-vs-liability-vs-equity-etc,
+/// this says where within a statement it sits — current vs non-current, cost
+/// of sales vs operating expense. Nullable and not yet read by any report:
+/// Balance Sheet and Profit & Loss still use their own stated account-number
+/// conventions (COST_OF_SALES_ACCOUNTS, the ASSET/LIABILITY/EQUITY partition)
+/// rather than this field, so that migrating them is a deliberate, separate
+/// change and setting this value can never silently move a live line.
+enum FsCategory {
+  CURRENT_ASSET
+  NON_CURRENT_ASSET
+  CURRENT_LIABILITY
+  NON_CURRENT_LIABILITY
+  EQUITY
+  REVENUE
+  COST_OF_SALES
+  OPERATING_EXPENSE
+  OTHER_INCOME
+  OTHER_EXPENSE
+}
+
 enum NormalBalance {
   DEBIT
   CREDIT
@@ -410,6 +431,17 @@ model GLAccount {
   requiresDepartment Boolean @default(false) @map("requires_department")
   requiresFarm       Boolean @default(false) @map("requires_farm")
   requiresProject    Boolean @default(false) @map("requires_project")
+
+  /// US-897-002. Nullable: an unclassified account is exactly that, not
+  /// silently defaulted to a category nobody chose. `fsCategorySetAt` is
+  /// when this classification was last set — a timestamp, not an
+  /// effective-dated range: unlike a standard cost, a past journal line was
+  /// never computed FROM an account's FS category, so there is nothing that
+  /// needs to resolve "which category applied as of that date" the way
+  /// ItemStandardCost does. What changed and when is retained instead
+  /// through the ordinary audit trail (AuditService), on every set.
+  fsCategory      FsCategory? @map("fs_category")
+  fsCategorySetAt DateTime?   @map("fs_category_set_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

@@ -437,6 +437,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['cost centre', 'cost center', 'department', 'dimension'],
       },
       {
+        href: '/admin/accounts',
+        label: 'GL accounts',
+        hint: 'Where each account sits on the balance sheet or P&L',
+        keywords: ['gl account', 'chart of accounts', 'fs category', 'classification', 'coa'],
+      },
+      {
         href: '/settings',
         label: 'Preferences',
         hint: 'Language, units, feed lead times and thresholds',

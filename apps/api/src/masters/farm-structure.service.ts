@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { AuditAction } from '@bioassetpro/database';
+import { AuditAction, FsCategory } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -192,8 +192,58 @@ export class FarmStructureService {
     return this.prisma.gLAccount.findMany({
       where: { companyId, active: true, isPostingAccount: true },
       orderBy: { accountNumber: 'asc' },
-      select: { id: true, accountNumber: true, name: true, accountType: true },
+      select: {
+        id: true,
+        accountNumber: true,
+        name: true,
+        accountType: true,
+        fsCategory: true,
+        fsCategorySetAt: true,
+      },
     });
+  }
+
+  /**
+   * Set an account's FS category (US-897-002). Company-scoped so this can
+   * never reach into another tenant's chart, and audited on every change —
+   * the account's own history is retained through the ordinary audit trail
+   * rather than a bespoke versioned table, since nothing downstream resolves
+   * "which category applied as of a past date" the way a standard cost does.
+   */
+  async classifyAccount(params: {
+    companyId: string;
+    actor: WorkflowActor;
+    accountId: string;
+    fsCategory: FsCategory;
+  }) {
+    const account = await this.prisma.gLAccount.findFirst({
+      where: { id: params.accountId, companyId: params.companyId },
+    });
+    if (!account) throw new NotFoundException('No such GL account.');
+
+    const previous = account.fsCategory;
+    const updated = await this.prisma.gLAccount.update({
+      where: { id: account.id },
+      data: { fsCategory: params.fsCategory, fsCategorySetAt: new Date() },
+    });
+
+    await this.audit.write({
+      transactionId: account.id,
+      module: 'MASTERS',
+      entityType: 'GLAccount',
+      entityId: account.id,
+      status: 'ACTIVE',
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      ipAddress: params.actor.ipAddress ?? null,
+      device: params.actor.device ?? null,
+      comments:
+        `Classified ${account.accountNumber} — ${account.name} as ${params.fsCategory}` +
+        (previous ? ` (was ${previous})` : ' (was unclassified)'),
+      metadata: { previousFsCategory: previous, newFsCategory: params.fsCategory },
+    });
+
+    return updated;
   }
 
   /** Tax codes this company has, for the VAT picker on an item. */
