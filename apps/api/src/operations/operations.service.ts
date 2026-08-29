@@ -571,6 +571,16 @@ export class OperationsService {
         );
       }
 
+      await this.biologicalAssets.assertStageAgeEligible({
+        companyId,
+        speciesKey: group.speciesKey,
+        breed: group.breed,
+        stageName: group.stage,
+        startedOn: group.startedOn,
+        asOfDate: asDate(payload.date),
+        groupCode: group.code,
+      });
+
       const movedTo = payload.movedToGroup
         ? await this.resolveGroup(tx, companyId, payload.movedToGroup)
         : null;
@@ -659,6 +669,16 @@ export class OperationsService {
 
       const group = await this.resolveGroup(tx, companyId, payload.groupCode);
       const toPen = await this.resolvePenHouse(tx, companyId, payload.toHouse);
+
+      await this.biologicalAssets.assertStageAgeEligible({
+        companyId,
+        speciesKey: group.speciesKey,
+        breed: group.breed,
+        stageName: payload.toStage,
+        startedOn: group.startedOn,
+        asOfDate: asDate(payload.date),
+        groupCode: group.code,
+      });
 
       const record = await tx.stageChange.create({
         data: {

@@ -134,6 +134,17 @@ export class TradeService {
               `${group.code} has ${group.population} left — cannot sell ${line.animalsRemoved}.`,
             );
           }
+
+          await this.biologicalAssets.assertStageAgeEligible({
+            companyId,
+            speciesKey: group.speciesKey,
+            breed: group.breed,
+            stageName: group.stage,
+            startedOn: group.startedOn,
+            asOfDate: new Date(payload.date),
+            groupCode: group.code,
+          });
+
           await this.prisma.livestockGroup.update({
             where: { id: group.id },
             data: { population: { decrement: line.animalsRemoved! } },

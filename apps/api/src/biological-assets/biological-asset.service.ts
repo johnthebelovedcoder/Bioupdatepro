@@ -91,6 +91,47 @@ export class BiologicalAssetService {
     };
   }
 
+  /**
+   * Refuses a stage transfer, sale or harvest that the population has not
+   * lived long enough to reach (§ SNAIL_AGE_TRACKER / POULTRY_AGE_TRACKER —
+   * US-897-009/010).
+   *
+   * Deliberately silent, not a refusal, when there is nothing to check
+   * against: a breed with no SpeciesBreed row, or a stage that row does not
+   * name a threshold for. That mirrors the workbook's own age tracker, which
+   * flags an inconsistent age/stage pairing as REVIEW rather than blocking —
+   * and matches the non-blocking design already chosen for placement
+   * (SpeciesBreed governs data, it does not gate free-text breed entry).
+   */
+  async assertStageAgeEligible(params: {
+    companyId: string;
+    speciesKey: string;
+    breed: string;
+    stageName: string;
+    startedOn: Date;
+    asOfDate: Date;
+    groupCode: string;
+  }): Promise<void> {
+    const speciesBreed = await this.prisma.speciesBreed.findFirst({
+      where: { companyId: params.companyId, speciesKey: params.speciesKey, name: params.breed, active: true },
+      include: { stages: { where: { stageName: params.stageName } } },
+    });
+    const threshold = speciesBreed?.stages[0];
+    if (!threshold) return;
+
+    const ageDays = Math.floor(
+      (params.asOfDate.getTime() - params.startedOn.getTime()) / 86_400_000,
+    );
+    if (ageDays < threshold.minDay) {
+      throw new AccountingRuleViolation(
+        'SNAIL_AGE_TRACKER / POULTRY_AGE_TRACKER — minimum age per stage',
+        `${params.groupCode} is ${ageDays} day(s) old — "${params.stageName}" needs at least ` +
+          `${threshold.minDay} for ${params.breed}.`,
+        { groupCode: params.groupCode, stage: params.stageName, ageDays, minDay: threshold.minDay },
+      );
+    }
+  }
+
   private async grniAccount(companyId: string): Promise<{ glAccountId: string }> {
     const account = await this.prisma.gLAccount.findFirst({
       where: { companyId, accountNumber: '210200', active: true },
