@@ -139,4 +139,57 @@ export class BiologicalAssetController {
    * like a purchase order or a goods receipt, and giving it a second approval
    * endpoint would be the duplicate maker-checker mechanism Rule 2 forbids.
    */
+
+  /**
+   * The governed market price list (US-897-011) — what the valuation form
+   * prefills from.
+   */
+  @AnyRole('The valuation form prefills its price fields from this.')
+  @Get('market-prices')
+  async marketPrices(@CurrentCompany() companyId: string) {
+    const rows = await this.assets.listCurrentMarketPrices(companyId);
+    return rows.map((row) => ({
+      speciesKey: row.speciesKey,
+      breed: row.breed,
+      marketPricePerUnitKobo: row.marketPricePerUnitKobo.toString(),
+      costsToSellPerUnitKobo: row.costsToSellPerUnitKobo.toString(),
+      evidenceReference: row.evidenceReference,
+      effectiveFrom: row.effectiveFrom,
+    }));
+  }
+
+  @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('market-prices')
+  async setMarketPrice(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: {
+      speciesKey: string;
+      breed: string;
+      marketPricePerUnitKobo: string;
+      costsToSellPerUnitKobo?: string;
+      evidenceReference: string;
+      effectiveFrom: string;
+    },
+  ) {
+    const created = await this.assets.setMarketPrice({
+      companyId,
+      actor,
+      speciesKey: body.speciesKey,
+      breed: body.breed,
+      marketPricePerUnitKobo: BigInt(body.marketPricePerUnitKobo || '0'),
+      costsToSellPerUnitKobo: BigInt(body.costsToSellPerUnitKobo || '0'),
+      evidenceReference: body.evidenceReference,
+      effectiveFrom: new Date(body.effectiveFrom),
+    });
+    return {
+      id: created.id,
+      speciesKey: created.speciesKey,
+      breed: created.breed,
+      marketPricePerUnitKobo: created.marketPricePerUnitKobo.toString(),
+      costsToSellPerUnitKobo: created.costsToSellPerUnitKobo.toString(),
+      effectiveFrom: created.effectiveFrom,
+    };
+  }
 }

@@ -62,3 +62,58 @@ export async function requestValuation(
   revalidatePath('/approvals');
   return { error: null, message: 'Raised. It now needs a Finance Controller to approve it.' };
 }
+
+export interface MarketPriceState {
+  error: string | null;
+  message: string | null;
+}
+
+/**
+ * Set the governed market price for a species/breed (US-897-011) — what the
+ * valuation form prefills from next time. Effective-dated: this does not
+ * touch a valuation already raised under the price it replaces.
+ */
+export async function setMarketPrice(
+  _previous: MarketPriceState,
+  formData: FormData,
+): Promise<MarketPriceState> {
+  const speciesKey = String(formData.get('speciesKey') ?? '').trim();
+  const breed = String(formData.get('breed') ?? '').trim();
+  const effectiveFrom = String(formData.get('effectiveFrom') ?? '');
+  const marketPrice = String(formData.get('marketPricePerUnit') ?? '').trim();
+  const costsToSell = String(formData.get('costsToSellPerUnit') ?? '').trim();
+  const evidenceReference = String(formData.get('evidenceReference') ?? '').trim();
+
+  if (!speciesKey || !breed) return { error: 'Choose a module and a breed.', message: null };
+  if (!evidenceReference) {
+    return { error: 'State what the price is based on.', message: null };
+  }
+
+  const marketKobo = parseNairaToKobo(marketPrice);
+  if (marketKobo === null || marketKobo <= 0n) {
+    return { error: 'Enter the market price per unit.', message: null };
+  }
+  const costsKobo = parseNairaToKobo(costsToSell || '0') ?? 0n;
+
+  try {
+    await api('/biological-assets/market-prices', {
+      method: 'POST',
+      body: {
+        speciesKey,
+        breed,
+        marketPricePerUnitKobo: String(marketKobo),
+        costsToSellPerUnitKobo: String(costsKobo),
+        evidenceReference,
+        effectiveFrom: effectiveFrom || new Date().toISOString().slice(0, 10),
+      },
+    });
+  } catch (caught) {
+    return {
+      error: caught instanceof ApiError ? caught.message : 'Could not set that price.',
+      message: null,
+    };
+  }
+
+  revalidatePath('/agripro/valuations');
+  return { error: null, message: `Priced ${breed}. New valuations for it will default from this.` };
+}

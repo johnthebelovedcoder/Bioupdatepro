@@ -5,7 +5,7 @@ import { useFormStatus } from 'react-dom';
 import { Sheet } from './sheet';
 import { formatNaira } from '@/lib/money';
 import { requestValuation, type ValuationState } from '@/app/(app)/agripro/biological-assets/actions';
-import type { BiologicalAssetGroup } from '@/lib/biological-assets';
+import type { BiologicalAssetGroup, MarketPrice } from '@/lib/biological-assets';
 
 /**
  * Raising a valuation.
@@ -15,14 +15,37 @@ import type { BiologicalAssetGroup } from '@/lib/biological-assets';
  * singles out who may make it: whoever fills this in is the preparer: a
  * Finance Controller still has to approve it before the gain or loss
  * reaches the ledger. Submitting sends it to /approvals; it does not post.
+ *
+ * Choosing a population prefills the price fields from the governed market
+ * price list (US-897-011) where one exists for its species/breed — still
+ * just a starting point, editable, and still requiring its own evidence.
  */
-export function ValuationForm({ groups }: { groups: BiologicalAssetGroup[] }) {
+export function ValuationForm({
+  groups,
+  marketPrices,
+}: {
+  groups: BiologicalAssetGroup[];
+  marketPrices: MarketPrice[];
+}) {
   const [state, formAction] = useActionState<ValuationState, FormData>(requestValuation, {
     error: null,
     message: null,
   });
   const valued = groups.filter((g) => g.acquisitionPosted);
   const [open, setOpen] = useState(false);
+  const [marketPricePerUnit, setMarketPricePerUnit] = useState('');
+  const [costsToSellPerUnit, setCostsToSellPerUnit] = useState('');
+  const [evidenceReference, setEvidenceReference] = useState('');
+
+  function onChooseGroup(groupId: string) {
+    const group = valued.find((g) => g.id === groupId);
+    const priced = group
+      ? marketPrices.find((p) => p.speciesKey === group.speciesKey && p.breed === group.breed)
+      : undefined;
+    setMarketPricePerUnit(priced ? koboToNaira(priced.marketPricePerUnitKobo) : '');
+    setCostsToSellPerUnit(priced ? koboToNaira(priced.costsToSellPerUnitKobo) : '');
+    setEvidenceReference(priced ? priced.evidenceReference : '');
+  }
 
   return (
     <>
@@ -41,7 +64,12 @@ export function ValuationForm({ groups }: { groups: BiologicalAssetGroup[] }) {
 
           <label className="field">
             Population
-            <select name="groupId" required defaultValue="">
+            <select
+              name="groupId"
+              required
+              defaultValue=""
+              onChange={(event) => onChooseGroup(event.target.value)}
+            >
               <option value="" disabled>
                 Choose a population
               </option>
@@ -64,12 +92,27 @@ export function ValuationForm({ groups }: { groups: BiologicalAssetGroup[] }) {
             </label>
             <label className="field">
               Market price per unit (₦)
-              <input name="marketPricePerUnit" type="number" step="any" inputMode="decimal" required />
+              <input
+                name="marketPricePerUnit"
+                type="number"
+                step="any"
+                inputMode="decimal"
+                required
+                value={marketPricePerUnit}
+                onChange={(event) => setMarketPricePerUnit(event.target.value)}
+              />
             </label>
             <label className="field">
               Costs to sell per unit (₦)
               <span className="faint"> (optional)</span>
-              <input name="costsToSellPerUnit" type="number" step="any" inputMode="decimal" />
+              <input
+                name="costsToSellPerUnit"
+                type="number"
+                step="any"
+                inputMode="decimal"
+                value={costsToSellPerUnit}
+                onChange={(event) => setCostsToSellPerUnit(event.target.value)}
+              />
             </label>
           </div>
 
@@ -79,6 +122,8 @@ export function ValuationForm({ groups }: { groups: BiologicalAssetGroup[] }) {
               name="evidenceReference"
               placeholder="A price list, a buyer quotation, a market survey"
               required
+              value={evidenceReference}
+              onChange={(event) => setEvidenceReference(event.target.value)}
             />
             <span className="faint">
               A valuation cannot be raised without something backing the price — a price list, a
@@ -95,6 +140,13 @@ export function ValuationForm({ groups }: { groups: BiologicalAssetGroup[] }) {
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** Kobo, as a string off the wire, to a plain naira number string for a
+ *  `<input type="number">` value — the reverse of parseNairaToKobo. */
+function koboToNaira(kobo: string): string {
+  const value = Number(BigInt(kobo)) / 100;
+  return value === 0 ? '' : String(value);
 }
 
 function Submit() {

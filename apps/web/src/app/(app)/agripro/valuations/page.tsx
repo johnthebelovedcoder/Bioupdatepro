@@ -1,9 +1,11 @@
 import Link from 'next/link';
-import { getBiologicalAssetGroups, getValuations } from '@/lib/biological-assets';
+import { getBiologicalAssetGroups, getMarketPrices, getValuations } from '@/lib/biological-assets';
+import { getSpeciesBreeds } from '@/lib/trade';
 import { formatDate, formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { ValuationForm } from '@/components/valuation-form';
+import { MarketPriceForm } from '@/components/market-price-form';
 import { TableSearch } from '@/components/table-search';
 import { IconBox } from '@/components/icons';
 
@@ -17,10 +19,14 @@ export const metadata = { title: 'Valuations — BioAssetPro' };
  * loss only reaches the ledger once a Finance Controller approves it.
  */
 export default async function ValuationsPage() {
-  const [groups, valuations] = await Promise.all([
+  const [groups, valuations, marketPrices, snailBreeds, poultryBreeds] = await Promise.all([
     getBiologicalAssetGroups(),
     getValuations(),
+    getMarketPrices(),
+    getSpeciesBreeds('snail'),
+    getSpeciesBreeds('poultry'),
   ]);
+  const speciesBreeds = [...snailBreeds, ...poultryBreeds];
 
   return (
     <>
@@ -34,7 +40,12 @@ export default async function ValuationsPage() {
 
         <TableSearch
           placeholder="Search valuations"
-          actions={<ValuationForm groups={groups} />}
+          actions={
+            <>
+              <ValuationForm groups={groups} marketPrices={marketPrices} />
+              <MarketPriceForm speciesBreeds={speciesBreeds} />
+            </>
+          }
         >
           <Card
             title={`${valuations.length} ${valuations.length === 1 ? 'valuation' : 'valuations'} raised`}

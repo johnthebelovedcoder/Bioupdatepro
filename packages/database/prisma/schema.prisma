@@ -193,6 +193,7 @@ model User {
   valuationsPrepared        BiologicalAssetValuation[] @relation("ValuationPreparer")
   fixedAssetsCapitalised    FixedAsset[]               @relation("FixedAssetCapitaliser")
   depreciationRunsCreated   DepreciationRun[]          @relation("DepreciationRunCreator")
+  marketPricesCreated       MarketPriceList[]
 
   @@map("users")
 }
@@ -290,6 +291,7 @@ model Company {
   fixedAssets                   FixedAsset[]
   depreciationRuns              DepreciationRun[]
   speciesBreeds                 SpeciesBreed[]
+  marketPriceLists              MarketPriceList[]
 
   @@map("companies")
 }
@@ -5566,6 +5568,40 @@ model BiologicalAssetValuation {
 
   @@index([companyId, groupId, valuationDate])
   @@map("biological_asset_valuations")
+}
+
+/// A governed market price for one species/breed, effective-dated the same
+/// way `ItemStandardCost` is (§5, recipe.service.ts's `standardCostOn`):
+/// setting a new price closes the previous row rather than overwriting it, so
+/// a past valuation's evidence stays reproducible against what applied then.
+///
+/// Read by the valuation form to PREFILL its market price / cost-to-sell
+/// fields — §61.6 still requires the preparer's own evidence reference and
+/// still lets them override both numbers. This governs where the default
+/// comes from; it does not remove the human judgement §61.6 requires.
+model MarketPriceList {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  speciesKey String @map("species_key")
+  /// Matches LivestockGroup.breed / SpeciesBreed.name.
+  breed      String
+
+  marketPricePerUnitKobo BigInt @map("market_price_per_unit_kobo")
+  costsToSellPerUnitKobo BigInt @default(0) @map("costs_to_sell_per_unit_kobo")
+  evidenceReference      String @map("evidence_reference")
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  company   Company @relation(fields: [companyId], references: [id])
+  createdBy User    @relation(fields: [createdById], references: [id])
+
+  @@index([companyId, speciesKey, breed, effectiveFrom])
+  @@map("market_price_lists")
 }
 
 // ---------------------------------------------------------------------------

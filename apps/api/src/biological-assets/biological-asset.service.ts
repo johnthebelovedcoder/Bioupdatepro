@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Prisma, ValuationDirection, WorkflowStatus } from '@bioassetpro/database';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { AuditAction, Prisma, ValuationDirection, WorkflowStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { WorkflowService } from '../workflow/workflow.service';
+import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -45,6 +46,7 @@ export class BiologicalAssetService {
     private readonly prisma: PrismaService,
     private readonly posting: PostingService,
     private readonly workflow: WorkflowService,
+    private readonly audit: AuditService,
   ) {}
 
   /* ------------------------------------------------------------------ */
@@ -643,6 +645,126 @@ export class BiologicalAssetService {
       this.logger.warn(`Disposal ${disposal.id} did not post: ${message}`);
       return { posted: false, reason: message };
     }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Market price list (US-897-011) — prefills the valuation form         */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * The market price currently in force for every species/breed the company
+   * has priced — one row per (speciesKey, breed), the most recent whose
+   * effective range covers today.
+   *
+   * Read-only reference data for the valuation form's default fill. §61.6
+   * still requires the preparer's own evidence reference, and the form still
+   * lets both numbers be overridden — this only governs where the starting
+   * point comes from.
+   */
+  async listCurrentMarketPrices(companyId: string) {
+    const today = new Date(Date.UTC(
+      new Date().getUTCFullYear(),
+      new Date().getUTCMonth(),
+      new Date().getUTCDate(),
+    ));
+
+    return this.prisma.marketPriceList.findMany({
+      where: {
+        companyId,
+        effectiveFrom: { lte: today },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }],
+      },
+      orderBy: [{ speciesKey: 'asc' }, { breed: 'asc' }, { effectiveFrom: 'desc' }],
+      distinct: ['speciesKey', 'breed'],
+    });
+  }
+
+  /**
+   * Set a species/breed's market price, effective from a date — closes
+   * whatever was open before it rather than overwriting it (same pattern as
+   * `ItemStandardCost`), so a valuation raised under the old price stays
+   * reproducible against what was actually in force then.
+   */
+  async setMarketPrice(params: {
+    companyId: string;
+    actor: WorkflowActor;
+    speciesKey: string;
+    breed: string;
+    marketPricePerUnitKobo: bigint;
+    costsToSellPerUnitKobo: bigint;
+    evidenceReference: string;
+    effectiveFrom: Date;
+  }) {
+    if (params.marketPricePerUnitKobo <= 0n) {
+      throw new BadRequestException('A market price must be greater than zero.');
+    }
+    if (!params.evidenceReference.trim()) {
+      throw new BadRequestException('A market price needs an evidence reference.');
+    }
+
+    const day = new Date(Date.UTC(
+      params.effectiveFrom.getUTCFullYear(),
+      params.effectiveFrom.getUTCMonth(),
+      params.effectiveFrom.getUTCDate(),
+    ));
+    const previousDay = new Date(day);
+    previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+
+    return this.prisma.$transaction(async (tx) => {
+      // A same-day correction replaces outright rather than leaving a row
+      // that was "effective" for zero days — effectiveTo can't precede its
+      // own effectiveFrom, so closing it the normal way is not an option.
+      await tx.marketPriceList.deleteMany({
+        where: {
+          companyId: params.companyId,
+          speciesKey: params.speciesKey,
+          breed: params.breed,
+          effectiveFrom: day,
+        },
+      });
+
+      await tx.marketPriceList.updateMany({
+        where: {
+          companyId: params.companyId,
+          speciesKey: params.speciesKey,
+          breed: params.breed,
+          effectiveTo: null,
+          effectiveFrom: { lt: day },
+        },
+        data: { effectiveTo: previousDay },
+      });
+
+      const created = await tx.marketPriceList.create({
+        data: {
+          companyId: params.companyId,
+          speciesKey: params.speciesKey,
+          breed: params.breed,
+          marketPricePerUnitKobo: params.marketPricePerUnitKobo,
+          costsToSellPerUnitKobo: params.costsToSellPerUnitKobo,
+          evidenceReference: params.evidenceReference.trim(),
+          effectiveFrom: day,
+          createdById: params.actor.userId,
+        },
+      });
+
+      await this.audit.write(
+        {
+          transactionId: created.id,
+          module: 'biological-assets',
+          entityType: 'MarketPriceList',
+          entityId: created.id,
+          status: 'ACTIVE',
+          action: AuditAction.CREATE,
+          userId: params.actor.userId,
+          ipAddress: params.actor.ipAddress ?? null,
+          device: params.actor.device ?? null,
+          comments: `${params.speciesKey}/${params.breed} priced at ${params.marketPricePerUnitKobo} kobo from ${day.toISOString().slice(0, 10)}`,
+        },
+        tx,
+      );
+
+      return created;
+    });
   }
 
   /* ------------------------------------------------------------------ */

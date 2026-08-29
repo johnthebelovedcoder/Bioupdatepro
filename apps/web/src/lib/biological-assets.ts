@@ -69,6 +69,25 @@ export async function getValuations(): Promise<BiologicalAssetValuation[]> {
   return safe<BiologicalAssetValuation[]>('/biological-assets/valuations', []);
 }
 
+export interface MarketPrice {
+  speciesKey: string;
+  breed: string;
+  marketPricePerUnitKobo: string;
+  costsToSellPerUnitKobo: string;
+  evidenceReference: string;
+  effectiveFrom: string;
+}
+
+/**
+ * The governed market price list (US-897-011) — what the valuation form
+ * prefills its market price / cost-to-sell fields from. Empty rather than
+ * thrown for a company that has not priced anything yet: the form's own
+ * fields stay free-typed either way.
+ */
+export async function getMarketPrices(): Promise<MarketPrice[]> {
+  return safe<MarketPrice[]>('/biological-assets/market-prices', []);
+}
+
 async function safe<T>(path: string, fallback: T): Promise<T> {
   try {
     return await api<T>(path);
