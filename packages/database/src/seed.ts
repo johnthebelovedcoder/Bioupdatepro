@@ -435,6 +435,11 @@ const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> =
   { type: 'PURCHASE_REQUISITION', name: 'Purchase Requisition', autoPost: false },
   { type: 'PURCHASE_ORDER', name: 'Purchase Order', autoPost: false },
   { type: 'GOODS_RECEIPT', name: 'Goods Receipt', autoPost: true },
+  {
+    type: 'GOODS_RECEIPT_EXCEPTION',
+    name: 'Goods Receipt — over-tolerance exception',
+    autoPost: true,
+  },
   { type: 'SUPPLIER_INVOICE', name: 'Supplier Invoice', autoPost: true },
   {
     type: 'SUPPLIER_INVOICE_EXCEPTION',

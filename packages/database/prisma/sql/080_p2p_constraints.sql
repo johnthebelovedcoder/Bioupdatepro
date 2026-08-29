@@ -195,10 +195,18 @@ CREATE TRIGGER trg_supplier_invoice_lines_locked
 -- ---------------------------------------------------------------------------
 -- 4b. Purchase order lines freeze once the order leaves draft (US-897-006).
 --     PurchaseOrderService.amendOrder() only ever touches a DRAFT order's
---     lines, so this never fights the application's own amendment path —
---     it exists for the same reason the invoice-lines trigger above does:
---     nothing besides that one, audited code path should be able to rewrite
---     a line once a receipt or invoice could plausibly point at it.
+--     content columns, so this never fights the application's own amendment
+--     path — it exists for the same reason the invoice-lines trigger above
+--     does: nothing besides that one, audited code path should be able to
+--     rewrite what a line SAYS once a receipt or invoice could plausibly
+--     point at it.
+--
+--     received_quantity and invoiced_quantity are excluded on purpose: they
+--     are progress counters GoodsReceiptService.postApproved and
+--     SupplierInvoiceService accumulate onto an already-APPROVED order's own
+--     lines on every receipt and invoice — the normal operational path, not
+--     an amendment. Blocking those broke every test that received or
+--     invoiced against an approved order.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION bap_block_locked_purchase_order_lines()
@@ -211,6 +219,18 @@ BEGIN
     FROM purchase_orders WHERE id = COALESCE(NEW.purchase_order_id, OLD.purchase_order_id);
 
   IF v_status <> 'DRAFT' THEN
+    IF TG_OP = 'UPDATE'
+      AND NEW.item_id IS NOT DISTINCT FROM OLD.item_id
+      AND NEW.description IS NOT DISTINCT FROM OLD.description
+      AND NEW.quantity IS NOT DISTINCT FROM OLD.quantity
+      AND NEW.unit_price_kobo IS NOT DISTINCT FROM OLD.unit_price_kobo
+      AND NEW.tax_code_id IS NOT DISTINCT FROM OLD.tax_code_id
+      AND NEW.net_amount_kobo IS NOT DISTINCT FROM OLD.net_amount_kobo
+      AND NEW.vat_amount_kobo IS NOT DISTINCT FROM OLD.vat_amount_kobo
+    THEN
+      RETURN NEW;
+    END IF;
+
     RAISE EXCEPTION
       'Purchase order % is %; its lines cannot be changed.', v_reference, v_status
       USING ERRCODE = 'restrict_violation';

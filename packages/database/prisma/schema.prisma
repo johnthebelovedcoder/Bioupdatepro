@@ -3896,6 +3896,11 @@ model ProcurementConfiguration {
   invoiceTransactionType        String @default("SUPPLIER_INVOICE") @map("invoice_transaction_type")
   matchExceptionTransactionType String @default("SUPPLIER_INVOICE_EXCEPTION") @map("match_exception_transaction_type")
 
+  /// Same idea, for a goods receipt: the clean route vs. the tighter one for
+  /// a receipt over the over-receipt tolerance (US-897-007).
+  grnTransactionType          String @default("GOODS_RECEIPT") @map("grn_transaction_type")
+  grnExceptionTransactionType String @default("GOODS_RECEIPT_EXCEPTION") @map("grn_exception_transaction_type")
+
   effectiveFrom DateTime  @map("effective_from") @db.Date
   effectiveTo   DateTime? @map("effective_to") @db.Date
 
@@ -4183,6 +4188,16 @@ model GoodsReceiptNote {
   inspectedById         String?       @map("inspected_by_id") @db.Uuid
 
   status GrnStatus @default(DRAFT)
+
+  /// One or more lines received beyond the configured over-receipt
+  /// tolerance. Does not block creation — §5's own sibling control, three-way
+  /// match, treats an out-of-tolerance invoice as something requiring
+  /// approval, not something refused, and a GRN takes the same route: `submit`
+  /// reads this to route through the tighter exception transaction type.
+  overTolerance Boolean @default(false) @map("over_tolerance")
+  /// Which line(s) and by how much, for the approver — mirrors
+  /// SupplierInvoiceService's three-way match findings.
+  toleranceNote String? @map("tolerance_note")
 
   /// MONEY. Value of goods accepted into stock, at PO price.
   totalValueKobo BigInt @default(0) @map("total_value_kobo")

@@ -6,6 +6,7 @@ import { SupplierInvoiceService } from './supplier-invoice.service';
 import { SupplierPaymentService } from './supplier-payment.service';
 import { ProcurementFlowService } from './procurement-flow.service';
 import {
+  GoodsReceiptExceptionPostingHandler,
   GoodsReceiptPostingHandler,
   SupplierInvoiceExceptionPostingHandler,
   SupplierInvoicePostingHandler,
@@ -23,6 +24,7 @@ import { WorkflowService } from '../workflow/workflow.service';
     SupplierPaymentService,
     ProcurementFlowService,
     GoodsReceiptPostingHandler,
+    GoodsReceiptExceptionPostingHandler,
     SupplierInvoicePostingHandler,
     SupplierInvoiceExceptionPostingHandler,
     SupplierPaymentPostingHandler,
@@ -41,6 +43,7 @@ export class ProcurementModule implements OnModuleInit {
   constructor(
     private readonly workflow: WorkflowService,
     private readonly grn: GoodsReceiptPostingHandler,
+    private readonly grnException: GoodsReceiptExceptionPostingHandler,
     private readonly invoice: SupplierInvoicePostingHandler,
     private readonly exception: SupplierInvoiceExceptionPostingHandler,
     private readonly payment: SupplierPaymentPostingHandler,
@@ -48,6 +51,7 @@ export class ProcurementModule implements OnModuleInit {
 
   onModuleInit(): void {
     this.workflow.register(this.grn);
+    this.workflow.register(this.grnException);
     this.workflow.register(this.invoice);
     this.workflow.register(this.exception);
     this.workflow.register(this.payment);

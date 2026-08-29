@@ -30,6 +30,7 @@ import { GoodsReceiptService } from '../../src/procurement/goods-receipt.service
 import { SupplierInvoiceService } from '../../src/procurement/supplier-invoice.service';
 import { SupplierPaymentService } from '../../src/procurement/supplier-payment.service';
 import {
+  GoodsReceiptExceptionPostingHandler,
   GoodsReceiptPostingHandler,
   SupplierInvoiceExceptionPostingHandler,
   SupplierInvoicePostingHandler,
@@ -109,6 +110,7 @@ describe('Procure-to-Pay (§5)', () => {
     );
 
     workflow.register(new GoodsReceiptPostingHandler(receipts));
+    workflow.register(new GoodsReceiptExceptionPostingHandler(receipts));
     workflow.register(new SupplierInvoicePostingHandler(invoices));
     workflow.register(new SupplierInvoiceExceptionPostingHandler(invoices));
     workflow.register(new SupplierPaymentPostingHandler(payments));
@@ -293,6 +295,7 @@ describe('Procure-to-Pay (§5)', () => {
       'PURCHASE_REQUISITION',
       'PURCHASE_ORDER',
       'GOODS_RECEIPT',
+      'GOODS_RECEIPT_EXCEPTION',
       'SUPPLIER_INVOICE',
       'SUPPLIER_INVOICE_EXCEPTION',
       'SUPPLIER_PAYMENT',
@@ -643,19 +646,23 @@ describe('Procure-to-Pay (§5)', () => {
       ).rejects.toThrow(/only received against an approved order/i);
     });
 
-    it('refuses over-receipt beyond tolerance', async () => {
+    it('flags an over-receipt beyond tolerance rather than refusing it, and routes to the exception ladder', async () => {
       const order = await approvedOrder();
 
-      await expect(
-        receipts.create({
-          purchaseOrderId: order.id,
-          grnNumber: 'GRN-OVER',
-          receiptDate: JAN,
-          ...period(),
-          lines: [{ purchaseOrderLineId: order.lines[0]!.id, receivedQuantity: 101 }],
-          actor: maker,
-        }),
-      ).rejects.toThrow(/over-received/i);
+      const grn = await receipts.create({
+        purchaseOrderId: order.id,
+        grnNumber: 'GRN-OVER',
+        receiptDate: JAN,
+        ...period(),
+        qualityStatus: QualityStatus.PASSED,
+        lines: [{ purchaseOrderLineId: order.lines[0]!.id, receivedQuantity: 101 }],
+        actor: maker,
+      });
+      expect(grn.overTolerance).toBe(true);
+      expect(grn.toleranceNote).toMatch(/101\.000000 against 100\.000000 ordered/);
+
+      const submitted = await receipts.submit({ grnId: grn.id, actor: maker });
+      expect(submitted.routedAs).toBe('GOODS_RECEIPT_EXCEPTION');
     });
 
     it('allows over-receipt within a configured tolerance', async () => {
@@ -672,6 +679,7 @@ describe('Procure-to-Pay (§5)', () => {
         actor: maker,
       });
       expect(grn.lines[0]!.receivedQuantity.toString()).toBe('104');
+      expect(grn.overTolerance).toBe(false);
     });
 
     it('refuses to submit goods still awaiting inspection', async () => {

@@ -90,6 +90,7 @@ export class GoodsReceiptService {
     const prepared: Prisma.GoodsReceiptNoteLineCreateManyGoodsReceiptNoteInput[] = [];
     let totalValue = 0n;
     let lineNumber = 1;
+    const toleranceFindings: string[] = [];
 
     for (const line of input.lines) {
       const orderLine = lineById.get(line.purchaseOrderLineId);
@@ -124,14 +125,14 @@ export class GoodsReceiptService {
       const tolerance = new Decimal(settings.overReceiptTolerancePercent.toString()).div(100);
       const ceiling = ordered.mul(new Decimal(1).plus(tolerance));
 
+      // Over tolerance is flagged, not refused (US-897-007) — the same
+      // "exceptions require approval, not rejection" rule §5 already applies
+      // to a three-way match exception. `submit` routes a flagged GRN through
+      // the tighter exception ladder instead of the standard one.
       if (alreadyReceived.plus(received).greaterThan(ceiling)) {
-        throw new AccountingRuleViolation(
-          'Consolidated Reference §5 — Goods receipt',
-          `Line ${orderLine.lineNumber} of ${order.orderNumber} would be over-received: ` +
-            `${alreadyReceived.plus(received).toFixed(6)} against ${ordered.toFixed(6)} ordered ` +
-            `(tolerance ${settings.overReceiptTolerancePercent.toString()}%). Accepting goods ` +
-            `nobody ordered creates a liability nobody approved.`,
-          { orderNumber: order.orderNumber, lineNumber: orderLine.lineNumber },
+        toleranceFindings.push(
+          `Line ${orderLine.lineNumber}: ${alreadyReceived.plus(received).toFixed(6)} against ` +
+            `${ordered.toFixed(6)} ordered (tolerance ${settings.overReceiptTolerancePercent.toString()}%).`,
         );
       }
 
@@ -174,6 +175,8 @@ export class GoodsReceiptService {
           deliveryNoteReference: input.deliveryNoteReference ?? null,
           qualityStatus: input.qualityStatus ?? QualityStatus.PENDING,
           totalValueKobo: totalValue,
+          overTolerance: toleranceFindings.length > 0,
+          toleranceNote: toleranceFindings.length > 0 ? toleranceFindings.join(' ') : null,
           financialYearId: input.financialYearId,
           financialPeriodId: input.financialPeriodId,
           currencyId: order.currencyId,
@@ -192,7 +195,10 @@ export class GoodsReceiptService {
           status: grn.status,
           action: AuditAction.CREATE,
           userId: input.actor.userId,
-          comments: `Received goods on ${grn.grnNumber} against ${order.orderNumber}.`,
+          comments:
+            toleranceFindings.length > 0
+              ? `Received goods on ${grn.grnNumber} against ${order.orderNumber} — over tolerance: ${toleranceFindings.join(' ')}`
+              : `Received goods on ${grn.grnNumber} against ${order.orderNumber}.`,
         },
         tx,
       );
@@ -226,9 +232,14 @@ export class GoodsReceiptService {
       );
     }
 
+    const settings = await this.config.resolve(grn.companyId, grn.receiptDate);
+    const transactionType = grn.overTolerance
+      ? settings.grnExceptionTransactionType
+      : settings.grnTransactionType;
+
     const result = await this.workflow.submit({
       companyId: grn.companyId,
-      transactionType: 'GOODS_RECEIPT',
+      transactionType,
       module: 'procurement',
       documentType: 'GoodsReceiptNote',
       documentId: grn.id,
@@ -237,6 +248,7 @@ export class GoodsReceiptService {
       currencyId: grn.currencyId,
       branchId: grn.branchId,
       actor: params.actor,
+      comments: grn.overTolerance ? `Over-receipt tolerance exceeded: ${grn.toleranceNote}` : null,
     });
 
     await this.prisma.goodsReceiptNote.update({
@@ -247,7 +259,7 @@ export class GoodsReceiptService {
       },
     });
 
-    return result;
+    return { ...result, routedAs: transactionType };
   }
 
   /**

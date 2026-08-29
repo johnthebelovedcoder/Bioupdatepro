@@ -41,6 +41,29 @@ export class GoodsReceiptPostingHandler implements WorkflowPostingHandler {
   }
 }
 
+/**
+ * The same posting behaviour under the over-tolerance exception route — §5
+ * sends an over-received GRN to a tighter approval ladder, not to a
+ * different posting; once approved it posts exactly like a clean receipt.
+ */
+@Injectable()
+export class GoodsReceiptExceptionPostingHandler implements WorkflowPostingHandler {
+  readonly transactionType = 'GOODS_RECEIPT_EXCEPTION';
+
+  constructor(
+    @Inject(forwardRef(() => GoodsReceiptService))
+    private readonly receipts: GoodsReceiptService,
+  ) {}
+
+  async post(input: HandlerInput): Promise<{ journalEntryId: string | null }> {
+    return this.receipts.postApproved({
+      grnId: await documentId(input),
+      actor: input.actor,
+      tx: input.tx,
+    });
+  }
+}
+
 @Injectable()
 export class SupplierInvoicePostingHandler implements WorkflowPostingHandler {
   readonly transactionType = 'SUPPLIER_INVOICE';
