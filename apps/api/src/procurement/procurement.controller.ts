@@ -48,6 +48,45 @@ export class ProcurementController {
     return this.flow.approveOrder({ companyId, id, actor });
   }
 
+  /**
+   * Amend a draft order's lines — a price or quantity correction. Refused
+   * once the order has left DRAFT (submitted, approved, received against):
+   * a correction to a commitment already in flight is a new document, not
+   * an edit to this one.
+   */
+  @OwnedRecord('purchaseOrder', 'id')
+  @Roles('PROCUREMENT_OFFICER', 'FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('orders/:id/amend')
+  async amendOrder(
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      lines: Array<{
+        itemId: string;
+        description?: string;
+        requisitionLineId?: string | null;
+        quantity: string;
+        unitPriceKobo: string;
+        taxCode?: string | null;
+      }>;
+    },
+  ) {
+    return this.flow.amendOrder({ id, actor, lines: body.lines });
+  }
+
+  /**
+   * (Re)submit a draft order for approval — a new order's first submission
+   * happens automatically on conversion, so the case this route exists for
+   * is an amended order going back for approval after a return.
+   */
+  @OwnedRecord('purchaseOrder', 'id')
+  @Roles('PROCUREMENT_OFFICER', 'FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('orders/:id/submit')
+  async submitOrder(@CurrentUser() actor: WorkflowActor, @Param('id') id: string) {
+    return this.flow.submitOrder({ id, actor });
+  }
+
   @AnyRole('What has been received, and what it did to the ledger.')
   @Get('receipts')
   async receipts(@CurrentCompany() companyId: string) {

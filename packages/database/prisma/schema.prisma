@@ -4046,6 +4046,13 @@ model PurchaseOrder {
 
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
 
+  /// Increments on every amendment while still DRAFT (US-897-006). Not a
+  /// separate version table — unlike a recipe, nothing outside this row ever
+  /// needs to resolve "which version was this at as of date X", since
+  /// amendment is only possible before anything downstream (a receipt, an
+  /// invoice) could exist to have been computed against an earlier one.
+  version Int @default(1)
+
   createdById String   @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

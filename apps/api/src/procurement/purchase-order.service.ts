@@ -335,79 +335,11 @@ export class PurchaseOrderService {
       );
     }
 
-    const items = await this.prisma.item.findMany({
-      where: { id: { in: input.lines.map((l) => l.itemId) } },
-      include: { vatTaxCode: { select: { code: true } } },
+    const { prepared, net, vat } = await this.prepareLines({
+      companyId: input.companyId,
+      orderDate: input.orderDate,
+      lines: input.lines,
     });
-    const itemById = new Map(items.map((i) => [i.id, i]));
-
-    const prepared: Prisma.PurchaseOrderLineCreateManyPurchaseOrderInput[] = [];
-    let net = 0n;
-    let vat = 0n;
-
-    for (const [index, line] of input.lines.entries()) {
-      const item = itemById.get(line.itemId);
-      if (!item) {
-        throw new AccountingRuleViolation(
-          'Consolidated Reference §5 — Item master',
-          `Item ${line.itemId} on line ${index + 1} does not exist.`,
-          { lineNumber: index + 1 },
-        );
-      }
-      if (!item.active) {
-        throw new AccountingRuleViolation(
-          'Consolidated Reference §5 — Item master',
-          `Item "${item.code}" is inactive and cannot be ordered.`,
-          { lineNumber: index + 1, itemCode: item.code },
-        );
-      }
-
-      const quantity = new Decimal(line.quantity.toString());
-      if (quantity.lessThanOrEqualTo(0)) {
-        throw new AccountingRuleViolation(
-          'Consolidated Reference §5 — Purchase order',
-          `Line ${index + 1} has a quantity of ${quantity.toString()}.`,
-          { lineNumber: index + 1 },
-        );
-      }
-
-      const lineNet = BigInt(
-        new Decimal(line.unitPriceKobo.toString())
-          .mul(quantity)
-          .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-          .toFixed(0),
-      );
-
-      // Input VAT through the shared engine (Rule 5).
-      const taxCode = line.taxCode ?? item.vatTaxCode?.code ?? null;
-      let lineVat = 0n;
-      let taxCodeId: string | null = null;
-      if (taxCode) {
-        const calculation = await this.tax.calculateVat({
-          companyId: input.companyId,
-          taxCode,
-          amount: lineNet as never,
-          on: input.orderDate,
-        });
-        lineVat = calculation.taxKobo;
-        taxCodeId = calculation.taxCodeId;
-      }
-
-      net += lineNet;
-      vat += lineVat;
-
-      prepared.push({
-        lineNumber: index + 1,
-        itemId: item.id,
-        description: line.description ?? item.description,
-        requisitionLineId: line.requisitionLineId ?? null,
-        quantity: new Prisma.Decimal(quantity.toFixed(6)),
-        unitPriceKobo: line.unitPriceKobo,
-        taxCodeId,
-        netAmountKobo: lineNet,
-        vatAmountKobo: lineVat,
-      });
-    }
 
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.purchaseOrder.create({
@@ -480,6 +412,183 @@ export class PurchaseOrderService {
     });
   }
 
+  /**
+   * Amend a draft order — a price correction, a quantity change, a new line
+   * — versioned rather than silently overwritten. Only a DRAFT order may be
+   * amended, which an order reaches two ways: it was never submitted yet, or
+   * an approver returned it for correction (`syncStatus` puts a RETURNED
+   * order back in DRAFT for exactly this). Either way nothing has been
+   * received or invoiced against it — that requires APPROVED — so replacing
+   * the line set outright is safe. Once an order leaves DRAFT its lines are
+   * locked at the database level (`bap_block_locked_purchase_order_lines`) —
+   * this method never races that trigger because it never touches a
+   * non-draft order's lines. Resubmitting after an amendment is the same
+   * `submitOrder` call as the first submission: `workflow.submit()` already
+   * knows to resume a RETURNED transaction rather than duplicate it.
+   */
+  async amendOrder(input: {
+    purchaseOrderId: string;
+    lines: PurchaseOrderLineInput[];
+    actor: WorkflowActor;
+  }) {
+    const order = await this.prisma.purchaseOrder.findUniqueOrThrow({
+      where: { id: input.purchaseOrderId },
+    });
+
+    if (order.status !== PurchaseOrderStatus.DRAFT) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §5 — Purchase order',
+        `${order.orderNumber} is ${order.status} and cannot be amended — only a draft order's ` +
+          'lines are still open to change.',
+        { orderNumber: order.orderNumber },
+      );
+    }
+
+    if (input.lines.length === 0) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §5 — Purchase order',
+        'A purchase order must order at least one item.',
+        { orderNumber: order.orderNumber },
+      );
+    }
+
+    const { prepared, net, vat } = await this.prepareLines({
+      companyId: order.companyId,
+      orderDate: order.orderDate,
+      lines: input.lines,
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.purchaseOrderLine.deleteMany({ where: { purchaseOrderId: order.id } });
+
+      const updated = await tx.purchaseOrder.update({
+        where: { id: order.id },
+        data: {
+          version: { increment: 1 },
+          netAmountKobo: net,
+          vatAmountKobo: vat,
+          grossAmountKobo: net + vat,
+          lines: { createMany: { data: prepared } },
+        },
+        include: { lines: true },
+      });
+
+      await this.audit.write(
+        {
+          transactionId: updated.id,
+          module: 'procurement',
+          entityType: 'PurchaseOrder',
+          entityId: updated.id,
+          status: updated.status,
+          action: AuditAction.UPDATE,
+          userId: input.actor.userId,
+          comments:
+            `Amended ${updated.orderNumber} to version ${updated.version} — gross now ` +
+            `${updated.grossAmountKobo.toString()} kobo (was ${order.grossAmountKobo.toString()}).`,
+          metadata: {
+            previousVersion: order.version,
+            previousGrossAmountKobo: order.grossAmountKobo.toString(),
+            newGrossAmountKobo: updated.grossAmountKobo.toString(),
+          },
+        },
+        tx,
+      );
+
+      return updated;
+    });
+  }
+
+  /**
+   * Validate and price a line set — the shared work behind both raising a
+   * new order and amending a draft one, so the two can never compute net,
+   * VAT or line shape differently.
+   */
+  private async prepareLines(params: {
+    companyId: string;
+    orderDate: Date;
+    lines: PurchaseOrderLineInput[];
+  }): Promise<{
+    prepared: Prisma.PurchaseOrderLineCreateManyPurchaseOrderInput[];
+    net: bigint;
+    vat: bigint;
+  }> {
+    const items = await this.prisma.item.findMany({
+      where: { id: { in: params.lines.map((l) => l.itemId) } },
+      include: { vatTaxCode: { select: { code: true } } },
+    });
+    const itemById = new Map(items.map((i) => [i.id, i]));
+
+    const prepared: Prisma.PurchaseOrderLineCreateManyPurchaseOrderInput[] = [];
+    let net = 0n;
+    let vat = 0n;
+
+    for (const [index, line] of params.lines.entries()) {
+      const item = itemById.get(line.itemId);
+      if (!item) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §5 — Item master',
+          `Item ${line.itemId} on line ${index + 1} does not exist.`,
+          { lineNumber: index + 1 },
+        );
+      }
+      if (!item.active) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §5 — Item master',
+          `Item "${item.code}" is inactive and cannot be ordered.`,
+          { lineNumber: index + 1, itemCode: item.code },
+        );
+      }
+
+      const quantity = new Decimal(line.quantity.toString());
+      if (quantity.lessThanOrEqualTo(0)) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §5 — Purchase order',
+          `Line ${index + 1} has a quantity of ${quantity.toString()}.`,
+          { lineNumber: index + 1 },
+        );
+      }
+
+      const lineNet = BigInt(
+        new Decimal(line.unitPriceKobo.toString())
+          .mul(quantity)
+          .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+          .toFixed(0),
+      );
+
+      // Input VAT through the shared engine (Rule 5).
+      const taxCode = line.taxCode ?? item.vatTaxCode?.code ?? null;
+      let lineVat = 0n;
+      let taxCodeId: string | null = null;
+      if (taxCode) {
+        const calculation = await this.tax.calculateVat({
+          companyId: params.companyId,
+          taxCode,
+          amount: lineNet as never,
+          on: params.orderDate,
+        });
+        lineVat = calculation.taxKobo;
+        taxCodeId = calculation.taxCodeId;
+      }
+
+      net += lineNet;
+      vat += lineVat;
+
+      prepared.push({
+        lineNumber: index + 1,
+        itemId: item.id,
+        description: line.description ?? item.description,
+        requisitionLineId: line.requisitionLineId ?? null,
+        quantity: new Prisma.Decimal(quantity.toFixed(6)),
+        unitPriceKobo: line.unitPriceKobo,
+        taxCodeId,
+        netAmountKobo: lineNet,
+        vatAmountKobo: lineVat,
+      });
+    }
+
+    return { prepared, net, vat };
+  }
+
   async submitOrder(params: { purchaseOrderId: string; actor: WorkflowActor }) {
     const order = await this.prisma.purchaseOrder.findUniqueOrThrow({
       where: { id: params.purchaseOrderId },
@@ -545,6 +654,21 @@ export class PurchaseOrderService {
           where: { id: order.id },
           data: { status: PurchaseOrderStatus.CANCELLED },
         });
+        return;
+      }
+
+      // An approver returning an order for correction has to land somewhere
+      // the maker can act on. DRAFT is that state — it's already what
+      // `amendOrder` requires, and `workflow.submit()` already knows to
+      // resume rather than duplicate a RETURNED transaction, so resubmitting
+      // after an amendment here needs no special case of its own (US-897-006).
+      if (transaction?.status === 'RETURNED') {
+        if (order.status !== PurchaseOrderStatus.DRAFT) {
+          await this.prisma.purchaseOrder.update({
+            where: { id: order.id },
+            data: { status: PurchaseOrderStatus.DRAFT },
+          });
+        }
         return;
       }
 

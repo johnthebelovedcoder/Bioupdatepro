@@ -193,6 +193,39 @@ CREATE TRIGGER trg_supplier_invoice_lines_locked
   FOR EACH ROW EXECUTE FUNCTION bap_block_locked_supplier_invoice_lines();
 
 -- ---------------------------------------------------------------------------
+-- 4b. Purchase order lines freeze once the order leaves draft (US-897-006).
+--     PurchaseOrderService.amendOrder() only ever touches a DRAFT order's
+--     lines, so this never fights the application's own amendment path —
+--     it exists for the same reason the invoice-lines trigger above does:
+--     nothing besides that one, audited code path should be able to rewrite
+--     a line once a receipt or invoice could plausibly point at it.
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION bap_block_locked_purchase_order_lines()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_status text;
+  v_reference text;
+BEGIN
+  SELECT status::text, order_number INTO v_status, v_reference
+    FROM purchase_orders WHERE id = COALESCE(NEW.purchase_order_id, OLD.purchase_order_id);
+
+  IF v_status <> 'DRAFT' THEN
+    RAISE EXCEPTION
+      'Purchase order % is %; its lines cannot be changed.', v_reference, v_status
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_purchase_order_lines_locked ON purchase_order_lines;
+CREATE TRIGGER trg_purchase_order_lines_locked
+  BEFORE INSERT OR UPDATE OR DELETE ON purchase_order_lines
+  FOR EACH ROW EXECUTE FUNCTION bap_block_locked_purchase_order_lines();
+
+-- ---------------------------------------------------------------------------
 -- 5. Quotation and RFQ shape.
 -- ---------------------------------------------------------------------------
 

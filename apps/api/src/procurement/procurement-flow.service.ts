@@ -85,6 +85,7 @@ export class ProcurementFlowService {
       lines: order.lines.map((line) => ({
         id: line.id,
         lineNumber: line.lineNumber,
+        itemId: line.itemId,
         itemCode: line.item.code,
         description: line.item.description,
         itemType: line.item.itemType,
@@ -128,7 +129,10 @@ export class ProcurementFlowService {
     const decided = await this.prisma.workflowTransaction.findMany({
       where: {
         id: { in: submitted.map((order) => order.workflowTransactionId!) },
-        status: { in: ['APPROVED', 'POSTED', 'REJECTED', 'CANCELLED'] },
+        // RETURNED included: that's what puts an order back in DRAFT so
+        // `amendOrder` (US-897-006) can actually be reached from a real
+        // approval outcome, not just the moment before first submission.
+        status: { in: ['APPROVED', 'POSTED', 'REJECTED', 'CANCELLED', 'RETURNED'] },
       },
       select: { id: true },
     });
@@ -239,6 +243,45 @@ export class ProcurementFlowService {
     await this.orders.syncStatus(params.id);
 
     return result;
+  }
+
+  /** Amend a draft order's lines — a price or quantity correction, versioned rather than silent. */
+  async amendOrder(params: {
+    id: string;
+    actor: WorkflowActor;
+    lines: Array<{
+      itemId: string;
+      description?: string;
+      requisitionLineId?: string | null;
+      quantity: string;
+      unitPriceKobo: string;
+      taxCode?: string | null;
+    }>;
+  }) {
+    return this.orders.amendOrder({
+      purchaseOrderId: params.id,
+      actor: params.actor,
+      lines: params.lines.map((line) => ({
+        itemId: line.itemId,
+        description: line.description,
+        requisitionLineId: line.requisitionLineId ?? null,
+        quantity: line.quantity,
+        unitPriceKobo: BigInt(line.unitPriceKobo),
+        taxCode: line.taxCode ?? null,
+      })),
+    });
+  }
+
+  /**
+   * Submit a draft order for approval — the same call `convertRequisitionToOrder`
+   * makes automatically for a brand-new order, exposed directly for the one case
+   * that isn't brand new: an amended order going back into approval after an
+   * approver returned it. `WorkflowService.submit()` already knows to resume a
+   * RETURNED transaction rather than duplicate it, so this needs no branching
+   * of its own for "first submission" versus "resubmission after a fix."
+   */
+  async submitOrder(params: { id: string; actor: WorkflowActor }) {
+    return this.orders.submitOrder({ purchaseOrderId: params.id, actor: params.actor });
   }
 
   /**
