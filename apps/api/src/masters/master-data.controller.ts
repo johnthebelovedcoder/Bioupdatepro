@@ -466,4 +466,37 @@ export class MasterDataController {
   ) {
     return this.structure.createCostCentre({ companyId, actor, ...body });
   }
+
+  /**
+   * Species/breed master (US-897-004/005) — every placement form needs its
+   * own module's rows to offer real breed suggestions.
+   */
+  @AnyRole('Reference lists that every create form needs to render.')
+  @Get('species-breeds')
+  async listSpeciesBreeds(
+    @CurrentCompany() companyId: string,
+    @Query('speciesKey') speciesKey?: string,
+  ) {
+    return this.structure.listSpeciesBreeds(companyId, speciesKey);
+  }
+
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('species-breeds')
+  async createSpeciesBreed(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: {
+      speciesKey: string;
+      code: string;
+      name: string;
+      classification?: string | null;
+      openingStage: string;
+      status?: string;
+      controlNote?: string | null;
+      stages: { stageName: string; minDay: number }[];
+    },
+  ) {
+    return this.structure.createSpeciesBreed({ companyId, actor, ...body });
+  }
 }

@@ -153,6 +153,24 @@ export async function getGlAccounts(): Promise<GlAccount[]> {
   return api<GlAccount[]>('/masters/gl-accounts');
 }
 
+export interface SpeciesBreed {
+  id: string;
+  speciesKey: string;
+  code: string;
+  name: string;
+  classification: string | null;
+}
+
+/**
+ * The governed species/breed names for one module (US-897-004/005) — real
+ * data instead of farm-config.ts's hardcoded suggestion list. Returns an
+ * empty array rather than throwing for a company that has not registered any
+ * yet; the placement form's own free-text entry already covers that case.
+ */
+export async function getSpeciesBreeds(speciesKey: string): Promise<SpeciesBreed[]> {
+  return api<SpeciesBreed[]>(`/masters/species-breeds?speciesKey=${encodeURIComponent(speciesKey)}`);
+}
+
 export interface LedgerMoney {
   revenueKobo: string;
   expenseKobo: string;

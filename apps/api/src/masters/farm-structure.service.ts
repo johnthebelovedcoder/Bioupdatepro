@@ -413,4 +413,97 @@ export class FarmStructureService {
 
     return centre;
   }
+
+  /**
+   * Species and breeds a company keeps, with the age (in days) each declared
+   * lifecycle stage is reached (§ SNAIL_SPECIES_MASTER / POULTRY_BREED_MASTER).
+   *
+   * `speciesKey` narrows to one module's rows; omitted, every module's rows
+   * come back — the placement form wants only its own module, an admin screen
+   * wants the lot.
+   */
+  async listSpeciesBreeds(companyId: string, speciesKey?: string) {
+    return this.prisma.speciesBreed.findMany({
+      where: { companyId, active: true, ...(speciesKey ? { speciesKey } : {}) },
+      orderBy: [{ speciesKey: 'asc' }, { code: 'asc' }],
+      include: { stages: { orderBy: { sortOrder: 'asc' } } },
+    });
+  }
+
+  /**
+   * Register a species/breed and its stage-age thresholds.
+   *
+   * Deliberately does not gate `LivestockGroup` placement: the workbook's own
+   * age tracker reports an unrecognised stage as a REVIEW flag, never a
+   * rejection, and the placement form has always let a farm type a breed
+   * nobody put in a registry (see new-group-form.tsx). This governs the
+   * reference data itself and feeds the age-eligibility check on stage
+   * transfer and sale, which reads a matching row where one exists.
+   */
+  async createSpeciesBreed(params: {
+    companyId: string;
+    actor: WorkflowActor;
+    speciesKey: string;
+    code: string;
+    name: string;
+    classification?: string | null;
+    openingStage: string;
+    status?: string;
+    controlNote?: string | null;
+    stages: { stageName: string; minDay: number }[];
+  }) {
+    const speciesKey = params.speciesKey.trim();
+    const code = params.code.trim().toUpperCase();
+    const name = params.name.trim();
+    const openingStage = params.openingStage.trim();
+    if (!speciesKey || !code || !name || !openingStage) {
+      throw new BadRequestException('A species/breed needs a module, a code, a name and an opening stage.');
+    }
+    if (params.stages.some((stage) => !stage.stageName.trim() || stage.minDay < 0)) {
+      throw new BadRequestException('Every stage needs a name and a minimum day of zero or more.');
+    }
+
+    const clash = await this.prisma.speciesBreed.findFirst({
+      where: { companyId: params.companyId, speciesKey, code },
+    });
+    if (clash) throw new ConflictException(`${code} already exists for ${speciesKey}.`);
+
+    const created = await this.prisma.speciesBreed.create({
+      data: {
+        companyId: params.companyId,
+        speciesKey,
+        code,
+        name,
+        classification: params.classification?.trim() || null,
+        openingStage,
+        status: params.status?.trim() || 'Active',
+        controlNote: params.controlNote?.trim() || null,
+        stages: {
+          createMany: {
+            data: params.stages.map((stage, index) => ({
+              stageName: stage.stageName.trim(),
+              minDay: stage.minDay,
+              sortOrder: index,
+            })),
+          },
+        },
+      },
+      include: { stages: { orderBy: { sortOrder: 'asc' } } },
+    });
+
+    await this.audit.write({
+      transactionId: created.id,
+      module: 'MASTERS',
+      entityType: 'SpeciesBreed',
+      entityId: created.id,
+      status: 'ACTIVE',
+      action: AuditAction.CREATE,
+      userId: params.actor.userId,
+      ipAddress: params.actor.ipAddress ?? null,
+      device: params.actor.device ?? null,
+      comments: `Registered ${speciesKey} breed ${code} — ${name}`,
+    });
+
+    return created;
+  }
 }

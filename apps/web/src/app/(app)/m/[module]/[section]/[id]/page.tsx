@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getModule, title } from '@/lib/modules';
 import { getGroupDetail, getGroups } from '@/lib/operations';
+import { getSpeciesBreeds } from '@/lib/trade';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { TERMS } from '@/components/help';
@@ -51,13 +52,17 @@ export default async function GroupDetailPage({
   // the same as the daily round — it just cannot reach a server yet, and says
   // so on submit rather than pretending.
   if (id === 'new') {
-    const existing = await getGroups(module.key);
+    const [existing, speciesBreeds] = await Promise.all([
+      getGroups(module.key),
+      getSpeciesBreeds(module.key),
+    ]);
     const houses = [...new Set(existing.map((group) => group.house))].sort();
     return (
       <NewGroupForm
         moduleKey={module.key}
         houses={houses}
         today={new Date().toISOString().slice(0, 10)}
+        governedBreeds={speciesBreeds.map((breed) => breed.name)}
       />
     );
   }

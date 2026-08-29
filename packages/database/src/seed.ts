@@ -803,6 +803,154 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
     uomIds[spec.code] = uom.id;
   }
 
+  // --- Species/breed master (§ SNAIL_SPECIES_MASTER / POULTRY_BREED_MASTER) -
+  //
+  // The workbook's own age-stage thresholds, in days. Stage names are only
+  // recorded where they match a real stage the module registry declares
+  // (apps/web/src/lib/modules.ts) — a threshold for a day-count the sheet
+  // gives but names generically ("Stage 3 min day") has nowhere to attach and
+  // is left out rather than guessed.
+  const SNAIL_SPECIES = [
+    {
+      code: 'SNL-AM',
+      name: 'Archachatina marginata',
+      classification: 'African giant land snail',
+      stages: { Hatchling: 0, Juvenile: 30, Grower: 90, Mature: 240 },
+      controlNote: 'Illustrative age thresholds — specialist approval required',
+    },
+    {
+      code: 'SNL-AA',
+      name: 'Achatina achatina',
+      classification: 'Giant Ghana snail / tiger snail',
+      stages: { Hatchling: 0, Juvenile: 35, Grower: 105, Mature: 270 },
+      controlNote: 'Illustrative age thresholds — specialist approval required',
+    },
+    {
+      code: 'SNL-AF',
+      name: 'Lissachatina fulica',
+      classification: 'Giant East African snail',
+      stages: { Hatchling: 0, Juvenile: 28, Grower: 84, Mature: 210 },
+      status: 'Restricted by jurisdiction',
+      controlNote: 'Check local invasive-species rules',
+    },
+    {
+      code: 'SNL-CA',
+      name: 'Cornu aspersum',
+      classification: 'Garden snail / petit-gris family',
+      stages: { Hatchling: 0, Juvenile: 28, Grower: 75, Mature: 180 },
+      status: 'Country configuration',
+      controlNote: 'Illustrative; seasonal system may override',
+    },
+  ] as const;
+
+  for (const spec of SNAIL_SPECIES) {
+    const { Mature, ...namedStages } = spec.stages;
+    await prisma.speciesBreed.upsert({
+      where: { companyId_speciesKey_code: { companyId, speciesKey: 'snail', code: spec.code } },
+      update: {},
+      create: {
+        companyId,
+        speciesKey: 'snail',
+        code: spec.code,
+        name: spec.name,
+        classification: spec.classification,
+        openingStage: 'Egg',
+        status: spec.status ?? 'Active',
+        controlNote: spec.controlNote,
+        stages: {
+          createMany: {
+            data: [
+              { stageName: 'Egg', minDay: 0, sortOrder: 0 },
+              ...Object.entries(namedStages).map(([stageName, minDay], index) => ({
+                stageName,
+                minDay,
+                sortOrder: index + 1,
+              })),
+              // The sheet's own age tracker treats "Mature min day" as the
+              // threshold for either terminal outcome after Grower, never
+              // both at once — see modules.ts's snail stage list.
+              { stageName: 'Market-ready', minDay: Mature, sortOrder: 4 },
+              { stageName: 'Breeder', minDay: Mature, sortOrder: 4 },
+            ],
+          },
+        },
+      },
+    });
+  }
+
+  const POULTRY_BREEDS = [
+    {
+      code: 'BR-BROIL-01',
+      name: 'Ross 308',
+      classification: 'Broiler',
+      stages: { Grower: 15, 'Market-ready': 42 },
+      controlNote: 'Illustrative commercial target; farm standard controls',
+    },
+    {
+      code: 'BR-BROIL-02',
+      name: 'Cobb 500',
+      classification: 'Broiler',
+      stages: { Grower: 15, 'Market-ready': 42 },
+      controlNote: 'Illustrative commercial target; farm standard controls',
+    },
+    {
+      code: 'BR-LAYER-01',
+      name: 'ISA Brown',
+      classification: 'Layer',
+      // The sheet's "Mature/output stage" for a layer is "Laying"; the app's
+      // own stage vocabulary calls the same stage "Layer" (known vocabulary
+      // drift, tracked separately — not this table's job to resolve).
+      stages: { Pullet: 42, 'Point-of-lay': 126, Layer: 140 },
+      controlNote: 'Point-of-lay and production thresholds configurable',
+    },
+    {
+      code: 'BR-LAYER-02',
+      name: 'Lohmann Brown',
+      classification: 'Layer',
+      stages: { Pullet: 42, 'Point-of-lay': 126, Layer: 140 },
+      controlNote: 'Point-of-lay and production thresholds configurable',
+    },
+    {
+      code: 'BR-BREED-01',
+      name: 'Parent stock',
+      classification: 'Breeder',
+      // Stage 3/4 ("Breeder production" at day 140/168) have no matching
+      // module stage name yet, so only the reachable checkpoint is recorded.
+      stages: { Grower: 42 },
+      status: 'Controlled',
+      controlNote: 'Specialist breeding programme required',
+    },
+  ] as const;
+
+  for (const spec of POULTRY_BREEDS) {
+    await prisma.speciesBreed.upsert({
+      where: { companyId_speciesKey_code: { companyId, speciesKey: 'poultry', code: spec.code } },
+      update: {},
+      create: {
+        companyId,
+        speciesKey: 'poultry',
+        code: spec.code,
+        name: spec.name,
+        classification: spec.classification,
+        openingStage: 'Chick',
+        status: spec.status ?? 'Active',
+        controlNote: spec.controlNote,
+        stages: {
+          createMany: {
+            data: [
+              { stageName: 'Chick', minDay: 0, sortOrder: 0 },
+              ...Object.entries(spec.stages).map(([stageName, minDay], index) => ({
+                stageName,
+                minDay,
+                sortOrder: index + 1,
+              })),
+            ],
+          },
+        },
+      },
+    });
+  }
+
   // --- Salary components (§7 Payroll Setup) --------------------------------
   // Every §7 earning and deduction is a row. The pensionable flags follow the
   // statutory workbook exactly: the pension base is Basic + Housing +

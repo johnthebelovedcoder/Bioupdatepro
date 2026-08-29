@@ -21,16 +21,21 @@ export function NewGroupForm({
   moduleKey,
   houses,
   today,
+  governedBreeds = [],
 }: {
   moduleKey: ModuleKey;
   houses: string[];
   today: string;
+  /** Real breed names from the species/breed master (US-897-004/005), shown
+   *  alongside module.breeds' starter list — still just suggestions. */
+  governedBreeds?: string[];
 }) {
   const module = getModule(moduleKey)!;
   const t = module.terms;
+  const breedOptions = [...new Set([...governedBreeds, ...module.breeds])];
 
   const [code, setCode] = useState('');
-  const [breed, setBreed] = useState(module.breeds[0] ?? '');
+  const [breed, setBreed] = useState(breedOptions[0] ?? '');
   const [purpose, setPurpose] = useState(module.purposes[0] ?? '');
   const [house, setHouse] = useState(houses[0] ?? '');
   const [count, setCount] = useState('');
@@ -143,7 +148,7 @@ export function NewGroupForm({
                 placeholder="Type or choose"
               />
               <datalist id="breed-options">
-                {module.breeds.map((option) => (
+                {breedOptions.map((option) => (
                   <option key={option} value={option} />
                 ))}
               </datalist>

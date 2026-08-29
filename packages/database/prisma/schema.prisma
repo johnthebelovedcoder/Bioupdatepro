@@ -289,6 +289,7 @@ model Company {
   biologicalAssetValuations     BiologicalAssetValuation[]
   fixedAssets                   FixedAsset[]
   depreciationRuns              DepreciationRun[]
+  speciesBreeds                 SpeciesBreed[]
 
   @@map("companies")
 }
@@ -4668,6 +4669,79 @@ model PeriodReopenRequest {
 // BigInt, quantities that can be fractional are Decimal, and counts of animals
 // are Int — half a bird is not a thing.
 // ---------------------------------------------------------------------------
+
+/// A species or breed a company is licensed to keep, with the age at which it
+/// reaches each lifecycle stage (§ SNAIL_SPECIES_MASTER / POULTRY_BREED_MASTER).
+///
+/// Rule 8 still holds: one table, not a snail table and a poultry table. Snail
+/// rows use `name` for the scientific name and `classification` for the common
+/// name; poultry rows use `name` for the breed/strain and `classification` for
+/// the production class — same columns, different words, exactly like
+/// LivestockGroup's own `breed`/`purpose`.
+///
+/// Governs `LivestockGroup.speciesKey` (must be a company's own module) but
+/// deliberately does NOT block `LivestockGroup.breed` against this list on
+/// placement — the workbook's own age tracker reports an unrecognised
+/// stage as REVIEW, not a rejection, and farms keep breeds nobody put in a
+/// registry. Age-eligibility gates that DO refuse a request (stage transfer,
+/// sale) read `SpeciesBreedStage` explicitly where that matters.
+model SpeciesBreed {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// Which species module this belongs to — 'poultry', 'snail', 'fish'. Same
+  /// key as LivestockGroup.speciesKey.
+  speciesKey String @map("species_key")
+
+  /// The workbook's own code — SNL-AM, BR-BROIL-01. Unique within the module.
+  code String
+
+  /// Scientific name (snail) or breed/strain (poultry).
+  name String
+
+  /// Common name (snail) or production class — Broiler/Layer/Breeder (poultry).
+  classification String?
+
+  openingStage String @map("opening_stage")
+
+  /// Free text, not an enum (Rule 8) — Active/Restricted/Controlled/Country
+  /// configuration, straight from the workbook's own Status column.
+  status String @default("Active")
+
+  /// The workbook's own governance caveat — e.g. "Illustrative age
+  /// thresholds—specialist approval required".
+  controlNote String? @map("control_note")
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company             @relation(fields: [companyId], references: [id])
+  stages  SpeciesBreedStage[]
+
+  @@unique([companyId, speciesKey, code])
+  @@index([companyId, speciesKey])
+  @@map("species_breeds")
+}
+
+/// One lifecycle stage's minimum age, in days, for a SpeciesBreed — the
+/// workbook's "Hatchling min day" / "Stage 1 min day" columns turned into
+/// rows so a breed with five stages and one with four are the same shape.
+model SpeciesBreedStage {
+  id             String @id @default(uuid()) @db.Uuid
+  speciesBreedId String @map("species_breed_id") @db.Uuid
+
+  /// Must match a stage the module registry actually declares for this
+  /// species (e.g. "Juvenile") — validated at write time, not by a DB enum.
+  stageName String @map("stage_name")
+  minDay    Int    @map("min_day")
+  sortOrder Int    @map("sort_order")
+
+  speciesBreed SpeciesBreed @relation(fields: [speciesBreedId], references: [id], onDelete: Cascade)
+
+  @@unique([speciesBreedId, stageName])
+  @@map("species_breed_stages")
+}
 
 enum LivestockGroupStatus {
   ACTIVE
