@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { ManualJournalStatus, RecurrenceFrequency } from '@bioassetpro/database';
+import { ManualJournalStatus, RecurrenceFrequency, RecurringJournalBasis } from '@bioassetpro/database';
 import { ManualJournalService } from './manual-journal.service';
 import { RecurringJournalService } from './recurring-journal.service';
 import { PartyLedgerService } from './party-ledger.service';
@@ -153,6 +153,7 @@ export class JournalsController {
       currencyId: string;
       frequency: RecurrenceFrequency;
       dayOfMonth: number;
+      basis?: RecurringJournalBasis;
       startDate: string;
       endDate?: string;
       lines: Array<Record<string, unknown>>;

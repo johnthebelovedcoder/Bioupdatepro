@@ -4,6 +4,7 @@ import {
   ManualJournalStatus,
   Prisma,
   RecurrenceFrequency,
+  RecurringJournalBasis,
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -235,6 +236,7 @@ export class RecurringJournalService {
     currencyId: string;
     frequency: RecurrenceFrequency;
     dayOfMonth: number;
+    basis?: RecurringJournalBasis;
     startDate: Date;
     endDate?: Date | null;
     customerId?: string | null;
@@ -274,6 +276,7 @@ export class RecurringJournalService {
         currencyId: input.currencyId,
         frequency: input.frequency,
         dayOfMonth: input.dayOfMonth,
+        ...(input.basis ? { basis: input.basis } : {}),
         startDate: input.startDate,
         endDate: input.endDate ?? null,
         nextRunDate: input.startDate,

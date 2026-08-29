@@ -2356,6 +2356,14 @@ enum RecurrenceFrequency {
   ANNUALLY
 }
 
+/// What a recurring journal's amount represents (US-897-026). See
+/// RecurringJournal.basis for what this does and doesn't govern.
+enum RecurringJournalBasis {
+  STRAIGHT_LINE
+  USAGE_BASED
+  MANUAL
+}
+
 /// §3 "Journal Types". Configuration, so a new type is data (Rule 8).
 model JournalType {
   id        String            @id @default(uuid()) @db.Uuid
@@ -2560,6 +2568,15 @@ model RecurringJournal {
   frequency  RecurrenceFrequency
   /// Day of the month the journal should carry. Clamped to the month's length.
   dayOfMonth Int                 @default(1) @map("day_of_month")
+
+  /// What the recurring amount represents (US-897-026) — display/audit only:
+  /// generation still posts the flat per-line debit/credit every run,
+  /// unchanged by this field. STRAIGHT_LINE for an equal-instalment
+  /// prepayment/accrual, USAGE_BASED for one whose amount is expected to vary
+  /// run to run even though this template can't compute that itself yet, and
+  /// MANUAL for anything that doesn't fit either — the honest default so a
+  /// template someone forgot to classify doesn't silently read as governed.
+  basis RecurringJournalBasis @default(MANUAL)
 
   startDate   DateTime  @map("start_date") @db.Date
   endDate     DateTime? @map("end_date") @db.Date
