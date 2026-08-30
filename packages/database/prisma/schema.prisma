@@ -194,6 +194,7 @@ model User {
   fixedAssetsCapitalised    FixedAsset[]               @relation("FixedAssetCapitaliser")
   depreciationRunsCreated   DepreciationRun[]          @relation("DepreciationRunCreator")
   marketPricesCreated       MarketPriceList[]
+  payrollPaymentsCreated    PayrollPayment[]           @relation("PayrollPaymentCreator")
 
   @@map("users")
 }
@@ -292,6 +293,7 @@ model Company {
   depreciationRuns              DepreciationRun[]
   speciesBreeds                 SpeciesBreed[]
   marketPriceLists              MarketPriceList[]
+  payrollPayments                PayrollPayment[]
 
   @@map("companies")
 }
@@ -335,6 +337,7 @@ model Branch {
   goodsReceiptNotes    GoodsReceiptNote[]
   supplierInvoices     SupplierInvoice[]
   supplierPayments     SupplierPayment[]
+  payrollPayments      PayrollPayment[]
   livestockGroups      LivestockGroup[]
 
   @@unique([companyId, code])
@@ -472,6 +475,7 @@ model GLAccount {
   procurementWhtConfigs        ProcurementConfiguration[]    @relation("ProcurementWhtPayableAccount")
   supplierInvoiceLineCosts     SupplierInvoiceLine[]         @relation("SupplierInvoiceLineCostAccount")
   paymentBankAccounts          SupplierPayment[]             @relation("PaymentBankAccount")
+  payrollPaymentBankAccounts   PayrollPayment[]
   accountBalances              AccountBalance[]
   postingKeys                  PostingKey[]                  @relation("PostingKeyAccount")
   biologicalAssetStageAccounts BiologicalAssetStageAccount[] @relation("BiologicalStageAccount")
@@ -516,6 +520,7 @@ model Currency {
   goodsReceiptNotes    GoodsReceiptNote[]
   supplierInvoices     SupplierInvoice[]
   supplierPayments     SupplierPayment[]
+  payrollPayments      PayrollPayment[]
 
   @@map("currencies")
 }
@@ -569,6 +574,7 @@ model FinancialYear {
   goodsReceiptNotes GoodsReceiptNote[]
   supplierInvoices  SupplierInvoice[]
   supplierPayments  SupplierPayment[]
+  payrollPayments   PayrollPayment[]
   periodCloseLogs   PeriodCloseLog[]
   accountBalances   AccountBalance[]
 
@@ -599,6 +605,7 @@ model FinancialPeriod {
   goodsReceiptNotes GoodsReceiptNote[]
   supplierInvoices  SupplierInvoice[]
   supplierPayments  SupplierPayment[]
+  payrollPayments   PayrollPayment[]
   closeChecklists   PeriodCloseChecklist[]
   periodCloseLogs   PeriodCloseLog[]
   reopenRequests    PeriodReopenRequest[]
@@ -767,6 +774,7 @@ model JournalEntry {
   goodsReceiptNotes         GoodsReceiptNote[]
   supplierInvoices          SupplierInvoice[]
   supplierPayments          SupplierPayment[]
+  payrollPayments           PayrollPayment[]
   accountBalances           AccountBalance[]
   feedIssues                FeedIssue[]                @relation("FeedIssueJournal")
   treatmentRecords          TreatmentRecord[]          @relation("TreatmentJournal")
@@ -2900,6 +2908,20 @@ model PayrollRun {
   /// requirement. A recalculation creates a new run rather than mutating this.
   payeRuleVersion String? @map("paye_rule_version")
 
+  /// How much of each payable bucket a PayrollPayment has cleared
+  /// (US-897-024) — the same running-settlement idea SupplierInvoice's
+  /// settledAmountKobo already uses, split one field per bucket because the
+  /// accrual itself credits six separate payable accounts, typically remitted
+  /// on different days to different payees (staff, FIRS, a PFA, NHF, NSITF,
+  /// ITF). Pension is one field, matching the accrual: the employee and
+  /// employer shares post to ONE Pension Payable credit, not two.
+  totalSalarySettledKobo  BigInt @default(0) @map("total_salary_settled_kobo")
+  totalPayeSettledKobo    BigInt @default(0) @map("total_paye_settled_kobo")
+  totalPensionSettledKobo BigInt @default(0) @map("total_pension_settled_kobo")
+  totalNhfSettledKobo     BigInt @default(0) @map("total_nhf_settled_kobo")
+  totalNsitfSettledKobo   BigInt @default(0) @map("total_nsitf_settled_kobo")
+  totalItfSettledKobo     BigInt @default(0) @map("total_itf_settled_kobo")
+
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
   journalEntryId        String? @map("journal_entry_id") @db.Uuid
 
@@ -2917,11 +2939,72 @@ model PayrollRun {
   journalEntry    JournalEntry?    @relation(fields: [journalEntryId], references: [id])
   createdBy       User             @relation("PayrollRunCreator", fields: [createdById], references: [id])
   lines           PayrollRunLine[]
+  payments        PayrollPayment[]
 
   @@unique([companyId, year, month])
   @@unique([companyId, reference])
   @@index([companyId, status])
   @@map("payroll_runs")
+}
+
+/// Which of the six liability accounts a PayrollRun's accrual credits
+/// (US-897-024) — see PayrollRunService.postApproved's own payables list.
+enum PayrollPayableBucket {
+  SALARY
+  PAYE
+  PENSION
+  NHF
+  NSITF
+  ITF
+}
+
+/// Clears one payable bucket of one payroll run — Dr [bucket] Payable /
+/// Cr Bank, the same maker-checker document shape SupplierPayment already
+/// uses, allocated against outstanding rather than posting straight to the
+/// ledger. Nothing before this cleared these balances: PayrollRunService
+/// posts the accrual correctly, and it has sat as a liability ever since.
+model PayrollPayment {
+  id           String @id @default(uuid()) @db.Uuid
+  companyId    String @map("company_id") @db.Uuid
+  payrollRunId String @map("payroll_run_id") @db.Uuid
+
+  paymentNumber String                @map("payment_number")
+  bucket        PayrollPayableBucket
+  /// MONEY. What this payment settles of the bucket's outstanding balance.
+  amountKobo    BigInt                @map("amount_kobo")
+
+  paymentDate     DateTime      @map("payment_date") @db.Date
+  method          PaymentMethod
+  bankGlAccountId String        @map("bank_gl_account_id") @db.Uuid
+  reference       String?
+  narration       String?
+
+  branchId          String @map("branch_id") @db.Uuid
+  currencyId        String @map("currency_id") @db.Uuid
+  financialYearId   String @map("financial_year_id") @db.Uuid
+  financialPeriodId String @map("financial_period_id") @db.Uuid
+
+  status                PaymentStatus @default(DRAFT)
+  workflowTransactionId String?       @map("workflow_transaction_id") @db.Uuid
+  journalEntryId        String?       @map("journal_entry_id") @db.Uuid
+
+  createdById String    @map("created_by_id") @db.Uuid
+  postedAt    DateTime? @map("posted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  company             Company              @relation(fields: [companyId], references: [id])
+  payrollRun          PayrollRun           @relation(fields: [payrollRunId], references: [id])
+  bankGlAccount       GLAccount            @relation(fields: [bankGlAccountId], references: [id])
+  branch              Branch               @relation(fields: [branchId], references: [id])
+  currency            Currency             @relation(fields: [currencyId], references: [id])
+  financialYear       FinancialYear        @relation(fields: [financialYearId], references: [id])
+  financialPeriod     FinancialPeriod      @relation(fields: [financialPeriodId], references: [id])
+  journalEntry        JournalEntry?        @relation(fields: [journalEntryId], references: [id])
+  createdBy           User                 @relation("PayrollPaymentCreator", fields: [createdById], references: [id])
+
+  @@unique([companyId, paymentNumber])
+  @@map("payroll_payments")
 }
 
 /// One employee's pay for one run.

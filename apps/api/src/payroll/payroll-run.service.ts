@@ -671,7 +671,8 @@ export class PayrollRunService {
    * conventional account numbers. Refuses when an account cannot be found
    * rather than posting to a suspense account nobody watches.
    */
-  private async resolveAccounts(companyId: string, tx: Prisma.TransactionClient) {
+  /** Not private: PayrollPaymentService needs the same payable accounts to know what it is clearing. */
+  async resolveAccounts(companyId: string, tx: Prisma.TransactionClient) {
     const required = {
       salaryExpense: '5101',
       employerPensionExpense: '5102',

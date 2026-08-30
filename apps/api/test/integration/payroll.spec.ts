@@ -15,7 +15,8 @@ import { EmployeeService } from '../../src/masters/employee.service';
 import { PayeEngineService } from '../../src/payroll/paye-engine.service';
 import { StatutoryEngineService } from '../../src/payroll/statutory-engine.service';
 import { PayrollRunService } from '../../src/payroll/payroll-run.service';
-import { PayrollPostingHandler } from '../../src/payroll/payroll.handler';
+import { PayrollPaymentService } from '../../src/payroll/payroll-payment.service';
+import { PayrollPaymentPostingHandler, PayrollPostingHandler } from '../../src/payroll/payroll.handler';
 import { WorkflowActor } from '../../src/workflow/workflow.types';
 import { kobo } from '../../src/common/money';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
@@ -40,6 +41,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
   let paye: PayeEngineService;
   let statutory: StatutoryEngineService;
   let payroll: PayrollRunService;
+  let payments: PayrollPaymentService;
   let employees: EmployeeService;
   let workflow: WorkflowService;
   let trialBalance: TrialBalanceService;
@@ -72,8 +74,10 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
     payroll = new PayrollRunService(
       prisma, audit, posting, workflow, employees, paye, statutory,
     );
+    payments = new PayrollPaymentService(prisma, audit, posting, workflow, payroll);
 
     workflow.register(new PayrollPostingHandler(payroll));
+    workflow.register(new PayrollPaymentPostingHandler(payments));
   });
 
   afterAll(async () => {
@@ -1064,6 +1068,198 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       expect(schedule).toHaveLength(3);
       const total = schedule.reduce((s, r) => s + BigInt(r.netPayKobo), 0n);
       expect(total).toBe(calculated.totalNetPayKobo);
+    });
+  });
+
+  // =========================================================================
+  // US-897-024 — a payroll payment clears the payable
+  // =========================================================================
+
+  describe('payroll payment (US-897-024)', () => {
+    async function seedWorkflowRoutes() {
+      for (const transactionType of ['PAYROLL_RUN', 'PAYROLL_PAYMENT']) {
+        await prisma.workflowDefinition.create({
+          data: {
+            companyId: fixture.companyId,
+            transactionType,
+            name: `${transactionType} route`,
+            autoPostOnApproval: true,
+            effectiveFrom: new Date('2026-01-01'),
+            steps: {
+              create: [
+                { level: 1, roleCode: 'FINANCE_MANAGER', name: 'Finance Manager', maxAmountKobo: null },
+              ],
+            },
+          },
+        });
+      }
+    }
+
+    async function postedRun() {
+      await seedWorkflowRoutes();
+      await makeEmployee({
+        number: 'EMP001', firstName: 'A', surname: 'One',
+        basic: 180_000_00n, housing: 72_000_00n, transport: 45_000_00n, other: 0n,
+      });
+      await makeEmployee({
+        number: 'EMP002', firstName: 'B', surname: 'Two',
+        basic: 200_000_00n, housing: 80_000_00n, transport: 50_000_00n, other: 0n,
+      });
+      await makeEmployee({
+        number: 'EMP003', firstName: 'C', surname: 'Three',
+        basic: 150_000_00n, housing: 60_000_00n, transport: 37_500_00n, other: 0n,
+      });
+
+      const run = await payroll.createRun({
+        companyId: fixture.companyId,
+        year: 2026,
+        month: 1,
+        branchId: fixture.branchId,
+        financialYearId: fixture.financialYearId,
+        financialPeriodId: fixture.periodIds[0]!,
+        currencyId: fixture.currencyId,
+        actorId: fixture.makerId,
+      });
+      await payroll.calculate({ payrollRunId: run.id, actorId: fixture.makerId });
+      const submitted = await payroll.submit({ payrollRunId: run.id, actor: maker });
+      await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+
+      return prisma.payrollRun.findUniqueOrThrow({ where: { id: run.id } });
+    }
+
+    async function accountBalance(accountNumber: string): Promise<bigint> {
+      const account = await prisma.gLAccount.findFirstOrThrow({
+        where: { companyId: fixture.companyId, accountNumber },
+      });
+      const movement = await prisma.journalLine.aggregate({
+        where: { glAccountId: account.id, journalEntry: { status: 'POSTED' } },
+        _sum: { debitKobo: true, creditKobo: true },
+      });
+      return (movement._sum.debitKobo ?? 0n) - (movement._sum.creditKobo ?? 0n);
+    }
+
+    it('clears the salary payable and moves cash, dollar for dollar', async () => {
+      const run = await postedRun();
+      const before = await payments.outstanding(run.id);
+      const salary = before.find((b) => b.bucket === 'SALARY')!;
+      expect(salary.outstandingKobo).toBe(run.totalNetPayKobo.toString());
+
+      const payment = await payments.create({
+        companyId: fixture.companyId,
+        payrollRunId: run.id,
+        paymentNumber: 'PAYROLL-PAY-001',
+        bucket: 'SALARY',
+        amountKobo: run.totalNetPayKobo,
+        paymentDate: PAYROLL_DATE,
+        method: 'BANK_TRANSFER',
+        bankGlAccountId: fixture.accounts['1101']!,
+        branchId: fixture.branchId,
+        currencyId: fixture.currencyId,
+        financialYearId: fixture.financialYearId,
+        financialPeriodId: fixture.periodIds[0]!,
+        actor: maker,
+      });
+      const submitted = await payments.submit({ paymentId: payment.id, actor: maker });
+      await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+
+      const salaryPayableBalance = await accountBalance('2101');
+      expect(salaryPayableBalance).toBe(0n);
+      const bankBalance = await accountBalance('1101');
+      expect(bankBalance).toBe(-run.totalNetPayKobo);
+
+      const after = await payments.outstanding(run.id);
+      expect(after.find((b) => b.bucket === 'SALARY')!.outstandingKobo).toBe('0');
+    });
+
+    it('refuses to pay more than a bucket has outstanding', async () => {
+      const run = await postedRun();
+
+      await expect(
+        payments.create({
+          companyId: fixture.companyId,
+          payrollRunId: run.id,
+          paymentNumber: 'PAYROLL-PAY-OVER',
+          bucket: 'SALARY',
+          amountKobo: run.totalNetPayKobo + 1_00n,
+          paymentDate: PAYROLL_DATE,
+          method: 'BANK_TRANSFER',
+          bankGlAccountId: fixture.accounts['1101']!,
+          branchId: fixture.branchId,
+          currencyId: fixture.currencyId,
+          financialYearId: fixture.financialYearId,
+          financialPeriodId: fixture.periodIds[0]!,
+          actor: maker,
+        }),
+      ).rejects.toThrow(/only .* is outstanding/i);
+    });
+
+    it('refuses a payment against a run that has not posted', async () => {
+      await seedWorkflowRoutes();
+      await makeEmployee({
+        number: 'EMP001', firstName: 'A', surname: 'One',
+        basic: 180_000_00n, housing: 72_000_00n, transport: 45_000_00n, other: 0n,
+      });
+      const run = await payroll.createRun({
+        companyId: fixture.companyId,
+        year: 2026,
+        month: 1,
+        branchId: fixture.branchId,
+        financialYearId: fixture.financialYearId,
+        financialPeriodId: fixture.periodIds[0]!,
+        currencyId: fixture.currencyId,
+        actorId: fixture.makerId,
+      });
+      await payroll.calculate({ payrollRunId: run.id, actorId: fixture.makerId });
+
+      await expect(
+        payments.create({
+          companyId: fixture.companyId,
+          payrollRunId: run.id,
+          paymentNumber: 'PAYROLL-PAY-EARLY',
+          bucket: 'SALARY',
+          amountKobo: 1000_00n,
+          paymentDate: PAYROLL_DATE,
+          method: 'BANK_TRANSFER',
+          bankGlAccountId: fixture.accounts['1101']!,
+          branchId: fixture.branchId,
+          currencyId: fixture.currencyId,
+          financialYearId: fixture.financialYearId,
+          financialPeriodId: fixture.periodIds[0]!,
+          actor: maker,
+        }),
+      ).rejects.toThrow(/only a posted run/i);
+    });
+
+    it('clears the PAYE payable separately from salary', async () => {
+      const run = await postedRun();
+
+      const payment = await payments.create({
+        companyId: fixture.companyId,
+        payrollRunId: run.id,
+        paymentNumber: 'PAYROLL-PAY-PAYE',
+        bucket: 'PAYE',
+        amountKobo: run.totalPayeKobo,
+        paymentDate: PAYROLL_DATE,
+        method: 'BANK_TRANSFER',
+        bankGlAccountId: fixture.accounts['1101']!,
+        branchId: fixture.branchId,
+        currencyId: fixture.currencyId,
+        financialYearId: fixture.financialYearId,
+        financialPeriodId: fixture.periodIds[0]!,
+        actor: maker,
+      });
+      const submitted = await payments.submit({ paymentId: payment.id, actor: maker });
+      await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+
+      expect(await accountBalance('2110')).toBe(0n);
+      // Salary payable is untouched by the PAYE payment.
+      expect(await accountBalance('2101')).toBe(-run.totalNetPayKobo);
+
+      const after = await payments.outstanding(run.id);
+      expect(after.find((b) => b.bucket === 'PAYE')!.outstandingKobo).toBe('0');
+      expect(after.find((b) => b.bucket === 'SALARY')!.outstandingKobo).toBe(
+        run.totalNetPayKobo.toString(),
+      );
     });
   });
 });

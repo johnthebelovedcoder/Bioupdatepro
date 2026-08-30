@@ -3,7 +3,8 @@ import { PayeEngineService } from './paye-engine.service';
 import { StatutoryEngineService } from './statutory-engine.service';
 import { PayrollRunService } from './payroll-run.service';
 import { PayrollSetupService } from './payroll-setup.service';
-import { PayrollPostingHandler } from './payroll.handler';
+import { PayrollPaymentService } from './payroll-payment.service';
+import { PayrollPaymentPostingHandler, PayrollPostingHandler } from './payroll.handler';
 import { WorkflowService } from '../workflow/workflow.service';
 
 /**
@@ -18,17 +19,27 @@ import { WorkflowService } from '../workflow/workflow.service';
     StatutoryEngineService,
     PayrollRunService,
     PayrollSetupService,
+    PayrollPaymentService,
     PayrollPostingHandler,
+    PayrollPaymentPostingHandler,
   ],
-  exports: [PayeEngineService, StatutoryEngineService, PayrollRunService, PayrollSetupService],
+  exports: [
+    PayeEngineService,
+    StatutoryEngineService,
+    PayrollRunService,
+    PayrollSetupService,
+    PayrollPaymentService,
+  ],
 })
 export class PayrollModule implements OnModuleInit {
   constructor(
     private readonly workflow: WorkflowService,
     private readonly handler: PayrollPostingHandler,
+    private readonly paymentHandler: PayrollPaymentPostingHandler,
   ) {}
 
   onModuleInit(): void {
     this.workflow.register(this.handler);
+    this.workflow.register(this.paymentHandler);
   }
 }

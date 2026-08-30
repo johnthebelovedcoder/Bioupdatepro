@@ -475,6 +475,7 @@ const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> =
 
   // Payroll and period control.
   { type: 'PAYROLL_RUN', name: 'Payroll Processing', autoPost: true },
+  { type: 'PAYROLL_PAYMENT', name: 'Payroll Payment', autoPost: true },
   { type: 'PERIOD_CLOSE', name: 'Period Close', autoPost: false },
   { type: 'PERIOD_REOPEN', name: 'Period Reopen', autoPost: false },
 ];

@@ -1,8 +1,10 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { PayrollPayableBucket, PaymentMethod } from '@bioassetpro/database';
 import { PayrollRunService } from './payroll-run.service';
 import { PayeEngineService } from './paye-engine.service';
 import { StatutoryEngineService } from './statutory-engine.service';
 import { PayrollSetupService } from './payroll-setup.service';
+import { PayrollPaymentService } from './payroll-payment.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
@@ -17,6 +19,7 @@ export class PayrollController {
     private readonly paye: PayeEngineService,
     private readonly statutory: StatutoryEngineService,
     private readonly setup: PayrollSetupService,
+    private readonly payments: PayrollPaymentService,
   ) {}
 
   @Get('setup')
@@ -176,6 +179,50 @@ export class PayrollController {
       employeeCount: body.employeeCount,
       on: body.on ? new Date(body.on) : new Date(),
     });
+  }
+
+  /** US-897-024: each payable bucket's total, settled and outstanding. */
+  @OwnedRecord('payrollRun', 'id')
+  @Get('runs/:id/outstanding')
+  async outstanding(@Param('id') id: string) {
+    return this.payments.outstanding(id);
+  }
+
+  @Post('payments')
+  async createPayment(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: {
+      payrollRunId: string;
+      paymentNumber: string;
+      bucket: PayrollPayableBucket;
+      amountKobo: string;
+      paymentDate: string;
+      method: PaymentMethod;
+      bankGlAccountId: string;
+      reference?: string | null;
+      narration?: string | null;
+      branchId: string;
+      currencyId: string;
+      financialYearId: string;
+      financialPeriodId: string;
+    },
+  ) {
+    const payment = await this.payments.create({
+      companyId,
+      actor,
+      ...body,
+      amountKobo: BigInt(body.amountKobo),
+      paymentDate: new Date(body.paymentDate),
+    });
+    return { id: payment.id, paymentNumber: payment.paymentNumber, status: payment.status };
+  }
+
+  @OwnedRecord('payrollPayment', 'id')
+  @Post('payments/:id/submit')
+  async submitPayment(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
+    return this.payments.submit({ paymentId: id, actor });
   }
 
   @Get('paye/bands')

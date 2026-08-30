@@ -119,6 +119,10 @@ const RESOLVERS = {
     (await prisma.payrollRun.findUnique({ where: { id }, select: { companyId: true } }))
       ?.companyId ?? null,
 
+  payrollPayment: async (prisma: PrismaService, id: string) =>
+    (await prisma.payrollPayment.findUnique({ where: { id }, select: { companyId: true } }))
+      ?.companyId ?? null,
+
   taxPeriod: async (prisma: PrismaService, id: string) =>
     (await prisma.taxPeriod.findUnique({ where: { id }, select: { companyId: true } }))
       ?.companyId ?? null,
