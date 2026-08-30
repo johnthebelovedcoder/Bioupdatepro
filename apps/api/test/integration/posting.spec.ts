@@ -555,3 +555,112 @@ describe('TrialBalanceService — dimensional filtering', () => {
     expect(tb.rows).toHaveLength(0);
   });
 });
+
+/** Dr Bank (permanent) / Cr Revenue (temporary), postable to any period. */
+function saleEntry(f: TestFixture, amount: bigint, periodIndex: number, key: string) {
+  return {
+    sourceModule: 'sales',
+    sourceDocumentType: 'SalesReceipt',
+    sourceDocumentId: `SR-${key}`,
+    journalNumber: `JRN-${key}`,
+    journalDate: new Date('2026-01-15'),
+    narration: 'Cash sale',
+    ...dims(f, periodIndex),
+    idempotencyKey: key,
+    actor: { userId: f.makerId, roles: ['SALES_OFFICER'] },
+    lines: [
+      {
+        glAccountId: f.accounts['1101'] as string,
+        description: 'Bank',
+        debit: kobo(amount),
+        dimensions: dims(f, periodIndex),
+      },
+      {
+        glAccountId: f.accounts['4101'] as string,
+        description: 'Revenue',
+        credit: kobo(amount),
+        dimensions: dims(f, periodIndex),
+      },
+    ],
+  };
+}
+
+describe('TrialBalanceService — year-to-date roll-forward (US-897-029)', () => {
+  it('rolls a permanent account forward across periods with no activity of its own', async () => {
+    await posting.post(saleEntry(fixture, 100_000_00n, 0, 'ytd-1'));
+
+    // Filtered to period 2, with nothing posted in period 2 itself — the
+    // bank balance still reflects what period 1 put there.
+    const tb = await trialBalance.build({
+      companyId: fixture.companyId,
+      financialPeriodId: fixture.periodIds[1] as string,
+    });
+
+    const bank = tb.rows.find((r) => r.accountNumber === '1101');
+    expect(bank?.displayedBalanceKobo).toBe(100_000_00n);
+  });
+
+  it('does not carry a revenue account forward — it resets each period', async () => {
+    await posting.post(saleEntry(fixture, 100_000_00n, 0, 'ytd-2'));
+    await posting.post(saleEntry(fixture, 40_000_00n, 1, 'ytd-3'));
+
+    const period2 = await trialBalance.build({
+      companyId: fixture.companyId,
+      financialPeriodId: fixture.periodIds[1] as string,
+    });
+
+    // Bank rolls forward: both sales are in it.
+    expect(period2.rows.find((r) => r.accountNumber === '1101')?.displayedBalanceKobo).toBe(
+      140_000_00n,
+    );
+    // Revenue shows only period 2's own 40,000 — not period 1's 100,000 too.
+    expect(period2.rows.find((r) => r.accountNumber === '4101')?.displayedBalanceKobo).toBe(
+      40_000_00n,
+    );
+  });
+
+  it('shows zero for a revenue account with no activity in the filtered period', async () => {
+    await posting.post(saleEntry(fixture, 100_000_00n, 0, 'ytd-4'));
+
+    // Only period 1 has revenue; filtering to period 2 must not carry it
+    // forward the way the bank balance does.
+    const period2 = await trialBalance.build({
+      companyId: fixture.companyId,
+      financialPeriodId: fixture.periodIds[1] as string,
+    });
+
+    const revenue = period2.rows.find((r) => r.accountNumber === '4101');
+    expect(revenue?.totalDebitKobo ?? 0n).toBe(0n);
+    expect(revenue?.totalCreditKobo ?? 0n).toBe(0n);
+  });
+
+  it('stays internally balanced across the roll-forward', async () => {
+    await posting.post(saleEntry(fixture, 100_000_00n, 0, 'ytd-5'));
+    await posting.post(saleEntry(fixture, 40_000_00n, 1, 'ytd-6'));
+
+    const period2 = await trialBalance.build({
+      companyId: fixture.companyId,
+      financialPeriodId: fixture.periodIds[1] as string,
+    });
+
+    expect(period2.balanced).toBe(true);
+    expect(period2.totalDebitKobo).toBe(period2.totalCreditKobo);
+  });
+
+  it('leaves a single-period query (period 1 itself) unaffected', async () => {
+    await posting.post(saleEntry(fixture, 100_000_00n, 0, 'ytd-7'));
+
+    const period1 = await trialBalance.build({
+      companyId: fixture.companyId,
+      financialPeriodId: fixture.periodIds[0] as string,
+    });
+
+    expect(period1.rows.find((r) => r.accountNumber === '1101')?.displayedBalanceKobo).toBe(
+      100_000_00n,
+    );
+    expect(period1.rows.find((r) => r.accountNumber === '4101')?.displayedBalanceKobo).toBe(
+      100_000_00n,
+    );
+    expect(period1.balanced).toBe(true);
+  });
+});

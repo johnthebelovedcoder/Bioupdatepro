@@ -3,6 +3,14 @@ import { AccountType, NormalBalance } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { EnterpriseDimensions } from '../enterprise-dimensions/dimensions.types';
 
+/// Carried across periods within a year for the roll-forward (US-897-029);
+/// revenue and expense are deliberately excluded — see `build()`.
+const PERMANENT_ACCOUNT_TYPES: readonly AccountType[] = [
+  AccountType.ASSET,
+  AccountType.LIABILITY,
+  AccountType.EQUITY,
+];
+
 export interface TrialBalanceRow {
   glAccountId: string;
   accountNumber: string;
@@ -51,21 +59,47 @@ export class TrialBalanceService {
   constructor(private readonly prisma: PrismaService) {}
 
   async build(filter: TrialBalanceFilter): Promise<TrialBalance> {
+    // A single financialPeriodId used to mean "only this period's movement,"
+    // for every account. That is right for revenue/expense — a P&L account
+    // resets each period by convention — but wrong for a balance-sheet
+    // account, whose whole point is a running position: filtered to period 3,
+    // a bank account should show its balance as at period 3, not what moved
+    // through it in period 3 alone. Unfiltered and year-only queries are
+    // unaffected; they already summed everything they were asked to.
+    let periodsThroughThis: string[] | undefined;
+    if (filter.financialPeriodId) {
+      const period = await this.prisma.financialPeriod.findUniqueOrThrow({
+        where: { id: filter.financialPeriodId },
+        select: { financialYearId: true, periodNumber: true },
+      });
+      const periods = await this.prisma.financialPeriod.findMany({
+        where: {
+          financialYearId: period.financialYearId,
+          periodNumber: { lte: period.periodNumber },
+        },
+        select: { id: true },
+      });
+      periodsThroughThis = periods.map((p) => p.id);
+    }
+
+    const dimensionFilter = {
+      ...(filter.branchId ? { branchId: filter.branchId } : {}),
+      ...(filter.costCentreId ? { costCentreId: filter.costCentreId } : {}),
+      ...(filter.farmId ? { farmId: filter.farmId } : {}),
+      ...(filter.departmentId ? { departmentId: filter.departmentId } : {}),
+      ...(filter.projectId ? { projectId: filter.projectId } : {}),
+    };
+
     const grouped = await this.prisma.journalLine.groupBy({
       by: ['glAccountId'],
       where: {
         companyId: filter.companyId,
-        ...(filter.financialPeriodId
-          ? { financialPeriodId: filter.financialPeriodId }
-          : {}),
-        ...(filter.financialYearId
-          ? { financialYearId: filter.financialYearId }
-          : {}),
-        ...(filter.branchId ? { branchId: filter.branchId } : {}),
-        ...(filter.costCentreId ? { costCentreId: filter.costCentreId } : {}),
-        ...(filter.farmId ? { farmId: filter.farmId } : {}),
-        ...(filter.departmentId ? { departmentId: filter.departmentId } : {}),
-        ...(filter.projectId ? { projectId: filter.projectId } : {}),
+        ...(periodsThroughThis
+          ? { financialPeriodId: { in: periodsThroughThis } }
+          : filter.financialYearId
+            ? { financialYearId: filter.financialYearId }
+            : {}),
+        ...dimensionFilter,
         // Only posted journals appear in the trial balance. Drafts are not
         // accounting records.
         journalEntry: { status: 'POSTED' },
@@ -85,18 +119,62 @@ export class TrialBalanceService {
     });
     const byId = new Map(accounts.map((a) => [a.id, a]));
 
+    // The roll-forward above pulled every period's movement for revenue and
+    // expense accounts too, which is wrong for THEM specifically — re-sum
+    // just the one period asked for, and use that instead when displaying a
+    // temporary account's row. Accounts with no activity in that single
+    // period are not in this map at all, and correctly show as zero rather
+    // than falling back to the rolled-forward figure.
+    let temporaryPeriodOnly: Map<string, { debit: bigint; credit: bigint }> | undefined;
+    if (filter.financialPeriodId && periodsThroughThis && periodsThroughThis.length > 1) {
+      const temporaryIds = accounts
+        .filter((a) => !PERMANENT_ACCOUNT_TYPES.includes(a.accountType))
+        .map((a) => a.id);
+      if (temporaryIds.length > 0) {
+        const periodOnly = await this.prisma.journalLine.groupBy({
+          by: ['glAccountId'],
+          where: {
+            companyId: filter.companyId,
+            financialPeriodId: filter.financialPeriodId,
+            glAccountId: { in: temporaryIds },
+            ...dimensionFilter,
+            journalEntry: { status: 'POSTED' },
+          },
+          _sum: { debitKobo: true, creditKobo: true },
+        });
+        temporaryPeriodOnly = new Map(
+          periodOnly.map((g) => [
+            g.glAccountId,
+            { debit: g._sum.debitKobo ?? 0n, credit: g._sum.creditKobo ?? 0n },
+          ]),
+        );
+      }
+    }
+
     const rows: TrialBalanceRow[] = grouped
       .map((g) => {
         const account = byId.get(g.glAccountId);
-        const debit = g._sum.debitKobo ?? 0n;
-        const credit = g._sum.creditKobo ?? 0n;
+        const accountType = account?.accountType ?? AccountType.ASSET;
+        const isTemporary = !PERMANENT_ACCOUNT_TYPES.includes(accountType);
+        // Only a temporary account, and only when roll-forward is actually
+        // active, defers to the single-period figure — missing from the map
+        // means zero activity that period, not "fall back to the rolled-
+        // forward total."
+        const debit =
+          isTemporary && temporaryPeriodOnly
+            ? (temporaryPeriodOnly.get(g.glAccountId)?.debit ?? 0n)
+            : (g._sum.debitKobo ?? 0n);
+        const credit =
+          isTemporary && temporaryPeriodOnly
+            ? (temporaryPeriodOnly.get(g.glAccountId)?.credit ?? 0n)
+            : (g._sum.creditKobo ?? 0n);
         const net = debit - credit;
         const normalBalance = account?.normalBalance ?? NormalBalance.DEBIT;
         return {
           glAccountId: g.glAccountId,
           accountNumber: account?.accountNumber ?? '(unknown)',
           accountName: account?.name ?? '(unknown)',
-          accountType: account?.accountType ?? AccountType.ASSET,
+          accountType,
           normalBalance,
           totalDebitKobo: debit,
           totalCreditKobo: credit,
@@ -107,8 +185,12 @@ export class TrialBalanceService {
       })
       .sort((a, b) => a.accountNumber.localeCompare(b.accountNumber));
 
-    const totalDebitKobo = rows.reduce((s, r) => s + r.totalDebitKobo, 0n);
-    const totalCreditKobo = rows.reduce((s, r) => s + r.totalCreditKobo, 0n);
+    // Deliberately summed from the roll-forward query, not from the possibly
+    // period-overridden rows above: this is "is the ledger through this
+    // period internally consistent," which every posted entry guarantees by
+    // construction, regardless of which convention a given row displays.
+    const totalDebitKobo = grouped.reduce((s, g) => s + (g._sum.debitKobo ?? 0n), 0n);
+    const totalCreditKobo = grouped.reduce((s, g) => s + (g._sum.creditKobo ?? 0n), 0n);
 
     return {
       rows,
