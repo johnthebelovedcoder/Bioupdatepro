@@ -107,6 +107,16 @@ const DYNAMIC_RESOLUTION: Record<string, string> = {
   'PCR-085-DR': 'YearEndService.findRetainedEarnings() — year-end close',
   'PCR-086-DR': 'Reversal posts to the original journal’s own credit account',
   'PCR-086-CR': 'Reversal posts to the original journal’s own debit account',
+
+  // Fixed Assets (US-897-027) — did not exist when this table was built.
+  // PCR-029-DR/030-DR/030-CR already resolve atomically (the recommended
+  // six-digit chart carries 140100/630100/149100 alongside this database's
+  // provisional four-digit accounts), so they needed nothing here. Only the
+  // credit side of capitalisation names a genuinely dual account — "AP or
+  // GRNI" — which FixedAssetService always resolves to Trade Payables,
+  // never GRNI: a capitalised asset is its own capex event, not a receipt
+  // already sitting in the P2P goods-received-not-invoiced holding account.
+  'PCR-029-CR': 'FixedAssetService.resolveAccounts() — payables (2201)',
 };
 
 function statusOf(value: string): PostingRuleStatus {

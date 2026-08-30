@@ -822,6 +822,7 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
       name: 'Archachatina marginata',
       classification: 'African giant land snail',
       stages: { Hatchling: 0, Juvenile: 30, Grower: 90, Mature: 240 },
+      status: 'Active',
       controlNote: 'Illustrative age thresholds — specialist approval required',
     },
     {
@@ -829,6 +830,7 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
       name: 'Achatina achatina',
       classification: 'Giant Ghana snail / tiger snail',
       stages: { Hatchling: 0, Juvenile: 35, Grower: 105, Mature: 270 },
+      status: 'Active',
       controlNote: 'Illustrative age thresholds — specialist approval required',
     },
     {
@@ -890,6 +892,7 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
       name: 'Ross 308',
       classification: 'Broiler',
       stages: { Grower: 15, 'Market-ready': 42 },
+      status: 'Active',
       controlNote: 'Illustrative commercial target; farm standard controls',
     },
     {
@@ -897,6 +900,7 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
       name: 'Cobb 500',
       classification: 'Broiler',
       stages: { Grower: 15, 'Market-ready': 42 },
+      status: 'Active',
       controlNote: 'Illustrative commercial target; farm standard controls',
     },
     {
@@ -907,6 +911,7 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
       // own stage vocabulary calls the same stage "Layer" (known vocabulary
       // drift, tracked separately — not this table's job to resolve).
       stages: { Pullet: 42, 'Point-of-lay': 126, Layer: 140 },
+      status: 'Active',
       controlNote: 'Point-of-lay and production thresholds configurable',
     },
     {
@@ -914,6 +919,7 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
       name: 'Lohmann Brown',
       classification: 'Layer',
       stages: { Pullet: 42, 'Point-of-lay': 126, Layer: 140 },
+      status: 'Active',
       controlNote: 'Point-of-lay and production thresholds configurable',
     },
     {
@@ -1220,6 +1226,13 @@ async function seedJournals(companyId: string) {
     { code: 'SADJ', name: 'Supplier Adjustment Journal', kind: 'SUPPLIER_ADJUSTMENT', reason: true, attach: true, autoReverse: false },
     { code: 'OB', name: 'Opening Balance', kind: 'OPENING_BALANCE', reason: false, attach: true, autoReverse: false },
     { code: 'ACCR', name: 'Accrual (auto-reversing)', kind: 'GENERAL', reason: true, attach: false, autoReverse: true },
+    // The other side of an accrual (US-897-027): an expense already PAID but
+    // not yet incurred defers into a prepaid asset, released over its own
+    // schedule rather than reversed wholesale next period — the recurring
+    // journal's own STRAIGHT_LINE/USAGE_BASED basis (US-897-026) is how that
+    // release is actually raised. This gives it a named type of its own
+    // rather than defaulting to the generic General Journal.
+    { code: 'PREPAY', name: 'Prepayment', kind: 'GENERAL', reason: true, attach: true, autoReverse: false },
     { code: 'REC', name: 'Recurring Journal', kind: 'RECURRING', reason: false, attach: false, autoReverse: false },
     { code: 'REV', name: 'Journal Reversal', kind: 'REVERSAL', reason: true, attach: false, autoReverse: false },
   ] as const;
