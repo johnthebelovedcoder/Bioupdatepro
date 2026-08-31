@@ -7,7 +7,6 @@ import { PostingService } from '../posting/posting.service';
 import { WorkflowService } from '../workflow/workflow.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { RecipeService } from '../masters/recipe.service';
-import { BiologicalAssetService } from '../biological-assets/biological-asset.service';
 import { PostingControlService, ResolvedRule } from '../posting-control/posting-control.service';
 import { StockMovementService } from '../inventory/stock-movement.service';
 import { CostAllocationService, AllocationOutput, CostAllocationMethod } from './cost-allocation.service';
@@ -15,16 +14,81 @@ import { AccountingRuleViolation } from '../common/errors';
 import { kobo, Kobo } from '../common/money';
 
 /**
- * SnailPro processing (PCR-051–058): market snails harvested, issued to
- * processing, labour/overhead confirmed, joint outputs (meat/slime/shell)
- * received into finished goods, order settles at exactly zero WIP.
+ * Which PCR rule this species' processing cycle uses at each step. SnailPro
+ * (PCR-051–058) and PoultryPro (PCR-074–080) are the same eight-step shape
+ * with one real difference: snail posts actual labour and actual overhead
+ * as two separate lines (PCR-054/055, each its own account); poultry posts
+ * one combined actual-conversion line (PCR-077, a single pool account) —
+ * `actualConversionRuleId` is set for poultry and null for snail, and
+ * `confirmConversion()` branches on which one is set.
+ */
+interface SpeciesProcessingRules {
+  /** PCR-051 / PCR-074 — biological input issued to WIP. Fully atomic both sides. */
+  issueRuleId: string;
+  /** PCR-052 / PCR-075 — packaging issued to WIP. Fully atomic both sides. */
+  packagingRuleId: string;
+  /** PCR-053 / PCR-076 — standard conversion absorbed. Fully atomic both sides. */
+  standardRuleId: string;
+  /** PCR-054 / null — snail's separate actual-labour line. Fully atomic both sides. */
+  actualLabourRuleId: string | null;
+  /** PCR-055 / null — snail's separate actual-overhead line. Credit side is non-atomic. */
+  actualOverheadRuleId: string | null;
+  /** null / PCR-077 — poultry's single combined actual-conversion line. Credit side is non-atomic. */
+  actualConversionRuleId: string | null;
+  /** PCR-056 / PCR-078 — abnormal processing loss. Fully atomic both sides. */
+  abnormalLossRuleId: string;
+  /** PCR-057 / PCR-079 — joint-product completion (Dr FG / Cr WIP). Fully atomic both sides. */
+  completionRuleId: string;
+  /** PCR-058-DR / PCR-080-DR — settlement variance debit key. The rule's credit side is
+   * non-atomic for both species ("recovery/actual pool"), so only the debit key is used
+   * through PostingControlService; the credit resolves to `recoveryAccountNumber` below. */
+  settleDebitKey: string;
+  /** 219810 (S_Recovery_GL) / 219820 (P_Recovery_GL) — the clearing account PCR-053/076's
+   * standard absorption already credited, closed by settle(). */
+  recoveryAccountNumber: string;
+}
+
+const SPECIES_PROCESSING_RULES: Record<string, SpeciesProcessingRules> = {
+  snail: {
+    issueRuleId: 'PCR-051',
+    packagingRuleId: 'PCR-052',
+    standardRuleId: 'PCR-053',
+    actualLabourRuleId: 'PCR-054',
+    actualOverheadRuleId: 'PCR-055',
+    actualConversionRuleId: null,
+    abnormalLossRuleId: 'PCR-056',
+    completionRuleId: 'PCR-057',
+    settleDebitKey: 'PCR-058-DR',
+    recoveryAccountNumber: '219810',
+  },
+  poultry: {
+    issueRuleId: 'PCR-074',
+    packagingRuleId: 'PCR-075',
+    standardRuleId: 'PCR-076',
+    actualLabourRuleId: null,
+    actualOverheadRuleId: null,
+    actualConversionRuleId: 'PCR-077',
+    abnormalLossRuleId: 'PCR-078',
+    completionRuleId: 'PCR-079',
+    settleDebitKey: 'PCR-080-DR',
+    recoveryAccountNumber: '219820',
+  },
+};
+
+/**
+ * Processing orders: market snails or birds harvested, issued to processing,
+ * labour/overhead confirmed, joint outputs received into finished goods,
+ * order settles at exactly zero WIP. One engine, driven by
+ * `SPECIES_PROCESSING_RULES` above — SnailPro (PCR-051–058) was built and
+ * live-verified first; PoultryPro (PCR-074–080) reuses every method here,
+ * selecting its own rule ids from `order.sourceGroup.speciesKey`.
  *
- * The input to an order is NOT a recipe component. "Market snails" are a
- * biological asset (`LivestockGroup`), not an `Item` — PCR-051 posts
- * Dr WIP / Cr the population's own stage account, valued at its IAS 41
- * carrying value, the same way every other biological-asset transfer in this
- * codebase already posts. `recipeVersionId` governs the PACKAGING components
- * only. See the schema's file-level comment for the full rationale.
+ * The input to an order is NOT a recipe component. A live population is a
+ * biological asset (`LivestockGroup`), not an `Item` — the issue step posts
+ * Dr WIP / Cr the population's own BA account, valued at its IAS 41 carrying
+ * value, the same way every other biological-asset transfer in this codebase
+ * already posts. `recipeVersionId` governs the PACKAGING components only.
+ * See the schema's file-level comment for the full rationale.
  */
 @Injectable()
 export class ProductionOrderService {
@@ -34,7 +98,6 @@ export class ProductionOrderService {
     private readonly posting: PostingService,
     private readonly workflow: WorkflowService,
     private readonly recipes: RecipeService,
-    private readonly biologicalAssets: BiologicalAssetService,
     private readonly postingControl: PostingControlService,
     private readonly stockMovements: StockMovementService,
     private readonly costAllocation: CostAllocationService,
@@ -74,13 +137,13 @@ export class ProductionOrderService {
     if (harvest.group.currentFvlctsPerUnitKobo === null) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §61 — Biological asset valuation',
-        `${harvest.group.code} has never been valued, so the market snails this harvest took ` +
-          `have no carrying value to move into WIP. Post a valuation first.`,
+        `${harvest.group.code} has never been valued, so the population this harvest took ` +
+          `has no carrying value to move into WIP. Post a valuation first.`,
         { groupId: harvest.groupId },
       );
     }
 
-    const marketSnailValueKobo = BigInt(harvest.count) * harvest.group.currentFvlctsPerUnitKobo;
+    const biologicalInputValueKobo = BigInt(harvest.count) * harvest.group.currentFvlctsPerUnitKobo;
 
     const explosion = await this.recipes.explode({
       recipeVersionId: params.recipeVersionId,
@@ -99,7 +162,7 @@ export class ProductionOrderService {
           sourceGroupId: harvest.groupId,
           harvestRecordId: harvest.id,
           plannedOutputQuantity: new Prisma.Decimal(new Decimal(params.plannedOutputQuantity).toFixed(6)),
-          marketSnailValueKobo,
+          biologicalInputValueKobo,
           createdById: params.actor.userId,
           components: {
             create: explosion.components.map((component) => ({
@@ -159,7 +222,7 @@ export class ProductionOrderService {
       documentType: 'ProductionOrder',
       documentId: order.id,
       documentReference: order.orderNumber,
-      amount: kobo(order.marketSnailValueKobo + plannedPackagingKobo),
+      amount: kobo(order.biologicalInputValueKobo + plannedPackagingKobo),
       currencyId: (await this.baseCurrencyId(order.companyId)),
       branchId: order.branchId,
       farmId: order.farmId,
@@ -211,7 +274,7 @@ export class ProductionOrderService {
   }
 
   // -------------------------------------------------------------------------
-  // Issue — PCR-051 (market snails) + PCR-052 (packaging)
+  // Issue — biological input + packaging
   // -------------------------------------------------------------------------
 
   async issueMaterials(params: { productionOrderId: string; actor: WorkflowActor }) {
@@ -236,6 +299,7 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
+    const rules = this.speciesRules(order.sourceGroup.speciesKey);
 
     const context = await this.postingContext(order.companyId, new Date());
     if (!context) {
@@ -253,15 +317,15 @@ export class ProductionOrderService {
      * already blew Prisma's five-second interactive-transaction budget once
      * this session (see AuditService's own doc comment on the same lesson).
      * Only the writes below are transactional.
+     *
+     * Both the biological-input rule (PCR-051/074) and the packaging rule
+     * (PCR-052/075) are fully atomic on both sides for both species, so both
+     * resolve through PostingControlService directly — no separate
+     * stageAccount() lookup needed, unlike US-897-035's own courtesy layer.
      */
-    const [wipAccount, marketSnailsRule, packagingRule, componentItems] = await Promise.all([
-      this.biologicalAssets.stageAccount({
-        companyId: order.companyId,
-        speciesKey: order.sourceGroup!.speciesKey,
-        stage: 'Market-ready',
-      }),
-      this.postingControl.resolve({ companyId: order.companyId, ruleId: 'PCR-051', on: new Date() }),
-      this.postingControl.resolve({ companyId: order.companyId, ruleId: 'PCR-052', on: new Date() }),
+    const [issueRule, packagingRule, componentItems] = await Promise.all([
+      this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.issueRuleId, on: new Date() }),
+      this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.packagingRuleId, on: new Date() }),
       this.prisma.item.findMany({ where: { id: { in: order.components.map((c) => c.componentItemId) } } }),
     ]);
     const fallbackWarehouseId = componentItems.some((i) => !i.defaultWarehouseId)
@@ -271,15 +335,15 @@ export class ProductionOrderService {
 
     const lines = [
       {
-        glAccountId: this.requireSide(marketSnailsRule.debit, 'PCR-051', 'debit').glAccountId,
-        description: `PCR-051 — market snails issued to processing (${order.orderNumber})`,
-        debit: kobo(order.marketSnailValueKobo),
+        glAccountId: this.requireSide(issueRule.debit, rules.issueRuleId, 'debit').glAccountId,
+        description: `${rules.issueRuleId} — biological input issued to processing (${order.orderNumber})`,
+        debit: kobo(order.biologicalInputValueKobo),
         dimensions,
       },
       {
-        glAccountId: wipAccount.glAccountId,
-        description: `PCR-051 — market snails issued to processing (${order.orderNumber})`,
-        credit: kobo(order.marketSnailValueKobo),
+        glAccountId: this.requireSide(issueRule.credit, rules.issueRuleId, 'credit').glAccountId,
+        description: `${rules.issueRuleId} — biological input issued to processing (${order.orderNumber})`,
+        credit: kobo(order.biologicalInputValueKobo),
         dimensions,
       },
     ];
@@ -316,14 +380,14 @@ export class ProductionOrderService {
       if (packagingTotal > 0n) {
         packagingLines.push(
           {
-            glAccountId: this.requireSide(packagingRule.debit, 'PCR-052', 'debit').glAccountId,
-            description: `PCR-052 — packaging issued to processing (${order.orderNumber})`,
+            glAccountId: this.requireSide(packagingRule.debit, rules.packagingRuleId, 'debit').glAccountId,
+            description: `${rules.packagingRuleId} — packaging issued to processing (${order.orderNumber})`,
             debit: kobo(packagingTotal),
             dimensions,
           },
           {
-            glAccountId: this.requireSide(packagingRule.credit, 'PCR-052', 'credit').glAccountId,
-            description: `PCR-052 — packaging issued to processing (${order.orderNumber})`,
+            glAccountId: this.requireSide(packagingRule.credit, rules.packagingRuleId, 'credit').glAccountId,
+            description: `${rules.packagingRuleId} — packaging issued to processing (${order.orderNumber})`,
             credit: kobo(packagingTotal),
             dimensions,
           },
@@ -365,7 +429,7 @@ export class ProductionOrderService {
           status: ProductionOrderStatus.RELEASED,
           action: AuditAction.POST,
           userId: params.actor.userId,
-          comments: `Issued ${order.orderNumber}: market snails ${order.marketSnailValueKobo} kobo, packaging ${packagingTotal} kobo.`,
+          comments: `Issued ${order.orderNumber}: biological input ${order.biologicalInputValueKobo} kobo, packaging ${packagingTotal} kobo.`,
         },
         tx,
       );
@@ -375,7 +439,7 @@ export class ProductionOrderService {
   }
 
   // -------------------------------------------------------------------------
-  // Confirm labour/overhead — PCR-053 (standard) + PCR-054/055 (actual)
+  // Confirm labour/overhead — standard absorption + actual cost
   // -------------------------------------------------------------------------
 
   async confirmConversion(params: {
@@ -387,6 +451,7 @@ export class ProductionOrderService {
   }) {
     const order = await this.prisma.productionOrder.findUniqueOrThrow({
       where: { id: params.productionOrderId },
+      include: { sourceGroup: true },
     });
 
     if (order.status !== ProductionOrderStatus.RELEASED) {
@@ -396,6 +461,7 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
+    const rules = this.speciesRules(order.sourceGroup!.speciesKey);
 
     const context = await this.postingContext(order.companyId, new Date());
     if (!context) {
@@ -404,59 +470,98 @@ export class ProductionOrderService {
     const dimensions = this.dimensions(order, context);
 
     const on = new Date();
-    // PCR-055 as a whole is NOT resolved through PostingControlService: its
-    // credit key ("AP/Accrual/Accumulated Depreciation") is non-atomic, and
-    // resolve() validates both sides eagerly, so calling it at all would
-    // throw before the (perfectly atomic) debit side could ever be used.
-    // The debit is looked up directly; the credit is the same disclosed
-    // Trade-Payables policy FixedAssetService already uses for its own
-    // dual-account key.
-    const [standardRule, labourRule, overheadDebitAccountId, payablesAccount] = await Promise.all([
-      this.postingControl.resolve({ companyId: order.companyId, ruleId: 'PCR-053', on }),
-      this.postingControl.resolve({ companyId: order.companyId, ruleId: 'PCR-054', on }),
-      this.resolvePostingKeyAccount(order.companyId, 'PCR-055-DR'),
-      this.tradePayablesAccount(order.companyId),
-    ]);
+    const standardRule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.standardRuleId, on });
 
-    return this.prisma.$transaction(async (tx) => {
-      const postLines = [
+    let postLines: Array<{ glAccountId: string; description: string; debit?: Kobo; credit?: Kobo; dimensions: ReturnType<ProductionOrderService['dimensions']> }>;
+
+    if (rules.actualConversionRuleId) {
+      // Poultry: one combined actual-conversion line (PCR-077). Its credit
+      // key ("Payroll/AP/FA source") is non-atomic — resolve() validates both
+      // sides eagerly, so calling it at all would throw before the (perfectly
+      // atomic) debit side could ever be used. The debit is looked up
+      // directly; the credit is the same disclosed Trade-Payables policy
+      // FixedAssetService already uses for its own dual-account key.
+      const combinedActual = params.actualLabourCostKobo + params.actualOverheadCostKobo;
+      const [actualDebitAccountId, payablesAccount] = await Promise.all([
+        this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`),
+        this.tradePayablesAccount(order.companyId),
+      ]);
+      postLines = [
         {
-          glAccountId: this.requireSide(standardRule.debit, 'PCR-053', 'debit').glAccountId,
-          description: `PCR-053 — standard conversion absorbed (${order.orderNumber})`,
+          glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
+          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
           debit: kobo(params.standardConversionCostKobo),
           dimensions,
         },
         {
-          glAccountId: this.requireSide(standardRule.credit, 'PCR-053', 'credit').glAccountId,
-          description: `PCR-053 — standard conversion absorbed (${order.orderNumber})`,
+          glAccountId: this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId,
+          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
           credit: kobo(params.standardConversionCostKobo),
           dimensions,
         },
         {
-          glAccountId: this.requireSide(labourRule.debit, 'PCR-054', 'debit').glAccountId,
-          description: `PCR-054 — actual processing labour (${order.orderNumber})`,
+          glAccountId: actualDebitAccountId,
+          description: `${rules.actualConversionRuleId} — actual processing conversion (${order.orderNumber})`,
+          debit: kobo(combinedActual),
+          dimensions,
+        },
+        {
+          glAccountId: payablesAccount,
+          description: `${rules.actualConversionRuleId} — actual processing conversion (${order.orderNumber})`,
+          credit: kobo(combinedActual),
+          dimensions,
+        },
+      ];
+    } else {
+      // Snail: two separate actual lines (PCR-054 labour, PCR-055
+      // overhead), the latter's credit side non-atomic the same way.
+      const [labourRule, overheadDebitAccountId, payablesAccount] = await Promise.all([
+        this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.actualLabourRuleId!, on }),
+        this.resolvePostingKeyAccount(order.companyId, `${rules.actualOverheadRuleId}-DR`),
+        this.tradePayablesAccount(order.companyId),
+      ]);
+      postLines = [
+        {
+          glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
+          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
+          debit: kobo(params.standardConversionCostKobo),
+          dimensions,
+        },
+        {
+          glAccountId: this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId,
+          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
+          credit: kobo(params.standardConversionCostKobo),
+          dimensions,
+        },
+        {
+          glAccountId: this.requireSide(labourRule.debit, rules.actualLabourRuleId!, 'debit').glAccountId,
+          description: `${rules.actualLabourRuleId} — actual processing labour (${order.orderNumber})`,
           debit: kobo(params.actualLabourCostKobo),
           dimensions,
         },
         {
-          glAccountId: this.requireSide(labourRule.credit, 'PCR-054', 'credit').glAccountId,
-          description: `PCR-054 — actual processing labour (${order.orderNumber})`,
+          glAccountId: this.requireSide(labourRule.credit, rules.actualLabourRuleId!, 'credit').glAccountId,
+          description: `${rules.actualLabourRuleId} — actual processing labour (${order.orderNumber})`,
           credit: kobo(params.actualLabourCostKobo),
           dimensions,
         },
         {
           glAccountId: overheadDebitAccountId,
-          description: `PCR-055 — actual processing overhead (${order.orderNumber})`,
+          description: `${rules.actualOverheadRuleId} — actual processing overhead (${order.orderNumber})`,
           debit: kobo(params.actualOverheadCostKobo),
           dimensions,
         },
         {
           glAccountId: payablesAccount,
-          description: `PCR-055 — actual processing overhead (${order.orderNumber})`,
+          description: `${rules.actualOverheadRuleId} — actual processing overhead (${order.orderNumber})`,
           credit: kobo(params.actualOverheadCostKobo),
           dimensions,
         },
-      ].filter((line) => (line.debit ?? line.credit ?? 0n) > 0n);
+      ];
+    }
+    postLines = postLines.filter((line) => (line.debit ?? line.credit ?? 0n) > 0n);
+
+    return this.prisma.$transaction(async (tx) => {
 
       const result = await this.posting.post(
         {
@@ -504,7 +609,7 @@ export class ProductionOrderService {
   }
 
   // -------------------------------------------------------------------------
-  // Abnormal loss — PCR-056
+  // Abnormal loss
   // -------------------------------------------------------------------------
 
   async recordAbnormalLoss(params: {
@@ -514,7 +619,10 @@ export class ProductionOrderService {
     reason: string;
     actor: WorkflowActor;
   }) {
-    const order = await this.prisma.productionOrder.findUniqueOrThrow({ where: { id: params.productionOrderId } });
+    const order = await this.prisma.productionOrder.findUniqueOrThrow({
+      where: { id: params.productionOrderId },
+      include: { sourceGroup: true },
+    });
 
     if (order.status !== ProductionOrderStatus.IN_PRODUCTION) {
       throw new AccountingRuleViolation(
@@ -523,8 +631,9 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
+    const rules = this.speciesRules(order.sourceGroup!.speciesKey);
 
-    const wipDebits = order.marketSnailValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
+    const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
     if (order.abnormalLossCostKobo + params.costKobo > wipDebits) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §9 — Processing loss',
@@ -539,7 +648,7 @@ export class ProductionOrderService {
       throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', `No open period for ${order.orderNumber}.`, {});
     }
     const dimensions = this.dimensions(order, context);
-    const rule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: 'PCR-056', on: new Date() });
+    const rule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.abnormalLossRuleId, on: new Date() });
 
     return this.prisma.$transaction(async (tx) => {
       const result = await this.posting.post(
@@ -555,14 +664,14 @@ export class ProductionOrderService {
           actor: params.actor,
           lines: [
             {
-              glAccountId: this.requireSide(rule.debit, 'PCR-056', 'debit').glAccountId,
-              description: `PCR-056 — abnormal processing loss (${order.orderNumber})`,
+              glAccountId: this.requireSide(rule.debit, rules.abnormalLossRuleId, 'debit').glAccountId,
+              description: `${rules.abnormalLossRuleId} — abnormal processing loss (${order.orderNumber})`,
               debit: kobo(params.costKobo),
               dimensions,
             },
             {
-              glAccountId: this.requireSide(rule.credit, 'PCR-056', 'credit').glAccountId,
-              description: `PCR-056 — abnormal processing loss (${order.orderNumber})`,
+              glAccountId: this.requireSide(rule.credit, rules.abnormalLossRuleId, 'credit').glAccountId,
+              description: `${rules.abnormalLossRuleId} — abnormal processing loss (${order.orderNumber})`,
               credit: kobo(params.costKobo),
               dimensions,
             },
@@ -592,7 +701,7 @@ export class ProductionOrderService {
   }
 
   // -------------------------------------------------------------------------
-  // Joint-product completion — PCR-057
+  // Joint-product completion
   // -------------------------------------------------------------------------
 
   /**
@@ -600,10 +709,11 @@ export class ProductionOrderService {
    * `CostAllocationService`.
    *
    * `totalToAllocate` is the RESIDUAL WIP after abnormal loss — WIP debits
-   * minus what PCR-056 already wrote off — never an independently priced
-   * total. That is what makes Rule 7 hold by construction: FG + by-product +
-   * abnormal loss can never fail to equal WIP debits, because FG *is*
-   * whatever WIP debits minus the other two leaves.
+   * minus what the abnormal-loss step already wrote off — never an
+   * independently priced total. That is what makes Rule 7 hold by
+   * construction: FG + by-product + abnormal loss can never fail to equal
+   * WIP debits, because FG *is* whatever WIP debits minus the other two
+   * leaves.
    */
   async recordOutputs(params: {
     productionOrderId: string;
@@ -612,7 +722,10 @@ export class ProductionOrderService {
     warehouseId: string;
     actor: WorkflowActor;
   }) {
-    const order = await this.prisma.productionOrder.findUniqueOrThrow({ where: { id: params.productionOrderId } });
+    const order = await this.prisma.productionOrder.findUniqueOrThrow({
+      where: { id: params.productionOrderId },
+      include: { sourceGroup: true },
+    });
 
     if (order.status !== ProductionOrderStatus.IN_PRODUCTION) {
       throw new AccountingRuleViolation(
@@ -621,8 +734,9 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
+    const rules = this.speciesRules(order.sourceGroup!.speciesKey);
 
-    const wipDebits = order.marketSnailValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
+    const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
     const totalToAllocate = wipDebits - order.abnormalLossCostKobo;
     if (totalToAllocate <= 0n) {
       throw new AccountingRuleViolation(
@@ -644,9 +758,9 @@ export class ProductionOrderService {
       throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', `No open period for ${order.orderNumber}.`, {});
     }
     const dimensions = this.dimensions(order, context);
-    const rule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: 'PCR-057', on: new Date() });
-    const fgAccount = this.requireSide(rule.debit, 'PCR-057', 'debit').glAccountId;
-    const wipAccount = this.requireSide(rule.credit, 'PCR-057', 'credit').glAccountId;
+    const rule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.completionRuleId, on: new Date() });
+    const fgAccount = this.requireSide(rule.debit, rules.completionRuleId, 'debit').glAccountId;
+    const wipAccount = this.requireSide(rule.credit, rules.completionRuleId, 'credit').glAccountId;
 
     return this.prisma.$transaction(async (tx) => {
       for (const output of allocated) {
@@ -692,13 +806,13 @@ export class ProductionOrderService {
           lines: [
             {
               glAccountId: fgAccount,
-              description: `PCR-057 — joint outputs received (${order.orderNumber})`,
+              description: `${rules.completionRuleId} — joint outputs received (${order.orderNumber})`,
               debit: kobo(totalToAllocate),
               dimensions,
             },
             {
               glAccountId: wipAccount,
-              description: `PCR-057 — joint outputs received (${order.orderNumber})`,
+              description: `${rules.completionRuleId} — joint outputs received (${order.orderNumber})`,
               credit: kobo(totalToAllocate),
               dimensions,
             },
@@ -736,7 +850,7 @@ export class ProductionOrderService {
   }
 
   // -------------------------------------------------------------------------
-  // Settle — PCR-058
+  // Settle
   // -------------------------------------------------------------------------
 
   /**
@@ -746,7 +860,10 @@ export class ProductionOrderService {
    * already guarantee it, and this refuses to post if it somehow does not.
    */
   async settle(params: { productionOrderId: string; actor: WorkflowActor }) {
-    const order = await this.prisma.productionOrder.findUniqueOrThrow({ where: { id: params.productionOrderId } });
+    const order = await this.prisma.productionOrder.findUniqueOrThrow({
+      where: { id: params.productionOrderId },
+      include: { sourceGroup: true },
+    });
 
     if (order.status !== ProductionOrderStatus.COMPLETED) {
       throw new AccountingRuleViolation(
@@ -755,8 +872,9 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
+    const rules = this.speciesRules(order.sourceGroup!.speciesKey);
 
-    const wipDebits = order.marketSnailValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
+    const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
     if (wipDebits !== order.finishedGoodsCostKobo + order.abnormalLossCostKobo) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §9/Rule 7 — WIP identity',
@@ -768,10 +886,10 @@ export class ProductionOrderService {
     }
 
     // Variance: what was actually incurred for conversion vs. what standard
-    // absorption recovered into WIP against 219810. A positive figure means
-    // the order cost more than standard and 219810 needs a further debit
-    // from the variance line to bring it to zero for this order; negative
-    // means the reverse.
+    // absorption recovered into WIP against the recovery clearing account.
+    // A positive figure means the order cost more than standard and the
+    // recovery account needs a further debit from the variance line to bring
+    // it to zero for this order; negative means the reverse.
     const actualIncurred = order.actualLabourCostKobo + order.actualOverheadCostKobo;
     const variance = actualIncurred - order.standardConversionCostKobo;
     if (variance === 0n) {
@@ -784,15 +902,15 @@ export class ProductionOrderService {
       throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', `No open period for ${order.orderNumber}.`, {});
     }
     const dimensions = this.dimensions(order, context);
-    // PCR-058 as a whole is NOT resolved through PostingControlService, same
-    // reason as PCR-055: its credit key ("219810/6211xx/6212xx") is
-    // non-atomic, and resolve() validates both sides eagerly. The debit
-    // (520100, atomic) is looked up directly; the credit is the disclosed
-    // recovery-account policy — it is the account PCR-053's standard
-    // absorption already credited for this order.
+    // The settlement rule as a whole is NOT resolved through
+    // PostingControlService, same reason as the actual-conversion rule: its
+    // credit key ("recovery/actual pool") is non-atomic, and resolve()
+    // validates both sides eagerly. The debit is looked up directly; the
+    // credit is the recovery account the standard-absorption step already
+    // credited for this order.
     const [varianceAccount, recoveryAccount] = await Promise.all([
-      this.resolvePostingKeyAccount(order.companyId, 'PCR-058-DR'),
-      this.recoveryAccount(order.companyId),
+      this.resolvePostingKeyAccount(order.companyId, rules.settleDebitKey),
+      this.recoveryAccount(order.companyId, rules.recoveryAccountNumber),
     ]);
 
     return this.prisma.$transaction(async (tx) => {
@@ -813,13 +931,13 @@ export class ProductionOrderService {
           lines: [
             {
               glAccountId: favourable ? recoveryAccount : varianceAccount,
-              description: `PCR-058 — conversion variance settled (${order.orderNumber})`,
+              description: `${rules.settleDebitKey.replace('-DR', '')} — conversion variance settled (${order.orderNumber})`,
               debit: kobo(magnitude),
               dimensions,
             },
             {
               glAccountId: favourable ? varianceAccount : recoveryAccount,
-              description: `PCR-058 — conversion variance settled (${order.orderNumber})`,
+              description: `${rules.settleDebitKey.replace('-DR', '')} — conversion variance settled (${order.orderNumber})`,
               credit: kobo(magnitude),
               dimensions,
             },
@@ -855,11 +973,25 @@ export class ProductionOrderService {
   // Helpers
   // -------------------------------------------------------------------------
 
+  /** Which PCR rule ids this order's species uses at each processing step. */
+  private speciesRules(speciesKey: string): SpeciesProcessingRules {
+    const rules = SPECIES_PROCESSING_RULES[speciesKey];
+    if (!rules) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §9 — Production order',
+        `No processing posting rules are defined for species "${speciesKey}" — only snail and ` +
+          `poultry processing are built.`,
+        { speciesKey },
+      );
+    }
+    return rules;
+  }
+
   /**
-   * One posting key's account, directly — for the rare case (PCR-055) where
-   * the RULE has one non-atomic side and one atomic side, so calling
-   * `PostingControlService.resolve()` for the rule as a whole would throw
-   * before the atomic side could ever be read.
+   * One posting key's account, directly — for the rule steps that have one
+   * non-atomic side and one atomic side (the actual-conversion rule, the
+   * settlement rule), so calling `PostingControlService.resolve()` for the
+   * rule as a whole would throw before the atomic side could ever be read.
    */
   private async resolvePostingKeyAccount(companyId: string, key: string): Promise<string> {
     const row = await this.prisma.postingKey.findUnique({
@@ -937,21 +1069,21 @@ export class ProductionOrderService {
     if (!account) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §66 — Posting chart',
-        'No active Trade Payables account (210100) exists for actual overhead to credit.',
+        'No active Trade Payables account (210100) exists for actual conversion cost to credit.',
         {},
       );
     }
     return account.id;
   }
 
-  private async recoveryAccount(companyId: string): Promise<string> {
+  private async recoveryAccount(companyId: string, accountNumber: string): Promise<string> {
     const account = await this.prisma.gLAccount.findFirst({
-      where: { companyId, accountNumber: '219810', active: true },
+      where: { companyId, accountNumber, active: true },
     });
     if (!account) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §66 — Posting chart',
-        'No active S_Recovery_GL account (219810) exists to settle variance against.',
+        `No active recovery clearing account (${accountNumber}) exists to settle variance against.`,
         {},
       );
     }

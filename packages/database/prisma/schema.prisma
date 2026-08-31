@@ -2419,17 +2419,22 @@ model ProductRecipeComponent {
 // Production Orders — Processing (Consolidated Reference §9/§10 — Phase 6,
 // US-897-016 through 020)
 //
-// The vertical slice is SnailPro processing (PCR-051–058): market snails
-// harvested, issued to processing, labour/overhead confirmed, joint outputs
-// (meat/slime/shell) received into finished goods with cost split by the
-// client's own approved NRV method, order settles with WIP at exactly zero.
+// One engine, two species: SnailPro processing (PCR-051–058, built first)
+// and PoultryPro processing (PCR-074–080, the same eight-step shape against
+// its own rule ids) — a population harvested, issued to processing, labour/
+// overhead confirmed, joint outputs received into finished goods with cost
+// split by the client's own approved NRV method, order settles with WIP at
+// exactly zero. `ProductionOrderService`'s `SPECIES_PROCESSING_RULES` picks
+// the right PCR ids from `LivestockGroup.speciesKey`; comments below cite
+// SnailPro's numbers as the example since that path was built and
+// live-verified first, not because the model is snail-specific.
 //
 // What an order actually consumes on its input side is NOT a recipe
-// component — "market snails" are a biological asset (`LivestockGroup`), not
-// an `Item`, so PCR-051 (issue to processing) posts Dr WIP / Cr the
-// population's own stage account, valued at its IAS 41 carrying value,
-// exactly like every other biological-asset transfer this codebase already
-// posts. `recipeVersionId` governs the PACKAGING components only — what an
+// component — a live population is a biological asset (`LivestockGroup`),
+// not an `Item`, so the issue step posts Dr WIP / Cr the population's own BA
+// account, valued at its IAS 41 carrying value, exactly like every other
+// biological-asset transfer this codebase already posts. `recipeVersionId`
+// governs the PACKAGING components only — what an
 // order draws from `Item` inventory via `StockMovement`, same as any other
 // issue. This is a real, disclosed modelling compromise: `ProductRecipe`
 // was built for one output per recipe, and a joint-output process does not
@@ -2470,14 +2475,14 @@ model ProductionOrder {
   /// Governs the PACKAGING components only — see the file-level comment above.
   recipeVersionId String @map("recipe_version_id") @db.Uuid
 
-  /// Where the market-ready population being processed comes from. Nullable
-  /// only so an order can, in principle, be drafted before a harvest is
-  /// linked — every order this pass actually creates comes from one.
+  /// Where the population being processed comes from. Nullable only so an
+  /// order can, in principle, be drafted before a harvest is linked — every
+  /// order this pass actually creates comes from one.
   sourceGroupId String? @map("source_group_id") @db.Uuid
 
   /// The harvest this order processes. One order per harvest — a second
   /// processing run against the same harvest would double-count the WIP
-  /// debit PCR-051 already posted.
+  /// debit the issue step already posted.
   harvestRecordId String? @unique @map("harvest_record_id") @db.Uuid
 
   status ProductionOrderStatus @default(DRAFT)
@@ -2486,37 +2491,42 @@ model ProductionOrder {
   /// what `RecipeService.explode()` scales the packaging BOM against.
   plannedOutputQuantity Decimal @map("planned_output_quantity") @db.Decimal(18, 6)
 
-  /// MONEY. What PCR-051 debited WIP with — the market snails' own carrying
-  /// value at issue, captured here because `LivestockGroup.currentFvlctsPerUnitKobo`
-  /// keeps moving and Rule 7's identity needs this order's own frozen figure.
-  marketSnailValueKobo BigInt @default(0) @map("market_snail_value_kobo")
+  /// MONEY. What the issue step debited WIP with — the source population's
+  /// own carrying value at issue (PCR-051 for snail, PCR-074 for poultry),
+  /// captured here because `LivestockGroup.currentFvlctsPerUnitKobo` keeps
+  /// moving and Rule 7's identity needs this order's own frozen figure.
+  biologicalInputValueKobo BigInt @default(0) @map("biological_input_value_kobo")
 
-  /// MONEY. Packaging issued via the recipe explosion (PCR-052).
+  /// MONEY. Packaging issued via the recipe explosion (PCR-052/075).
   packagingCostKobo BigInt @default(0) @map("packaging_cost_kobo")
 
-  /// MONEY. PCR-053 — driver quantity × approved standard rate, absorbed
+  /// MONEY. PCR-053/076 — driver quantity × approved standard rate, absorbed
   /// into WIP against the recovery clearing account.
   standardConversionCostKobo BigInt @default(0) @map("standard_conversion_cost_kobo")
 
-  /// MONEY. PCR-054/055 — what labour and overhead actually cost, expensed
-  /// directly rather than run through the recovery account.
+  /// MONEY. What labour and overhead actually cost, expensed directly rather
+  /// than run through the recovery account. Snail posts these as two
+  /// separate GL lines (PCR-054/055); poultry posts their sum as one
+  /// combined line (PCR-077) — the split is still captured here either way,
+  /// since settle()'s variance calculation only needs their total.
   actualLabourCostKobo    BigInt @default(0) @map("actual_labour_cost_kobo")
   actualOverheadCostKobo  BigInt @default(0) @map("actual_overhead_cost_kobo")
 
-  /// MONEY. PCR-057 — the sum of every ProductionOrderOutput's allocated
+  /// MONEY. PCR-057/079 — the sum of every ProductionOrderOutput's allocated
   /// cost. Kept denormalised so Rule 7 can be asserted from the order row
   /// alone rather than re-summing its children every time.
   finishedGoodsCostKobo BigInt @default(0) @map("finished_goods_cost_kobo")
 
-  /// MONEY. PCR-056 — abnormal processing loss written off WIP.
+  /// MONEY. PCR-056/078 — abnormal processing loss written off WIP.
   abnormalLossCostKobo BigInt @default(0) @map("abnormal_loss_cost_kobo")
 
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
 
   /// Four posting moments, four journals — an order is not one transaction,
-  /// it is a sequence of them (PCR-051, PCR-052/053/054/055, PCR-056/057,
-  /// PCR-058), and Rule 7 is checked from these rather than by re-summing
-  /// every child StockMovement each time.
+  /// it is a sequence of them (issue, packaging+conversion, loss+completion,
+  /// settlement — PCR-051–058 for snail, PCR-074–080 for poultry), and
+  /// Rule 7 is checked from these rather than by re-summing every child
+  /// StockMovement each time.
   issueJournalEntryId      String? @map("issue_journal_entry_id") @db.Uuid
   conversionJournalEntryId String? @map("conversion_journal_entry_id") @db.Uuid
   completionJournalEntryId String? @map("completion_journal_entry_id") @db.Uuid

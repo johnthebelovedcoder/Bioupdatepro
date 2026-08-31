@@ -7,9 +7,10 @@ import type { WorkflowActor } from '../workflow/workflow.types';
 import type { AllocationOutput, CostAllocationMethod } from './cost-allocation.service';
 
 /**
- * Production orders over HTTP — the SnailPro processing slice (US-897-016
- * through 020). API-only this pass, following the same build order P2P and
- * O2C already used: the domain engine first, a screen in a later pass.
+ * Production orders over HTTP — SnailPro and PoultryPro processing
+ * (US-897-016 through 020). API-only this pass, following the same build
+ * order P2P and O2C already used: the domain engine first, a screen in a
+ * later pass.
  */
 @Controller('production-orders')
 export class ProductionOrderController {
