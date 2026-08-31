@@ -32,10 +32,11 @@ export interface DeliveryLineInput {
  * of sales. See the head of the O2C schema section for why that is configurable
  * and how double recognition is prevented.
  *
- * Cost comes from the Phase 4 effective-dated standard cost. Stock availability
- * is not enforced yet: nothing increases stock until Procure-to-Pay and
- * Processing land, so enforcing it now would block every delivery. The
- * configuration flag is already in place for when they do.
+ * Cost comes from the Phase 4 effective-dated standard cost. Stock
+ * availability is enforced at the order's warehouse via `stockOnHand()` —
+ * deliberately checked against posted `StockMovement` rows only (the same
+ * physical-fact discipline `StockMovementService.issueOut()` uses), not
+ * against other still-draft deliveries reserving the same stock.
  */
 @Injectable()
 export class DeliveryService {
@@ -122,6 +123,20 @@ export class DeliveryService {
             `outstanding; cannot deliver ${quantity.toFixed(6)}. Over-delivery would ship ` +
             `goods the customer did not order.`,
           { orderNumber: order.orderNumber, lineNumber: orderLine.lineNumber },
+        );
+      }
+
+      const onHand = await this.stockOnHand({
+        companyId: order.companyId,
+        itemId: orderLine.itemId,
+        warehouseId: order.warehouseId,
+      });
+      if (new Decimal(onHand.quantity).lessThan(quantity)) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §14 — Inventory issue',
+          `${order.orderNumber} would take stock negative — ${onHand.quantity} on hand at this ` +
+            `warehouse, ${quantity.toFixed(6)} requested for line ${orderLine.lineNumber}.`,
+          { orderNumber: order.orderNumber, itemId: orderLine.itemId, onHand: onHand.quantity, requested: quantity.toFixed(6) },
         );
       }
 
