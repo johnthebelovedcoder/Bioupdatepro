@@ -241,6 +241,8 @@ export class FarmStructureService {
         `Classified ${account.accountNumber} — ${account.name} as ${params.fsCategory}` +
         (previous ? ` (was ${previous})` : ' (was unclassified)'),
       metadata: { previousFsCategory: previous, newFsCategory: params.fsCategory },
+      oldValue: { fsCategory: previous },
+      newValue: { fsCategory: params.fsCategory },
     });
 
     return updated;

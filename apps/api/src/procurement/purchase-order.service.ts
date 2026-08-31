@@ -490,6 +490,11 @@ export class PurchaseOrderService {
             previousGrossAmountKobo: order.grossAmountKobo.toString(),
             newGrossAmountKobo: updated.grossAmountKobo.toString(),
           },
+          oldValue: { version: order.version, grossAmountKobo: order.grossAmountKobo.toString() },
+          newValue: {
+            version: updated.version,
+            grossAmountKobo: updated.grossAmountKobo.toString(),
+          },
         },
         tx,
       );

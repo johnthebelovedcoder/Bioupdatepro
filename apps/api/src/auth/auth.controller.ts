@@ -6,6 +6,7 @@ import { CurrentCompany, CurrentUser, Public } from './current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { RegistrationService } from './registration.service';
 import { InvitationService } from './invitation.service';
+import { RoleSectionAccessService } from './role-section-access.service';
 import { Roles, AnyRole } from './roles.guard';
 
 class LoginDto {
@@ -40,6 +41,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly registration: RegistrationService,
     private readonly invitations: InvitationService,
+    private readonly roleSections: RoleSectionAccessService,
   ) {}
 
   @Public()
@@ -176,5 +178,35 @@ export class AuthController {
   @Get('me')
   async me(@Req() request: Request & { user: AuthenticatedUser }) {
     return request.user;
+  }
+
+  /* --- Role → section access overrides (US-897-035) ---------------------- */
+
+  /*
+   * Every signed-in user needs this, not just admins — the sidebar reads it
+   * for whichever roles the requester themselves holds, the same way `/me`
+   * is open to everyone rather than gated to the people who could look
+   * anybody up.
+   */
+  @AnyRole('The sidebar resolves its own visible sections from this on every load.')
+  @Get('role-sections')
+  async listRoleSections(@CurrentCompany() companyId: string) {
+    return this.roleSections.list(companyId);
+  }
+
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Post('role-sections')
+  async setRoleSection(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { role: string; section: string; enabled: boolean },
+  ) {
+    return this.roleSections.set({
+      companyId,
+      actor,
+      role: body.role,
+      section: body.section,
+      enabled: Boolean(body.enabled),
+    });
   }
 }

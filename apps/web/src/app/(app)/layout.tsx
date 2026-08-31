@@ -4,6 +4,7 @@ import { getToken, type SessionUser } from '@/lib/session';
 import { getActiveModule } from '@/lib/active-module';
 import { getFarmConfig } from '@/lib/farm-config.server';
 import { getContext } from '@/lib/org';
+import { getRoleSectionOverrides } from '@/lib/role-sections';
 import { AppShell } from '@/components/app-shell';
 
 /**
@@ -25,7 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect('/login?expired=1');
   }
 
-  const [activeModule, config, context] = await Promise.all([
+  const [activeModule, config, context, roleSectionOverrides] = await Promise.all([
     getActiveModule(),
     getFarmConfig(),
     /*
@@ -37,6 +38,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
      * to, or the interface is telling the user they are somewhere they are not.
      */
     getContext().catch(() => null),
+    getRoleSectionOverrides(),
   ]);
 
   const organisationName = context?.company?.name ?? config.organisation.name;
@@ -47,6 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       activeModule={activeModule?.key ?? null}
       workerLanguage={config.organisation.workerLanguage}
       organisationName={organisationName}
+      roleSectionOverrides={roleSectionOverrides}
     >
       {children}
     </AppShell>

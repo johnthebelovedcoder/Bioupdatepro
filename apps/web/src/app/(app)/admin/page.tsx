@@ -35,9 +35,11 @@ export default async function AdminPage() {
     safeCount('/masters/customers'),
     safeCount('/masters/items'),
     safeCount('/masters/employees'),
+    safeCount('/auth/role-sections'),
   ]);
 
-  const [farms, pens, stores, centres, vendors, customers, items, employees] = counts;
+  const [farms, pens, stores, centres, vendors, customers, items, employees, roleOverrides] =
+    counts;
 
   const ready = [
     {
@@ -89,6 +91,13 @@ export default async function AdminPage() {
       count: employees,
       unit: 'employees',
       why: 'Who can sign in, and what each of them may do.',
+    },
+    {
+      href: '/admin/roles',
+      name: 'Role access',
+      count: roleOverrides,
+      unit: 'overrides',
+      why: 'Which sidebar sections each role can reach — defaults apply until one is changed here.',
     },
   ];
 

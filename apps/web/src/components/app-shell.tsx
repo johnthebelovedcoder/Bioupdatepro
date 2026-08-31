@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import type { SessionUser } from '@/lib/session';
 import type { ModuleKey } from '@/lib/modules';
 import type { LanguageCode } from '@/lib/farm-config';
+import type { RoleSectionOverride } from '@/lib/permissions';
 import { SidebarNav } from './sidebar';
 import { Breadcrumbs } from './breadcrumbs';
 import { SearchPalette } from './search-palette';
@@ -29,6 +30,7 @@ export function AppShell({
   activeModule,
   workerLanguage = 'en',
   organisationName = '',
+  roleSectionOverrides = [],
   children,
 }: {
   user: SessionUser;
@@ -38,6 +40,8 @@ export function AppShell({
   workerLanguage?: LanguageCode;
   /** The farm's own name, shown in place of a product list. */
   organisationName?: string;
+  /** Admin-set exceptions to the hardcoded role→section map (US-897-035). */
+  roleSectionOverrides?: RoleSectionOverride[];
   children: React.ReactNode;
 }) {
   const [navOpen, setNavOpen] = useState(false);
@@ -87,7 +91,11 @@ export function AppShell({
           <ModuleSwitcher active={activeModule} />
         </div>
 
-        <SidebarNav activeModule={activeModule} roles={user.roles} />
+        <SidebarNav
+          activeModule={activeModule}
+          roles={user.roles}
+          roleSectionOverrides={roleSectionOverrides}
+        />
 
         <div className="sidebar-foot">
           {/*

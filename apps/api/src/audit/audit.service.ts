@@ -17,6 +17,15 @@ export interface AuditEvent extends AuditContext {
   status: string;
   action: AuditAction;
   metadata?: Record<string, unknown>;
+  /**
+   * What the field(s) held before and after the change (US-897-036) — its
+   * own pair of columns rather than another key inside `metadata`, so "what
+   * did this used to say" is a queryable shape rather than whatever a caller
+   * happened to name that key. Optional: most events (a creation, an
+   * approval) have no meaningful "before".
+   */
+  oldValue?: Record<string, unknown> | null;
+  newValue?: Record<string, unknown> | null;
 }
 
 /**
@@ -71,6 +80,8 @@ export class AuditService {
         device: event.device ?? null,
         comments: event.comments ?? null,
         metadata: (event.metadata ?? undefined) as Prisma.InputJsonValue,
+        oldValueJson: (event.oldValue ?? undefined) as Prisma.InputJsonValue,
+        newValueJson: (event.newValue ?? undefined) as Prisma.InputJsonValue,
       },
     });
   }

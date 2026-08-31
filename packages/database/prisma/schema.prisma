@@ -195,6 +195,7 @@ model User {
   depreciationRunsCreated   DepreciationRun[]          @relation("DepreciationRunCreator")
   marketPricesCreated       MarketPriceList[]
   payrollPaymentsCreated    PayrollPayment[]           @relation("PayrollPaymentCreator")
+  roleSectionAccessChanges  RoleSectionAccess[]
 
   @@map("users")
 }
@@ -294,6 +295,7 @@ model Company {
   speciesBreeds                 SpeciesBreed[]
   marketPriceLists              MarketPriceList[]
   payrollPayments                PayrollPayment[]
+  roleSectionAccess               RoleSectionAccess[]
 
   @@map("companies")
 }
@@ -907,6 +909,15 @@ model AuditRecord {
   comments      String?
   metadata      Json?
 
+  /// What the field(s) held before and after the change (US-897-036) —
+  /// dedicated columns rather than another key inside `metadata`, so "what did
+  /// this used to say" is a real, queryable shape instead of whatever a caller
+  /// happened to name that key. Populated at the call sites this session
+  /// actually touches; not a retrofit of every existing AuditService.write()
+  /// call across the app.
+  oldValueJson Json? @map("old_value_json")
+  newValueJson Json? @map("new_value_json")
+
   user    User     @relation(fields: [userId], references: [id])
   company Company? @relation(fields: [companyId], references: [id])
 
@@ -915,6 +926,33 @@ model AuditRecord {
   @@index([occurredAt])
   @@index([companyId, occurredAt])
   @@map("audit_records")
+}
+
+/// Narrows which of an existing role's sections are visible, without a
+/// deploy (US-897-035). Absence of a row means "as coded" — every role's
+/// default reach is still `apps/web/src/lib/permissions.ts`'s own BY_ROLE
+/// table, which stays the single source of truth for what a role can reach
+/// AT ALL; this table can only turn a candidate section OFF for a role that
+/// already has it, never grant one the code has no screen for. The role
+/// enum itself is not extensible here — a company cannot invent a role, only
+/// dial back the reach of one that already exists.
+model RoleSectionAccess {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  role    String
+  section String
+  enabled Boolean @default(true)
+
+  updatedById String   @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  company   Company @relation(fields: [companyId], references: [id])
+  updatedBy User    @relation(fields: [updatedById], references: [id])
+
+  @@unique([companyId, role, section])
+  @@map("role_section_access")
 }
 
 // ---------------------------------------------------------------------------

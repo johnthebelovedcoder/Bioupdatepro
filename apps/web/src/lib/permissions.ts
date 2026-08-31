@@ -179,6 +179,40 @@ const BY_ROLE: Record<string, Section[]> = {
   PRODUCTION_SUPERVISOR: ['dashboard', 'livestock', 'recording', 'inventory'],
 };
 
+/** Every section that exists, and every role the client's RACI sheet names — for the admin override matrix (US-897-035) to enumerate. */
+export const ALL_SECTIONS: Section[] = ALL;
+export const ALL_ROLES: string[] = Object.keys(BY_ROLE);
+
+/** One admin-set exception to the table above, for one company (US-897-035). */
+export interface RoleSectionOverride {
+  role: string;
+  section: string;
+  enabled: boolean;
+}
+
+/**
+ * The hardcoded defaults above, with a company's overrides applied on top for
+ * whichever of the held roles they name.
+ *
+ * A row beats the default for that one (role, section): `enabled: true`
+ * grants a section a role's hardcoded entry never had, `enabled: false`
+ * withdraws one it did. Absence of a row changes nothing — this stays a pure
+ * function so it works the same in a server fetch and in a client re-render.
+ */
+export function applyOverrides(
+  base: ReadonlySet<Section>,
+  roles: readonly string[],
+  overrides: readonly RoleSectionOverride[],
+): Set<Section> {
+  const result = new Set(base);
+  for (const override of overrides) {
+    if (!roles.includes(override.role)) continue;
+    if (override.enabled) result.add(override.section as Section);
+    else result.delete(override.section as Section);
+  }
+  return result;
+}
+
 /** Every section this person can reach, from all the roles they hold. */
 export function sectionsFor(roles: readonly string[]): Set<Section> {
   const allowed = new Set<Section>();

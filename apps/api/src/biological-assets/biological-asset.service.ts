@@ -723,6 +723,16 @@ export class BiologicalAssetService {
         },
       });
 
+      const superseded = await tx.marketPriceList.findFirst({
+        where: {
+          companyId: params.companyId,
+          speciesKey: params.speciesKey,
+          breed: params.breed,
+          effectiveTo: null,
+          effectiveFrom: { lt: day },
+        },
+      });
+
       await tx.marketPriceList.updateMany({
         where: {
           companyId: params.companyId,
@@ -759,6 +769,16 @@ export class BiologicalAssetService {
           ipAddress: params.actor.ipAddress ?? null,
           device: params.actor.device ?? null,
           comments: `${params.speciesKey}/${params.breed} priced at ${params.marketPricePerUnitKobo} kobo from ${day.toISOString().slice(0, 10)}`,
+          oldValue: superseded
+            ? {
+                marketPricePerUnitKobo: superseded.marketPricePerUnitKobo.toString(),
+                costsToSellPerUnitKobo: superseded.costsToSellPerUnitKobo.toString(),
+              }
+            : null,
+          newValue: {
+            marketPricePerUnitKobo: params.marketPricePerUnitKobo.toString(),
+            costsToSellPerUnitKobo: params.costsToSellPerUnitKobo.toString(),
+          },
         },
         tx,
       );

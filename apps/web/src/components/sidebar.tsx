@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getModule, type ModuleKey } from '@/lib/modules';
-import { canSee } from '@/lib/permissions';
+import { applyOverrides, sectionsFor, type Section, type RoleSectionOverride } from '@/lib/permissions';
 import { CORE, HOME, SECTIONS, duplicateRoutes, type NavSection } from '@/lib/navigation';
 import { IconChart, type IconProps } from './icons';
 
@@ -28,13 +28,18 @@ import { IconChart, type IconProps } from './icons';
 export function SidebarNav({
   activeModule,
   roles = [],
+  roleSectionOverrides = [],
 }: {
   activeModule: ModuleKey | null;
   /** The signed-in user's roles. Sections they cannot reach are not shown. */
   roles?: readonly string[];
+  /** Admin-set exceptions to the hardcoded map, for the held roles (US-897-035). */
+  roleSectionOverrides?: readonly RoleSectionOverride[];
 }) {
   const pathname = usePathname();
   const module = getModule(activeModule);
+  const effectiveSections = applyOverrides(sectionsFor(roles), roles, roleSectionOverrides);
+  const canSeeSection = (section: Section) => effectiveSections.has(section);
 
   if (process.env.NODE_ENV !== 'production') {
     const duplicates = duplicateRoutes();
@@ -53,12 +58,12 @@ export function SidebarNav({
           (child) => pathname === child.href || pathname.startsWith(`${child.href}/`),
         );
 
-  const visible = SECTIONS.filter((section) => canSee(roles, section.section));
+  const visible = SECTIONS.filter((section) => canSeeSection(section.section));
 
   return (
     <div className="sidebar-scroll">
       <div className="nav-group">
-        {canSee(roles, HOME.section) ? (
+        {canSeeSection(HOME.section) ? (
           <NavLink
             href={HOME.href}
             label={HOME.label}
@@ -75,7 +80,7 @@ export function SidebarNav({
           product, and have no way to tell that the platform he commissioned was
           the thing underneath everything else.
         */}
-        {canSee(roles, CORE.section) ? (
+        {canSeeSection(CORE.section) ? (
           <NavLink
             href={CORE.href}
             label={CORE.label}
