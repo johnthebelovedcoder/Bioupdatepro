@@ -15,6 +15,7 @@ import { PostingControlModule } from './posting-control/posting-control.module';
 import { BiologicalAssetModule } from './biological-assets/biological-asset.module';
 import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { ProductionModule } from './production/production.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { MastersController } from './masters/masters.controller';
 import { MasterDataController } from './masters/master-data.controller';
 import { ProcurementController } from './procurement/procurement.controller';
@@ -24,6 +25,7 @@ import { PostingControlController } from './posting-control/posting-control.cont
 import { BiologicalAssetController } from './biological-assets/biological-asset.controller';
 import { FixedAssetsController } from './fixed-assets/fixed-assets.controller';
 import { ProductionOrderController } from './production/production-order.controller';
+import { InventoryController } from './inventory/inventory.controller';
 import { WorkflowController } from './workflow/workflow.controller';
 import { TaxController } from './tax/tax.controller';
 import { JournalsController } from './journals/journals.controller';
@@ -61,6 +63,7 @@ const developmentOnlyControllers =
     BiologicalAssetModule,
     FixedAssetsModule,
     ProductionModule,
+    InventoryModule,
   ],
   providers: [KpiService],
   controllers: [
@@ -79,6 +82,7 @@ const developmentOnlyControllers =
     BiologicalAssetController,
     FixedAssetsController,
     ProductionOrderController,
+    InventoryController,
     ...developmentOnlyControllers,
   ],
 })

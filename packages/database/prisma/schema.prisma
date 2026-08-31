@@ -197,6 +197,8 @@ model User {
   payrollPaymentsCreated    PayrollPayment[]           @relation("PayrollPaymentCreator")
   roleSectionAccessChanges  RoleSectionAccess[]
   productionOrdersCreated   ProductionOrder[]          @relation("ProductionOrderCreator")
+  inventoryTransfersCreated InventoryTransfer[]
+  inventoryWriteOffsCreated InventoryWriteOff[]
 
   @@map("users")
 }
@@ -298,6 +300,8 @@ model Company {
   payrollPayments                PayrollPayment[]
   roleSectionAccess               RoleSectionAccess[]
   productionOrders               ProductionOrder[]
+  inventoryTransfers              InventoryTransfer[]
+  inventoryWriteOffs              InventoryWriteOff[]
 
   @@map("companies")
 }
@@ -344,6 +348,8 @@ model Branch {
   payrollPayments      PayrollPayment[]
   livestockGroups      LivestockGroup[]
   productionOrders     ProductionOrder[]
+  inventoryTransfers   InventoryTransfer[]
+  inventoryWriteOffs   InventoryWriteOff[]
 
   @@unique([companyId, code])
   @@map("branches")
@@ -705,15 +711,18 @@ model Warehouse {
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
 
-  company           Company            @relation(fields: [companyId], references: [id])
-  branch            Branch             @relation(fields: [branchId], references: [id])
-  items             Item[]
-  stockMovements    StockMovement[]
-  salesOrders       SalesOrder[]
-  deliveryNotes     DeliveryNote[]
-  salesReturns      SalesReturn[]
-  purchaseOrders    PurchaseOrder[]
-  goodsReceiptNotes GoodsReceiptNote[]
+  company              Company              @relation(fields: [companyId], references: [id])
+  branch               Branch               @relation(fields: [branchId], references: [id])
+  items                Item[]
+  stockMovements       StockMovement[]
+  salesOrders          SalesOrder[]
+  deliveryNotes        DeliveryNote[]
+  salesReturns         SalesReturn[]
+  purchaseOrders       PurchaseOrder[]
+  goodsReceiptNotes    GoodsReceiptNote[]
+  transfersFrom        InventoryTransfer[]  @relation("InventoryTransferFrom")
+  transfersTo          InventoryTransfer[]  @relation("InventoryTransferTo")
+  inventoryWriteOffs   InventoryWriteOff[]
 
   @@unique([companyId, code])
   @@map("warehouses")
@@ -796,6 +805,9 @@ model JournalEntry {
   productionOrdersConverted   ProductionOrder[] @relation("ProductionOrderConversion")
   productionOrdersCompleted   ProductionOrder[] @relation("ProductionOrderCompletion")
   productionOrdersSettled     ProductionOrder[] @relation("ProductionOrderSettlement")
+  inventoryTransfersIssued  InventoryTransfer[] @relation("InventoryTransferIssue")
+  inventoryTransfersReceived InventoryTransfer[] @relation("InventoryTransferReceipt")
+  inventoryWriteOffs        InventoryWriteOff[]
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -2052,12 +2064,13 @@ model Item {
   /// balance pattern LivestockGroup.population uses. Null until the item's
   /// first receipt. This is ACTUAL cost, distinct from ItemStandardCost's
   /// effective-dated PLANNED cost — nothing currently reads this one for
-  /// consumption postings, which stay on standard cost until a general
-  /// inventory-issue module (US-897-008) exists to switch them over.
+  /// consumption postings, which stay on standard cost unless the consuming
+  /// document is one of the WAC-costed paths below.
   /// As of US-897-016's processing slice, this IS read for one consumption
   /// path — a production order's packaging issue (PCR-052) — via the shared
-  /// `StockMovementService`. Every other consumption posting still stays on
-  /// standard cost pending the general inventory-issue module (US-897-008).
+  /// `StockMovementService`. US-897-008's general inventory transfer/write-off
+  /// (PCR-012–014) is a second: `InventoryTransfer`/`InventoryWriteOff` below.
+  /// Sales delivery still stays on standard cost (§6's own basis).
   weightedAverageCostKobo  BigInt?   @map("weighted_average_cost_kobo")
   weightedAverageCostSetAt DateTime? @map("weighted_average_cost_set_at")
 
@@ -2094,6 +2107,8 @@ model Item {
   feedIssues             FeedIssue[]               @relation("FeedIssueItem")
   productionOrderComponents ProductionOrderComponent[]
   productionOrderOutputs    ProductionOrderOutput[]
+  inventoryTransfers        InventoryTransfer[]
+  inventoryWriteOffs        InventoryWriteOff[]
 
   @@unique([companyId, code])
   @@index([companyId, itemType, active])
@@ -2642,6 +2657,106 @@ model ProductionOrderLossEvent {
   journalEntry    JournalEntry?   @relation(fields: [journalEntryId], references: [id])
 
   @@map("production_order_loss_events")
+}
+
+// ---------------------------------------------------------------------------
+// General inventory: transfer and write-off (Consolidated Reference §14 —
+// PCR-012/013/014, US-897-008)
+//
+// The production-order material-issue path already proved the negative-stock
+// guard and WAC costing (StockMovementService); this is the SAME primitive
+// reused for the two general-purpose movements the client's own approved
+// posting-control JSON specifies outside any one document type: a transfer
+// between warehouses (PCR-012 issue at source / PCR-013 receipt at
+// destination — genuinely two steps, with an "Inventory in Transit" holding
+// account between them, not a single move) and an approved write-off
+// (PCR-014, abnormal loss/obsolete stock). A "return to source" is not a
+// third concept — PCR-012's own reversal note reads "reverse transfer or
+// return to source", so a return is just a new InventoryTransfer with the
+// warehouses swapped, not a separate model.
+// ---------------------------------------------------------------------------
+
+enum InventoryTransferStatus {
+  DRAFT
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+model InventoryTransfer {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  branchId  String @map("branch_id") @db.Uuid
+
+  /// The farm's own reference, same convention as every other document number.
+  transferNumber String @map("transfer_number")
+
+  itemId          String @map("item_id") @db.Uuid
+  fromWarehouseId String @map("from_warehouse_id") @db.Uuid
+  toWarehouseId   String @map("to_warehouse_id") @db.Uuid
+
+  quantity Decimal @db.Decimal(18, 6)
+
+  /// MONEY. WAC at the moment of issue (PCR-012's basis) — frozen here so
+  /// PCR-013's receipt posts "original transfer value", not a value
+  /// re-derived from whatever the source item's WAC has since moved to.
+  valueKobo BigInt @map("value_kobo")
+
+  status InventoryTransferStatus @default(DRAFT)
+
+  issueJournalEntryId  String? @map("issue_journal_entry_id") @db.Uuid
+  receiptJournalEntryId String? @map("receipt_journal_entry_id") @db.Uuid
+
+  issuedAt   DateTime? @map("issued_at")
+  receivedAt DateTime? @map("received_at")
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  company       Company       @relation(fields: [companyId], references: [id])
+  branch        Branch        @relation(fields: [branchId], references: [id])
+  item          Item          @relation(fields: [itemId], references: [id])
+  fromWarehouse Warehouse     @relation("InventoryTransferFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse   Warehouse     @relation("InventoryTransferTo", fields: [toWarehouseId], references: [id])
+  createdBy     User          @relation(fields: [createdById], references: [id])
+  issueJournalEntry   JournalEntry? @relation("InventoryTransferIssue", fields: [issueJournalEntryId], references: [id])
+  receiptJournalEntry JournalEntry? @relation("InventoryTransferReceipt", fields: [receiptJournalEntryId], references: [id])
+
+  @@unique([companyId, transferNumber])
+  @@index([companyId, status])
+  @@map("inventory_transfers")
+}
+
+/// PCR-014 — an approved write-off (abnormal loss/obsolete stock), outside
+/// any production order or delivery. "Count evidence and reason approval
+/// required" per the rule's own blocking condition — `reason` is required,
+/// same discipline as every other loss-recording path this session touched.
+model InventoryWriteOff {
+  id          String  @id @default(uuid()) @db.Uuid
+  companyId   String  @map("company_id") @db.Uuid
+  branchId    String  @map("branch_id") @db.Uuid
+  itemId      String  @map("item_id") @db.Uuid
+  warehouseId String  @map("warehouse_id") @db.Uuid
+  quantity    Decimal @db.Decimal(18, 6)
+
+  /// MONEY. WAC at the moment of write-off.
+  valueKobo BigInt @map("value_kobo")
+
+  reason         String
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  company      Company       @relation(fields: [companyId], references: [id])
+  branch       Branch        @relation(fields: [branchId], references: [id])
+  item         Item          @relation(fields: [itemId], references: [id])
+  warehouse    Warehouse     @relation(fields: [warehouseId], references: [id])
+  createdBy    User          @relation(fields: [createdById], references: [id])
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  @@index([companyId, itemId])
+  @@map("inventory_write_offs")
 }
 
 // ---------------------------------------------------------------------------
