@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import { AuditAction, Prisma, ProductionOrderStatus } from '@bioassetpro/database';
+import { AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -14,42 +14,52 @@ import { AccountingRuleViolation } from '../common/errors';
 import { kobo, Kobo } from '../common/money';
 
 /**
- * Which PCR rule this species' processing cycle uses at each step. SnailPro
+ * Which PCR rule this order's processing cycle uses at each step. SnailPro
  * (PCR-051–058) and PoultryPro (PCR-074–080) are the same eight-step shape
  * with one real difference: snail posts actual labour and actual overhead
  * as two separate lines (PCR-054/055, each its own account); poultry posts
  * one combined actual-conversion line (PCR-077, a single pool account) —
  * `actualConversionRuleId` is set for poultry and null for snail, and
  * `confirmConversion()` branches on which one is set.
+ *
+ * Feed Mill (PCR-032–036) is a genuinely smaller five-step cycle: no
+ * biological-input leg at all (`issueRuleId: null` — its one issue rule IS
+ * the "packaging" leg, PCR-032), and no dedicated actual-conversion posting
+ * rule either (`actualLabourRuleId`/`actualConversionRuleId` both null) —
+ * PCR-033 only ever posts standard absorption; actual resource cost
+ * reappears solely as an input to PCR-036's variance calculation at
+ * settlement, never its own journal. `confirmConversion()`'s third branch
+ * (both actual-rule ids null) covers this.
  */
-interface SpeciesProcessingRules {
-  /** PCR-051 / PCR-074 — biological input issued to WIP. Fully atomic both sides. */
-  issueRuleId: string;
-  /** PCR-052 / PCR-075 — packaging issued to WIP. Fully atomic both sides. */
+interface ProcessingCycleRules {
+  /** PCR-051 / PCR-074 / null — biological input issued to WIP. Null for Feed Mill,
+   * which has no biological population and posts its one issue leg as "packaging" below. */
+  issueRuleId: string | null;
+  /** PCR-052 / PCR-075 / PCR-032 — the recipe/BOM issue. Fully atomic both sides. */
   packagingRuleId: string;
-  /** PCR-053 / PCR-076 — standard conversion absorbed. Fully atomic both sides. */
+  /** PCR-053 / PCR-076 / PCR-033 — standard conversion absorbed. Fully atomic both sides. */
   standardRuleId: string;
-  /** PCR-054 / null — snail's separate actual-labour line. Fully atomic both sides. */
+  /** PCR-054 / null / null — snail's separate actual-labour line. Fully atomic both sides. */
   actualLabourRuleId: string | null;
-  /** PCR-055 / null — snail's separate actual-overhead line. Credit side is non-atomic. */
+  /** PCR-055 / null / null — snail's separate actual-overhead line. Credit side is non-atomic. */
   actualOverheadRuleId: string | null;
-  /** null / PCR-077 — poultry's single combined actual-conversion line. Credit side is non-atomic. */
+  /** null / PCR-077 / null — poultry's single combined actual-conversion line. Credit side is non-atomic. */
   actualConversionRuleId: string | null;
-  /** PCR-056 / PCR-078 — abnormal processing loss. Fully atomic both sides. */
+  /** PCR-056 / PCR-078 / PCR-035 — abnormal processing loss. Fully atomic both sides. */
   abnormalLossRuleId: string;
-  /** PCR-057 / PCR-079 — joint-product completion (Dr FG / Cr WIP). Fully atomic both sides. */
+  /** PCR-057 / PCR-079 / PCR-034 — completion (Dr FG / Cr WIP). Fully atomic both sides. */
   completionRuleId: string;
-  /** PCR-058-DR / PCR-080-DR — settlement variance debit key. The rule's credit side is
-   * non-atomic for both species ("recovery/actual pool"), so only the debit key is used
-   * through PostingControlService; the credit resolves to `recoveryAccountNumber` below. */
+  /** PCR-058-DR / PCR-080-DR / PCR-036-DR — settlement variance debit key. The rule's credit
+   * side is non-atomic for every cycle ("recovery/actual pool"), so only the debit key is
+   * used through PostingControlService; the credit resolves to `recoveryAccountNumber` below. */
   settleDebitKey: string;
-  /** 219810 (S_Recovery_GL) / 219820 (P_Recovery_GL) — the clearing account PCR-053/076's
-   * standard absorption already credited, closed by settle(). */
+  /** 219810 / 219820 / 219830 — the clearing account standard absorption already
+   * credited, closed by settle(). */
   recoveryAccountNumber: string;
 }
 
-const SPECIES_PROCESSING_RULES: Record<string, SpeciesProcessingRules> = {
-  snail: {
+const PROCESSING_CYCLE_RULES: Record<ProductionOrderCycle, ProcessingCycleRules> = {
+  SNAILPRO: {
     issueRuleId: 'PCR-051',
     packagingRuleId: 'PCR-052',
     standardRuleId: 'PCR-053',
@@ -61,7 +71,7 @@ const SPECIES_PROCESSING_RULES: Record<string, SpeciesProcessingRules> = {
     settleDebitKey: 'PCR-058-DR',
     recoveryAccountNumber: '219810',
   },
-  poultry: {
+  POULTRYPRO: {
     issueRuleId: 'PCR-074',
     packagingRuleId: 'PCR-075',
     standardRuleId: 'PCR-076',
@@ -73,21 +83,36 @@ const SPECIES_PROCESSING_RULES: Record<string, SpeciesProcessingRules> = {
     settleDebitKey: 'PCR-080-DR',
     recoveryAccountNumber: '219820',
   },
+  FEED_MILL: {
+    issueRuleId: null,
+    packagingRuleId: 'PCR-032',
+    standardRuleId: 'PCR-033',
+    actualLabourRuleId: null,
+    actualOverheadRuleId: null,
+    actualConversionRuleId: null,
+    abnormalLossRuleId: 'PCR-035',
+    completionRuleId: 'PCR-034',
+    settleDebitKey: 'PCR-036-DR',
+    recoveryAccountNumber: '219830',
+  },
 };
 
 /**
- * Processing orders: market snails or birds harvested, issued to processing,
- * labour/overhead confirmed, joint outputs received into finished goods,
- * order settles at exactly zero WIP. One engine, driven by
- * `SPECIES_PROCESSING_RULES` above — SnailPro (PCR-051–058) was built and
- * live-verified first; PoultryPro (PCR-074–080) reuses every method here,
- * selecting its own rule ids from `order.sourceGroup.speciesKey`.
+ * Production orders: market snails or birds harvested and processed, or raw
+ * ingredients milled into feed — issued to WIP, conversion cost confirmed,
+ * outputs received into finished goods, order settles at exactly zero WIP.
+ * One engine, driven by `PROCESSING_CYCLE_RULES` above and `order.
+ * processingCycle` — SnailPro (PCR-051–058) was built and live-verified
+ * first; PoultryPro (PCR-074–080) and Feed Mill (PCR-032–036) reuse every
+ * method here, selecting their own rule ids from the order's own cycle.
  *
- * The input to an order is NOT a recipe component. A live population is a
- * biological asset (`LivestockGroup`), not an `Item` — the issue step posts
+ * SnailPro/PoultryPro's input is NOT a recipe component. A live population is
+ * a biological asset (`LivestockGroup`), not an `Item` — the issue step posts
  * Dr WIP / Cr the population's own BA account, valued at its IAS 41 carrying
  * value, the same way every other biological-asset transfer in this codebase
  * already posts. `recipeVersionId` governs the PACKAGING components only.
+ * Feed Mill has no biological input at all — its recipe IS the whole issue,
+ * raw ingredients milled into one finished feed product; see `createFeedOrder()`.
  * See the schema's file-level comment for the full rationale.
  */
 @Injectable()
@@ -144,6 +169,7 @@ export class ProductionOrderService {
     }
 
     const biologicalInputValueKobo = BigInt(harvest.count) * harvest.group.currentFvlctsPerUnitKobo;
+    const processingCycle = this.cycleForSpecies(harvest.group.speciesKey);
 
     const explosion = await this.recipes.explode({
       recipeVersionId: params.recipeVersionId,
@@ -161,6 +187,7 @@ export class ProductionOrderService {
           recipeVersionId: params.recipeVersionId,
           sourceGroupId: harvest.groupId,
           harvestRecordId: harvest.id,
+          processingCycle,
           plannedOutputQuantity: new Prisma.Decimal(new Decimal(params.plannedOutputQuantity).toFixed(6)),
           biologicalInputValueKobo,
           createdById: params.actor.userId,
@@ -187,6 +214,74 @@ export class ProductionOrderService {
           ipAddress: params.actor.ipAddress,
           device: params.actor.device,
           comments: `Raised processing order ${order.orderNumber} from harvest of ${harvest.group.code} — ${harvest.count} animals.`,
+        },
+        tx,
+      );
+
+      return { id: order.id };
+    }, { timeout: 15000 });
+  }
+
+  /**
+   * Start a Feed Mill order. Unlike `createFromHarvest()`, there is no
+   * biological population and no harvest to derive dimensions from — the
+   * caller supplies `branchId`/`farmId`/`warehouseId` directly, and the
+   * recipe explosion IS the whole issue (raw ingredients milled into one
+   * finished feed product), not a packaging-only BOM on top of a biological
+   * transfer. `biologicalInputValueKobo` stays 0 — Rule 7's identity still
+   * holds unchanged, since that term simply drops out.
+   */
+  async createFeedOrder(params: {
+    companyId: string;
+    branchId: string;
+    farmId: string;
+    warehouseId: string;
+    recipeVersionId: string;
+    orderNumber: string;
+    plannedOutputQuantity: Decimal.Value;
+    actor: WorkflowActor;
+  }): Promise<{ id: string }> {
+    const explosion = await this.recipes.explode({
+      recipeVersionId: params.recipeVersionId,
+      quantity: params.plannedOutputQuantity,
+      on: new Date(),
+    });
+
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.productionOrder.create({
+        data: {
+          companyId: params.companyId,
+          branchId: params.branchId,
+          farmId: params.farmId,
+          orderNumber: params.orderNumber,
+          recipeVersionId: params.recipeVersionId,
+          processingCycle: ProductionOrderCycle.FEED_MILL,
+          plannedOutputQuantity: new Prisma.Decimal(new Decimal(params.plannedOutputQuantity).toFixed(6)),
+          biologicalInputValueKobo: 0n,
+          createdById: params.actor.userId,
+          components: {
+            create: explosion.components.map((component) => ({
+              lineNumber: component.lineNumber,
+              componentItemId: component.itemId,
+              plannedQuantity: new Prisma.Decimal(component.grossQuantity),
+              plannedCostKobo: BigInt(component.extendedCostKobo),
+            })),
+          },
+        },
+      });
+
+      await this.audit.write(
+        {
+          transactionId: order.id,
+          module: 'production',
+          entityType: 'ProductionOrder',
+          entityId: order.id,
+          status: order.status,
+          action: AuditAction.CREATE,
+          userId: params.actor.userId,
+          ipAddress: params.actor.ipAddress,
+          device: params.actor.device,
+          comments: `Raised feed mill order ${order.orderNumber} for ${params.plannedOutputQuantity} planned output.`,
         },
         tx,
       );
@@ -292,14 +387,14 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
-    if (!order.sourceGroup) {
+    const rules = this.cycleRules(order.processingCycle);
+    if (rules.issueRuleId && !order.sourceGroup) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §9 — Production order',
         `${order.orderNumber} has no source population to issue.`,
         { orderNumber: order.orderNumber },
       );
     }
-    const rules = this.speciesRules(order.sourceGroup.speciesKey);
 
     const context = await this.postingContext(order.companyId, new Date());
     if (!context) {
@@ -319,12 +414,16 @@ export class ProductionOrderService {
      * Only the writes below are transactional.
      *
      * Both the biological-input rule (PCR-051/074) and the packaging rule
-     * (PCR-052/075) are fully atomic on both sides for both species, so both
-     * resolve through PostingControlService directly — no separate
+     * (PCR-052/075/032) are fully atomic on both sides for every cycle, so
+     * both resolve through PostingControlService directly — no separate
      * stageAccount() lookup needed, unlike US-897-035's own courtesy layer.
+     * Feed Mill has no biological-input rule at all (`issueRuleId: null`) —
+     * its one issue rule (PCR-032) IS the packaging rule below.
      */
     const [issueRule, packagingRule, componentItems] = await Promise.all([
-      this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.issueRuleId, on: new Date() }),
+      rules.issueRuleId
+        ? this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.issueRuleId, on: new Date() })
+        : null,
       this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.packagingRuleId, on: new Date() }),
       this.prisma.item.findMany({ where: { id: { in: order.components.map((c) => c.componentItemId) } } }),
     ]);
@@ -333,20 +432,23 @@ export class ProductionOrderService {
       : null;
     const warehouseByItem = new Map(componentItems.map((i) => [i.id, i.defaultWarehouseId ?? fallbackWarehouseId!]));
 
-    const lines = [
-      {
-        glAccountId: this.requireSide(issueRule.debit, rules.issueRuleId, 'debit').glAccountId,
-        description: `${rules.issueRuleId} — biological input issued to processing (${order.orderNumber})`,
-        debit: kobo(order.biologicalInputValueKobo),
-        dimensions,
-      },
-      {
-        glAccountId: this.requireSide(issueRule.credit, rules.issueRuleId, 'credit').glAccountId,
-        description: `${rules.issueRuleId} — biological input issued to processing (${order.orderNumber})`,
-        credit: kobo(order.biologicalInputValueKobo),
-        dimensions,
-      },
-    ];
+    const lines =
+      issueRule && rules.issueRuleId
+        ? [
+            {
+              glAccountId: this.requireSide(issueRule.debit, rules.issueRuleId, 'debit').glAccountId,
+              description: `${rules.issueRuleId} — biological input issued to processing (${order.orderNumber})`,
+              debit: kobo(order.biologicalInputValueKobo),
+              dimensions,
+            },
+            {
+              glAccountId: this.requireSide(issueRule.credit, rules.issueRuleId, 'credit').glAccountId,
+              description: `${rules.issueRuleId} — biological input issued to processing (${order.orderNumber})`,
+              credit: kobo(order.biologicalInputValueKobo),
+              dimensions,
+            },
+          ]
+        : [];
 
     return this.prisma.$transaction(async (tx) => {
       let packagingTotal = 0n;
@@ -461,7 +563,7 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
-    const rules = this.speciesRules(order.sourceGroup!.speciesKey);
+    const rules = this.cycleRules(order.processingCycle);
 
     const context = await this.postingContext(order.companyId, new Date());
     if (!context) {
@@ -474,7 +576,27 @@ export class ProductionOrderService {
 
     let postLines: Array<{ glAccountId: string; description: string; debit?: Kobo; credit?: Kobo; dimensions: ReturnType<ProductionOrderService['dimensions']> }>;
 
-    if (rules.actualConversionRuleId) {
+    if (!rules.actualConversionRuleId && !rules.actualLabourRuleId) {
+      // Feed Mill: no dedicated actual-conversion posting rule exists at all
+      // (PCR-033's basis is "driver quantity × approved standard rate" only)
+      // — post the standard absorption line and nothing else. The caller's
+      // actual cost figures are still stored on the order row below, unposted,
+      // for settle()'s variance calculation to read later.
+      postLines = [
+        {
+          glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
+          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
+          debit: kobo(params.standardConversionCostKobo),
+          dimensions,
+        },
+        {
+          glAccountId: this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId,
+          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
+          credit: kobo(params.standardConversionCostKobo),
+          dimensions,
+        },
+      ];
+    } else if (rules.actualConversionRuleId) {
       // Poultry: one combined actual-conversion line (PCR-077). Its credit
       // key ("Payroll/AP/FA source") is non-atomic — resolve() validates both
       // sides eagerly, so calling it at all would throw before the (perfectly
@@ -631,7 +753,7 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
-    const rules = this.speciesRules(order.sourceGroup!.speciesKey);
+    const rules = this.cycleRules(order.processingCycle);
 
     const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
     if (order.abnormalLossCostKobo + params.costKobo > wipDebits) {
@@ -734,7 +856,7 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
-    const rules = this.speciesRules(order.sourceGroup!.speciesKey);
+    const rules = this.cycleRules(order.processingCycle);
 
     const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
     const totalToAllocate = wipDebits - order.abnormalLossCostKobo;
@@ -872,7 +994,7 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
-    const rules = this.speciesRules(order.sourceGroup!.speciesKey);
+    const rules = this.cycleRules(order.processingCycle);
 
     const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
     if (wipDebits !== order.finishedGoodsCostKobo + order.abnormalLossCostKobo) {
@@ -973,18 +1095,28 @@ export class ProductionOrderService {
   // Helpers
   // -------------------------------------------------------------------------
 
-  /** Which PCR rule ids this order's species uses at each processing step. */
-  private speciesRules(speciesKey: string): SpeciesProcessingRules {
-    const rules = SPECIES_PROCESSING_RULES[speciesKey];
+  /** Which PCR rule ids this order's processing cycle uses at each step. */
+  private cycleRules(cycle: ProductionOrderCycle): ProcessingCycleRules {
+    const rules = PROCESSING_CYCLE_RULES[cycle];
     if (!rules) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §9 — Production order',
-        `No processing posting rules are defined for species "${speciesKey}" — only snail and ` +
-          `poultry processing are built.`,
-        { speciesKey },
+        `No processing posting rules are defined for cycle "${cycle}".`,
+        { cycle },
       );
     }
     return rules;
+  }
+
+  /** SnailPro/PoultryPro orders derive their cycle from the source population's species. */
+  private cycleForSpecies(speciesKey: string): ProductionOrderCycle {
+    if (speciesKey === 'poultry') return ProductionOrderCycle.POULTRYPRO;
+    if (speciesKey === 'snail') return ProductionOrderCycle.SNAILPRO;
+    throw new AccountingRuleViolation(
+      'Consolidated Reference §9 — Production order',
+      `No processing cycle is defined for species "${speciesKey}" — only snail and poultry processing are built.`,
+      { speciesKey },
+    );
   }
 
   /**

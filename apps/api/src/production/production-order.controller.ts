@@ -7,10 +7,10 @@ import type { WorkflowActor } from '../workflow/workflow.types';
 import type { AllocationOutput, CostAllocationMethod } from './cost-allocation.service';
 
 /**
- * Production orders over HTTP — SnailPro and PoultryPro processing
- * (US-897-016 through 020). API-only this pass, following the same build
- * order P2P and O2C already used: the domain engine first, a screen in a
- * later pass.
+ * Production orders over HTTP — SnailPro, PoultryPro and Feed Mill
+ * processing (US-897-016 through 020). API-only this pass, following the
+ * same build order P2P and O2C already used: the domain engine first, a
+ * screen in a later pass.
  */
 @Controller('production-orders')
 export class ProductionOrderController {
@@ -53,6 +53,24 @@ export class ProductionOrderController {
     },
   ) {
     return this.orders.createFromHarvest({ ...body, actor });
+  }
+
+  @Roles('PRODUCTION_LEAD', 'FARM_MANAGER', 'FARM_ACCOUNTANT')
+  @Post('feed')
+  async createFeedOrder(
+    @CurrentUser() actor: WorkflowActor,
+    @CurrentCompany() companyId: string,
+    @Body()
+    body: {
+      branchId: string;
+      farmId: string;
+      warehouseId: string;
+      recipeVersionId: string;
+      orderNumber: string;
+      plannedOutputQuantity: string;
+    },
+  ) {
+    return this.orders.createFeedOrder({ ...body, companyId, actor });
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_MANAGER', 'FARM_ACCOUNTANT')

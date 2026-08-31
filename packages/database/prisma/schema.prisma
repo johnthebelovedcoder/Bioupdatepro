@@ -2453,6 +2453,15 @@ enum ProductionOrderStatus {
   CANCELLED
 }
 
+/// Which posting cycle this order runs — an explicit discriminator rather
+/// than inferring from `sourceGroup.speciesKey`, which is null for
+/// FEED_MILL orders (no biological population involved).
+enum ProductionOrderCycle {
+  SNAILPRO
+  POULTRYPRO
+  FEED_MILL
+}
+
 enum ProductionOrderOutputType {
   MAIN
   BY_PRODUCT
@@ -2486,6 +2495,11 @@ model ProductionOrder {
   harvestRecordId String? @unique @map("harvest_record_id") @db.Uuid
 
   status ProductionOrderStatus @default(DRAFT)
+
+  /// Which posting cycle this order runs — SnailPro/PoultryPro processing or
+  /// Feed Mill manufacturing. Set once at creation; `ProductionOrderService`
+  /// resolves every PCR rule id from this rather than from `sourceGroup`.
+  processingCycle ProductionOrderCycle @default(SNAILPRO) @map("processing_cycle")
 
   /// QUANTITY of finished output planned, in the primary output item's UoM —
   /// what `RecipeService.explode()` scales the packaging BOM against.
