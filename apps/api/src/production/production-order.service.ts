@@ -743,7 +743,7 @@ export class ProductionOrderService {
   }) {
     const order = await this.prisma.productionOrder.findUniqueOrThrow({
       where: { id: params.productionOrderId },
-      include: { sourceGroup: true },
+      include: { sourceGroup: true, recipeVersion: true },
     });
 
     if (order.status !== ProductionOrderStatus.IN_PRODUCTION) {
@@ -756,13 +756,76 @@ export class ProductionOrderService {
     const rules = this.cycleRules(order.processingCycle);
 
     const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
-    if (order.abnormalLossCostKobo + params.costKobo > wipDebits) {
+
+    /*
+     * Classification is decided here, against the recipe's own approved
+     * tolerance, not left to whoever is recording the loss — the same
+     * discipline `BiologicalAssetService.postMortality()` already applies to
+     * mortality. PCR-056/078/035's own "blocking" condition reads "Normal
+     * threshold exceeded" — the rule is only meant to fire once CUMULATIVE
+     * loss claimed against this order exceeds what the recipe's expected
+     * yield already bakes in as ordinary wastage. A recipe with no
+     * `expectedYieldPercent` set has no governed tolerance yet, so the
+     * allowance defaults to zero rather than assuming one — the same "don't
+     * invent a threshold" stance this session has taken everywhere else (age
+     * thresholds, etc.), which also preserves existing behaviour for every
+     * recipe that predates this field.
+     *
+     * A claim can straddle the boundary — most of it within tolerance, a tail
+     * beyond it — so the SPLIT, not the whole claim, is what gets posted:
+     * only the portion pushing cumulative claimed loss past the allowance is
+     * written off through PCR-056/078/035. The rest stays capitalised in WIP,
+     * which is correct — it is exactly what `recordOutputs()`'s residual-plug
+     * allocation is for: the same total WIP kobo spread across whatever
+     * quantity of good output actually comes back, naturally raising the
+     * per-unit cost rather than needing a separate write-off.
+     */
+    const normalLossAllowanceKobo = order.recipeVersion.expectedYieldPercent
+      ? BigInt(
+          new Decimal(wipDebits.toString())
+            .mul(new Decimal(100).minus(order.recipeVersion.expectedYieldPercent.toString()))
+            .div(100)
+            .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+            .toFixed(0),
+        )
+      : 0n;
+
+    const priorEvents = await this.prisma.productionOrderLossEvent.findMany({
+      where: { productionOrderId: order.id },
+      select: { costKobo: true },
+    });
+    const totalClaimedBefore = priorEvents.reduce((s, e) => s + e.costKobo, 0n);
+    const totalClaimedAfter = totalClaimedBefore + params.costKobo;
+    const previouslyAbnormal = totalClaimedBefore > normalLossAllowanceKobo ? totalClaimedBefore - normalLossAllowanceKobo : 0n;
+    const cumulativeAbnormal = totalClaimedAfter > normalLossAllowanceKobo ? totalClaimedAfter - normalLossAllowanceKobo : 0n;
+    const abnormalPortionKobo = cumulativeAbnormal - previouslyAbnormal;
+
+    if (order.abnormalLossCostKobo + abnormalPortionKobo > wipDebits) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §9 — Processing loss',
         `${order.orderNumber}'s abnormal loss would exceed the WIP it was raised against — ` +
-          `${wipDebits} kobo debited, ${order.abnormalLossCostKobo + params.costKobo} kobo of loss claimed.`,
+          `${wipDebits} kobo debited, ${order.abnormalLossCostKobo + abnormalPortionKobo} kobo of abnormal loss claimed.`,
         { orderNumber: order.orderNumber },
       );
+    }
+
+    if (abnormalPortionKobo === 0n) {
+      await this.prisma.productionOrderLossEvent.create({
+        data: {
+          productionOrderId: order.id,
+          quantity: new Prisma.Decimal(new Decimal(params.quantity).toFixed(6)),
+          classification: 'NORMAL',
+          costKobo: params.costKobo,
+          reason: params.reason,
+          journalEntryId: null,
+        },
+      });
+      return {
+        posted: false,
+        classification: 'NORMAL' as const,
+        reason: `Within ${order.orderNumber}'s recipe-tolerated loss (${normalLossAllowanceKobo} kobo from ` +
+          `${order.recipeVersion.expectedYieldPercent ?? '0'}% expected yield) — already absorbed in WIP, not separately expensed.`,
+      };
     }
 
     const context = await this.postingContext(order.companyId, new Date());
@@ -788,13 +851,13 @@ export class ProductionOrderService {
             {
               glAccountId: this.requireSide(rule.debit, rules.abnormalLossRuleId, 'debit').glAccountId,
               description: `${rules.abnormalLossRuleId} — abnormal processing loss (${order.orderNumber})`,
-              debit: kobo(params.costKobo),
+              debit: kobo(abnormalPortionKobo),
               dimensions,
             },
             {
               glAccountId: this.requireSide(rule.credit, rules.abnormalLossRuleId, 'credit').glAccountId,
               description: `${rules.abnormalLossRuleId} — abnormal processing loss (${order.orderNumber})`,
-              credit: kobo(params.costKobo),
+              credit: kobo(abnormalPortionKobo),
               dimensions,
             },
           ],
@@ -807,18 +870,21 @@ export class ProductionOrderService {
           productionOrderId: order.id,
           quantity: new Prisma.Decimal(new Decimal(params.quantity).toFixed(6)),
           classification: 'ABNORMAL',
-          costKobo: params.costKobo,
-          reason: params.reason,
+          costKobo: abnormalPortionKobo,
+          reason:
+            abnormalPortionKobo < params.costKobo
+              ? `${params.reason} (${params.costKobo} kobo claimed; ${normalLossAllowanceKobo - previouslyAbnormal} kobo of it within recipe tolerance)`
+              : params.reason,
           journalEntryId: result.journalEntryId,
         },
       });
 
       await tx.productionOrder.update({
         where: { id: order.id },
-        data: { abnormalLossCostKobo: order.abnormalLossCostKobo + params.costKobo },
+        data: { abnormalLossCostKobo: order.abnormalLossCostKobo + abnormalPortionKobo },
       });
 
-      return result;
+      return { ...result, posted: true, classification: 'ABNORMAL' as const, abnormalPortionKobo: abnormalPortionKobo.toString() };
     }, { timeout: 15000 });
   }
 
