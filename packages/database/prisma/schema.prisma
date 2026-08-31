@@ -196,6 +196,7 @@ model User {
   marketPricesCreated       MarketPriceList[]
   payrollPaymentsCreated    PayrollPayment[]           @relation("PayrollPaymentCreator")
   roleSectionAccessChanges  RoleSectionAccess[]
+  productionOrdersCreated   ProductionOrder[]          @relation("ProductionOrderCreator")
 
   @@map("users")
 }
@@ -296,6 +297,7 @@ model Company {
   marketPriceLists              MarketPriceList[]
   payrollPayments                PayrollPayment[]
   roleSectionAccess               RoleSectionAccess[]
+  productionOrders               ProductionOrder[]
 
   @@map("companies")
 }
@@ -341,6 +343,7 @@ model Branch {
   supplierPayments     SupplierPayment[]
   payrollPayments      PayrollPayment[]
   livestockGroups      LivestockGroup[]
+  productionOrders     ProductionOrder[]
 
   @@unique([companyId, code])
   @@map("branches")
@@ -646,6 +649,7 @@ model Farm {
   purchaseRequisitions PurchaseRequisition[]
   purchaseOrders       PurchaseOrder[]
   supplierInvoices     SupplierInvoice[]
+  productionOrders     ProductionOrder[]
 
   @@unique([companyId, code])
   @@map("farms")
@@ -787,6 +791,11 @@ model JournalEntry {
   livestockDisposals        LivestockGroupDisposal[]   @relation("LivestockDisposalJournal")
   fixedAssetCapitalisations FixedAsset[]               @relation("FixedAssetCapitalisationJournal")
   depreciationRuns          DepreciationRun[]
+  productionOrderLossEvents ProductionOrderLossEvent[]
+  productionOrdersIssued      ProductionOrder[] @relation("ProductionOrderIssue")
+  productionOrdersConverted   ProductionOrder[] @relation("ProductionOrderConversion")
+  productionOrdersCompleted   ProductionOrder[] @relation("ProductionOrderCompletion")
+  productionOrdersSettled     ProductionOrder[] @relation("ProductionOrderSettlement")
 
   @@unique([companyId, journalNumber])
   @@index([companyId, financialPeriodId, status])
@@ -2045,6 +2054,10 @@ model Item {
   /// effective-dated PLANNED cost — nothing currently reads this one for
   /// consumption postings, which stay on standard cost until a general
   /// inventory-issue module (US-897-008) exists to switch them over.
+  /// As of US-897-016's processing slice, this IS read for one consumption
+  /// path — a production order's packaging issue (PCR-052) — via the shared
+  /// `StockMovementService`. Every other consumption posting still stays on
+  /// standard cost pending the general inventory-issue module (US-897-008).
   weightedAverageCostKobo  BigInt?   @map("weighted_average_cost_kobo")
   weightedAverageCostSetAt DateTime? @map("weighted_average_cost_set_at")
 
@@ -2079,6 +2092,8 @@ model Item {
   goodsReceiptLines      GoodsReceiptNoteLine[]
   supplierInvoiceLines   SupplierInvoiceLine[]
   feedIssues             FeedIssue[]               @relation("FeedIssueItem")
+  productionOrderComponents ProductionOrderComponent[]
+  productionOrderOutputs    ProductionOrderOutput[]
 
   @@unique([companyId, code])
   @@index([companyId, itemType, active])
@@ -2363,6 +2378,7 @@ model ProductRecipeVersion {
   recipe     ProductRecipe            @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   approvedBy User?                    @relation("RecipeApprover", fields: [approvedById], references: [id])
   components ProductRecipeComponent[]
+  productionOrders ProductionOrder[]
 
   @@unique([recipeId, version])
   @@index([recipeId, status])
@@ -2397,6 +2413,211 @@ model ProductRecipeComponent {
   @@unique([recipeVersionId, lineNumber])
   @@index([componentItemId])
   @@map("product_recipe_components")
+}
+
+// ---------------------------------------------------------------------------
+// Production Orders — Processing (Consolidated Reference §9/§10 — Phase 6,
+// US-897-016 through 020)
+//
+// The vertical slice is SnailPro processing (PCR-051–058): market snails
+// harvested, issued to processing, labour/overhead confirmed, joint outputs
+// (meat/slime/shell) received into finished goods with cost split by the
+// client's own approved NRV method, order settles with WIP at exactly zero.
+//
+// What an order actually consumes on its input side is NOT a recipe
+// component — "market snails" are a biological asset (`LivestockGroup`), not
+// an `Item`, so PCR-051 (issue to processing) posts Dr WIP / Cr the
+// population's own stage account, valued at its IAS 41 carrying value,
+// exactly like every other biological-asset transfer this codebase already
+// posts. `recipeVersionId` governs the PACKAGING components only — what an
+// order draws from `Item` inventory via `StockMovement`, same as any other
+// issue. This is a real, disclosed modelling compromise: `ProductRecipe`
+// was built for one output per recipe, and a joint-output process does not
+// fit that shape, so the packaging BOM still uses it (for costing/wastage)
+// while the actual joint outputs are tracked here, independently, through
+// `ProductionOrderOutput` and `CostAllocationService`.
+// ---------------------------------------------------------------------------
+
+enum ProductionOrderStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  RELEASED
+  IN_PRODUCTION
+  COMPLETED
+  CANCELLED
+}
+
+enum ProductionOrderOutputType {
+  MAIN
+  BY_PRODUCT
+}
+
+enum ProcessingLossClassification {
+  NORMAL
+  ABNORMAL
+}
+
+model ProductionOrder {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  branchId  String @map("branch_id") @db.Uuid
+  farmId    String @map("farm_id") @db.Uuid
+
+  /// The farm's own reference, same convention as PurchaseOrder/GRN numbers.
+  orderNumber String @map("order_number")
+
+  /// Governs the PACKAGING components only — see the file-level comment above.
+  recipeVersionId String @map("recipe_version_id") @db.Uuid
+
+  /// Where the market-ready population being processed comes from. Nullable
+  /// only so an order can, in principle, be drafted before a harvest is
+  /// linked — every order this pass actually creates comes from one.
+  sourceGroupId String? @map("source_group_id") @db.Uuid
+
+  /// The harvest this order processes. One order per harvest — a second
+  /// processing run against the same harvest would double-count the WIP
+  /// debit PCR-051 already posted.
+  harvestRecordId String? @unique @map("harvest_record_id") @db.Uuid
+
+  status ProductionOrderStatus @default(DRAFT)
+
+  /// QUANTITY of finished output planned, in the primary output item's UoM —
+  /// what `RecipeService.explode()` scales the packaging BOM against.
+  plannedOutputQuantity Decimal @map("planned_output_quantity") @db.Decimal(18, 6)
+
+  /// MONEY. What PCR-051 debited WIP with — the market snails' own carrying
+  /// value at issue, captured here because `LivestockGroup.currentFvlctsPerUnitKobo`
+  /// keeps moving and Rule 7's identity needs this order's own frozen figure.
+  marketSnailValueKobo BigInt @default(0) @map("market_snail_value_kobo")
+
+  /// MONEY. Packaging issued via the recipe explosion (PCR-052).
+  packagingCostKobo BigInt @default(0) @map("packaging_cost_kobo")
+
+  /// MONEY. PCR-053 — driver quantity × approved standard rate, absorbed
+  /// into WIP against the recovery clearing account.
+  standardConversionCostKobo BigInt @default(0) @map("standard_conversion_cost_kobo")
+
+  /// MONEY. PCR-054/055 — what labour and overhead actually cost, expensed
+  /// directly rather than run through the recovery account.
+  actualLabourCostKobo    BigInt @default(0) @map("actual_labour_cost_kobo")
+  actualOverheadCostKobo  BigInt @default(0) @map("actual_overhead_cost_kobo")
+
+  /// MONEY. PCR-057 — the sum of every ProductionOrderOutput's allocated
+  /// cost. Kept denormalised so Rule 7 can be asserted from the order row
+  /// alone rather than re-summing its children every time.
+  finishedGoodsCostKobo BigInt @default(0) @map("finished_goods_cost_kobo")
+
+  /// MONEY. PCR-056 — abnormal processing loss written off WIP.
+  abnormalLossCostKobo BigInt @default(0) @map("abnormal_loss_cost_kobo")
+
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+
+  /// Four posting moments, four journals — an order is not one transaction,
+  /// it is a sequence of them (PCR-051, PCR-052/053/054/055, PCR-056/057,
+  /// PCR-058), and Rule 7 is checked from these rather than by re-summing
+  /// every child StockMovement each time.
+  issueJournalEntryId      String? @map("issue_journal_entry_id") @db.Uuid
+  conversionJournalEntryId String? @map("conversion_journal_entry_id") @db.Uuid
+  completionJournalEntryId String? @map("completion_journal_entry_id") @db.Uuid
+  settlementJournalEntryId String? @map("settlement_journal_entry_id") @db.Uuid
+
+  releasedAt  DateTime? @map("released_at")
+  issuedAt    DateTime? @map("issued_at")
+  completedAt DateTime? @map("completed_at")
+  settledAt   DateTime? @map("settled_at")
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company       Company              @relation(fields: [companyId], references: [id])
+  branch        Branch               @relation(fields: [branchId], references: [id])
+  farm          Farm                 @relation(fields: [farmId], references: [id])
+  recipeVersion ProductRecipeVersion @relation(fields: [recipeVersionId], references: [id])
+  sourceGroup   LivestockGroup?      @relation(fields: [sourceGroupId], references: [id])
+  harvestRecord HarvestRecord?       @relation(fields: [harvestRecordId], references: [id])
+  createdBy     User                 @relation("ProductionOrderCreator", fields: [createdById], references: [id])
+
+  issueJournalEntry      JournalEntry? @relation("ProductionOrderIssue", fields: [issueJournalEntryId], references: [id])
+  conversionJournalEntry JournalEntry? @relation("ProductionOrderConversion", fields: [conversionJournalEntryId], references: [id])
+  completionJournalEntry JournalEntry? @relation("ProductionOrderCompletion", fields: [completionJournalEntryId], references: [id])
+  settlementJournalEntry JournalEntry? @relation("ProductionOrderSettlement", fields: [settlementJournalEntryId], references: [id])
+
+  components ProductionOrderComponent[]
+  outputs    ProductionOrderOutput[]
+  lossEvents ProductionOrderLossEvent[]
+
+  @@unique([companyId, orderNumber])
+  @@index([companyId, status])
+  @@map("production_orders")
+}
+
+/// One packaging component, exploded from the recipe at release. Not the
+/// market-snail input — see the model-group comment above.
+model ProductionOrderComponent {
+  id                String @id @default(uuid()) @db.Uuid
+  productionOrderId String @map("production_order_id") @db.Uuid
+  lineNumber        Int    @map("line_number")
+  componentItemId   String @map("component_item_id") @db.Uuid
+
+  plannedQuantity  Decimal @map("planned_quantity") @db.Decimal(18, 6)
+  plannedCostKobo  BigInt  @map("planned_cost_kobo")
+
+  /// Set once issued (PCR-052). Null beforehand — a component planned but
+  /// not yet issued has no actual to report.
+  issuedQuantity Decimal? @map("issued_quantity") @db.Decimal(18, 6)
+  issuedCostKobo BigInt?  @map("issued_cost_kobo")
+  stockMovementId String? @map("stock_movement_id") @db.Uuid
+
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  componentItem   Item            @relation(fields: [componentItemId], references: [id])
+  stockMovement   StockMovement?  @relation(fields: [stockMovementId], references: [id])
+
+  @@unique([productionOrderId, lineNumber])
+  @@map("production_order_components")
+}
+
+/// One joint or by-product output, received at completion (PCR-057).
+model ProductionOrderOutput {
+  id                String                    @id @default(uuid()) @db.Uuid
+  productionOrderId String                    @map("production_order_id") @db.Uuid
+  itemId            String                    @map("item_id") @db.Uuid
+  outputType        ProductionOrderOutputType @map("output_type")
+
+  quantity Decimal @db.Decimal(18, 6)
+
+  /// MONEY. The NRV (or other method's) weight this output was allocated
+  /// against, kept for audit — "why did meat get 70% and shell 5%".
+  allocationWeightKobo BigInt @map("allocation_weight_kobo")
+  allocatedCostKobo    BigInt @map("allocated_cost_kobo")
+
+  stockMovementId String? @map("stock_movement_id") @db.Uuid
+
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  item            Item            @relation(fields: [itemId], references: [id])
+  stockMovement   StockMovement?  @relation(fields: [stockMovementId], references: [id])
+
+  @@index([productionOrderId])
+  @@map("production_order_outputs")
+}
+
+/// Processing-yield loss (PCR-056) — the yield half of US-897-018, distinct
+/// from the mortality half `MortalityRecord` already covers.
+model ProductionOrderLossEvent {
+  id                String                        @id @default(uuid()) @db.Uuid
+  productionOrderId String                        @map("production_order_id") @db.Uuid
+  quantity          Decimal                       @db.Decimal(18, 6)
+  classification    ProcessingLossClassification
+  costKobo          BigInt                        @map("cost_kobo")
+  reason            String?
+  journalEntryId    String?                       @map("journal_entry_id") @db.Uuid
+  createdAt         DateTime                      @default(now()) @map("created_at")
+
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  journalEntry    JournalEntry?   @relation(fields: [journalEntryId], references: [id])
+
+  @@map("production_order_loss_events")
 }
 
 // ---------------------------------------------------------------------------
@@ -3313,6 +3534,9 @@ model StockMovement {
   item         Item          @relation(fields: [itemId], references: [id])
   warehouse    Warehouse     @relation(fields: [warehouseId], references: [id])
   journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  productionOrderComponents ProductionOrderComponent[]
+  productionOrderOutputs    ProductionOrderOutput[]
 
   @@index([companyId, itemId, warehouseId])
   @@index([sourceDocumentType, sourceDocumentId])
@@ -4975,6 +5199,7 @@ model LivestockGroup {
   stageChanges StageChange[]
   valuations   BiologicalAssetValuation[]
   disposals    LivestockGroupDisposal[]
+  productionOrders ProductionOrder[]
 
   @@unique([companyId, code])
   @@index([companyId, speciesKey, status])
@@ -5298,6 +5523,7 @@ model HarvestRecord {
   movedToGroup LivestockGroup? @relation("HarvestMovedTo", fields: [movedToGroupId], references: [id])
   recordedBy   User            @relation("HarvestRecorder", fields: [recordedById], references: [id])
   journalEntry JournalEntry?   @relation("HarvestJournal", fields: [journalEntryId], references: [id])
+  productionOrder ProductionOrder?
 
   @@index([companyId, harvestedOn])
   @@index([groupId, harvestedOn])

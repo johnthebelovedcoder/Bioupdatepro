@@ -5,6 +5,7 @@ import { IdempotencyService } from './idempotency/idempotency.service';
 import { PeriodService } from './periods/period.service';
 import { DimensionValidatorService } from './enterprise-dimensions/dimension-validator.service';
 import { PostingService } from './posting/posting.service';
+import { StockMovementService } from './inventory/stock-movement.service';
 import { TrialBalanceService } from './reporting/trial-balance.service';
 import { ProfitLossService } from './reporting/profit-loss.service';
 import { BalanceSheetService } from './reporting/balance-sheet.service';
@@ -27,6 +28,7 @@ import { CashFlowService } from './reporting/cash-flow.service';
     PeriodService,
     DimensionValidatorService,
     PostingService,
+    StockMovementService,
     TrialBalanceService,
     ProfitLossService,
     BalanceSheetService,
@@ -39,6 +41,7 @@ import { CashFlowService } from './reporting/cash-flow.service';
     PeriodService,
     DimensionValidatorService,
     PostingService,
+    StockMovementService,
     TrialBalanceService,
     ProfitLossService,
     BalanceSheetService,
