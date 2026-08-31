@@ -5379,6 +5379,7 @@ model MortalityRecord {
   dailyRecord  DailyRecord      @relation(fields: [dailyRecordId], references: [id], onDelete: Cascade)
   photos       MortalityPhoto[]
   journalEntry JournalEntry?    @relation("MortalityJournal", fields: [journalEntryId], references: [id])
+  stageChange  StageChange?
 
   @@index([dailyRecordId])
   @@map("mortality_records")
@@ -5575,21 +5576,34 @@ model StageChange {
   fromPenHouseId String @map("from_pen_house_id") @db.Uuid
   toPenHouseId   String @map("to_pen_house_id") @db.Uuid
 
-  /// The count at the moment of the move. Evidence that it did not change.
+  /// The count at the START of the move — what postStageTransfer() values
+  /// and moves into the destination stage account. Was framed as "evidence
+  /// it did not change" before mortalityCount existed; a move can now cost
+  /// lives in transit, so this is the pre-loss figure, not a claim nothing
+  /// changed.
   population Int
+
+  /// COUNT lost during the move itself — 0 in the common case (nothing
+  /// died in transit). When set, a real MortalityRecord is created and
+  /// posted through the same governed BiologicalAssetService.postMortality()
+  /// path daily-round mortality already uses (threshold classification,
+  /// FVLCTS valuation, a real journal) — not a separate unposted number.
+  mortalityCount Int @default(0) @map("mortality_count")
 
   notes String?
 
-  recordedById   String   @map("recorded_by_id") @db.Uuid
-  journalEntryId String?  @map("journal_entry_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
+  recordedById      String   @map("recorded_by_id") @db.Uuid
+  journalEntryId    String?  @map("journal_entry_id") @db.Uuid
+  mortalityRecordId String?  @unique @map("mortality_record_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
 
-  company      Company        @relation(fields: [companyId], references: [id])
-  group        LivestockGroup @relation(fields: [groupId], references: [id])
-  fromPenHouse PenHouse       @relation("StageChangeFrom", fields: [fromPenHouseId], references: [id])
-  toPenHouse   PenHouse       @relation("StageChangeTo", fields: [toPenHouseId], references: [id])
-  recordedBy   User           @relation("StageChangeRecorder", fields: [recordedById], references: [id])
-  journalEntry JournalEntry?  @relation("StageChangeJournal", fields: [journalEntryId], references: [id])
+  company         Company          @relation(fields: [companyId], references: [id])
+  group           LivestockGroup   @relation(fields: [groupId], references: [id])
+  fromPenHouse    PenHouse         @relation("StageChangeFrom", fields: [fromPenHouseId], references: [id])
+  toPenHouse      PenHouse         @relation("StageChangeTo", fields: [toPenHouseId], references: [id])
+  recordedBy      User             @relation("StageChangeRecorder", fields: [recordedById], references: [id])
+  journalEntry    JournalEntry?    @relation("StageChangeJournal", fields: [journalEntryId], references: [id])
+  mortalityRecord MortalityRecord? @relation(fields: [mortalityRecordId], references: [id])
 
   @@index([companyId, changedOn])
   @@index([groupId, changedOn])

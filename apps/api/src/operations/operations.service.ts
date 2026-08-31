@@ -653,6 +653,8 @@ export class OperationsService {
       fromHouse: string;
       toHouse: string;
       population?: number;
+      /** COUNT lost during the move itself — omit or 0 for the common case. */
+      mortalityDuringTransfer?: number;
       notes?: string | null;
     };
   }) {
@@ -661,14 +663,24 @@ export class OperationsService {
     if (payload.fromStage === payload.toStage) {
       throw new BadRequestException('The population is already at that stage.');
     }
+    const mortalityCount = payload.mortalityDuringTransfer ?? 0;
+    if (mortalityCount < 0) {
+      throw new BadRequestException('Mortality during transfer cannot be negative.');
+    }
 
     const result = await this.prisma.$transaction(async (tx) => {
       const scope = 'operations.stage-change';
       const reserved = await this.idempotency.reserve(scope, idempotencyKey, payload, tx);
-      if (reserved.replayed) return { id: reserved.resultRef!, replayed: true };
+      if (reserved.replayed) return { id: reserved.resultRef!, replayed: true, mortalityRecordId: null as string | null };
 
       const group = await this.resolveGroup(tx, companyId, payload.groupCode);
       const toPen = await this.resolvePenHouse(tx, companyId, payload.toHouse);
+
+      if (mortalityCount > group.population) {
+        throw new BadRequestException(
+          `${group.code} only has ${group.population} on hand — cannot claim ${mortalityCount} died in transit.`,
+        );
+      }
 
       await this.biologicalAssets.assertStageAgeEligible({
         companyId,
@@ -679,6 +691,35 @@ export class OperationsService {
         asOfDate: asDate(payload.date),
         groupCode: group.code,
       });
+
+      /*
+       * Mortality in transit is real mortality, not a separate unposted
+       * number — it goes through the same governed DailyRecord/
+       * MortalityRecord/postMortality() path daily-round deaths already use,
+       * so it gets the same threshold classification and FVLCTS-valued
+       * journal. Reuse the day's DailyRecord if one already exists
+       * (@@unique([groupId, recordedOn]) forbids a second one); create a
+       * bare one otherwise, just to hang the mortality off of.
+       */
+      let mortalityRecordId: string | null = null;
+      if (mortalityCount > 0) {
+        const changedOn = asDate(payload.date);
+        const dailyRecord =
+          (await tx.dailyRecord.findUnique({ where: { groupId_recordedOn: { groupId: group.id, recordedOn: changedOn } } })) ??
+          (await tx.dailyRecord.create({
+            data: { companyId, groupId: group.id, recordedOn: changedOn, recordedById: actor.userId },
+          }));
+
+        const mortality = await tx.mortalityRecord.create({
+          data: {
+            dailyRecordId: dailyRecord.id,
+            quantity: mortalityCount,
+            causes: ['Stage transfer'],
+            notes: `Died moving ${group.code} from ${payload.fromStage} to ${payload.toStage}${payload.notes ? ` — ${payload.notes}` : ''}`,
+          },
+        });
+        mortalityRecordId = mortality.id;
+      }
 
       const record = await tx.stageChange.create({
         data: {
@@ -691,16 +732,25 @@ export class OperationsService {
           toPenHouseId: toPen.id,
           // Recorded from the server's own figure, not the client's. The client
           // sends what it believed; what is true is what the register says.
+          // The count at the START of the move — postStageTransfer() values
+          // and moves this figure; mortalityCount is what the move cost.
           population: group.population,
+          mortalityCount,
+          mortalityRecordId,
           notes: payload.notes ?? null,
           recordedById: actor.userId,
         },
       });
 
-      // The stage and the house move. The COUNT deliberately does not.
+      // The stage and the house move. The count only changes if something
+      // died in transit.
       await tx.livestockGroup.update({
         where: { id: group.id },
-        data: { stage: payload.toStage, penHouseId: toPen.id },
+        data: {
+          stage: payload.toStage,
+          penHouseId: toPen.id,
+          ...(mortalityCount > 0 ? { population: { decrement: mortalityCount } } : {}),
+        },
       });
 
       await this.idempotency.commit(scope, idempotencyKey, payload, record.id, tx);
@@ -720,11 +770,17 @@ export class OperationsService {
         tx,
       );
 
-      return { id: record.id, replayed: false };
-    });
+      return { id: record.id, replayed: false, mortalityRecordId };
+      // Mortality-in-transit adds a DailyRecord lookup/create plus a
+      // MortalityRecord write to what used to be a single-row transaction —
+      // enough extra round trips under Neon latency to blow the default 5s
+      // interactive-transaction budget, same fix applied everywhere else
+      // this session.
+    }, { timeout: 15000 });
 
     // Dr destination stage / Cr source stage, after commit — a house move the
     // worker made is true whether or not the ledger can currently take it.
+    // Same after-commit convention for the mortality it cost, if any.
     if (!result.replayed) {
       const outcome = await this.biologicalAssets.postStageTransfer({
         stageChangeId: result.id,
@@ -732,6 +788,16 @@ export class OperationsService {
       });
       if (!outcome.posted && outcome.reason) {
         this.logger.warn(`Stage change ${result.id}: ${outcome.reason}`);
+      }
+
+      if (result.mortalityRecordId) {
+        const mortalityOutcome = await this.biologicalAssets.postMortality({
+          mortalityRecordId: result.mortalityRecordId,
+          actor,
+        });
+        if (!mortalityOutcome.posted && mortalityOutcome.reason) {
+          this.logger.warn(`Stage change ${result.id} mortality: ${mortalityOutcome.reason}`);
+        }
       }
     }
 
