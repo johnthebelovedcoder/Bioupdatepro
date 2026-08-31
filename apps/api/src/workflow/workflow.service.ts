@@ -438,7 +438,7 @@ export class WorkflowService {
         currentLevel: null,
         journalEntryId,
       };
-    });
+    }, { timeout: 15000 });
   }
 
   // -------------------------------------------------------------------------
