@@ -5,6 +5,7 @@ import { ProfitLossService } from './profit-loss.service';
 import { BalanceSheetService } from './balance-sheet.service';
 import { CashFlowService } from './cash-flow.service';
 import { KpiService } from './kpi.service';
+import { ControlAccountReconciliationService } from './control-account-reconciliation.service';
 import { CustomerReceiptService } from '../sales/customer-receipt.service';
 import { SupplierPaymentService } from '../procurement/supplier-payment.service';
 import { currentFinancialYearId, currentFinancialPeriodId } from './current-financial-year';
@@ -36,6 +37,7 @@ export class ReportingController {
     private readonly kpis: KpiService,
     private readonly customerReceipts: CustomerReceiptService,
     private readonly supplierPayments: SupplierPaymentService,
+    private readonly controlReconciliation: ControlAccountReconciliationService,
   ) {}
 
   /**
@@ -213,6 +215,18 @@ export class ReportingController {
   @Get('ap-ageing')
   async apAgeing(@CurrentCompany() companyId: string) {
     return this.supplierPayments.ageing({ companyId, asAt: new Date() });
+  }
+
+  /**
+   * US-897-029's remaining criterion: does every CONTROL account's GL
+   * balance actually equal the subledger detail it's supposed to be the
+   * only thing ever posted to — AR, AP, every inventory GL account, and WIP
+   * by processing cycle.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('control-reconciliation')
+  async controlReconciliationReport(@CurrentCompany() companyId: string) {
+    return this.controlReconciliation.reconcile(companyId);
   }
 
   /**

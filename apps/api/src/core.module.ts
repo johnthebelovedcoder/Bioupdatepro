@@ -10,6 +10,7 @@ import { TrialBalanceService } from './reporting/trial-balance.service';
 import { ProfitLossService } from './reporting/profit-loss.service';
 import { BalanceSheetService } from './reporting/balance-sheet.service';
 import { CashFlowService } from './reporting/cash-flow.service';
+import { ControlAccountReconciliationService } from './reporting/control-account-reconciliation.service';
 
 /**
  * The shared platform every later module builds on.
@@ -33,6 +34,7 @@ import { CashFlowService } from './reporting/cash-flow.service';
     ProfitLossService,
     BalanceSheetService,
     CashFlowService,
+    ControlAccountReconciliationService,
   ],
   exports: [
     PrismaService,
@@ -46,6 +48,7 @@ import { CashFlowService } from './reporting/cash-flow.service';
     ProfitLossService,
     BalanceSheetService,
     CashFlowService,
+    ControlAccountReconciliationService,
   ],
 })
 export class CoreModule {}
