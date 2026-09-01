@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query } from '@nestjs/common';
+import { Controller, Get, Header, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
 import { ProfitLossService } from './profit-loss.service';
@@ -8,9 +8,11 @@ import { KpiService } from './kpi.service';
 import { ControlAccountReconciliationService } from './control-account-reconciliation.service';
 import { CustomerReceiptService } from '../sales/customer-receipt.service';
 import { SupplierPaymentService } from '../procurement/supplier-payment.service';
+import { PostingService } from '../posting/posting.service';
 import { currentFinancialYearId, currentFinancialPeriodId } from './current-financial-year';
-import { CurrentCompany } from '../auth/current-user.decorator';
+import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { Roles, AnyRole } from '../auth/roles.guard';
+import type { WorkflowActor } from '../workflow/workflow.types';
 
 /**
  * Read-only reporting for the web app.
@@ -38,6 +40,7 @@ export class ReportingController {
     private readonly customerReceipts: CustomerReceiptService,
     private readonly supplierPayments: SupplierPaymentService,
     private readonly controlReconciliation: ControlAccountReconciliationService,
+    private readonly posting: PostingService,
   ) {}
 
   /**
@@ -354,6 +357,39 @@ export class ReportingController {
         })),
       })),
     };
+  }
+
+  /**
+   * US-897-037's own "reverse" half — `PostingService.reverse()` (Rule 2:
+   * mirror-image document, the original untouched) already existed with
+   * exactly one caller anywhere in the app: the dev-only demo panel's
+   * `/demo/reverse`, never routed in production. This is the first real,
+   * production-facing door to it. Tightly gated — reversing a posted
+   * journal is not a call any finance role should make unilaterally.
+   */
+  @Roles('FINANCE_CONTROLLER', 'CFO')
+  @Post('journals/:id/reverse')
+  async reverseJournal(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+  ) {
+    const original = await this.prisma.journalEntry.findFirst({ where: { id, companyId } });
+    if (!original) throw new NotFoundException(`No journal ${id} in this company.`);
+
+    const stamp = Date.now().toString(36).toUpperCase();
+    return this.posting.reverse(id, {
+      journalNumber: `REV-${original.journalNumber}-${stamp}`,
+      journalDate: new Date(),
+      narration: `Reversal of ${original.journalNumber}`,
+      // Same period the original posted into, not "today's" — a reversal
+      // corrects the period it belongs to, the same convention the demo
+      // panel's own reverse() call already used.
+      financialYearId: original.financialYearId,
+      financialPeriodId: original.financialPeriodId,
+      idempotencyKey: `reversal:${id}`,
+      actor,
+    });
   }
 
   /**

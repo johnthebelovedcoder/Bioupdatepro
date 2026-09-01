@@ -646,7 +646,11 @@ export class OperationsService {
       );
 
       return { id: record.id, replayed: false };
-    });
+      // Group resolve, eligibility check, harvest write, two population
+      // updates, idempotency commit, and an audit write — enough round
+      // trips under Neon latency to blow the default 5s interactive-
+      // transaction budget, same fix applied everywhere else this session.
+    }, { timeout: 15000 });
   }
 
   /* ------------------------------------------------------------------ */

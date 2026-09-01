@@ -68,9 +68,9 @@ export class BalanceSheetService {
         )
       : 0n;
 
-    const totalAssetsKobo = sumOf(assets);
-    const totalLiabilitiesKobo = sumOf(liabilities);
-    const totalEquityKobo = sumOf(equity) + currentYearEarningsKobo;
+    const totalAssetsKobo = sumByType(tb.rows, AccountType.ASSET);
+    const totalLiabilitiesKobo = sumByType(tb.rows, AccountType.LIABILITY);
+    const totalEquityKobo = sumByType(tb.rows, AccountType.EQUITY) + currentYearEarningsKobo;
     const totalLiabilitiesAndEquityKobo = totalLiabilitiesKobo + totalEquityKobo;
 
     return {
@@ -87,8 +87,23 @@ export class BalanceSheetService {
   }
 }
 
-function sumOf(lines: BalanceSheetLine[]): bigint {
-  return lines.reduce((sum, line) => sum + BigInt(line.amountKobo), 0n);
+/**
+ * Type-canonical sign — debit-positive for assets, credit-positive for
+ * liabilities and equity — regardless of any individual row's own
+ * `normalBalance`. A contra account (e.g. Accumulated Depreciation: an
+ * ASSET-type row with a CREDIT normal balance) must still net *against*
+ * its type's total, not add on top of it the way `displayedBalanceKobo`
+ * would if summed directly — that field is signed per-row for line-item
+ * display, not per-type for totalling.
+ */
+function sumByType(
+  rows: Array<{ accountType: AccountType; netKobo: bigint }>,
+  type: AccountType,
+): bigint {
+  const sign = type === AccountType.ASSET ? 1n : -1n;
+  return rows
+    .filter((row) => row.accountType === type)
+    .reduce((sum, row) => sum + sign * row.netKobo, 0n);
 }
 
 function toLines(
