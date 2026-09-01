@@ -195,6 +195,51 @@ export class ReportingController {
     });
   }
 
+  /** Same "second serialisation of the same build() call" pattern as the
+   * trial balance export — US-897-033's export criterion extended past its
+   * first, trial-balance-only slice. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('profit-loss/export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="profit-and-loss.csv"')
+  async profitLossExport(
+    @CurrentCompany() companyId: string,
+    @Query('financialYearId') financialYearId?: string,
+    @Query('financialPeriodId') financialPeriodId?: string,
+    @Query('branchId') branchId?: string,
+    @Query('costCentreId') costCentreId?: string,
+    @Query('farmId') farmId?: string,
+  ): Promise<string> {
+    const defaultYearId =
+      !financialYearId && !financialPeriodId
+        ? await currentFinancialYearId(this.prisma, companyId)
+        : undefined;
+
+    const pl = await this.profitLoss.build({
+      companyId,
+      ...(financialYearId ? { financialYearId } : {}),
+      ...(financialPeriodId ? { financialPeriodId } : {}),
+      ...(defaultYearId ? { financialYearId: defaultYearId } : {}),
+      ...(branchId ? { branchId } : {}),
+      ...(costCentreId ? { costCentreId } : {}),
+      ...(farmId ? { farmId } : {}),
+    });
+    const header = ['Section', 'Account Number', 'Account Name', 'Amount (kobo)'];
+    const lineRows = (section: string, lines: Array<{ accountNumber: string; accountName: string; amountKobo: string }>) =>
+      lines.map((l) => [section, l.accountNumber, csvCell(l.accountName), l.amountKobo]);
+    const rows = [
+      ...lineRows('Revenue', pl.revenueLines),
+      ...lineRows('Cost of Sales', pl.costOfSalesLines),
+      ...lineRows('Operating Expense', pl.operatingExpenseLines),
+      ['Total Revenue', '', '', pl.revenueKobo],
+      ['Total Cost of Sales', '', '', pl.costOfSalesKobo],
+      ['Gross Profit', '', '', pl.grossProfitKobo],
+      ['Total Operating Expense', '', '', pl.operatingExpenseKobo],
+      ['Profit Before Tax', '', '', pl.profitBeforeTaxKobo],
+    ];
+    return [header, ...rows].map((row) => row.join(',')).join('\r\n');
+  }
+
   /**
    * Assets, liabilities and equity as at now — permanent accounts, so there is
    * no period/year filter here at all, only the dimension filters trial
@@ -216,6 +261,40 @@ export class ReportingController {
     });
   }
 
+  /** Same pattern again — the same `BalanceSheetService.build()` call the
+   * screen above uses, serialised a second way rather than recomputed. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('balance-sheet/export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="balance-sheet.csv"')
+  async balanceSheetExport(
+    @CurrentCompany() companyId: string,
+    @Query('branchId') branchId?: string,
+    @Query('costCentreId') costCentreId?: string,
+    @Query('farmId') farmId?: string,
+  ): Promise<string> {
+    const bs = await this.balanceSheet.build({
+      companyId,
+      ...(branchId ? { branchId } : {}),
+      ...(costCentreId ? { costCentreId } : {}),
+      ...(farmId ? { farmId } : {}),
+    });
+    const header = ['Section', 'Account Number', 'Account Name', 'Amount (kobo)'];
+    const lineRows = (section: string, lines: Array<{ accountNumber: string; accountName: string; amountKobo: string }>) =>
+      lines.map((l) => [section, l.accountNumber, csvCell(l.accountName), l.amountKobo]);
+    const rows = [
+      ...lineRows('Asset', bs.assets),
+      ...lineRows('Liability', bs.liabilities),
+      ...lineRows('Equity', bs.equity),
+      ['Equity', '', 'Current Year Earnings (unclosed)', bs.currentYearEarningsKobo],
+      ['Total Assets', '', '', bs.totalAssetsKobo],
+      ['Total Liabilities', '', '', bs.totalLiabilitiesKobo],
+      ['Total Equity', '', '', bs.totalEquityKobo],
+      ['Total Liabilities + Equity', '', '', bs.totalLiabilitiesAndEquityKobo],
+    ];
+    return [header, ...rows].map((row) => row.join(',')).join('\r\n');
+  }
+
   /**
    * Cash flow for one period, indirect method — defaulting to the current
    * period when none is named.
@@ -231,6 +310,41 @@ export class ReportingController {
       return { error: 'No financial period covers today for this company.' };
     }
     return this.cashFlow.build({ companyId, financialPeriodId: periodId });
+  }
+
+  /** Cash Flow has no line-item array — a flat set of named figures — so its
+   * CSV is one label/value row per figure, in the same order the statement
+   * presents them, rather than the multi-section shape the other exports use. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('cash-flow/export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="cash-flow.csv"')
+  async cashFlowExport(
+    @CurrentCompany() companyId: string,
+    @Query('financialPeriodId') financialPeriodId?: string,
+  ): Promise<string> {
+    const periodId = financialPeriodId ?? (await currentFinancialPeriodId(this.prisma, companyId));
+    if (!periodId) {
+      return 'Line Item,Amount (kobo)\r\nError,No financial period covers today for this company.';
+    }
+    const cf = await this.cashFlow.build({ companyId, financialPeriodId: periodId });
+    const header = ['Line Item', 'Amount (kobo)'];
+    const rows = [
+      ['Opening Cash', cf.openingCashKobo],
+      ['Net Income', cf.netIncomeKobo],
+      ['Depreciation Add-back', cf.depreciationAddBackKobo],
+      ['Receivables Change', cf.receivablesChangeKobo],
+      ['Inventory Change', cf.inventoryChangeKobo],
+      ['Payables Change', cf.payablesChangeKobo],
+      ['Net Cash From Operations', cf.netCashFromOperationsKobo],
+      ['Fixed Asset Acquisitions', cf.fixedAssetAcquisitionsKobo],
+      ['Net Cash From Investing', cf.netCashFromInvestingKobo],
+      ['Net Change In Cash', cf.netChangeInCashKobo],
+      ['Closing Cash', cf.closingCashKobo],
+      ['Bank Account Closing Balance', cf.bankAccountClosingKobo],
+      ['Reconciled', cf.reconciled ? 'true' : 'false'],
+    ];
+    return [header, ...rows].map((row) => row.join(',')).join('\r\n');
   }
 
   /**
@@ -253,11 +367,41 @@ export class ReportingController {
     return this.customerReceipts.ageing({ companyId, asAt: new Date() });
   }
 
+  /** One row per customer at the bucket-total level the screen shows — not
+   * exploded to invoice level, the same "first slice, not a claimed general
+   * framework" scope the trial balance export set. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('ar-ageing/export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="ar-ageing.csv"')
+  async arAgeingExport(@CurrentCompany() companyId: string): Promise<string> {
+    const ageing = await this.customerReceipts.ageing({ companyId, asAt: new Date() });
+    return ageingCsv(
+      'Customer Code',
+      'Customer Name',
+      ageing.map((e) => ({ code: e.customerCode, name: e.customerName, totalKobo: e.totalKobo, buckets: e.buckets })),
+    );
+  }
+
   /** Accounts payable ageing, by supplier — the same stranded-service pattern. */
   @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
   @Get('ap-ageing')
   async apAgeing(@CurrentCompany() companyId: string) {
     return this.supplierPayments.ageing({ companyId, asAt: new Date() });
+  }
+
+  /** Same shape as the AR export, for suppliers. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('ap-ageing/export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="ap-ageing.csv"')
+  async apAgeingExport(@CurrentCompany() companyId: string): Promise<string> {
+    const ageing = await this.supplierPayments.ageing({ companyId, asAt: new Date() });
+    return ageingCsv(
+      'Supplier Code',
+      'Supplier Name',
+      ageing.map((e) => ({ code: e.supplierCode, name: e.supplierName, totalKobo: e.totalKobo, buckets: e.buckets })),
+    );
   }
 
   /**
@@ -554,4 +698,30 @@ export class ReportingController {
 /** RFC 4180 quoting — wraps and escapes a cell only when it actually needs it. */
 function csvCell(value: string): string {
   return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/** Shared by the AR and AP ageing exports — both `.ageing()` methods return
+ * the same shape under a different code/name key, so the caller normalises
+ * to `code`/`name` and this just serialises. One row per party at the same
+ * bucket-total level the screen shows; bucket columns come from the first
+ * entry's own labels since every entry shares the same edges. */
+function ageingCsv(
+  codeHeader: string,
+  nameHeader: string,
+  entries: Array<{
+    code: string;
+    name: string;
+    totalKobo: string;
+    buckets: Array<{ label: string; amountKobo: string }>;
+  }>,
+): string {
+  const bucketLabels = entries[0]?.buckets.map((b) => b.label) ?? [];
+  const header = [codeHeader, nameHeader, 'Total Outstanding (kobo)', ...bucketLabels];
+  const rows = entries.map((e) => [
+    e.code,
+    csvCell(e.name),
+    e.totalKobo,
+    ...e.buckets.map((b) => b.amountKobo),
+  ]);
+  return [header, ...rows].map((row) => row.join(',')).join('\r\n');
 }
