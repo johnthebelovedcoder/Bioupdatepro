@@ -383,12 +383,15 @@ export class ReportingController {
 
   /**
    * The nine named KPIs, each computed or explicitly refused with a reason —
-   * never a guessed number for one this chart cannot yet support.
+   * never a guessed number for one this chart cannot yet support. `farmId`
+   * scopes the four production-side KPIs (survival/mortality/yield/cost
+   * variance) to one farm — the other five stay company-wide, see
+   * `KpiService.build()`'s own comment.
    */
   @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
   @Get('kpis')
-  async kpiReport(@CurrentCompany() companyId: string) {
-    return this.kpis.build(companyId);
+  async kpiReport(@CurrentCompany() companyId: string, @Query('farmId') farmId?: string) {
+    return this.kpis.build(companyId, farmId);
   }
 
   /**

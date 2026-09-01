@@ -37,15 +37,24 @@ export class KpiService {
     private readonly supplierPayments: SupplierPaymentService,
   ) {}
 
-  async build(companyId: string): Promise<Kpi[]> {
+  /**
+   * `farmId` scopes the four production-side KPIs (survival, mortality,
+   * yield, cost variance) to one farm — `LivestockGroup`/`ProductionOrder`
+   * both carry it directly. The other five (gross margin, DSO, DPO, payroll
+   * cost/head, asset utilisation) stay company-wide in this first slice:
+   * they read from `ProfitLossService`/ageing/payroll, none of which resolve
+   * a farm dimension the same direct way, and going further is its own
+   * separate piece of work rather than something to fake here.
+   */
+  async build(companyId: string, farmId?: string): Promise<Kpi[]> {
     const [survivalAndMortality, grossMargin, dso, dpo, payrollCostPerHead, yieldKpi, costVarianceKpi] = await Promise.all([
-      this.survivalAndMortality(companyId),
+      this.survivalAndMortality(companyId, farmId),
       this.grossMarginPercent(companyId),
       this.daysSalesOutstanding(companyId),
       this.daysPayableOutstanding(companyId),
       this.payrollCostPerHead(companyId),
-      this.yieldPercent(companyId),
-      this.costVariancePercent(companyId),
+      this.yieldPercent(companyId, farmId),
+      this.costVariancePercent(companyId, farmId),
     ]);
 
     return [
@@ -73,9 +82,9 @@ export class KpiService {
    * a single order; this is the outcome the client's KPI story actually asks
    * for, output realised versus output planned.
    */
-  private async yieldPercent(companyId: string): Promise<Kpi> {
+  private async yieldPercent(companyId: string, farmId?: string): Promise<Kpi> {
     const completed = await this.prisma.productionOrder.findMany({
-      where: { companyId, status: 'COMPLETED' },
+      where: { companyId, status: 'COMPLETED', ...(farmId ? { farmId } : {}) },
       select: { plannedOutputQuantity: true, outputs: { select: { quantity: true } } },
     });
     if (completed.length === 0) {
@@ -107,9 +116,9 @@ export class KpiService {
    * calculation, aggregated across every settled order instead of one at a
    * time. Positive means orders cost more than standard.
    */
-  private async costVariancePercent(companyId: string): Promise<Kpi> {
+  private async costVariancePercent(companyId: string, farmId?: string): Promise<Kpi> {
     const settled = await this.prisma.productionOrder.findMany({
-      where: { companyId, settledAt: { not: null } },
+      where: { companyId, settledAt: { not: null }, ...(farmId ? { farmId } : {}) },
       select: { standardConversionCostKobo: true, actualLabourCostKobo: true, actualOverheadCostKobo: true },
     });
     if (settled.length === 0) {
@@ -143,18 +152,18 @@ export class KpiService {
    * and disposals, a gap already flagged against US-897-004. Counting actual
    * mortality records instead is the more honest figure this data supports.
    */
-  private async survivalAndMortality(companyId: string): Promise<Kpi[]> {
+  private async survivalAndMortality(companyId: string, farmId?: string): Promise<Kpi[]> {
     const [openingAgg, aliveAgg, deathsAgg] = await Promise.all([
       this.prisma.livestockGroup.aggregate({
-        where: { companyId },
+        where: { companyId, ...(farmId ? { farmId } : {}) },
         _sum: { openingPopulation: true },
       }),
       this.prisma.livestockGroup.aggregate({
-        where: { companyId },
+        where: { companyId, ...(farmId ? { farmId } : {}) },
         _sum: { population: true },
       }),
       this.prisma.mortalityRecord.aggregate({
-        where: { dailyRecord: { companyId } },
+        where: { dailyRecord: { companyId, ...(farmId ? { group: { farmId } } : {}) } },
         _sum: { quantity: true },
       }),
     ]);
