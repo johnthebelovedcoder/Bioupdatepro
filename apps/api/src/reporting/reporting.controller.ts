@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Header, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
 import { ProfitLossService } from './profit-loss.service';
@@ -119,6 +119,46 @@ export class ReportingController {
       ...(costCentreId ? { costCentreId } : {}),
       ...(farmId ? { farmId } : {}),
     });
+  }
+
+  /**
+   * US-897-033's export criterion — "does not change source calculations" —
+   * taken literally: this calls the exact same `TrialBalanceService.build()`
+   * the screen above does, under the same filters, and serialises the same
+   * rows. No second computation path that could quietly disagree with the
+   * first.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('trial-balance/export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="trial-balance.csv"')
+  async trialBalanceExport(
+    @CurrentCompany() companyId: string,
+    @Query('financialYearId') financialYearId?: string,
+    @Query('financialPeriodId') financialPeriodId?: string,
+    @Query('branchId') branchId?: string,
+    @Query('costCentreId') costCentreId?: string,
+    @Query('farmId') farmId?: string,
+  ): Promise<string> {
+    const tb = await this.trialBalance.build({
+      companyId,
+      ...(financialYearId ? { financialYearId } : {}),
+      ...(financialPeriodId ? { financialPeriodId } : {}),
+      ...(branchId ? { branchId } : {}),
+      ...(costCentreId ? { costCentreId } : {}),
+      ...(farmId ? { farmId } : {}),
+    });
+    const header = ['Account Number', 'Account Name', 'Account Type', 'Debit (kobo)', 'Credit (kobo)', 'Balance (kobo)'];
+    const rows = tb.rows.map((r) => [
+      r.accountNumber,
+      csvCell(r.accountName),
+      r.accountType,
+      r.totalDebitKobo.toString(),
+      r.totalCreditKobo.toString(),
+      r.displayedBalanceKobo.toString(),
+    ]);
+    rows.push(['', '', '', tb.totalDebitKobo.toString(), tb.totalCreditKobo.toString(), '']);
+    return [header, ...rows].map((row) => row.join(',')).join('\r\n');
   }
 
   /**
@@ -473,4 +513,9 @@ export class ReportingController {
     ]);
     return { costCentres, farms };
   }
+}
+
+/** RFC 4180 quoting — wraps and escapes a cell only when it actually needs it. */
+function csvCell(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
