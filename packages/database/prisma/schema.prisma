@@ -5315,6 +5315,19 @@ model LivestockGroup {
   startedOn DateTime  @map("started_on") @db.Date
   closedOn  DateTime? @map("closed_on") @db.Date
 
+  /// US-897-004/005. Planned dates, set at placement — this app has no
+  /// "edit a group" screen yet, so these are captured once rather than
+  /// left unbuildable pending one. Null means none was planned.
+  expectedTransferDate DateTime? @map("expected_transfer_date") @db.Date
+  expectedHarvestDate  DateTime? @map("expected_harvest_date") @db.Date
+
+  /// US-897-004/005's "ongoing current weight", distinct from
+  /// HarvestRecord's own weight-at-harvest. A materialised balance — the
+  /// same pattern as `population` — updated whenever a daily round records
+  /// a 'weightKg' ProductionLine measure for this group. Null until the
+  /// first one lands.
+  currentWeightKg Decimal? @map("current_weight_kg") @db.Decimal(18, 6)
+
   status LivestockGroupStatus @default(ACTIVE)
 
   /// Who supplied the stock. Free text: a farm buys day-olds from a hatchery

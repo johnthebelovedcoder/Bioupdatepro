@@ -29,8 +29,14 @@ export class OperationsReadService {
       orderBy: [{ status: 'asc' }, { startedOn: 'desc' }],
       include: {
         penHouse: { select: { name: true } },
-        dailyRecords: { select: { feedIssues: { select: { valueKobo: true } } } },
+        dailyRecords: {
+          select: {
+            feedIssues: { select: { valueKobo: true } },
+            mortality: { select: { quantity: true } },
+          },
+        },
         treatments: { select: { costKobo: true } },
+        stageChanges: { select: { mortalityCount: true } },
       },
     });
 
@@ -74,8 +80,9 @@ export class OperationsReadService {
 
     const summary = this.toSummary({
       ...group,
-      dailyRecords: group.dailyRecords.map((d) => ({ feedIssues: d.feedIssues })),
+      dailyRecords: group.dailyRecords.map((d) => ({ feedIssues: d.feedIssues, mortality: d.mortality })),
       treatments: group.treatments.map((t) => ({ costKobo: t.costKobo })),
+      stageChanges: group.stageChanges.map((s) => ({ mortalityCount: s.mortalityCount })),
     });
 
     // What this population has actually earned. Summed from invoice lines
@@ -325,10 +332,21 @@ export class OperationsReadService {
     source: string | null;
     acquisitionCostKobo: bigint;
     penHouse: { name: string };
-    dailyRecords: Array<{ feedIssues: Array<{ valueKobo: bigint }> }>;
+    dailyRecords: Array<{ feedIssues: Array<{ valueKobo: bigint }>; mortality: Array<{ quantity: number }> }>;
     treatments: Array<{ costKobo: bigint }>;
+    stageChanges: Array<{ mortalityCount: number }>;
+    currentWeightKg: { toString(): string } | null;
+    expectedTransferDate: Date | null;
+    expectedHarvestDate: Date | null;
   }) {
-    const lost = group.openingPopulation - group.population;
+    // Deaths only — NOT openingPopulation - population, which also falls
+    // whenever the group sells, transfers out, or gets harvested. Every
+    // actual death this group has had, wherever it happened: daily-round
+    // mortality (MortalityRecord) and mortality-in-transit on a stage
+    // change (StageChange.mortalityCount, US-897-009).
+    const trueMortality =
+      group.dailyRecords.flatMap((d) => d.mortality).reduce((sum, m) => sum + m.quantity, 0) +
+      group.stageChanges.reduce((sum, s) => sum + s.mortalityCount, 0);
     const feedKobo = group.dailyRecords
       .flatMap((d) => d.feedIssues)
       .reduce((sum, f) => sum + f.valueKobo, 0n);
@@ -347,10 +365,13 @@ export class OperationsReadService {
       ageDays: daysSince(group.startedOn),
       mortalityRate:
         group.openingPopulation > 0
-          ? Number(((lost / group.openingPopulation) * 100).toFixed(2))
+          ? Number(((trueMortality / group.openingPopulation) * 100).toFixed(2))
           : 0,
       status: group.status as 'ACTIVE' | 'CLOSED',
       startedOn: iso(group.startedOn),
+      currentWeightKg: group.currentWeightKg?.toString() ?? null,
+      expectedTransferDate: group.expectedTransferDate ? iso(group.expectedTransferDate) : null,
+      expectedHarvestDate: group.expectedHarvestDate ? iso(group.expectedHarvestDate) : null,
       source: group.source ?? '',
       costToDateKobo: (group.acquisitionCostKobo + feedKobo + treatmentKobo).toString(),
       // Nothing links a sale to a population yet, so this is honestly zero

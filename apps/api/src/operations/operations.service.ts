@@ -70,6 +70,8 @@ export class OperationsService {
       startedOn: string;
       source?: string | null;
       acquisitionCostKobo?: string | null;
+      expectedTransferDate?: string | null;
+      expectedHarvestDate?: string | null;
     };
   }) {
     const { companyId, actor, idempotencyKey, payload } = input;
@@ -109,6 +111,8 @@ export class OperationsService {
           acquisitionCostKobo: payload.acquisitionCostKobo
             ? BigInt(payload.acquisitionCostKobo)
             : 0n,
+          expectedTransferDate: payload.expectedTransferDate ? asDate(payload.expectedTransferDate) : null,
+          expectedHarvestDate: payload.expectedHarvestDate ? asDate(payload.expectedHarvestDate) : null,
         },
       });
 
@@ -294,10 +298,18 @@ export class OperationsService {
 
           // The decrement rides in this transaction with the row that justifies
           // it. See the note at the top of this file.
-          if (deaths > 0) {
+          const weighed = production.find((p) => p.fieldKey === 'weightKg');
+          if (deaths > 0 || weighed) {
             await tx.livestockGroup.update({
               where: { id: group.id },
-              data: { population: { decrement: deaths } },
+              data: {
+                ...(deaths > 0 ? { population: { decrement: deaths } } : {}),
+                // US-897-004/005's ongoing current weight — the latest
+                // recorded weighing, not a running average, same "most
+                // recent observation wins" convention as everything else
+                // materialised off a daily round.
+                ...(weighed ? { currentWeightKg: weighed.quantity } : {}),
+              },
             });
           }
 
