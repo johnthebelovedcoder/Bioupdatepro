@@ -720,6 +720,7 @@ model Warehouse {
   salesReturns         SalesReturn[]
   purchaseOrders       PurchaseOrder[]
   goodsReceiptNotes    GoodsReceiptNote[]
+  goodsReceiptNoteLines GoodsReceiptNoteLine[]
   transfersFrom        InventoryTransfer[]  @relation("InventoryTransferFrom")
   transfersTo          InventoryTransfer[]  @relation("InventoryTransferTo")
   inventoryWriteOffs   InventoryWriteOff[]
@@ -4748,6 +4749,12 @@ model GoodsReceiptNoteLine {
   batchReference String?   @map("batch_reference")
   expiryDate     DateTime? @map("expiry_date") @db.Date
 
+  /// US-897-007's per-line location. Null means "the GRN's own header
+  /// warehouse" — every receipt before this went into one warehouse for the
+  /// whole document; this lets one line land somewhere else without forcing
+  /// every receipt to name a location it doesn't need.
+  warehouseId String? @map("warehouse_id") @db.Uuid
+
   /// How much of the accepted quantity has been invoiced. The GRNI balance for
   /// this line is (accepted - invoiced) x price, and it must reach zero.
   invoicedQuantity Decimal @default(0) @map("invoiced_quantity") @db.Decimal(18, 6)
@@ -4758,6 +4765,7 @@ model GoodsReceiptNoteLine {
   goodsReceiptNote  GoodsReceiptNote      @relation(fields: [goodsReceiptNoteId], references: [id], onDelete: Cascade)
   purchaseOrderLine PurchaseOrderLine     @relation(fields: [purchaseOrderLineId], references: [id])
   item              Item                  @relation(fields: [itemId], references: [id])
+  warehouse         Warehouse?            @relation(fields: [warehouseId], references: [id])
   invoiceLines      SupplierInvoiceLine[]
 
   @@unique([goodsReceiptNoteId, lineNumber])

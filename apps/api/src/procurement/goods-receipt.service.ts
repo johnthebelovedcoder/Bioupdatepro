@@ -27,6 +27,8 @@ export interface GrnLineInput {
   rejectedQuantity?: Decimal.Value;
   batchReference?: string | null;
   expiryDate?: Date | null;
+  /** US-897-007. Omit to use the GRN's own header warehouse, same as before. */
+  warehouseId?: string | null;
 }
 
 /**
@@ -161,6 +163,7 @@ export class GoodsReceiptService {
         valueKobo: value,
         batchReference: line.batchReference ?? null,
         expiryDate: line.expiryDate ?? null,
+        warehouseId: line.warehouseId ?? null,
       });
     }
 
@@ -417,7 +420,9 @@ export class GoodsReceiptService {
           companyId: grn.companyId,
           branchId: grn.branchId,
           itemId: line.itemId,
-          warehouseId: grn.warehouseId,
+          // US-897-007 — a line can land somewhere other than the GRN's own
+          // header warehouse; falls back to it when the line didn't say.
+          warehouseId: line.warehouseId ?? grn.warehouseId,
           direction: StockDirection.IN,
           quantity: line.acceptedQuantity,
           unitCostKobo: line.unitPriceKobo,

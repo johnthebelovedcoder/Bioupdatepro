@@ -304,6 +304,7 @@ export class ProcurementFlowService {
       receivedQuantity: string;
       rejectedQuantity?: string;
       batchReference?: string | null;
+      warehouseId?: string | null;
     }>;
   }) {
     const order = await this.prisma.purchaseOrder.findFirst({
@@ -365,6 +366,7 @@ export class ProcurementFlowService {
         receivedQuantity: line.receivedQuantity,
         ...(line.rejectedQuantity ? { rejectedQuantity: line.rejectedQuantity } : {}),
         ...(line.batchReference ? { batchReference: line.batchReference } : {}),
+        ...(line.warehouseId ? { warehouseId: line.warehouseId } : {}),
       })),
       actor: params.actor,
     });
@@ -419,6 +421,7 @@ export class ProcurementFlowService {
       supplier: grn.supplier.name,
       purchaseOrderId: grn.purchaseOrder.id,
       orderNumber: grn.purchaseOrder.orderNumber,
+      warehouseId: grn.warehouseId,
       lines: grn.lines.map((line) => ({
         id: line.id,
         itemCode: line.item.code,
@@ -427,6 +430,9 @@ export class ProcurementFlowService {
         invoicedQuantity: line.invoicedQuantity.toString(),
         outstandingQuantity: line.acceptedQuantity.minus(line.invoicedQuantity).toString(),
         unitPriceKobo: line.unitPriceKobo.toString(),
+        // US-897-007. Null means "the GRN's own header warehouse above" —
+        // this line landed nowhere else.
+        warehouseId: line.warehouseId,
       })),
     };
   }

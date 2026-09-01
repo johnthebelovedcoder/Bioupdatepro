@@ -128,6 +128,7 @@ export class ProcurementController {
         receivedQuantity: string;
         rejectedQuantity?: string;
         batchReference?: string | null;
+        warehouseId?: string | null;
       }>;
     },
   ) {
