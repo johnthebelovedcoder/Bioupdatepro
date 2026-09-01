@@ -209,4 +209,105 @@ export class TrialBalanceService {
     const row = tb.rows.find((r) => r.accountNumber === accountNumber);
     return row?.netKobo ?? 0n;
   }
+
+  /**
+   * The journal lines behind one TB row — US-897-033/037's own "drill-through
+   * reaches the underlying transaction" criterion.
+   *
+   * Mirrors `build()`'s own period-scoping exactly rather than re-deriving a
+   * simplified rule, so the lines returned always sum to the same figure the
+   * screen showed for this row: a temporary account (revenue/expense) under a
+   * period filter is scoped to that ONE period, matching the roll-forward
+   * override `build()` applies for temporary accounts specifically; a
+   * permanent account is scoped to every period up to and including the one
+   * asked for, matching its own running-balance nature.
+   */
+  async drillThrough(
+    accountNumber: string,
+    filter: TrialBalanceFilter,
+    page = 1,
+    pageSize = 25,
+  ) {
+    const account = await this.prisma.gLAccount.findFirstOrThrow({
+      where: { companyId: filter.companyId, accountNumber },
+    });
+
+    let periodsThroughThis: string[] | undefined;
+    if (filter.financialPeriodId) {
+      const period = await this.prisma.financialPeriod.findUniqueOrThrow({
+        where: { id: filter.financialPeriodId },
+        select: { financialYearId: true, periodNumber: true },
+      });
+      const periods = await this.prisma.financialPeriod.findMany({
+        where: {
+          financialYearId: period.financialYearId,
+          periodNumber: { lte: period.periodNumber },
+        },
+        select: { id: true },
+      });
+      periodsThroughThis = periods.map((p) => p.id);
+    }
+
+    const isTemporary = !PERMANENT_ACCOUNT_TYPES.includes(account.accountType);
+    const periodCondition =
+      isTemporary && filter.financialPeriodId
+        ? { financialPeriodId: filter.financialPeriodId }
+        : periodsThroughThis
+          ? { financialPeriodId: { in: periodsThroughThis } }
+          : filter.financialYearId
+            ? { financialYearId: filter.financialYearId }
+            : {};
+
+    const dimensionFilter = {
+      ...(filter.branchId ? { branchId: filter.branchId } : {}),
+      ...(filter.costCentreId ? { costCentreId: filter.costCentreId } : {}),
+      ...(filter.farmId ? { farmId: filter.farmId } : {}),
+      ...(filter.departmentId ? { departmentId: filter.departmentId } : {}),
+      ...(filter.projectId ? { projectId: filter.projectId } : {}),
+    };
+
+    const where = {
+      companyId: filter.companyId,
+      glAccountId: account.id,
+      ...periodCondition,
+      ...dimensionFilter,
+      journalEntry: { status: 'POSTED' as const },
+    };
+
+    const [total, lines] = await Promise.all([
+      this.prisma.journalLine.count({ where }),
+      this.prisma.journalLine.findMany({
+        where,
+        orderBy: [{ journalEntry: { journalDate: 'desc' } }, { journalEntry: { createdAt: 'desc' } }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          journalEntry: {
+            select: { id: true, journalNumber: true, journalDate: true, narration: true, sourceModule: true },
+          },
+          costCentre: { select: { code: true } },
+        },
+      }),
+    ]);
+
+    return {
+      accountNumber: account.accountNumber,
+      accountName: account.name,
+      page,
+      pageSize,
+      pageCount: Math.max(1, Math.ceil(total / pageSize)),
+      total,
+      lines: lines.map((l) => ({
+        journalEntryId: l.journalEntry.id,
+        journalNumber: l.journalEntry.journalNumber,
+        journalDate: l.journalEntry.journalDate,
+        narration: l.journalEntry.narration,
+        sourceModule: l.journalEntry.sourceModule,
+        costCentre: l.costCentre?.code ?? null,
+        description: l.description,
+        debitKobo: l.debitKobo.toString(),
+        creditKobo: l.creditKobo.toString(),
+      })),
+    };
+  }
 }

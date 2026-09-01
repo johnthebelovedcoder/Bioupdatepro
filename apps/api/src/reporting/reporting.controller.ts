@@ -165,6 +165,40 @@ export class ReportingController {
   }
 
   /**
+   * US-897-033/037's own "drill-through reaches the underlying transaction"
+   * criterion — the one gap CSV export didn't touch. Same filters as the TB
+   * screen above, plus which row's account to open up.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('trial-balance/drill-through')
+  async trialBalanceDrillThrough(
+    @CurrentCompany() companyId: string,
+    @Query('accountNumber') accountNumber: string,
+    @Query('financialYearId') financialYearId?: string,
+    @Query('financialPeriodId') financialPeriodId?: string,
+    @Query('branchId') branchId?: string,
+    @Query('costCentreId') costCentreId?: string,
+    @Query('farmId') farmId?: string,
+    @Query('page') page = '1',
+  ) {
+    if (!accountNumber) {
+      throw new NotFoundException('accountNumber query parameter is required.');
+    }
+    return this.trialBalance.drillThrough(
+      accountNumber,
+      {
+        companyId,
+        ...(financialYearId ? { financialYearId } : {}),
+        ...(financialPeriodId ? { financialPeriodId } : {}),
+        ...(branchId ? { branchId } : {}),
+        ...(costCentreId ? { costCentreId } : {}),
+        ...(farmId ? { farmId } : {}),
+      },
+      Math.max(1, Number(page) || 1),
+    );
+  }
+
+  /**
    * Revenue, cost of sales and operating expense for a period — defaulting to
    * the current financial year to date when neither is named, since "how has
    * this year gone so far" is the question this screen exists to answer.
