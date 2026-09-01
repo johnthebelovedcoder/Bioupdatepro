@@ -21,10 +21,12 @@ export interface Kpi {
  * The nine KPIs the client's user story names, each computed or explicitly
  * refused — the same "honest blank over invented number" convention already
  * used elsewhere (operations-read.service.ts's own FCR comment: a blank is
- * the honest answer to a question the data cannot answer). Three of the nine
- * — yield, cost variance, asset utilisation — need a production order or a
- * usage-tracking model that does not exist yet, so they always return
- * computable:false with the specific reason, never a guessed number.
+ * the honest answer to a question the data cannot answer). Asset utilisation
+ * needs usage tracking per asset beyond a depreciation schedule, which the
+ * fixed-asset register does not carry, so it always returns computable:false.
+ * Yield and cost variance used to be in that category too — this file's own
+ * comment said "production orders do not exist yet" — but they do now
+ * (US-897-016–020), so both are real computations below.
  */
 @Injectable()
 export class KpiService {
@@ -36,12 +38,14 @@ export class KpiService {
   ) {}
 
   async build(companyId: string): Promise<Kpi[]> {
-    const [survivalAndMortality, grossMargin, dso, dpo, payrollCostPerHead] = await Promise.all([
+    const [survivalAndMortality, grossMargin, dso, dpo, payrollCostPerHead, yieldKpi, costVarianceKpi] = await Promise.all([
       this.survivalAndMortality(companyId),
       this.grossMarginPercent(companyId),
       this.daysSalesOutstanding(companyId),
       this.daysPayableOutstanding(companyId),
       this.payrollCostPerHead(companyId),
+      this.yieldPercent(companyId),
+      this.costVariancePercent(companyId),
     ]);
 
     return [
@@ -50,18 +54,8 @@ export class KpiService {
       dso,
       dpo,
       payrollCostPerHead,
-      this.notComputable(
-        'yield',
-        'Yield',
-        'percent',
-        'Needs a production order with a standard yield to compare against — production orders do not exist yet.',
-      ),
-      this.notComputable(
-        'costVariance',
-        'Cost variance',
-        'percent',
-        'Needs a standard cost and an actual cost per production order to compare — production orders do not exist yet.',
-      ),
+      yieldKpi,
+      costVarianceKpi,
       this.notComputable(
         'assetUtilisation',
         'Asset utilisation',
@@ -69,6 +63,77 @@ export class KpiService {
         'Needs usage tracking per asset beyond a depreciation schedule, which the fixed-asset register does not carry yet.',
       ),
     ];
+  }
+
+  /**
+   * Actual finished-goods quantity ÷ what was planned, across every completed
+   * production order (any cycle — the field means the same thing whether the
+   * order is SnailPro, PoultryPro or Feed Mill). Not `expectedYieldPercent`
+   * itself — that already governs US-897-018's normal-loss tolerance inside
+   * a single order; this is the outcome the client's KPI story actually asks
+   * for, output realised versus output planned.
+   */
+  private async yieldPercent(companyId: string): Promise<Kpi> {
+    const completed = await this.prisma.productionOrder.findMany({
+      where: { companyId, status: 'COMPLETED' },
+      select: { plannedOutputQuantity: true, outputs: { select: { quantity: true } } },
+    });
+    if (completed.length === 0) {
+      return this.notComputable(
+        'yield',
+        'Yield',
+        'percent',
+        'No completed production order exists yet to measure actual output against planned.',
+      );
+    }
+    const planned = completed.reduce((s, o) => s + Number(o.plannedOutputQuantity), 0);
+    const actual = completed.reduce((s, o) => s + o.outputs.reduce((os, out) => os + Number(out.quantity), 0), 0);
+    if (planned <= 0) {
+      return this.notComputable('yield', 'Yield', 'percent', 'Every completed order planned zero output.');
+    }
+    return {
+      key: 'yield',
+      label: 'Yield',
+      value: ((actual / planned) * 100).toFixed(2),
+      format: 'percent',
+      computable: true,
+      reason: null,
+    };
+  }
+
+  /**
+   * Actual conversion cost incurred less standard absorbed, as a percentage
+   * of standard — exactly `ProductionOrderService.settle()`'s own variance
+   * calculation, aggregated across every settled order instead of one at a
+   * time. Positive means orders cost more than standard.
+   */
+  private async costVariancePercent(companyId: string): Promise<Kpi> {
+    const settled = await this.prisma.productionOrder.findMany({
+      where: { companyId, settledAt: { not: null } },
+      select: { standardConversionCostKobo: true, actualLabourCostKobo: true, actualOverheadCostKobo: true },
+    });
+    if (settled.length === 0) {
+      return this.notComputable(
+        'costVariance',
+        'Cost variance',
+        'percent',
+        'No settled production order exists yet to compare actual conversion cost against standard.',
+      );
+    }
+    const standard = settled.reduce((s, o) => s + o.standardConversionCostKobo, 0n);
+    const actual = settled.reduce((s, o) => s + o.actualLabourCostKobo + o.actualOverheadCostKobo, 0n);
+    if (standard === 0n) {
+      return this.notComputable('costVariance', 'Cost variance', 'percent', 'Every settled order absorbed zero standard cost.');
+    }
+    const variance = (Number(actual - standard) / Number(standard)) * 100;
+    return {
+      key: 'costVariance',
+      label: 'Cost variance',
+      value: variance.toFixed(2),
+      format: 'percent',
+      computable: true,
+      reason: null,
+    };
   }
 
   /**
