@@ -39,20 +39,24 @@ export class KpiService {
 
   /**
    * `farmId` scopes the four production-side KPIs (survival, mortality,
-   * yield, cost variance) to one farm — `LivestockGroup`/`ProductionOrder`
-   * both carry it directly. The other five (gross margin, DSO, DPO, payroll
-   * cost/head, asset utilisation) stay company-wide in this first slice:
-   * they read from `ProfitLossService`/ageing/payroll, none of which resolve
-   * a farm dimension the same direct way, and going further is its own
-   * separate piece of work rather than something to fake here.
+   * yield, cost variance) plus gross margin to one farm — all five resolve
+   * a farm dimension directly (`LivestockGroup`/`ProductionOrder` carry it,
+   * and `ProfitLossService` forwards it to `journal_lines`' own embedded
+   * dimension). `financialYearId` covers the "period" dimension for gross
+   * margin and payroll cost/head, both clean for any year with no "as at
+   * today" to reconcile against. DSO, DPO and asset utilisation stay
+   * company-wide/current-year-only: DSO/DPO relate an "as at today" ageing
+   * figure to a year's revenue/purchases, which only holds together when
+   * that year IS the current one (see each method's own comment), and asset
+   * utilisation has no usage-tracking model to filter at all.
    */
-  async build(companyId: string, farmId?: string): Promise<Kpi[]> {
+  async build(companyId: string, farmId?: string, financialYearId?: string): Promise<Kpi[]> {
     const [survivalAndMortality, grossMargin, dso, dpo, payrollCostPerHead, yieldKpi, costVarianceKpi] = await Promise.all([
       this.survivalAndMortality(companyId, farmId),
-      this.grossMarginPercent(companyId),
+      this.grossMarginPercent(companyId, farmId, financialYearId),
       this.daysSalesOutstanding(companyId),
       this.daysPayableOutstanding(companyId),
-      this.payrollCostPerHead(companyId),
+      this.payrollCostPerHead(companyId, financialYearId),
       this.yieldPercent(companyId, farmId),
       this.costVariancePercent(companyId, farmId),
     ]);
@@ -200,8 +204,14 @@ export class KpiService {
     ];
   }
 
-  /** The year P&L itself defaults to: the one covering today, else the latest. */
-  private async currentYear(companyId: string) {
+  /** The year P&L itself defaults to: the one covering today, else the
+   * latest — unless the caller names one explicitly, the "period" dimension
+   * these KPIs otherwise always resolved to "now" regardless of what was
+   * asked for. */
+  private async resolveYear(companyId: string, financialYearId?: string) {
+    if (financialYearId) {
+      return this.prisma.financialYear.findUnique({ where: { id: financialYearId, companyId } });
+    }
     const yearId = await currentFinancialYearId(this.prisma, companyId);
     return yearId
       ? this.prisma.financialYear.findUnique({ where: { id: yearId } })
@@ -211,8 +221,8 @@ export class KpiService {
         });
   }
 
-  private async grossMarginPercent(companyId: string): Promise<Kpi> {
-    const year = await this.currentYear(companyId);
+  private async grossMarginPercent(companyId: string, farmId?: string, financialYearId?: string): Promise<Kpi> {
+    const year = await this.resolveYear(companyId, financialYearId);
     if (!year) {
       return this.notComputable(
         'grossMargin',
@@ -222,7 +232,14 @@ export class KpiService {
       );
     }
 
-    const pnl = await this.profitLoss.build({ companyId, financialYearId: year.id });
+    // ProfitLossService.build() already accepts farmId -- it forwards
+    // straight through to TrialBalanceService, which resolves it as one of
+    // journal_lines' own embedded dimensions.
+    const pnl = await this.profitLoss.build({
+      companyId,
+      financialYearId: year.id,
+      ...(farmId ? { farmId } : {}),
+    });
     const revenue = BigInt(pnl.revenueKobo);
     if (revenue === 0n) {
       return this.notComputable(
@@ -244,9 +261,14 @@ export class KpiService {
     };
   }
 
-  /** DSO = outstanding receivables ÷ revenue this year × days elapsed this year. */
+  /** DSO = outstanding receivables ÷ revenue this year × days elapsed this year.
+   * Deliberately always THIS year, not a caller-chosen one: it relates
+   * receivables outstanding as at today against the year's revenue, which
+   * only holds together when "the year" and "today" are the same year --
+   * asking for a past year here would answer a different, misleading
+   * question, not just a differently-scoped one. */
   private async daysSalesOutstanding(companyId: string): Promise<Kpi> {
-    const year = await this.currentYear(companyId);
+    const year = await this.resolveYear(companyId);
     if (!year) {
       return this.notComputable(
         'dso',
@@ -296,7 +318,7 @@ export class KpiService {
    * quantity DPO is actually supposed to measure against.
    */
   private async daysPayableOutstanding(companyId: string): Promise<Kpi> {
-    const year = await this.currentYear(companyId);
+    const year = await this.resolveYear(companyId);
     if (!year) {
       return this.notComputable(
         'dpo',
@@ -350,10 +372,13 @@ export class KpiService {
 
   /** Against the most recently posted run's own recorded headcount — not a
    * live employee count, since a run's cost belongs to the headcount it was
-   * actually calculated against. */
-  private async payrollCostPerHead(companyId: string): Promise<Kpi> {
+   * actually calculated against. `financialYearId`, when given, picks the
+   * latest POSTED run within that year instead of across all of them --
+   * unlike DSO/DPO this has no "as at today" to reconcile against, so a
+   * caller-chosen year is unambiguous. */
+  private async payrollCostPerHead(companyId: string, financialYearId?: string): Promise<Kpi> {
     const run = await this.prisma.payrollRun.findFirst({
-      where: { companyId, status: 'POSTED' },
+      where: { companyId, status: 'POSTED', ...(financialYearId ? { financialYearId } : {}) },
       orderBy: { payrollDate: 'desc' },
     });
 
