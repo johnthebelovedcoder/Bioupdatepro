@@ -20,9 +20,32 @@ export interface CashFlow {
   reconciled: boolean;
 }
 
+// Every account below was confirmed by tracing this session's own journal
+// lines to see what actually posts where — not assumed from account naming
+// or from which chart (legacy four-digit vs. the client's newer six-digit
+// one) a number happens to belong to. The two charts are both live
+// simultaneously (US-897-029's own finding) and which one a given module
+// resolves to isn't consistent: Fixed Assets/GRN/Trade-Payables post to
+// legacy numbers (2140, 2201); ProductionOrderService's own conversion
+// accrual posts to six-digit ones instead (210100 overhead, 220100
+// labour); payroll's own statutory payables sit on a THIRD set of legacy
+// four-digit codes (2101-2110, PayrollRunService's own hardcoded map) that
+// happen to look nothing like the six-digit 22xx00 accounts their names
+// might otherwise suggest. A first pass at this list added six-digit
+// accounts by name-matching alone (120100, 110100, 140100, 221100-224100)
+// and every one of them turned out to have zero journal lines ever posted
+// against it — removed rather than left in as harmless dead weight.
 const RECEIVABLE_ACCOUNTS = ['1201'];
-const INVENTORY_ACCOUNTS = ['1301', '1302', '1305', '1401', '1501'];
-const PAYABLE_ACCOUNTS = ['2140', '2201', '210200'];
+const INVENTORY_ACCOUNTS = [
+  '1301', '1302', '1305', '1401', '1501',
+  '130100', '130110', '130199', '130410', '130420', '130430', '130510', '130520',
+];
+const PAYABLE_ACCOUNTS = [
+  '2140', '2201', '210200', '210100', '220100',
+  // Payroll's own statutory payables (PayrollRunService's hardcoded map) —
+  // salary, pension, NHF, NSITF, ITF, PAYE.
+  '2101', '2102', '2103', '2104', '2105', '2110',
+];
 const BANK_ACCOUNTS = ['1101'];
 const PPE_ACCOUNTS = ['1701'];
 const DEPRECIATION_ACCOUNTS = ['5501'];

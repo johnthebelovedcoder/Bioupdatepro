@@ -164,7 +164,13 @@ export class WorkflowService {
         status: created.status,
         currentLevel: created.currentLevel,
       };
-    });
+      // Definition resolution, the transaction + steps create, an audit/
+      // history write, and a notification — this is the one $transaction
+      // every workflow-gated document type in the app routes through on
+      // submit, so it is also the one most likely to eventually hit Neon's
+      // round-trip latency under real load. Same fix applied everywhere
+      // else this session.
+    }, { timeout: 15000 });
   }
 
   private async resubmitReturned(
@@ -527,7 +533,7 @@ export class WorkflowService {
         status: updated.status,
         currentLevel: null,
       };
-    });
+    }, { timeout: 15000 });
   }
 
   private async terminalAction(
@@ -623,7 +629,7 @@ export class WorkflowService {
         status: updated.status,
         currentLevel: updated.currentLevel,
       };
-    });
+    }, { timeout: 15000 });
   }
 
   // -------------------------------------------------------------------------
