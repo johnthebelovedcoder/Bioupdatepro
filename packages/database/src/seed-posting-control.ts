@@ -117,6 +117,28 @@ const DYNAMIC_RESOLUTION: Record<string, string> = {
   // never GRNI: a capitalised asset is its own capex event, not a receipt
   // already sitting in the P2P goods-received-not-invoiced holding account.
   'PCR-029-CR': 'FixedAssetService.resolveAccounts() — payables (2201)',
+
+  // Found by re-auditing this table against the codebase directly (rather
+  // than trusting its own prior contents) after the client-blocked backlog
+  // review below: these keys already resolve through dedicated code and had
+  // simply never been added here. None of this is a new decision — each is
+  // the pre-existing behaviour of code already live-verified this session,
+  // just not previously reflected in this map.
+  'PCR-005-DR': 'BiologicalAssetService.stageAccount() — acquisition cost, postAcquisition(), same per-species-per-stage account the FVLCTS adjustments already use',
+  'PCR-037-CR': 'BiologicalAssetService.grniAccount() — postAcquisition() always credits GRNI, the same account every other purchase receipt in this codebase credits (PCR-004/005/006)',
+  'PCR-061-CR': 'BiologicalAssetService.grniAccount() — same acquisition-credit policy as PCR-037-CR',
+  'PCR-055-CR': 'ProductionOrderService.tradePayablesAccount() — SnailPro actual-overhead accrual, the same disclosed Trade-Payables policy FixedAssetService uses for its own dual-account key (PCR-029-CR)',
+  'PCR-077-CR': 'ProductionOrderService.tradePayablesAccount() — PoultryPro combined actual-conversion accrual, same policy as PCR-055-CR',
+  'PCR-036-CR': 'ProductionOrderService — Feed Mill settlement variance credit, the recovery clearing account (219830) standard absorption already credited',
+  'PCR-058-CR': 'ProductionOrderService — SnailPro settlement variance credit, the recovery clearing account (219810) standard absorption already credited',
+  'PCR-080-CR': 'ProductionOrderService — PoultryPro settlement variance credit, the recovery clearing account (219820) standard absorption already credited',
+
+  // Not a gap at all: an accrual's debit is a human-prepared best estimate
+  // (§66's own basis column says so — "Supported best estimate"), and the
+  // whole point of a manual journal is that its preparer names the account
+  // each time. Coded here for visibility, not because code resolves it —
+  // ManualJournalService is the dedicated path, same as any other accrual.
+  'PCR-083-DR': 'ManualJournalService — the accrual’s preparer names the expense/asset account at entry time; not a fact code should decide',
 };
 
 function statusOf(value: string): PostingRuleStatus {
