@@ -1,4 +1,5 @@
-import { Controller, Get, Header, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { AuditAction } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
 import { ProfitLossService } from './profit-loss.service';
@@ -9,6 +10,8 @@ import { ControlAccountReconciliationService } from './control-account-reconcili
 import { CustomerReceiptService } from '../sales/customer-receipt.service';
 import { SupplierPaymentService } from '../procurement/supplier-payment.service';
 import { PostingService } from '../posting/posting.service';
+import { PostingControlChecksService } from '../posting-control/posting-control-checks.service';
+import { AuditService } from '../audit/audit.service';
 import { currentFinancialYearId, currentFinancialPeriodId } from './current-financial-year';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { Roles, AnyRole } from '../auth/roles.guard';
@@ -41,6 +44,8 @@ export class ReportingController {
     private readonly supplierPayments: SupplierPaymentService,
     private readonly controlReconciliation: ControlAccountReconciliationService,
     private readonly posting: PostingService,
+    private readonly postingControlChecks: PostingControlChecksService,
+    private readonly auditService: AuditService,
   ) {}
 
   /**
@@ -456,6 +461,103 @@ export class ReportingController {
   @Get('control-reconciliation')
   async controlReconciliationReport(@CurrentCompany() companyId: string) {
     return this.controlReconciliation.reconcile(companyId);
+  }
+
+  /**
+   * US-897-037's last remaining criterion: "all exceptions resolved/accepted
+   * before release" was happening in this register's own prose, not as a
+   * system record. This makes it one — a real, immutable AuditRecord (no new
+   * table: entityType 'ReleaseSignOff' on the same append-only trail
+   * US-897-036 already gave dedicated old/new-value columns) naming who
+   * signed off, when, and the exact PostingControlChecksService/control-
+   * reconciliation snapshot they were looking at.
+   *
+   * §60.5's own rule — a mandatory control that is missing is a version-1
+   * correction, not something to defer — is enforced here, not waived: if
+   * either check surface shows anything short of clean, this refuses unless
+   * the caller supplies `exceptionsAcknowledged`, a real justification for
+   * releasing anyway. That is the honest reading of "resolved OR accepted" —
+   * not silence, and not a rubber stamp either.
+   */
+  @Roles('FINANCE_CONTROLLER', 'CFO')
+  @Post('release-sign-off')
+  async signOffRelease(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { releaseLabel: string; exceptionsAcknowledged?: string },
+  ) {
+    if (!body.releaseLabel?.trim()) {
+      throw new BadRequestException('A release label is required (e.g. "v8.9.7").');
+    }
+
+    const [checks, reconciliation] = await Promise.all([
+      this.postingControlChecks.run(companyId),
+      this.controlReconciliation.reconcile(companyId),
+    ]);
+
+    const failingChecks = checks.rows.filter((r) => r.state !== 'PASS');
+    const variantAccounts = reconciliation.filter((r) => !r.reconciled);
+    const hasExceptions = failingChecks.length > 0 || variantAccounts.length > 0;
+
+    if (hasExceptions && !body.exceptionsAcknowledged?.trim()) {
+      throw new BadRequestException(
+        `Cannot sign off clean: ${failingChecks.length} posting-control check(s) and ` +
+          `${variantAccounts.length} control-account row(s) are not resolved. Resolve them, ` +
+          `or supply exceptionsAcknowledged explaining why release proceeds anyway — a sign-off ` +
+          `is a decision made in the open, not a silent pass.`,
+      );
+    }
+
+    const entityId = `${companyId}:${body.releaseLabel.trim()}:${Date.now()}`;
+    const snapshot = {
+      releaseLabel: body.releaseLabel.trim(),
+      postingControlChecks: checks.rows,
+      releasableByChecksAlone: checks.releasable,
+      controlReconciliation: reconciliation,
+      failingCheckCount: failingChecks.length,
+      variantAccountCount: variantAccounts.length,
+    };
+
+    await this.auditService.write({
+      transactionId: entityId,
+      module: 'reporting',
+      entityType: 'ReleaseSignOff',
+      entityId,
+      status: hasExceptions ? 'RELEASED_WITH_EXCEPTIONS' : 'RELEASED',
+      action: AuditAction.CREATE,
+      userId: actor.userId,
+      comments: body.exceptionsAcknowledged?.trim() ?? null,
+      newValue: snapshot,
+    });
+
+    return {
+      releaseLabel: snapshot.releaseLabel,
+      verdict: hasExceptions ? 'RELEASED_WITH_EXCEPTIONS' : 'RELEASED',
+      failingCheckCount: failingChecks.length,
+      variantAccountCount: variantAccounts.length,
+      exceptionsAcknowledged: body.exceptionsAcknowledged?.trim() ?? null,
+      signedOffBy: actor.userId,
+    };
+  }
+
+  /** The sign-off history — every release decision this company has ever made, newest first. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'CFO')
+  @Get('release-sign-offs')
+  async releaseSignOffs(@CurrentCompany() companyId: string) {
+    const records = await this.prisma.auditRecord.findMany({
+      where: { companyId, entityType: 'ReleaseSignOff' },
+      orderBy: { occurredAt: 'desc' },
+      take: 50,
+      include: { user: { select: { fullName: true, email: true } } },
+    });
+    return records.map((r) => ({
+      id: r.id,
+      occurredAt: r.occurredAt,
+      status: r.status,
+      signedOffBy: r.user ? r.user.fullName || r.user.email : r.userId,
+      exceptionsAcknowledged: r.comments,
+      snapshot: r.newValueJson,
+    }));
   }
 
   /**
