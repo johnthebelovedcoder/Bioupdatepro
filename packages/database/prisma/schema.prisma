@@ -302,6 +302,7 @@ model Company {
   productionOrders               ProductionOrder[]
   inventoryTransfers              InventoryTransfer[]
   inventoryWriteOffs              InventoryWriteOff[]
+  kpiDefinitions                  KpiDefinition[]
 
   @@map("companies")
 }
@@ -6264,4 +6265,49 @@ model DepreciationEntry {
 
   @@unique([runId, assetId])
   @@map("depreciation_entries")
+}
+
+// ---------------------------------------------------------------------------
+// KPI definitions (US-897-034) — the nine KPIs `KpiService` computes are real
+// code, not registry data; this is the governance layer the story's own
+// first criterion asks for: each KPI's meaning as an inspectable row, not
+// only a code comment nobody outside this repo can read. Deliberately NOT a
+// formula-language engine — `formula` is a human-readable description of
+// what `KpiService` actually does, kept honest by construction (seeded
+// straight from that file's own doc comments, not invented), not a second
+// computation path that could drift from the real one.
+/// One governed definition per KPI this company's engine computes.
+model KpiDefinition {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// Matches `Kpi.key` in kpi.service.ts (e.g. "yield", "survivalRate").
+  key   String
+  label String
+
+  numerator   String
+  denominator String?
+  /// Human-readable description of the computation — not an executable
+  /// expression. The one true formula is `KpiService`'s own code; this
+  /// exists so a reader doesn't have to open the repo to know what it does.
+  formula String
+
+  /// Where this KPI is actually computed — a file:method pointer, so
+  /// "governed data" never drifts silently out of sync with the real logic.
+  source String
+
+  /// Which filter dimensions this KPI currently honours, e.g.
+  /// ["farm","period","batch"] — an empty array means company-wide only,
+  /// which is itself real information (not every KPI can be scoped, and
+  /// pretending otherwise would be worse than an honest empty list).
+  dimensions String[]
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, key])
+  @@map("kpi_definitions")
 }

@@ -400,8 +400,41 @@ export class ReportingController {
     @CurrentCompany() companyId: string,
     @Query('farmId') farmId?: string,
     @Query('financialYearId') financialYearId?: string,
+    @Query('groupId') groupId?: string,
   ) {
-    return this.kpis.build(companyId, farmId, financialYearId);
+    return this.kpis.build(companyId, farmId, financialYearId, groupId);
+  }
+
+  /**
+   * US-897-034's governance criterion: each KPI's meaning as an inspectable
+   * row (numerator/denominator/formula/source/dimensions), not only a code
+   * comment. Seeded from `KpiService`'s own doc comments, not invented —
+   * `formula` describes what the code does rather than being a second
+   * computation path that could drift from it.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('kpi-definitions')
+  async kpiDefinitions(@CurrentCompany() companyId: string) {
+    return this.prisma.kpiDefinition.findMany({
+      where: { companyId, active: true },
+      orderBy: { key: 'asc' },
+    });
+  }
+
+  /**
+   * The real transactions behind one KPI's number — same discipline trial-
+   * balance drill-through already gives an account balance, scoped to the
+   * KPIs whose source rows are a real, enumerable set.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('kpis/:key/drill-through')
+  async kpiDrillThrough(
+    @CurrentCompany() companyId: string,
+    @Param('key') key: string,
+    @Query('farmId') farmId?: string,
+    @Query('groupId') groupId?: string,
+  ) {
+    return this.kpis.drillThrough(companyId, key, farmId, groupId);
   }
 
   /**

@@ -42,23 +42,29 @@ export class KpiService {
    * yield, cost variance) plus gross margin to one farm — all five resolve
    * a farm dimension directly (`LivestockGroup`/`ProductionOrder` carry it,
    * and `ProfitLossService` forwards it to `journal_lines`' own embedded
-   * dimension). `financialYearId` covers the "period" dimension for gross
-   * margin and payroll cost/head, both clean for any year with no "as at
-   * today" to reconcile against. DSO, DPO and asset utilisation stay
-   * company-wide/current-year-only: DSO/DPO relate an "as at today" ageing
-   * figure to a year's revenue/purchases, which only holds together when
-   * that year IS the current one (see each method's own comment), and asset
-   * utilisation has no usage-tracking model to filter at all.
+   * dimension). `groupId` narrows the same four production-side KPIs
+   * further, to one batch/flock (`LivestockGroup.id`) — the app's own
+   * batch/flock dimension, alongside farmId rather than instead of it, so a
+   * caller can ask "this one cohort" without giving up the farm scope too.
+   * `financialYearId` covers the "period" dimension for gross margin and
+   * payroll cost/head, both clean for any year with no "as at today" to
+   * reconcile against. DSO, DPO and asset utilisation stay company-wide/
+   * current-year-only: DSO/DPO relate an "as at today" ageing figure to a
+   * year's revenue/purchases, which only holds together when that year IS
+   * the current one (see each method's own comment), and asset utilisation
+   * has no usage-tracking model to filter at all. Gross margin has no
+   * batch/flock dimension — it reads P&L journal lines, which carry a farm
+   * dimension but not a per-cohort one.
    */
-  async build(companyId: string, farmId?: string, financialYearId?: string): Promise<Kpi[]> {
+  async build(companyId: string, farmId?: string, financialYearId?: string, groupId?: string): Promise<Kpi[]> {
     const [survivalAndMortality, grossMargin, dso, dpo, payrollCostPerHead, yieldKpi, costVarianceKpi] = await Promise.all([
-      this.survivalAndMortality(companyId, farmId),
+      this.survivalAndMortality(companyId, farmId, groupId),
       this.grossMarginPercent(companyId, farmId, financialYearId),
       this.daysSalesOutstanding(companyId),
       this.daysPayableOutstanding(companyId),
       this.payrollCostPerHead(companyId, financialYearId),
-      this.yieldPercent(companyId, farmId),
-      this.costVariancePercent(companyId, farmId),
+      this.yieldPercent(companyId, farmId, groupId),
+      this.costVariancePercent(companyId, farmId, groupId),
     ]);
 
     return [
@@ -86,9 +92,9 @@ export class KpiService {
    * a single order; this is the outcome the client's KPI story actually asks
    * for, output realised versus output planned.
    */
-  private async yieldPercent(companyId: string, farmId?: string): Promise<Kpi> {
+  private async yieldPercent(companyId: string, farmId?: string, groupId?: string): Promise<Kpi> {
     const completed = await this.prisma.productionOrder.findMany({
-      where: { companyId, status: 'COMPLETED', ...(farmId ? { farmId } : {}) },
+      where: { companyId, status: 'COMPLETED', ...(farmId ? { farmId } : {}), ...(groupId ? { sourceGroupId: groupId } : {}) },
       select: { plannedOutputQuantity: true, outputs: { select: { quantity: true } } },
     });
     if (completed.length === 0) {
@@ -120,9 +126,14 @@ export class KpiService {
    * calculation, aggregated across every settled order instead of one at a
    * time. Positive means orders cost more than standard.
    */
-  private async costVariancePercent(companyId: string, farmId?: string): Promise<Kpi> {
+  private async costVariancePercent(companyId: string, farmId?: string, groupId?: string): Promise<Kpi> {
     const settled = await this.prisma.productionOrder.findMany({
-      where: { companyId, settledAt: { not: null }, ...(farmId ? { farmId } : {}) },
+      where: {
+        companyId,
+        settledAt: { not: null },
+        ...(farmId ? { farmId } : {}),
+        ...(groupId ? { sourceGroupId: groupId } : {}),
+      },
       select: { standardConversionCostKobo: true, actualLabourCostKobo: true, actualOverheadCostKobo: true },
     });
     if (settled.length === 0) {
@@ -156,18 +167,25 @@ export class KpiService {
    * and disposals, a gap already flagged against US-897-004. Counting actual
    * mortality records instead is the more honest figure this data supports.
    */
-  private async survivalAndMortality(companyId: string, farmId?: string): Promise<Kpi[]> {
+  private async survivalAndMortality(companyId: string, farmId?: string, groupId?: string): Promise<Kpi[]> {
+    const groupFilter = { companyId, ...(farmId ? { farmId } : {}), ...(groupId ? { id: groupId } : {}) };
     const [openingAgg, aliveAgg, deathsAgg] = await Promise.all([
       this.prisma.livestockGroup.aggregate({
-        where: { companyId, ...(farmId ? { farmId } : {}) },
+        where: groupFilter,
         _sum: { openingPopulation: true },
       }),
       this.prisma.livestockGroup.aggregate({
-        where: { companyId, ...(farmId ? { farmId } : {}) },
+        where: groupFilter,
         _sum: { population: true },
       }),
       this.prisma.mortalityRecord.aggregate({
-        where: { dailyRecord: { companyId, ...(farmId ? { group: { farmId } } : {}) } },
+        where: {
+          dailyRecord: {
+            companyId,
+            ...(farmId ? { group: { farmId } } : {}),
+            ...(groupId ? { groupId } : {}),
+          },
+        },
         _sum: { quantity: true },
       }),
     ]);
@@ -403,6 +421,126 @@ export class KpiService {
 
   private notComputable(key: string, label: string, format: Kpi['format'], reason: string): Kpi {
     return { key, label, value: null, format, computable: false, reason };
+  }
+
+  /**
+   * The transactions actually behind one KPI's number, so a reader can go
+   * from "yield is 91%" to the specific orders that made it so — the same
+   * discipline trial-balance drill-through already gives an account balance.
+   * Scoped to the KPIs whose source rows are a real, enumerable set (the
+   * four production KPIs, and payroll cost/head's own single run); the
+   * others (gross margin, DSO, DPO, asset utilisation) read journal-line or
+   * ageing aggregates that don't reduce to one clean row set the same way,
+   * so this says so honestly rather than fabricating a partial list.
+   */
+  async drillThrough(
+    companyId: string,
+    key: string,
+    farmId?: string,
+    groupId?: string,
+  ): Promise<{ key: string; supported: boolean; reason?: string; rows: Record<string, unknown>[] }> {
+    const orderFilter = {
+      companyId,
+      ...(farmId ? { farmId } : {}),
+      ...(groupId ? { sourceGroupId: groupId } : {}),
+    };
+
+    switch (key) {
+      case 'yield': {
+        const orders = await this.prisma.productionOrder.findMany({
+          where: { ...orderFilter, status: 'COMPLETED' },
+          select: {
+            id: true, orderNumber: true, processingCycle: true,
+            plannedOutputQuantity: true, outputs: { select: { quantity: true } },
+          },
+          orderBy: { orderNumber: 'asc' },
+        });
+        return {
+          key,
+          supported: true,
+          rows: orders.map((o) => ({
+            productionOrderId: o.id,
+            orderNumber: o.orderNumber,
+            processingCycle: o.processingCycle,
+            plannedOutputQuantity: o.plannedOutputQuantity.toString(),
+            actualOutputQuantity: o.outputs.reduce((s, out) => s + Number(out.quantity), 0).toString(),
+          })),
+        };
+      }
+      case 'costVariance': {
+        const orders = await this.prisma.productionOrder.findMany({
+          where: { ...orderFilter, settledAt: { not: null } },
+          select: {
+            id: true, orderNumber: true, processingCycle: true,
+            standardConversionCostKobo: true, actualLabourCostKobo: true, actualOverheadCostKobo: true,
+          },
+          orderBy: { orderNumber: 'asc' },
+        });
+        return {
+          key,
+          supported: true,
+          rows: orders.map((o) => ({
+            productionOrderId: o.id,
+            orderNumber: o.orderNumber,
+            processingCycle: o.processingCycle,
+            standardConversionCostKobo: o.standardConversionCostKobo.toString(),
+            actualCostKobo: (o.actualLabourCostKobo + o.actualOverheadCostKobo).toString(),
+          })),
+        };
+      }
+      case 'survivalRate':
+      case 'mortalityRate': {
+        const groups = await this.prisma.livestockGroup.findMany({
+          where: { companyId, ...(farmId ? { farmId } : {}), ...(groupId ? { id: groupId } : {}) },
+          select: {
+            id: true, code: true, speciesKey: true, openingPopulation: true, population: true,
+            dailyRecords: { select: { mortality: { select: { quantity: true } } } },
+          },
+          orderBy: { code: 'asc' },
+        });
+        return {
+          key,
+          supported: true,
+          rows: groups.map((g) => ({
+            groupId: g.id,
+            code: g.code,
+            speciesKey: g.speciesKey,
+            openingPopulation: g.openingPopulation,
+            currentPopulation: g.population,
+            confirmedDeaths: g.dailyRecords.reduce(
+              (s, dr) => s + dr.mortality.reduce((ds, m) => ds + m.quantity, 0),
+              0,
+            ),
+          })),
+        };
+      }
+      case 'payrollCostPerHead': {
+        const run = await this.prisma.payrollRun.findFirst({
+          where: { companyId, status: 'POSTED' },
+          orderBy: { payrollDate: 'desc' },
+          select: { id: true, financialYearId: true, payrollDate: true, totalGrossKobo: true, employeeCount: true },
+        });
+        return {
+          key,
+          supported: true,
+          rows: run
+            ? [{
+                payrollRunId: run.id,
+                payrollDate: run.payrollDate,
+                totalGrossKobo: run.totalGrossKobo.toString(),
+                employeeCount: run.employeeCount,
+              }]
+            : [],
+        };
+      }
+      default:
+        return {
+          key,
+          supported: false,
+          reason: `${key} reads an aggregate (journal lines or ageing) that doesn't reduce to one clean, enumerable row set — no drill-through built for it yet.`,
+          rows: [],
+        };
+    }
   }
 
   private elapsedDays(start: Date, today: Date): number {
