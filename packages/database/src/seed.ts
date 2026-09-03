@@ -469,6 +469,7 @@ const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> =
 
   // Biological assets (§43, §61, §67).
   { type: 'BA_VALUATION', name: 'Biological Asset Valuation', autoPost: true },
+  { type: 'BIOLOGICAL_ASSET_ABNORMAL_MORTALITY', name: 'Biological Asset — abnormal mortality claim', autoPost: true },
 
   // Fixed assets (US-897-025).
   { type: 'FIXED_ASSET_CAPITALISATION', name: 'Fixed Asset Capitalisation', autoPost: true },

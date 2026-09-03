@@ -349,14 +349,53 @@ export class BiologicalAssetService {
       const dayRatePercent = (mortality.quantity / Math.max(1, group.population)) * 100;
       const abnormal = dayRatePercent > thresholdPercent;
 
+      /*
+       * Normal mortality still posts straight away — a worker recording an
+       * ordinary loss should never wait on a reviewer. Abnormal mortality is
+       * different: it is real money leaving the balance sheet on a claim
+       * nobody has looked at yet, the exact gap the register named for
+       * `ProductionOrderService`'s own abnormal-loss claims and closed there
+       * first. Recorded here (classification set, journalEntryId still null —
+       * the same "visible but unposted" convention the processing side uses)
+       * and submitted through the same maker-checker engine rather than
+       * posted directly; `postApprovedAbnormalMortality()` posts on approval.
+       */
+      if (abnormal) {
+        await this.prisma.mortalityRecord.update({
+          where: { id: mortality.id },
+          data: { classification: 'ABNORMAL' },
+        });
+
+        const context = await this.postingContext(group.companyId, mortality.dailyRecord.recordedOn);
+        if (!context) {
+          return { posted: false, reason: 'No open period or cost centre for that date.' };
+        }
+        const valueKobo = BigInt(mortality.quantity) * group.currentFvlctsPerUnitKobo;
+
+        await this.workflow.submit({
+          companyId: group.companyId,
+          transactionType: 'BIOLOGICAL_ASSET_ABNORMAL_MORTALITY',
+          module: 'biological-assets',
+          documentType: 'MortalityRecord',
+          documentId: mortality.id,
+          documentReference: `BA-MORT-${mortality.id.slice(0, 8).toUpperCase()}`,
+          amount: kobo(valueKobo),
+          currencyId: context.company.baseCurrencyId,
+          branchId: group.branchId,
+          farmId: group.farmId,
+          costCentreId: context.costCentre.id,
+          actor: params.actor,
+        });
+
+        return { posted: false, reason: 'Abnormal mortality claim submitted for approval.' };
+      }
+
       const stage = await this.stageAccount({
         companyId: group.companyId,
         speciesKey: group.speciesKey,
         stage: group.stage,
       });
-      const debitAccount = abnormal
-        ? await this.abnormalLossAccount(group.companyId, group.speciesKey)
-        : await this.fairValueAccount(group.companyId, group.speciesKey);
+      const fairValue = await this.fairValueAccount(group.companyId, group.speciesKey);
       const context = await this.postingContext(group.companyId, mortality.dailyRecord.recordedOn);
       if (!context) {
         return { posted: false, reason: 'No open period or cost centre for that date.' };
@@ -382,12 +421,12 @@ export class BiologicalAssetService {
         sourceDocumentId: mortality.id,
         journalNumber: `BA-MORT-${mortality.id.slice(0, 8).toUpperCase()}`,
         journalDate: mortality.dailyRecord.recordedOn,
-        narration: `${mortality.quantity} ${abnormal ? 'abnormal' : 'normal'} deaths — ${group.code}`,
+        narration: `${mortality.quantity} normal deaths — ${group.code}`,
         ...dimensions,
         lines: [
           {
-            glAccountId: debitAccount.glAccountId,
-            description: `${abnormal ? 'Abnormal' : 'Normal'} mortality — ${group.code}`,
+            glAccountId: fairValue.glAccountId,
+            description: `Normal mortality — ${group.code}`,
             debit: kobo(valueKobo),
             dimensions,
           },
@@ -405,7 +444,7 @@ export class BiologicalAssetService {
       await this.prisma.mortalityRecord.update({
         where: { id: mortality.id },
         data: {
-          classification: abnormal ? 'ABNORMAL' : 'NORMAL',
+          classification: 'NORMAL',
           journalEntryId: result.journalEntryId,
         },
       });
@@ -416,6 +455,87 @@ export class BiologicalAssetService {
       this.logger.warn(`Mortality ${mortality.id} did not post: ${message}`);
       return { posted: false, reason: message };
     }
+  }
+
+  /** Posts the journal for an approved abnormal-mortality claim. */
+  async postApprovedAbnormalMortality(params: {
+    mortalityRecordId: string;
+    actor: WorkflowActor;
+    tx: Prisma.TransactionClient;
+  }): Promise<{ journalEntryId: string }> {
+    const mortality = await params.tx.mortalityRecord.findUniqueOrThrow({
+      where: { id: params.mortalityRecordId },
+      include: { dailyRecord: { include: { group: true } } },
+    });
+
+    if (mortality.journalEntryId) {
+      throw new AccountingRuleViolation(
+        'Rule 2 — Posted transactions are immutable',
+        `Mortality ${mortality.id} is already posted.`,
+        {},
+      );
+    }
+
+    const group = mortality.dailyRecord.group;
+    const stage = await this.stageAccount({ companyId: group.companyId, speciesKey: group.speciesKey, stage: group.stage });
+    const abnormalLoss = await this.abnormalLossAccount(group.companyId, group.speciesKey);
+    const context = await this.postingContext(group.companyId, mortality.dailyRecord.recordedOn);
+    if (!context) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §8 — Financial calendar',
+        `No open period covers ${mortality.dailyRecord.recordedOn.toISOString().slice(0, 10)}.`,
+        {},
+      );
+    }
+
+    const valueKobo = BigInt(mortality.quantity) * (group.currentFvlctsPerUnitKobo ?? 0n);
+    const dimensions = {
+      companyId: group.companyId,
+      branchId: group.branchId,
+      financialYearId: context.period.financialYearId,
+      financialPeriodId: context.period.id,
+      currencyId: context.company.baseCurrencyId,
+      exchangeRate: '1',
+      costCentreId: context.costCentre.id,
+      farmId: group.farmId,
+      penHouseId: group.penHouseId,
+    };
+
+    const result = await this.posting.post(
+      {
+        sourceModule: 'BIOLOGICAL_ASSETS',
+        sourceDocumentType: 'MORTALITY_RECORD',
+        sourceDocumentId: mortality.id,
+        journalNumber: `BA-MORT-${mortality.id.slice(0, 8).toUpperCase()}`,
+        journalDate: mortality.dailyRecord.recordedOn,
+        narration: `${mortality.quantity} abnormal deaths — ${group.code}`,
+        ...dimensions,
+        lines: [
+          {
+            glAccountId: abnormalLoss.glAccountId,
+            description: `Abnormal mortality — ${group.code}`,
+            debit: kobo(valueKobo),
+            dimensions,
+          },
+          {
+            glAccountId: stage.glAccountId,
+            description: `Carrying value written off — ${group.code}`,
+            credit: kobo(valueKobo),
+            dimensions,
+          },
+        ],
+        idempotencyKey: `ba-mortality:${mortality.id}`,
+        actor: params.actor,
+      },
+      params.tx,
+    );
+
+    await params.tx.mortalityRecord.update({
+      where: { id: mortality.id },
+      data: { journalEntryId: result.journalEntryId },
+    });
+
+    return result;
   }
 
   /* ------------------------------------------------------------------ */
