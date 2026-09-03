@@ -31,6 +31,11 @@ services:
     # devDependencies, which is where the build tools live: prisma, typescript,
     # @types/react, and pg for the SQL constraint step. Without this flag the
     # build fails on a missing package that is right there in package.json.
+    #
+    # `db:push` now always passes --accept-data-loss (added 2026-09-02, see
+    # packages/database/scripts/push.mjs for why) — a schema-moving push
+    # periodically adds a constraint db push can't prove safe without it, and
+    # refused outright rather than guess, which is what broke this deploy.
     buildCommand: npm install --include=dev && npm run db:generate && npm run db:push && npm run build --workspace @bioassetpro/api
     startCommand: node apps/api/dist/main.js
     healthCheckPath: /api/auth/providers

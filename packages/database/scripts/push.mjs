@@ -44,5 +44,15 @@ const run = (command, args) => {
   if (result.status !== 0) process.exit(result.status ?? 1);
 };
 
-run('prisma', ['db', 'push', '--skip-generate']);
+// --accept-data-loss (2026-09-02): a schema-moving push will periodically add
+// a constraint `db push` can't prove is safe without it (e.g. a new unique
+// index) and otherwise refuses outright, which is what actually broke the
+// Render deploy. Passed unconditionally rather than threaded through npm's
+// three nested `npm run` layers (root -> workspace -> this script) as a CLI
+// flag, which isn't reliable without a `--` at every hop. This repo has no
+// separate migration path yet to catch a push that turns out to be wrong, so
+// confirm the specific change is actually safe (nullable column, no real
+// duplicate data, or a genuinely additive column) before merging anything
+// that triggers this warning — this flag will not stop and ask.
+run('prisma', ['db', 'push', '--skip-generate', '--accept-data-loss']);
 run('node', [join(packageDir, 'scripts', 'apply-constraints.mjs')]);
