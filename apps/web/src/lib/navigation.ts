@@ -305,6 +305,12 @@ export const SECTIONS: NavSection[] = [
         hint: 'Turn on the current PAYE, pension, NHF, NSITF and ITF rates',
         keywords: ['payroll', 'paye', 'nhf', 'nsitf', 'itf', 'pension', 'statutory', 'tax'],
       },
+      {
+        href: '/finance/payroll/runs',
+        label: 'Payroll runs',
+        hint: 'Calculate, approve and post one month’s payroll',
+        keywords: ['payroll', 'run', 'salary', 'gross', 'net pay', 'approve'],
+      },
     ],
   },
 

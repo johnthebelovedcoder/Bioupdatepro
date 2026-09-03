@@ -98,6 +98,40 @@ export class PayrollRunService {
     });
   }
 
+  /** Every run this company has, newest first — what the web app's own list needs. */
+  async listRuns(companyId: string) {
+    const runs = await this.prisma.payrollRun.findMany({
+      where: { companyId },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      take: 100,
+    });
+
+    const pending = await this.prisma.workflowTransaction.findMany({
+      where: {
+        companyId,
+        documentType: 'PayrollRun',
+        documentId: { in: runs.map((r) => r.id) },
+        status: { in: ['SUBMITTED', 'UNDER_REVIEW'] },
+      },
+      select: { id: true, documentId: true },
+    });
+    const pendingByRun = new Map(pending.map((t) => [t.documentId, t.id]));
+
+    return runs.map((run) => ({
+      id: run.id,
+      reference: run.reference,
+      year: run.year,
+      month: run.month,
+      status: run.status,
+      employeeCount: run.employeeCount,
+      totalGrossKobo: run.totalGrossKobo.toString(),
+      totalNetPayKobo: run.totalNetPayKobo.toString(),
+      calculatedAt: run.calculatedAt,
+      postedAt: run.postedAt,
+      pendingTransactionId: pendingByRun.get(run.id) ?? null,
+    }));
+  }
+
   /**
    * §7 "Payroll Validation checks", run across the whole company before any
    * calculation. Reports every blocked employee rather than stopping at the

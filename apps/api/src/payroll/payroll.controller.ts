@@ -44,6 +44,12 @@ export class PayrollController {
     });
   }
 
+  /** Every run this company has, newest first — the web app's own runs list. */
+  @Get('runs')
+  async listRuns(@CurrentCompany() companyId: string) {
+    return this.runs.listRuns(companyId);
+  }
+
   @Post('runs')
   async createRun(
     @Body()
