@@ -266,6 +266,8 @@ model Company {
   employees                     Employee[]
   salaryComponents              SalaryComponent[]
   productRecipes                ProductRecipe[]
+  routingOperations              RoutingOperation[]
+  costPools                      CostPool[]
   journalTypes                  JournalType[]
   reasonCodes                   ReasonCode[]
   manualJournals                ManualJournal[]
@@ -427,6 +429,7 @@ model CostCentre {
   purchaseOrders       PurchaseOrder[]       @relation("PurchaseOrderCostCentre")
   supplierInvoices     SupplierInvoice[]     @relation("SupplierInvoiceCostCentre")
   fixedAssets          FixedAsset[]
+  routingOperations    RoutingOperation[]
 
   @@unique([companyId, code])
   @@index([parentId])
@@ -2156,6 +2159,132 @@ model ItemStandardCost {
 }
 
 // ---------------------------------------------------------------------------
+// Routing and Activity-Based Costing — BOM_Routing, ABC_Pools_Drivers,
+// MFG_ABC_Spec (US-897-014/015)
+//
+// Additive and standalone: neither model feeds the standard/actual
+// conversion-cost absorption `ProductionOrderService` already posts through
+// (PCR-053/054/055 etc., Built and live-verified) — that flat per-order
+// figure is unchanged. This gives the more granular, per-operation costing
+// view these two stories actually ask for, snapshotted onto its own order
+// line and computed alongside the GL rather than replacing it — the same
+// "informational, not a second posting path" relationship KPI/variance
+// figures already have with the ledger.
+//
+// The rates below are seeded straight from the workbook's own
+// ABC_Pools_Drivers sheet, which titles itself "Illustrative rate
+// calculation" — real numbers, real mechanism, the client's own
+// illustration pending confirmation, the same caveat Feed Mill's formula
+// already carries.
+// ---------------------------------------------------------------------------
+
+enum RoutingResourceType {
+  LABOUR
+  MACHINE
+}
+
+/// One operation on a recipe version's routing — the RTE-... rows in
+/// BOM_Routing. `setupHours` applies once per order; `runHoursPerUnit`
+/// multiplies by the order's own planned output quantity, matching the
+/// sheet's own note: "Machine setup time applies once per order; run time
+/// multiplies by actual output or input driver."
+model RoutingOperation {
+  id              String @id @default(uuid()) @db.Uuid
+  companyId       String @map("company_id") @db.Uuid
+  recipeVersionId String @map("recipe_version_id") @db.Uuid
+  costCentreId    String @map("cost_centre_id") @db.Uuid
+  costPoolId      String @map("cost_pool_id") @db.Uuid
+
+  sequence      Int
+  operationName String              @map("operation_name")
+  resourceType  RoutingResourceType @map("resource_type")
+
+  setupHours      Decimal @default(0) @map("setup_hours") @db.Decimal(18, 6)
+  runHoursPerUnit Decimal @default(0) @map("run_hours_per_unit") @db.Decimal(18, 6)
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company       Company                      @relation(fields: [companyId], references: [id])
+  recipeVersion ProductRecipeVersion         @relation(fields: [recipeVersionId], references: [id], onDelete: Cascade)
+  costCentre    CostCentre                   @relation(fields: [costCentreId], references: [id])
+  costPool      CostPool                     @relation(fields: [costPoolId], references: [id])
+  orderLines    ProductionOrderRoutingLine[]
+
+  @@unique([recipeVersionId, sequence])
+  @@map("routing_operations")
+}
+
+/// A routing operation's standard hours/cost, snapshotted onto a real
+/// production order at explosion — frozen against later routing or rate
+/// changes, the same discipline `ProductionOrderComponent` already gives the
+/// packaging BOM.
+model ProductionOrderRoutingLine {
+  id                 String @id @default(uuid()) @db.Uuid
+  productionOrderId  String @map("production_order_id") @db.Uuid
+  routingOperationId String @map("routing_operation_id") @db.Uuid
+
+  standardHours    Decimal @map("standard_hours") @db.Decimal(18, 6)
+  ratePerHourKobo  BigInt  @map("rate_per_hour_kobo")
+  standardCostKobo BigInt  @map("standard_cost_kobo")
+
+  productionOrder  ProductionOrder  @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  routingOperation RoutingOperation @relation(fields: [routingOperationId], references: [id])
+
+  @@unique([productionOrderId, routingOperationId])
+  @@map("production_order_routing_lines")
+}
+
+/// Activity cost pool — ABC_Pools_Drivers, MFG_ABC_Spec SOP-054/055.
+model CostPool {
+  id         String  @id @default(uuid()) @db.Uuid
+  companyId  String  @map("company_id") @db.Uuid
+  code       String
+  name       String
+  driverName String  @map("driver_name")
+  active     Boolean @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  company    Company            @relation(fields: [companyId], references: [id])
+  rates      CostPoolRate[]
+  operations RoutingOperation[]
+
+  @@unique([companyId, code])
+  @@map("cost_pools")
+}
+
+/// Effective-dated pool cost/capacity — the same closes-the-previous-row
+/// pattern `ItemStandardCost`/`MarketPriceList` already use.
+/// `rate = poolCostKobo / practicalCapacity`, computed and stored together
+/// so a later capacity correction can never silently redefine a rate that
+/// already fed a posted order.
+///
+/// Unused capacity cost (`poolCostKobo` minus rate × actually-consumed
+/// driver units) is deliberately NOT stored here — the workbook's own rule
+/// is "not silently loaded into product cost", so it is computed only at
+/// report time from real driver consumption, never folded into the rate.
+model CostPoolRate {
+  id     String @id @default(uuid()) @db.Uuid
+  poolId String @map("pool_id") @db.Uuid
+
+  poolCostKobo      BigInt  @map("pool_cost_kobo")
+  practicalCapacity Decimal @map("practical_capacity") @db.Decimal(18, 6)
+  ratePerUnitKobo   BigInt  @map("rate_per_unit_kobo")
+
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+
+  sourceReference String? @map("source_reference")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  pool CostPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@index([poolId, effectiveFrom])
+  @@map("cost_pool_rates")
+}
+
+// ---------------------------------------------------------------------------
 // §7 Employee Master
 // ---------------------------------------------------------------------------
 
@@ -2408,6 +2537,7 @@ model ProductRecipeVersion {
   approvedBy User?                    @relation("RecipeApprover", fields: [approvedById], references: [id])
   components ProductRecipeComponent[]
   productionOrders ProductionOrder[]
+  routingOperations RoutingOperation[]
 
   @@unique([recipeId, version])
   @@index([recipeId, status])
@@ -2600,6 +2730,7 @@ model ProductionOrder {
   components ProductionOrderComponent[]
   outputs    ProductionOrderOutput[]
   lossEvents ProductionOrderLossEvent[]
+  routingLines ProductionOrderRoutingLine[]
 
   @@unique([companyId, orderNumber])
   @@index([companyId, status])

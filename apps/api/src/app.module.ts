@@ -17,6 +17,7 @@ import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { ProductionModule } from './production/production.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PoultryEggModule } from './poultry-egg/poultry-egg.module';
+import { RoutingModule } from './routing/routing.module';
 import { MastersController } from './masters/masters.controller';
 import { MasterDataController } from './masters/master-data.controller';
 import { ProcurementController } from './procurement/procurement.controller';
@@ -28,6 +29,7 @@ import { FixedAssetsController } from './fixed-assets/fixed-assets.controller';
 import { ProductionOrderController } from './production/production-order.controller';
 import { InventoryController } from './inventory/inventory.controller';
 import { PoultryEggController } from './poultry-egg/poultry-egg.controller';
+import { RoutingController } from './routing/routing.controller';
 import { WorkflowController } from './workflow/workflow.controller';
 import { TaxController } from './tax/tax.controller';
 import { JournalsController } from './journals/journals.controller';
@@ -67,6 +69,7 @@ const developmentOnlyControllers =
     ProductionModule,
     InventoryModule,
     PoultryEggModule,
+    RoutingModule,
   ],
   providers: [KpiService],
   controllers: [
@@ -87,6 +90,7 @@ const developmentOnlyControllers =
     ProductionOrderController,
     InventoryController,
     PoultryEggController,
+    RoutingController,
     ...developmentOnlyControllers,
   ],
 })
