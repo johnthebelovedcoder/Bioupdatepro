@@ -465,6 +465,7 @@ const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> =
   { type: 'INVENTORY_ADJUSTMENT', name: 'Inventory Adjustment', autoPost: false },
   { type: 'PRODUCTION_ORDER', name: 'Production Order', autoPost: false },
   { type: 'MATERIAL_ISSUE', name: 'Material Issue', autoPost: false },
+  { type: 'PRODUCTION_ORDER_ABNORMAL_LOSS', name: 'Production Order — abnormal loss claim', autoPost: true },
 
   // Biological assets (§43, §61, §67).
   { type: 'BA_VALUATION', name: 'Biological Asset Valuation', autoPost: true },

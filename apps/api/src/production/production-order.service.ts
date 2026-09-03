@@ -828,64 +828,128 @@ export class ProductionOrderService {
       };
     }
 
+    /*
+     * An excess/abnormal claim moves real money out of WIP into an expense
+     * nobody has approved yet — the register's own audit named this as the
+     * one gap left in US-897-018 ("excess requires reason/evidence/approval").
+     * So this does not post directly: it records the claim (journalEntryId
+     * null — the same "visible but unposted until approved" convention
+     * OperationsPostingService already uses) and submits it through the same
+     * maker-checker engine every other posting-bearing document goes through.
+     * `postApprovedAbnormalLoss()` below does the actual posting once
+     * approved.
+     */
+    const lossEvent = await this.prisma.productionOrderLossEvent.create({
+      data: {
+        productionOrderId: order.id,
+        quantity: new Prisma.Decimal(new Decimal(params.quantity).toFixed(6)),
+        classification: 'ABNORMAL',
+        costKobo: abnormalPortionKobo,
+        reason:
+          abnormalPortionKobo < params.costKobo
+            ? `${params.reason} (${params.costKobo} kobo claimed; ${normalLossAllowanceKobo - previouslyAbnormal} kobo of it within recipe tolerance)`
+            : params.reason,
+        journalEntryId: null,
+      },
+    });
+
     const context = await this.postingContext(order.companyId, new Date());
+    if (!context) {
+      throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', `No open period for ${order.orderNumber}.`, {});
+    }
+
+    const result = await this.workflow.submit({
+      companyId: order.companyId,
+      transactionType: 'PRODUCTION_ORDER_ABNORMAL_LOSS',
+      module: 'production',
+      documentType: 'ProductionOrderLossEvent',
+      documentId: lossEvent.id,
+      documentReference: `${order.orderNumber}-LOSS`,
+      amount: kobo(abnormalPortionKobo),
+      currencyId: context.company.baseCurrencyId,
+      branchId: order.branchId,
+      farmId: order.farmId,
+      costCentreId: context.costCentre.id,
+      actor: params.actor,
+    });
+
+    return {
+      posted: false,
+      classification: 'ABNORMAL' as const,
+      lossEventId: lossEvent.id,
+      abnormalPortionKobo: abnormalPortionKobo.toString(),
+      awaitingApproval: result.transactionId,
+    };
+  }
+
+  /** Posts the journal for an approved abnormal-loss claim. */
+  async postApprovedAbnormalLoss(params: {
+    lossEventId: string;
+    actor: WorkflowActor;
+    tx: Prisma.TransactionClient;
+  }): Promise<{ journalEntryId: string }> {
+    const lossEvent = await params.tx.productionOrderLossEvent.findUniqueOrThrow({
+      where: { id: params.lossEventId },
+      include: { productionOrder: { include: { sourceGroup: true, recipeVersion: true } } },
+    });
+
+    if (lossEvent.journalEntryId) {
+      throw new AccountingRuleViolation(
+        'Rule 2 — Posted transactions are immutable',
+        `This loss claim on ${lossEvent.productionOrder.orderNumber} is already posted.`,
+        { productionOrderId: lossEvent.productionOrderId },
+      );
+    }
+
+    const order = lossEvent.productionOrder;
+    const rules = this.cycleRules(order.processingCycle);
+    const context = await this.postingContext(order.companyId, new Date(), params.tx);
     if (!context) {
       throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', `No open period for ${order.orderNumber}.`, {});
     }
     const dimensions = this.dimensions(order, context);
     const rule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.abnormalLossRuleId, on: new Date() });
 
-    return this.prisma.$transaction(async (tx) => {
-      const result = await this.posting.post(
-        {
-          sourceModule: 'production',
-          sourceDocumentType: 'ProductionOrder',
-          sourceDocumentId: order.id,
-          journalNumber: `${order.orderNumber}-LOSS-${order.abnormalLossCostKobo === 0n ? '1' : '2'}`,
-          journalDate: new Date(),
-          narration: `Abnormal processing loss on ${order.orderNumber}: ${params.reason}`,
-          ...dimensions,
-          idempotencyKey: `production-order:${order.id}:loss:${params.quantity}`,
-          actor: params.actor,
-          lines: [
-            {
-              glAccountId: this.requireSide(rule.debit, rules.abnormalLossRuleId, 'debit').glAccountId,
-              description: `${rules.abnormalLossRuleId} — abnormal processing loss (${order.orderNumber})`,
-              debit: kobo(abnormalPortionKobo),
-              dimensions,
-            },
-            {
-              glAccountId: this.requireSide(rule.credit, rules.abnormalLossRuleId, 'credit').glAccountId,
-              description: `${rules.abnormalLossRuleId} — abnormal processing loss (${order.orderNumber})`,
-              credit: kobo(abnormalPortionKobo),
-              dimensions,
-            },
-          ],
-        },
-        tx,
-      );
+    const result = await this.posting.post(
+      {
+        sourceModule: 'production',
+        sourceDocumentType: 'ProductionOrder',
+        sourceDocumentId: order.id,
+        journalNumber: `${order.orderNumber}-LOSS-${order.abnormalLossCostKobo === 0n ? '1' : '2'}`,
+        journalDate: new Date(),
+        narration: `Abnormal processing loss on ${order.orderNumber}: ${lossEvent.reason}`,
+        ...dimensions,
+        idempotencyKey: `production-order-loss-event:${lossEvent.id}`,
+        actor: params.actor,
+        lines: [
+          {
+            glAccountId: this.requireSide(rule.debit, rules.abnormalLossRuleId, 'debit').glAccountId,
+            description: `${rules.abnormalLossRuleId} — abnormal processing loss (${order.orderNumber})`,
+            debit: kobo(lossEvent.costKobo),
+            dimensions,
+          },
+          {
+            glAccountId: this.requireSide(rule.credit, rules.abnormalLossRuleId, 'credit').glAccountId,
+            description: `${rules.abnormalLossRuleId} — abnormal processing loss (${order.orderNumber})`,
+            credit: kobo(lossEvent.costKobo),
+            dimensions,
+          },
+        ],
+      },
+      params.tx,
+    );
 
-      await tx.productionOrderLossEvent.create({
-        data: {
-          productionOrderId: order.id,
-          quantity: new Prisma.Decimal(new Decimal(params.quantity).toFixed(6)),
-          classification: 'ABNORMAL',
-          costKobo: abnormalPortionKobo,
-          reason:
-            abnormalPortionKobo < params.costKobo
-              ? `${params.reason} (${params.costKobo} kobo claimed; ${normalLossAllowanceKobo - previouslyAbnormal} kobo of it within recipe tolerance)`
-              : params.reason,
-          journalEntryId: result.journalEntryId,
-        },
-      });
+    await params.tx.productionOrderLossEvent.update({
+      where: { id: lossEvent.id },
+      data: { journalEntryId: result.journalEntryId },
+    });
 
-      await tx.productionOrder.update({
-        where: { id: order.id },
-        data: { abnormalLossCostKobo: order.abnormalLossCostKobo + abnormalPortionKobo },
-      });
+    await params.tx.productionOrder.update({
+      where: { id: order.id },
+      data: { abnormalLossCostKobo: order.abnormalLossCostKobo + lossEvent.costKobo },
+    });
 
-      return { ...result, posted: true, classification: 'ABNORMAL' as const, abnormalPortionKobo: abnormalPortionKobo.toString() };
-    }, { timeout: 15000 });
+    return result;
   }
 
   // -------------------------------------------------------------------------
@@ -922,6 +986,26 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
+
+    /*
+     * An abnormal claim still awaiting approval has not moved anything out
+     * of WIP yet (`order.abnormalLossCostKobo` only increments on posting,
+     * see `postApprovedAbnormalLoss()`) — allocating outputs now would spread
+     * that claim's cost across finished goods as if it had been approved,
+     * silently pre-empting whatever a reviewer decides. Refuse until every
+     * claim has a real journalEntryId, one way or the other.
+     */
+    const pendingLoss = await this.prisma.productionOrderLossEvent.findFirst({
+      where: { productionOrderId: order.id, classification: 'ABNORMAL', journalEntryId: null },
+    });
+    if (pendingLoss) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §9 — Processing loss',
+        `${order.orderNumber} has an abnormal-loss claim still awaiting approval — outputs cannot be received until it posts or is rejected.`,
+        { orderNumber: order.orderNumber, lossEventId: pendingLoss.id },
+      );
+    }
+
     const rules = this.cycleRules(order.processingCycle);
 
     const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
@@ -1233,18 +1317,28 @@ export class ProductionOrderService {
     };
   }
 
-  private async postingContext(companyId: string, on: Date) {
+  /**
+   * `client` defaults to the plain PrismaService — pass a transaction's own
+   * `tx` when this is called from inside a workflow-approval handler, so the
+   * read is part of the same transaction as the posting it feeds, not a
+   * separate one racing alongside it.
+   */
+  private async postingContext(
+    companyId: string,
+    on: Date,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
     const [period, costCentre, company] = await Promise.all([
-      this.prisma.financialPeriod.findFirst({
+      client.financialPeriod.findFirst({
         where: { financialYear: { companyId }, startDate: { lte: on }, endDate: { gte: on }, status: 'OPEN' },
         select: { id: true, financialYearId: true },
       }),
-      this.prisma.costCentre.findFirst({
+      client.costCentre.findFirst({
         where: { companyId, active: true },
         orderBy: { code: 'asc' },
         select: { id: true },
       }),
-      this.prisma.company.findUniqueOrThrow({ where: { id: companyId } }),
+      client.company.findUniqueOrThrow({ where: { id: companyId } }),
     ]);
     if (!period || !costCentre) return null;
     return { period, costCentre, company };
