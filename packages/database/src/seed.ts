@@ -14,6 +14,7 @@
 import { PrismaClient, AccountType, NormalBalance, WarehouseType } from '../generated/client';
 import { seedPostingControl } from './seed-posting-control';
 import { seedKpiDefinitions } from './seed-kpi-definitions';
+import { seedReportDefinitions } from './seed-report-definitions';
 import { seedSpecChart } from './seed-spec-coa';
 import { seedBiologicalAssets } from './seed-biological-assets';
 import {
@@ -349,6 +350,7 @@ async function main(): Promise<void> {
   const control = await seedPostingControl(prisma, company.id);
   const bioAssets = await seedBiologicalAssets(prisma, company.id);
   await seedKpiDefinitions(prisma, company.id);
+  await seedReportDefinitions(prisma, company.id);
 
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +

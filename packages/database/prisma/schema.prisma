@@ -303,6 +303,7 @@ model Company {
   inventoryTransfers              InventoryTransfer[]
   inventoryWriteOffs              InventoryWriteOff[]
   kpiDefinitions                  KpiDefinition[]
+  reportDefinitions               ReportDefinition[]
 
   @@map("companies")
 }
@@ -6310,4 +6311,57 @@ model KpiDefinition {
 
   @@unique([companyId, key])
   @@map("kpi_definitions")
+}
+
+// ---------------------------------------------------------------------------
+// Report catalogue (US-897-033) — the report index page has always been a
+// hardcoded array in the web app (deliberately, until now: nothing consumed
+// governed report metadata, so a database-driven catalogue would have been
+// scope invented ahead of any need). KpiDefinition established the pattern
+// this criterion itself asks for; this is the report-level equivalent —
+// purpose/owner/frequency/source/filters/measures as real, inspectable rows,
+// and the web app's own reports index now reads them instead of its old
+// static array, so the "consumer" this was waiting on is real, not notional.
+/// One governed definition per report this company can run.
+model ReportDefinition {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// Stable slug, e.g. "trial-balance". Matches the web route's own segment.
+  key  String
+  name String
+
+  purpose String
+  /// The role accountable for this report existing/being right — not who is
+  /// merely allowed to view it (that's the endpoint's own @Roles() guard).
+  owner String
+  /// Free text, e.g. "On demand", "Monthly close" — not an enum, since the
+  /// client's own cadence for each report was never specified as a fixed set.
+  frequency String
+
+  /// Where the figures actually come from — a file:method pointer, so this
+  /// row can never claim a computation the code doesn't actually do.
+  source String
+
+  /// Query params the report's own endpoint actually accepts.
+  filters String[]
+  /// What each row/figure in the report actually represents.
+  measures String[]
+
+  /// The web route this report lives at, e.g. "/ledger/trial-balance".
+  webPath String @map("web_path")
+  /// The read endpoint itself, e.g. "GET /reporting/trial-balance".
+  apiEndpoint String @map("api_endpoint")
+
+  exportSupported       Boolean @default(false) @map("export_supported")
+  drillThroughSupported Boolean @default(false) @map("drill_through_supported")
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, key])
+  @@map("report_definitions")
 }

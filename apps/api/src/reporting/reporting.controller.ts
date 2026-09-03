@@ -422,6 +422,22 @@ export class ReportingController {
   }
 
   /**
+   * US-897-033's own governance criterion: purpose/owner/frequency/source/
+   * filters/measures for every report this company can run, as real,
+   * inspectable rows — the web app's own reports index now reads this
+   * instead of its old hardcoded array, so this is a real consumer, not
+   * scope built ahead of one.
+   */
+  @AnyRole('Every signed-in user needs to know what reports exist before they can ask for one.')
+  @Get('catalogue')
+  async reportCatalogue(@CurrentCompany() companyId: string) {
+    return this.prisma.reportDefinition.findMany({
+      where: { companyId, active: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  /**
    * The real transactions behind one KPI's number — same discipline trial-
    * balance drill-through already gives an account balance, scoped to the
    * KPIs whose source rows are a real, enumerable set.
