@@ -121,6 +121,12 @@ export class JournalsController {
     return this.journals.cancel(body);
   }
 
+  /** Active reason codes this company has configured — the create-journal form's picker needs them. */
+  @Get('reason-codes')
+  async reasonCodes(@CurrentCompany() companyId: string) {
+    return this.journals.listReasonCodes(companyId);
+  }
+
   @Get('register')
   async register(
     @CurrentCompany() companyId: string,
@@ -139,6 +145,12 @@ export class JournalsController {
   }
 
   // --- Recurring ----------------------------------------------------------
+
+  /** Every recurring-journal template this company has — the web app's own list needs it. */
+  @Get('recurring')
+  async listRecurring(@CurrentCompany() companyId: string) {
+    return this.recurring.listTemplates(companyId);
+  }
 
   @Post('recurring')
   async createRecurring(

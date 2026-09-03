@@ -634,6 +634,16 @@ export class ManualJournalService {
     }));
   }
 
+  /** Active reason codes this company has configured — the web form's own picker needs them. */
+  async listReasonCodes(companyId: string) {
+    const rows = await this.prisma.reasonCode.findMany({
+      where: { companyId, active: true },
+      orderBy: { name: 'asc' },
+      select: { code: true, name: true, journalTypeId: true },
+    });
+    return rows.map((row) => ({ code: row.code, name: row.name, journalTypeId: row.journalTypeId }));
+  }
+
   // -------------------------------------------------------------------------
 
   private assertLinesBalance(lines: ManualJournalLineInput[]): void {

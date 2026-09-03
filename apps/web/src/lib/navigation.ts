@@ -311,6 +311,18 @@ export const SECTIONS: NavSection[] = [
         hint: 'Calculate, approve and post one month’s payroll',
         keywords: ['payroll', 'run', 'salary', 'gross', 'net pay', 'approve'],
       },
+      /*
+       * Same role boundary as payroll runs above — JournalsController only
+       * ever admits Finance Controller, Finance Manager, Farm Accountant and
+       * CFO, so this lives in Money rather than under Books, which the
+       * read-only posted-journal register belongs to instead.
+       */
+      {
+        href: '/finance/journals',
+        label: 'Journals',
+        hint: 'Raise a manual journal, or set up a recurring accrual/prepayment',
+        keywords: ['journal', 'accrual', 'prepayment', 'recurring', 'manual', 'entry'],
+      },
     ],
   },
 

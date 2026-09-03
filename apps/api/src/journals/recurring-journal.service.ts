@@ -226,6 +226,33 @@ export class RecurringJournalService {
     });
   }
 
+  /** Every template this company has, newest first — what the web app's own list needs. */
+  async listTemplates(companyId: string) {
+    const templates = await this.prisma.recurringJournal.findMany({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        journalType: { select: { code: true, name: true } },
+        lines: { select: { debitKobo: true, creditKobo: true } },
+      },
+    });
+
+    return templates.map((t) => ({
+      id: t.id,
+      code: t.code,
+      name: t.name,
+      journalType: t.journalType.name,
+      basis: t.basis,
+      frequency: t.frequency,
+      dayOfMonth: t.dayOfMonth,
+      startDate: t.startDate,
+      endDate: t.endDate,
+      nextRunDate: t.nextRunDate,
+      active: t.active,
+      amountKobo: t.lines.reduce((s, l) => s + l.debitKobo, 0n).toString(),
+    }));
+  }
+
   async create(input: {
     companyId: string;
     journalTypeCode: string;
