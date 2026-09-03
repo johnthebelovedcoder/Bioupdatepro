@@ -62,3 +62,37 @@ export class DepreciationRunPostingHandler implements WorkflowPostingHandler {
     });
   }
 }
+
+/** Registers fixed-asset disposal against the shared workflow engine. */
+@Injectable()
+export class FixedAssetDisposalPostingHandler implements WorkflowPostingHandler {
+  readonly transactionType = 'FIXED_ASSET_DISPOSAL';
+
+  constructor(
+    @Inject(forwardRef(() => FixedAssetService))
+    private readonly assets: FixedAssetService,
+  ) {}
+
+  async post(input: {
+    transactionId: string;
+    documentReference: string;
+    payload: Prisma.JsonValue;
+    actor: WorkflowActor;
+    tx: Prisma.TransactionClient;
+  }): Promise<{ journalEntryId: string }> {
+    const transaction = await input.tx.workflowTransaction.findUniqueOrThrow({
+      where: { id: input.transactionId },
+      select: { documentId: true },
+    });
+
+    const payload = input.payload as { disposedOn?: string } | null;
+    const disposedOn = payload?.disposedOn ? new Date(payload.disposedOn) : new Date();
+
+    return this.assets.postApprovedDisposal({
+      assetId: transaction.documentId,
+      disposedOn,
+      actor: input.actor,
+      tx: input.tx,
+    });
+  }
+}

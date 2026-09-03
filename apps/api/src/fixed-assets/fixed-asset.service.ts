@@ -427,6 +427,200 @@ export class FixedAssetService {
     return { journalEntryId: result.journalEntryId };
   }
 
+  /**
+   * Dispose an asset — PCR-029's own reversal column names "Asset reversal/
+   * disposal workflow" as the mechanism, but there is no dedicated posting
+   * rule anywhere in the client's approved table for a disposal gain/loss
+   * account, unlike capitalisation (PCR-029) and depreciation (PCR-030). A
+   * clean reversal of the original capitalisation would also undo the
+   * Payables side, which is wrong — that liability was real and settled
+   * separately, not something disposal un-happens.
+   *
+   * Rather than invent a "Gain/Loss on Disposal" account nobody has approved,
+   * this treats disposal as bringing the asset's own accumulated depreciation
+   * to exactly its cost — Dr Accumulated Depreciation (what's posted so far)
+   * / Dr Depreciation Expense (whatever net book value remains, as a final
+   * catch-up charge) / Cr PPE (the full original cost) — three lines that
+   * always balance, using only the two governed accounts (1701, 1702, 5501)
+   * this cycle already has. A fully depreciated asset posts with a zero-value
+   * (omitted) Depreciation Expense line; nothing here is invented for that
+   * case either.
+   */
+  async dispose(params: {
+    assetId: string;
+    actor: WorkflowActor;
+    disposedOn: Date;
+  }) {
+    const asset = await this.prisma.fixedAsset.findUniqueOrThrow({ where: { id: params.assetId } });
+
+    if (asset.status !== WorkflowStatus.POSTED) {
+      throw new AccountingRuleViolation(
+        'PCR-029 — Fixed asset capitalisation',
+        `${asset.assetNumber} is not yet a posted, in-service asset (status ${asset.status}).`,
+        { assetNumber: asset.assetNumber },
+      );
+    }
+    if (asset.disposedOn) {
+      throw new AccountingRuleViolation(
+        'Rule 2 — Posted transactions are immutable',
+        `${asset.assetNumber} was already disposed on ${asset.disposedOn.toISOString().slice(0, 10)}.`,
+        { assetNumber: asset.assetNumber },
+      );
+    }
+
+    const context = await this.prisma.company.findUniqueOrThrow({
+      where: { id: asset.companyId },
+      select: { baseCurrencyId: true, branches: { where: { active: true }, take: 1, select: { id: true } } },
+    });
+    const branch = context.branches[0];
+    if (!branch) throw new AccountingRuleViolation('§1 — Company setup', 'This company has no active branch.', {});
+
+    const netBookValueKobo = asset.costKobo - asset.accumulatedDepreciationKobo;
+
+    const result = await this.workflow.submit({
+      companyId: asset.companyId,
+      transactionType: 'FIXED_ASSET_DISPOSAL',
+      module: 'fixed-assets',
+      // Deliberately NOT 'FixedAsset' — WorkflowTransaction's own uniqueness
+      // is (module, documentType, documentId) with no transactionType in the
+      // key, so reusing the same documentType as capitalise() would collide
+      // with that asset's own already-POSTED capitalisation transaction and
+      // refuse to submit ("already in workflow"). A distinct documentType is
+      // enough to give disposal its own row on the same underlying asset —
+      // no new table needed, since documentId is still the asset's own id and
+      // every other query here reads listAssets()'s pending lookup off
+      // documentId alone, not documentType.
+      documentType: 'FixedAssetDisposal',
+      documentId: asset.id,
+      documentReference: asset.assetNumber,
+      amount: kobo(netBookValueKobo),
+      currencyId: context.baseCurrencyId,
+      branchId: branch.id,
+      costCentreId: asset.costCentreId ?? undefined,
+      actor: params.actor,
+      postingPayload: { disposedOn: params.disposedOn.toISOString() },
+    });
+
+    await this.prisma.fixedAsset.update({
+      where: { id: asset.id },
+      data: { status: WorkflowStatus.SUBMITTED, workflowTransactionId: result.transactionId },
+    });
+
+    await this.audit.write({
+      transactionId: asset.id,
+      module: 'fixed-assets',
+      entityType: 'FixedAsset',
+      entityId: asset.id,
+      status: WorkflowStatus.SUBMITTED,
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      comments: `Raised disposal of ${asset.assetNumber}, net book value ${netBookValueKobo.toString()} kobo.`,
+    });
+
+    return {
+      assetId: asset.id,
+      assetNumber: asset.assetNumber,
+      netBookValueKobo: netBookValueKobo.toString(),
+      awaitingApproval: result.transactionId,
+    };
+  }
+
+  async postApprovedDisposal(params: {
+    assetId: string;
+    disposedOn: Date;
+    actor: WorkflowActor;
+    tx: Prisma.TransactionClient;
+  }): Promise<{ journalEntryId: string }> {
+    const asset = await params.tx.fixedAsset.findUniqueOrThrow({ where: { id: params.assetId } });
+
+    if (asset.disposedOn) {
+      throw new AccountingRuleViolation(
+        'Rule 2 — Posted transactions are immutable',
+        `${asset.assetNumber} was already disposed.`,
+        { assetNumber: asset.assetNumber },
+      );
+    }
+
+    const [accounts, context, period] = await Promise.all([
+      this.resolveAccounts(asset.companyId, params.tx, [
+        'ppe',
+        'accumulatedDepreciation',
+        'depreciationExpense',
+      ]),
+      params.tx.company.findUniqueOrThrow({
+        where: { id: asset.companyId },
+        select: { baseCurrencyId: true, branches: { where: { active: true }, take: 1, select: { id: true } } },
+      }),
+      this.currentPeriod(asset.companyId, params.disposedOn, params.tx),
+    ]);
+    const branch = context.branches[0]!;
+
+    const dimensions = {
+      companyId: asset.companyId,
+      branchId: branch.id,
+      financialYearId: period.financialYearId,
+      financialPeriodId: period.id,
+      currencyId: context.baseCurrencyId,
+      exchangeRate: '1.00000000',
+      costCentreId: asset.costCentreId,
+    };
+
+    const netBookValueKobo = asset.costKobo - asset.accumulatedDepreciationKobo;
+
+    const lines = [
+      {
+        glAccountId: accounts.accumulatedDepreciation,
+        description: `Disposal — ${asset.assetNumber} (accumulated depreciation)`,
+        debit: kobo(asset.accumulatedDepreciationKobo),
+        dimensions,
+      },
+      ...(netBookValueKobo > 0n
+        ? [
+            {
+              glAccountId: accounts.depreciationExpense,
+              description: `Disposal — ${asset.assetNumber} (remaining net book value written off)`,
+              debit: kobo(netBookValueKobo),
+              dimensions,
+            },
+          ]
+        : []),
+      {
+        glAccountId: accounts.ppe,
+        description: `Disposal — ${asset.assetNumber}`,
+        credit: kobo(asset.costKobo),
+        dimensions,
+      },
+    ];
+
+    const result = await this.posting.post(
+      {
+        sourceModule: 'fixed-assets',
+        sourceDocumentType: 'FixedAsset',
+        sourceDocumentId: asset.id,
+        journalNumber: `DISPOSAL-${asset.assetNumber}`,
+        journalDate: params.disposedOn,
+        narration: `Disposal of ${asset.assetNumber} — ${asset.name}`,
+        ...dimensions,
+        idempotencyKey: `fixed-asset-disposal:${asset.id}`,
+        actor: params.actor,
+        lines,
+      },
+      params.tx,
+    );
+
+    await params.tx.fixedAsset.update({
+      where: { id: asset.id },
+      data: {
+        status: WorkflowStatus.POSTED,
+        disposedOn: params.disposedOn,
+        accumulatedDepreciationKobo: asset.costKobo,
+      },
+    });
+
+    this.logger.log(`Posted disposal of ${asset.assetNumber}`);
+    return { journalEntryId: result.journalEntryId };
+  }
+
   // -------------------------------------------------------------------------
 
   private async nextAssetNumber(companyId: string): Promise<string> {

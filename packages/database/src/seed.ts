@@ -472,6 +472,7 @@ const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> =
   // Fixed assets (US-897-025).
   { type: 'FIXED_ASSET_CAPITALISATION', name: 'Fixed Asset Capitalisation', autoPost: true },
   { type: 'DEPRECIATION_RUN', name: 'Depreciation Run', autoPost: true },
+  { type: 'FIXED_ASSET_DISPOSAL', name: 'Fixed Asset Disposal', autoPost: true },
 
   // Payroll and period control.
   { type: 'PAYROLL_RUN', name: 'Payroll Processing', autoPost: true },

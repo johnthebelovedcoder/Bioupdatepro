@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { FixedAssetService } from './fixed-asset.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { AnyRole, Roles } from '../auth/roles.guard';
@@ -61,6 +61,21 @@ export class FixedAssetsController {
       companyId,
       actor,
       financialPeriodId: body.financialPeriodId,
+    });
+  }
+
+  /** Same maker/approver tier — a disposal moves the ledger once approved too. */
+  @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('assets/:id/dispose')
+  async dispose(
+    @Param('id') id: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { disposedOn: string },
+  ) {
+    return this.assets.dispose({
+      assetId: id,
+      actor,
+      disposedOn: new Date(body.disposedOn),
     });
   }
 }
