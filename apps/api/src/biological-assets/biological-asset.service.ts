@@ -149,7 +149,7 @@ export class BiologicalAssetService {
     return { glAccountId: account.id };
   }
 
-  private async fairValueAccount(
+  async fairValueAccount(
     companyId: string,
     speciesKey: string,
   ): Promise<{ glAccountId: string }> {
@@ -190,7 +190,7 @@ export class BiologicalAssetService {
   }
 
   /** The open period and cost centre a posting needs. Null when either is missing. */
-  private async postingContext(companyId: string, on: Date) {
+  async postingContext(companyId: string, on: Date) {
     const [period, costCentre, company] = await Promise.all([
       this.prisma.financialPeriod.findFirst({
         where: { financialYear: { companyId }, startDate: { lte: on }, endDate: { gte: on }, status: 'OPEN' },

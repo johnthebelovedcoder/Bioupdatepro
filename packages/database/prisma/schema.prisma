@@ -189,6 +189,9 @@ model User {
   treatmentsRecorded        TreatmentRecord[]          @relation("TreatmentRecorder")
   harvestsRecorded          HarvestRecord[]            @relation("HarvestRecorder")
   stageChangesRecorded      StageChange[]              @relation("StageChangeRecorder")
+  eggBatchesRecorded        EggCollectionBatch[]       @relation("EggCollectionRecorder")
+  incubationBatchesRecorded IncubationBatch[]          @relation("IncubationRecorder")
+  hatchEventsRecorded       HatchEvent[]               @relation("HatchRecorder")
   invitationsSent           Invitation[]               @relation("InvitationSender")
   valuationsPrepared        BiologicalAssetValuation[] @relation("ValuationPreparer")
   fixedAssetsCapitalised    FixedAsset[]               @relation("FixedAssetCapitaliser")
@@ -230,6 +233,9 @@ model Company {
   treatmentRecords              TreatmentRecord[]
   harvestRecords                HarvestRecord[]
   stageChanges                  StageChange[]
+  eggCollectionBatches          EggCollectionBatch[]
+  incubationBatches             IncubationBatch[]
+  hatchEvents                   HatchEvent[]
   branches                      Branch[]
   departments                   Department[]
   costCentres                   CostCentre[]
@@ -352,6 +358,7 @@ model Branch {
   productionOrders     ProductionOrder[]
   inventoryTransfers   InventoryTransfer[]
   inventoryWriteOffs   InventoryWriteOff[]
+  eggCollectionBatches EggCollectionBatch[]
 
   @@unique([companyId, code])
   @@map("branches")
@@ -658,6 +665,7 @@ model Farm {
   purchaseOrders       PurchaseOrder[]
   supplierInvoices     SupplierInvoice[]
   productionOrders     ProductionOrder[]
+  eggCollectionBatches EggCollectionBatch[]
 
   @@unique([companyId, code])
   @@map("farms")
@@ -680,6 +688,7 @@ model PenHouse {
   livestockGroups    LivestockGroup[]    @relation("GroupPenHouse")
   stageChangesFrom   StageChange[]       @relation("StageChangeFrom")
   stageChangesTo     StageChange[]       @relation("StageChangeTo")
+  eggCollectionBatches EggCollectionBatch[]
 
   @@unique([farmId, code])
   @@map("pen_houses")
@@ -798,6 +807,8 @@ model JournalEntry {
   treatmentRecords          TreatmentRecord[]          @relation("TreatmentJournal")
   harvestRecords            HarvestRecord[]            @relation("HarvestJournal")
   mortalityRecords          MortalityRecord[]          @relation("MortalityJournal")
+  eggCollectionBatches      EggCollectionBatch[]       @relation("EggCollectionJournal")
+  hatchEvents               HatchEvent[]                @relation("HatchJournal")
   stageChanges              StageChange[]              @relation("StageChangeJournal")
   biologicalAssetValuations BiologicalAssetValuation[]
   livestockDisposals        LivestockGroupDisposal[]   @relation("LivestockDisposalJournal")
@@ -5362,6 +5373,8 @@ model LivestockGroup {
   valuations   BiologicalAssetValuation[]
   disposals    LivestockGroupDisposal[]
   productionOrders ProductionOrder[]
+  eggBatches   EggCollectionBatch[]       @relation("EggSourceGroup")
+  hatchedFrom  HatchEvent[]               @relation("HatchChickGroup")
 
   @@unique([companyId, code])
   @@index([companyId, speciesKey, status])
@@ -5691,6 +5704,139 @@ model HarvestRecord {
   @@index([companyId, harvestedOn])
   @@index([groupId, harvestedOn])
   @@map("harvest_records")
+}
+
+/// PoultryPro egg collection — Poultry_Egg_Production P-EGG-02, PCR-067.
+///
+/// Physically counted at the nest, then graded into hatching/table/reject —
+/// `totalCount = hatchingCount + tableCount + rejectCount` is enforced by the
+/// service, the same mass-balance discipline every other lifecycle event in
+/// this codebase already uses (Rule 7's WIP closure, hatch reconciliation).
+///
+/// Deliberately carries NO carrying value and posts NO journal. PCR-067's own
+/// basis is "Approved egg quantity × policy value" and the client's own
+/// Decision Register (DEC-002, "Egg recognition") is still Open — assigning a
+/// value here would be inventing the fair-value policy the client has not yet
+/// set, the same reason `HarvestRecord`/`recordHarvest()` already defers BA
+/// harvest valuation. `journalEntryId` exists as a forward-compatible
+/// placeholder for when DEC-002 resolves, exactly like `HarvestRecord`'s own.
+model EggCollectionBatch {
+  id            String  @id @default(uuid()) @db.Uuid
+  companyId     String  @map("company_id") @db.Uuid
+  branchId      String  @map("branch_id") @db.Uuid
+  sourceGroupId String  @map("source_group_id") @db.Uuid
+  farmId        String? @map("farm_id") @db.Uuid
+  penHouseId    String? @map("pen_house_id") @db.Uuid
+
+  code        String
+  collectedOn DateTime @map("collected_on") @db.Date
+
+  totalCount    Int @map("total_count")
+  hatchingCount Int @map("hatching_count")
+  tableCount    Int @map("table_count")
+  rejectCount   Int @map("reject_count")
+
+  /// How many of `hatchingCount` have not yet been set into an incubation
+  /// batch — decremented by `IncubationBatch.setQuantity` at PCR-068, the
+  /// same running-balance discipline `Item.weightedAverageCostKobo` and
+  /// `LivestockGroup.population` already use.
+  hatchingRemaining Int @map("hatching_remaining")
+
+  notes String?
+
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company      Company        @relation(fields: [companyId], references: [id])
+  branch       Branch         @relation(fields: [branchId], references: [id])
+  sourceGroup  LivestockGroup @relation("EggSourceGroup", fields: [sourceGroupId], references: [id])
+  farm         Farm?          @relation(fields: [farmId], references: [id])
+  penHouse     PenHouse?      @relation(fields: [penHouseId], references: [id])
+  journalEntry JournalEntry?  @relation("EggCollectionJournal", fields: [journalEntryId], references: [id])
+  recordedBy   User           @relation("EggCollectionRecorder", fields: [recordedById], references: [id])
+
+  incubationBatches IncubationBatch[]
+
+  @@unique([companyId, code])
+  @@index([companyId, collectedOn])
+  @@map("egg_collection_batches")
+}
+
+enum IncubationBatchStatus {
+  SET
+  HATCHED
+}
+
+/// PoultryPro incubator setting — Poultry_Egg_Production P-EGG-04, PCR-068.
+/// Pulls hatching eggs out of the source `EggCollectionBatch`'s remaining
+/// balance; blocking rule "Set + rejected eggs = available eggs" is enforced
+/// as `setQuantity <= eggBatch.hatchingRemaining` at creation.
+model IncubationBatch {
+  id         String @id @default(uuid()) @db.Uuid
+  companyId  String @map("company_id") @db.Uuid
+  eggBatchId String @map("egg_batch_id") @db.Uuid
+
+  code        String
+  setOn       DateTime @map("set_on") @db.Date
+  setQuantity Int      @map("set_quantity")
+  incubator   String?
+
+  status IncubationBatchStatus @default(SET)
+
+  notes String?
+
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company    Company            @relation(fields: [companyId], references: [id])
+  eggBatch   EggCollectionBatch @relation(fields: [eggBatchId], references: [id])
+  recordedBy User               @relation("IncubationRecorder", fields: [recordedById], references: [id])
+
+  hatchEvent HatchEvent?
+
+  @@unique([companyId, code])
+  @@index([companyId, setOn])
+  @@map("incubation_batches")
+}
+
+/// PoultryPro hatch pull — Poultry_Egg_Production P-EGG-07, PCR-069.
+///
+/// `hatchedCount + unhatchedCount + damagedCount === incubationBatch
+/// .setQuantity` is enforced by the service — the same "chicks + unhatched/
+/// loss = eggs set" mass-balance rule the workbook names. A successful hatch
+/// creates a real `LivestockGroup` at stage 'Chick' for the day-old chicks;
+/// `chickGroupId` is null only when `hatchedCount` is 0 (a complete loss).
+///
+/// No GL posting, for the same DEC-002 reason `EggCollectionBatch` gives —
+/// the incubation carrying value this event would reclassify from 130216 was
+/// never posted in the first place.
+model HatchEvent {
+  id                String @id @default(uuid()) @db.Uuid
+  companyId         String @map("company_id") @db.Uuid
+  incubationBatchId String @unique @map("incubation_batch_id") @db.Uuid
+
+  hatchedOn      DateTime @map("hatched_on") @db.Date
+  hatchedCount   Int      @map("hatched_count")
+  unhatchedCount Int      @map("unhatched_count")
+  damagedCount   Int      @map("damaged_count")
+
+  chickGroupId String? @map("chick_group_id") @db.Uuid
+
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company         Company         @relation(fields: [companyId], references: [id])
+  incubationBatch IncubationBatch @relation(fields: [incubationBatchId], references: [id])
+  chickGroup      LivestockGroup? @relation("HatchChickGroup", fields: [chickGroupId], references: [id])
+  journalEntry    JournalEntry?   @relation("HatchJournal", fields: [journalEntryId], references: [id])
+  recordedBy      User            @relation("HatchRecorder", fields: [recordedById], references: [id])
+
+  @@index([companyId, hatchedOn])
+  @@map("hatch_events")
 }
 
 /// A population moving to the next stage of its life.
