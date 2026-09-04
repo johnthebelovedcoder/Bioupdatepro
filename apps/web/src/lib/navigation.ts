@@ -483,14 +483,8 @@ export const CORE: NavSection = {
   label: 'AgriPro Core',
   icon: IconChart,
   section: 'dashboard',
-  href: '/agripro',
+  href: '/agripro/posting-rules',
   children: [
-    {
-      href: '/agripro',
-      label: 'Overview',
-      hint: 'The shared platform, what it does, and how far each part has got',
-      keywords: ['agripro', 'core', 'platform', 'erp', 'modules', 'architecture'],
-    },
     {
       href: '/agripro/posting-rules',
       label: 'Posting rules',
@@ -537,21 +531,6 @@ export const CORE: NavSection = {
         'loss',
         'section 61',
         'section 67',
-      ],
-    },
-    {
-      href: '/agripro/build-order',
-      label: 'Build order',
-      hint: 'The client’s own 12-phase sequence, and how far each phase has actually got',
-      keywords: [
-        'build order',
-        'phase',
-        'sequence',
-        'roadmap',
-        'uat',
-        'release',
-        'dev-01',
-        'implementation',
       ],
     },
   ],
