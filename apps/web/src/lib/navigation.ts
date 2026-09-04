@@ -539,6 +539,21 @@ export const CORE: NavSection = {
         'section 67',
       ],
     },
+    {
+      href: '/agripro/build-order',
+      label: 'Build order',
+      hint: 'The client’s own 12-phase sequence, and how far each phase has actually got',
+      keywords: [
+        'build order',
+        'phase',
+        'sequence',
+        'roadmap',
+        'uat',
+        'release',
+        'dev-01',
+        'implementation',
+      ],
+    },
   ],
 };
 

@@ -18,6 +18,7 @@ import { seedReportDefinitions } from './seed-report-definitions';
 import { seedSpecChart } from './seed-spec-coa';
 import { seedBiologicalAssets } from './seed-biological-assets';
 import { seedRouting } from './seed-routing';
+import { seedImplementationPhases } from './seed-implementation-phases';
 import {
   PAYROLL_EFFECTIVE_FROM,
   NIGERIA_PAYE_2026_BANDS,
@@ -353,6 +354,7 @@ async function main(): Promise<void> {
   await seedRouting(prisma, company.id);
   await seedKpiDefinitions(prisma, company.id);
   await seedReportDefinitions(prisma, company.id);
+  await seedImplementationPhases(prisma, company.id);
 
   console.log(
     `Seeded company ${company.code}: ${ACCOUNTS.length} accounts, ` +

@@ -312,6 +312,7 @@ model Company {
   inventoryWriteOffs              InventoryWriteOff[]
   kpiDefinitions                  KpiDefinition[]
   reportDefinitions               ReportDefinition[]
+  implementationPhases            ImplementationPhase[]
 
   @@map("companies")
 }
@@ -6641,4 +6642,41 @@ model ReportDefinition {
 
   @@unique([companyId, key])
   @@map("report_definitions")
+}
+
+/// The governed 12-phase build sequence — Developer_Build_Order (DEV-01..12)
+/// cross-checked against 00_BEGIN_HERE's own beginner-guide numbering, both
+/// real client sheets (US-897-001). Seeded verbatim from the workbook, not
+/// invented; `status` is computed live from real data existence, never
+/// stored, so it can never drift stale the way a hand-set flag would.
+model ImplementationPhase {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  /// The workbook's own code, e.g. "DEV-01".
+  code     String
+  sequence Int
+  name     String
+  scope    String
+  owner    String
+
+  /// The workbook's own "Exit evidence" column — what proves this phase done.
+  exitEvidence String @map("exit_evidence")
+  /// Codes of phases this one depends on, e.g. ["DEV-03", "DEV-04"].
+  dependencyCodes String[] @map("dependency_codes")
+  /// 00_BEGIN_HERE's own "Evidence sheet" column — the workbook sheet a
+  /// developer would check to confirm this phase, cited for traceability.
+  evidenceSheet String @map("evidence_sheet")
+
+  /// The real web route a developer reaches for this phase, or null where
+  /// none exists yet — never a guessed or aspirational path.
+  webPath String? @map("web_path")
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, code])
+  @@map("implementation_phases")
 }

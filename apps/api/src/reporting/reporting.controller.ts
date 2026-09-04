@@ -610,6 +610,83 @@ export class ReportingController {
   }
 
   /**
+   * The governed 12-phase build sequence (US-897-001) — Developer_Build_Order
+   * (DEV-01..12) seeded verbatim from the workbook, joined with a `status`
+   * computed live from real data existence in THIS company rather than a
+   * hand-set flag that could drift stale. A phase with no real signal to
+   * check (no channel/integration or migration-run model exists anywhere in
+   * this codebase) is reported `hasEvidence: false, signal: null` rather
+   * than a guessed pass — the same "honest blank over invented status"
+   * convention KPI drill-through already uses.
+   */
+  @AnyRole('Every signed-in user can see how far the build has actually got.')
+  @Get('build-order')
+  async buildOrder(@CurrentCompany() companyId: string) {
+    const phases = await this.prisma.implementationPhase.findMany({
+      where: { companyId, active: true },
+      orderBy: { sequence: 'asc' },
+    });
+
+    const [
+      costCentreCount,
+      workflowTransactionCount,
+      purchaseOrderCount,
+      stockMovementCount,
+      snailGroupCount,
+      poultryGroupCount,
+      settledProductionOrderCount,
+      salesInvoiceCount,
+      reportDefinitionCount,
+      kpiDefinitionCount,
+      releaseSignOffCount,
+    ] = await Promise.all([
+      this.prisma.costCentre.count({ where: { companyId } }),
+      this.prisma.workflowTransaction.count({ where: { companyId } }),
+      this.prisma.purchaseOrder.count({ where: { companyId } }),
+      this.prisma.stockMovement.count({ where: { companyId } }),
+      this.prisma.livestockGroup.count({ where: { companyId, speciesKey: 'snail' } }),
+      this.prisma.livestockGroup.count({ where: { companyId, speciesKey: 'poultry' } }),
+      this.prisma.productionOrder.count({ where: { companyId, settledAt: { not: null } } }),
+      this.prisma.salesInvoice.count({ where: { companyId } }),
+      this.prisma.reportDefinition.count({ where: { companyId, active: true } }),
+      this.prisma.kpiDefinition.count({ where: { companyId, active: true } }),
+      this.prisma.auditRecord.count({ where: { companyId, entityType: 'ReleaseSignOff' } }),
+    ]);
+
+    const evidence: Record<string, { hasEvidence: boolean; signal: string | null }> = {
+      'DEV-01': { hasEvidence: costCentreCount > 0, signal: `${costCentreCount} cost centre(s) configured` },
+      'DEV-02': { hasEvidence: workflowTransactionCount > 0, signal: `${workflowTransactionCount} workflow transaction(s) submitted` },
+      'DEV-03': { hasEvidence: purchaseOrderCount > 0, signal: `${purchaseOrderCount} purchase order(s) raised` },
+      'DEV-04': { hasEvidence: stockMovementCount > 0, signal: `${stockMovementCount} stock movement(s) posted` },
+      'DEV-05': { hasEvidence: snailGroupCount > 0, signal: `${snailGroupCount} snail cohort(s) recorded` },
+      'DEV-06': { hasEvidence: poultryGroupCount > 0, signal: `${poultryGroupCount} poultry flock(s) recorded` },
+      'DEV-07': { hasEvidence: settledProductionOrderCount > 0, signal: `${settledProductionOrderCount} production order(s) fully settled` },
+      'DEV-08': { hasEvidence: salesInvoiceCount > 0, signal: `${salesInvoiceCount} sales invoice(s) raised` },
+      'DEV-09': {
+        hasEvidence: reportDefinitionCount > 0 && kpiDefinitionCount > 0,
+        signal: `${reportDefinitionCount} report(s), ${kpiDefinitionCount} KPI(s) governed`,
+      },
+      'DEV-10': { hasEvidence: false, signal: null },
+      'DEV-11': { hasEvidence: false, signal: null },
+      'DEV-12': { hasEvidence: releaseSignOffCount > 0, signal: `${releaseSignOffCount} release sign-off(s) recorded` },
+    };
+
+    return phases.map((phase) => ({
+      code: phase.code,
+      sequence: phase.sequence,
+      name: phase.name,
+      scope: phase.scope,
+      owner: phase.owner,
+      exitEvidence: phase.exitEvidence,
+      dependencyCodes: phase.dependencyCodes,
+      evidenceSheet: phase.evidenceSheet,
+      webPath: phase.webPath,
+      hasEvidence: evidence[phase.code]?.hasEvidence ?? false,
+      signal: evidence[phase.code]?.signal ?? null,
+    }));
+  }
+
+  /**
    * The journal register. Paged, because a real ledger is not a list you scroll
    * — a year of production postings runs to tens of thousands of entries.
    */
