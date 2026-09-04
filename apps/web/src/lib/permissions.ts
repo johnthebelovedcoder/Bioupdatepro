@@ -277,11 +277,10 @@ const ROUTES: Array<{ prefix: string; section: Section }> = [
   // `livestock`/`trade` while a direct URL let that same role straight in.
   { prefix: '/pens', section: 'livestock' },
   { prefix: '/suppliers', section: 'trade' },
-  // The AgriPro Core overview is meant to be visible broadly — it is a
-  // build-status report, not a screen with figures on it — but its two child
-  // pages carry real numbers (GL posting rules; biological-asset carrying
-  // values and valuations) and had the same silent-catch-all gap as above.
-  { prefix: '/agripro/posting-rules', section: 'ledger' },
+  // AgriPro Core's remaining pages carry real numbers (biological-asset
+  // carrying values and valuations) and had the same silent-catch-all gap as
+  // above — each needs the permission section that actually governs its
+  // content, not the broad `dashboard` fallback every role holds.
   { prefix: '/agripro/biological-assets', section: 'livestock' },
   { prefix: '/agripro/valuations', section: 'livestock' },
   { prefix: '/m/', section: 'livestock' },

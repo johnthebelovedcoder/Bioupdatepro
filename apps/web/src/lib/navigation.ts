@@ -483,25 +483,8 @@ export const CORE: NavSection = {
   label: 'AgriPro Core',
   icon: IconChart,
   section: 'dashboard',
-  href: '/agripro/posting-rules',
+  href: '/agripro/biological-assets',
   children: [
-    {
-      href: '/agripro/posting-rules',
-      label: 'Posting rules',
-      hint: 'What every business event does to the ledger, and which accounts it touches',
-      keywords: [
-        'posting',
-        'rule',
-        'ledger flag',
-        'gl',
-        'chart',
-        'pcr',
-        'double entry',
-        'debit',
-        'credit',
-        'section 66',
-      ],
-    },
     {
       href: '/agripro/biological-assets',
       label: 'Populations',
