@@ -1,8 +1,10 @@
 import Link from 'next/link';
-import { getFarmConfig } from '@/lib/farm-config.server';
+import { cookies } from 'next/headers';
+import { getFarmConfig, CONFIG_COOKIE } from '@/lib/farm-config.server';
 import { getContext } from '@/lib/org';
 import { subscribedModules } from '@/lib/modules';
-import { getGroups } from '@/lib/operations';
+import { getFeeding, getGroups, getProduction } from '@/lib/operations';
+import { listPeople } from '@/app/(app)/staff/actions';
 import { Card, PageHeader } from '@/components/ui';
 import { IconArrowRight, IconCheckCircle, IconClipboard } from '@/components/icons';
 
@@ -23,22 +25,49 @@ export const metadata = { title: 'Welcome — BioAssetPro' };
 export default async function WelcomePage() {
   // The company from the ledger, not the local default — this page greets
   // somebody by their farm's name moments after they typed it.
-  const [config, context] = await Promise.all([getFarmConfig(), getContext().catch(() => null)]);
+  const [config, context, cookieStore] = await Promise.all([
+    getFarmConfig(),
+    getContext().catch(() => null),
+    cookies(),
+  ]);
   const farmName = context?.company?.name ?? config.organisation.name;
   const modules = subscribedModules(config.modules);
 
   // Has anything actually been recorded yet? The steps tick themselves off, so
   // somebody returning mid-setup can see where they got to.
+  //
+  // Each step below used to just be `done={false}` — a checklist that could
+  // never actually be checked off no matter what you did on the farm. Every
+  // signal here reads something real instead:
   const groups = (
     await Promise.all(modules.map((module) => getGroups(module.key)))
   ).flat();
   const hasPopulations = groups.length > 0;
 
+  // A big `days` window rather than "recent" — this asks "has the round ever
+  // been walked", not "was it walked this month". Feed is checked alongside
+  // production because a round with only mortality/health recorded that day
+  // would otherwise never show up in production rows at all.
+  const ROUND_EVER_DAYS = 3650;
+  const [production, feeding] = await Promise.all([
+    Promise.all(modules.map((module) => getProduction(module.key, ROUND_EVER_DAYS))),
+    Promise.all(modules.map((module) => getFeeding(module.key, ROUND_EVER_DAYS))),
+  ]);
+  const hasWalkedRound = [...production.flat(), ...feeding.flat()].length > 0;
+
+  // The settings cookie holds only the DIFFERENCE from defaults (see
+  // `farm-config.server.ts`'s own note) — so its mere presence already means
+  // this farm changed something, with no extra tracking needed.
+  const hasConfiguredSettings = Boolean(cookieStore.get(CONFIG_COOKIE)?.value);
+
+  const staff = await listPeople().catch(() => []);
+  const hasTeam = staff.length > 1;
+
   return (
     <>
       <PageHeader
         title={`Welcome to ${farmName}`}
-        subtitle="Three steps and the farm is running"
+        subtitle="Four steps and the farm is running"
       />
 
       <div className="stack">
@@ -67,7 +96,7 @@ export default async function WelcomePage() {
         />
 
         <Step
-          done={false}
+          done={hasWalkedRound}
           number={2}
           title="Walk the daily round"
           body="Once a day, record what each house ate, produced and lost. It works with no signal — anything you record is kept on the phone and sent when the signal returns."
@@ -76,12 +105,21 @@ export default async function WelcomePage() {
         />
 
         <Step
-          done={false}
+          done={hasConfiguredSettings}
           number={3}
           title="Set the farm up your way"
           body="Feed lead times, what counts as an unusual death, which language your workers see. The warnings you get are only as good as these."
           href="/settings"
           cta="Open setup"
+        />
+
+        <Step
+          done={hasTeam}
+          number={4}
+          title="Invite your team"
+          body="You are the only person who can see this farm right now. Bring in whoever else needs to record a round, approve an order or see the books."
+          href="/staff"
+          cta="Invite someone"
         />
 
         {/*
