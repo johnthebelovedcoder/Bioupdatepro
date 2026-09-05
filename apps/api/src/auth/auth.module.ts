@@ -8,6 +8,7 @@ import { AuthService } from './auth.service';
 import { RegistrationService } from './registration.service';
 import { ProvisioningService } from './provisioning.service';
 import { InvitationService } from './invitation.service';
+import { PasswordResetService } from './password-reset.service';
 import { RoleSectionAccessService } from './role-section-access.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CompanyScopeGuard } from './company-scope.guard';
@@ -33,6 +34,7 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
     RegistrationService,
     ProvisioningService,
     InvitationService,
+    PasswordResetService,
     RoleSectionAccessService,
     JwtStrategy,
     // Global: protected by default, opt out with @Public().

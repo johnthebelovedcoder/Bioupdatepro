@@ -5,7 +5,9 @@ import { useFormStatus } from 'react-dom';
 import {
   deactivatePerson,
   reactivatePerson,
+  resetPersonPassword,
   updatePersonRoles,
+  type PasswordResetResult,
   type Person,
   type RoleEditResult,
 } from '@/app/(app)/staff/actions';
@@ -27,6 +29,7 @@ export function PeopleTable({
   currentUserId: string;
 }) {
   const [editing, setEditing] = useState<Person | null>(null);
+  const [resetting, setResetting] = useState<Person | null>(null);
 
   return (
     <>
@@ -71,6 +74,9 @@ export function PeopleTable({
                         <button type="button" className="btn" onClick={() => setEditing(person)}>
                           Edit roles
                         </button>
+                        <button type="button" className="btn" onClick={() => setResetting(person)}>
+                          Reset password
+                        </button>
                         {person.status === 'ACTIVE' ? (
                           <form action={deactivatePerson.bind(null, person.id)}>
                             <button type="submit" className="btn">
@@ -96,6 +102,9 @@ export function PeopleTable({
 
       {editing ? (
         <EditRolesSheet person={editing} onClose={() => setEditing(null)} />
+      ) : null}
+      {resetting ? (
+        <ResetPasswordSheet person={resetting} onClose={() => setResetting(null)} />
       ) : null}
     </>
   );
@@ -147,6 +156,87 @@ function EditRolesSheet({ person, onClose }: { person: Person; onClose: () => vo
 
         <Submit />
       </form>
+    </Sheet>
+  );
+}
+
+/**
+ * Generating a reset link for somebody who forgot their password.
+ *
+ * Same one-time-link pattern as `InviteWorker` — the server keeps only a
+ * hash of the token, so this really is the only moment it can be read. No
+ * confirmation step before generating: doing so immediately invalidates any
+ * link generated earlier for this person, which is exactly what you want
+ * when they are asking because the last one did not reach them.
+ */
+function ResetPasswordSheet({ person, onClose }: { person: Person; onClose: () => void }) {
+  const [state, setState] = useState<PasswordResetResult | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBusy(true);
+    resetPersonPassword(person.id).then((result) => {
+      if (!cancelled) {
+        setState(result);
+        setBusy(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [person.id]);
+
+  return (
+    <Sheet open onClose={onClose} title={`Reset password for ${person.name}`}>
+      {busy ? (
+        <p className="muted">Generating a link…</p>
+      ) : state?.error ? (
+        <div className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <div className="notice notice-error">{state.error}</div>
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      ) : state?.link ? (
+        <div className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <div className="notice notice-warning">
+            <span>
+              <strong>Copy this link now.</strong> It is shown once and cannot be read again.
+              Anyone holding an earlier link for {state.email} will find it has stopped
+              working — this one replaces it. It expires in one hour.
+            </span>
+          </div>
+
+          <label className="field">
+            Link for {state.email}
+            <textarea readOnly rows={3} value={state.link} onFocus={(e) => e.target.select()} />
+          </label>
+
+          <div className="row" style={{ gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void navigator.clipboard?.writeText(state.link!)}
+            >
+              Copy
+            </button>
+            <a
+              className="btn btn-primary"
+              href={`https://wa.me/?text=${encodeURIComponent(
+                `Reset your BioAssetPro password: ${state.link}`,
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Send on WhatsApp
+            </a>
+            <button type="button" className="btn" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        </div>
+      ) : null}
     </Sheet>
   );
 }

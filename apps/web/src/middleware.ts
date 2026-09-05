@@ -99,5 +99,7 @@ export const config = {
    * Everything except Next's own assets and the API bridge. The gate has to see
    * ordinary page requests, which the previous `/m/:path*` matcher did not.
    */
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/|login|signup|join|offline).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|api/|login|signup|join|offline|forgot-password|reset-password).*)',
+  ],
 };

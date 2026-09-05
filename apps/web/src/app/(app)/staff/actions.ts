@@ -132,3 +132,29 @@ export async function reactivatePerson(id: string): Promise<void> {
   await api(`/auth/users/${id}/reactivate`, { method: 'POST' });
   revalidatePath('/staff');
 }
+
+export interface PasswordResetResult {
+  error: string | null;
+  /**
+   * The link, returned ONCE — same reasoning as `InviteResult.link`. There is
+   * no mail transport in this product, so whoever generated it hands it to
+   * the person directly, and the server keeps only a hash of the token, so
+   * this genuinely is the only moment it can be read.
+   */
+  link?: string;
+  email?: string;
+}
+
+export async function resetPersonPassword(id: string): Promise<PasswordResetResult> {
+  try {
+    const reset = await api<{ token: string; email: string }>(`/auth/users/${id}/reset-password`, {
+      method: 'POST',
+    });
+    const origin = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+    return { error: null, email: reset.email, link: `${origin}/reset-password/${reset.token}` };
+  } catch (caught) {
+    return {
+      error: caught instanceof Error ? caught.message : 'That did not work. Please try again.',
+    };
+  }
+}

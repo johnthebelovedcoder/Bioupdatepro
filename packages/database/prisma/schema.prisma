@@ -193,6 +193,8 @@ model User {
   incubationBatchesRecorded IncubationBatch[]          @relation("IncubationRecorder")
   hatchEventsRecorded       HatchEvent[]               @relation("HatchRecorder")
   invitationsSent           Invitation[]               @relation("InvitationSender")
+  passwordResetsReceived    PasswordResetToken[]       @relation("PasswordResetTarget")
+  passwordResetsIssued      PasswordResetToken[]       @relation("PasswordResetIssuer")
   valuationsPrepared        BiologicalAssetValuation[] @relation("ValuationPreparer")
   fixedAssetsCapitalised    FixedAsset[]               @relation("FixedAssetCapitaliser")
   depreciationRunsCreated   DepreciationRun[]          @relation("DepreciationRunCreator")
@@ -6072,6 +6074,44 @@ model Invitation {
   @@index([companyId, email])
   @@index([expiresAt])
   @@map("invitations")
+}
+
+/// Recovering an account whose password was forgotten.
+///
+/// There is no mail transport in this product (see `Invitation`'s own note),
+/// so this cannot be the ordinary "type your email, get a reset link" flow —
+/// nobody types their own email in, because a person who forgot their
+/// password cannot sign in to request anything for themselves. Instead this
+/// is admin-relayed, the same shape as an invitation: an administrator (or
+/// the person themselves, if a session is somehow still open) generates the
+/// link and hands it to whoever needs it, by whatever channel actually
+/// reaches them.
+///
+/// Same credential discipline as `Invitation.tokenHash`: stored hashed, raw
+/// value exists only in the one-time link, short-lived, single-use.
+model PasswordResetToken {
+  id        String @id @default(uuid()) @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+
+  tokenHash String @unique @map("token_hash")
+
+  createdById String   @map("created_by_id") @db.Uuid
+  expiresAt   DateTime @map("expires_at")
+
+  usedAt DateTime? @map("used_at")
+  /// A person generating a second link for the same account should not leave
+  /// two live credentials outstanding — same "supersede rather than sit
+  /// alongside" rule `Invitation.invite()` already applies to a repeat invite.
+  revokedAt DateTime? @map("revoked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User @relation("PasswordResetTarget", fields: [userId], references: [id])
+  createdBy User @relation("PasswordResetIssuer", fields: [createdById], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 // ---------------------------------------------------------------------------

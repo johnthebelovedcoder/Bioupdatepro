@@ -6,6 +6,7 @@ import { CurrentCompany, CurrentUser, Public } from './current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { RegistrationService } from './registration.service';
 import { InvitationService } from './invitation.service';
+import { PasswordResetService } from './password-reset.service';
 import { RoleSectionAccessService } from './role-section-access.service';
 import { Roles, AnyRole } from './roles.guard';
 
@@ -41,6 +42,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly registration: RegistrationService,
     private readonly invitations: InvitationService,
+    private readonly passwordResets: PasswordResetService,
     private readonly roleSections: RoleSectionAccessService,
   ) {}
 
@@ -147,6 +149,39 @@ export class AuthController {
     @Param('id') id: string,
   ) {
     return this.invitations.setActive({ companyId, actor, userId: id, active: true });
+  }
+
+  /* --- Password recovery -------------------------------------------------
+   * Admin-relayed, the same shape as an invitation — see
+   * PasswordResetService's own doc comment for why there is no self-service
+   * "type your email" form: this product has no mail transport, and the one
+   * person who could use such a form (someone still signed in) is not the
+   * person the feature is for.
+   */
+
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Post('users/:id/reset-password')
+  async resetPassword(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+  ) {
+    return this.passwordResets.initiate({ companyId, actor, userId: id });
+  }
+
+  @Public()
+  @Get('password-reset/token/:token')
+  async describePasswordReset(@Param('token') token: string) {
+    return this.passwordResets.describe(token);
+  }
+
+  @Public()
+  @Post('password-reset/token/:token/complete')
+  async completePasswordReset(
+    @Param('token') token: string,
+    @Body() body: { password: string },
+  ) {
+    return this.passwordResets.complete({ token, password: body.password });
   }
 
   /*
