@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { acceptInvitation, type JoinState } from '@/app/join/[token]/actions';
+import { PasswordField } from './password-field';
 
 /**
  * Accepting an invitation.
@@ -48,7 +49,12 @@ export function JoinForm({ token, email }: { token: string; email: string }) {
 
       <label className="field">
         Choose a password
-        <input name="password" type="password" autoComplete="new-password" required />
+        <PasswordField
+          name="password"
+          autoComplete="new-password"
+          required
+          ariaInvalid={state.field === 'password'}
+        />
         <span className={state.field === 'password' ? 'field-error' : 'faint'}>
           {state.field === 'password'
             ? state.error

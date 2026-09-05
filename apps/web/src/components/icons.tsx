@@ -234,3 +234,18 @@ export const IconCloudSync = (p: IconProps) => (
     <path d="M9.5 13.5 12 11l2.5 2.5M12 11.2V17" />
   </Svg>
 );
+
+export const IconEye = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M2 12s3.5-7.5 10-7.5S22 12 22 12s-3.5 7.5-10 7.5S2 12 2 12Z" />
+    <circle cx="12" cy="12" r="3" />
+  </Svg>
+);
+
+export const IconEyeOff = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9.9 5.1A10.4 10.4 0 0 1 12 4.9c6.5 0 10 7.1 10 7.1a17.6 17.6 0 0 1-3.2 4.3M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7.1 10 7.1a10 10 0 0 0 4-.8" />
+    <path d="M9.9 14.1a3 3 0 0 0 4.2-4.2" />
+    <path d="M2 2l20 20" />
+  </Svg>
+);

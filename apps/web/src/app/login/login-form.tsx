@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { login, type LoginState } from './actions';
+import { PasswordField } from '@/components/password-field';
 
 const initialState: LoginState = { error: null };
 
@@ -32,7 +33,7 @@ export function LoginForm() {
 
       <label className="field">
         Password
-        <input name="password" type="password" autoComplete="current-password" required />
+        <PasswordField name="password" autoComplete="current-password" required />
       </label>
 
       <div className="row" style={{ justifyContent: 'flex-end' }}>

@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { completeReset, type ResetState } from '@/app/reset-password/[token]/actions';
+import { PasswordField } from './password-field';
 
 /** One field: the new password. The email is shown but fixed — it comes from the link, not from whoever is holding it. */
 export function ResetPasswordForm({ token, email }: { token: string; email: string }) {
@@ -21,7 +22,7 @@ export function ResetPasswordForm({ token, email }: { token: string; email: stri
 
       <label className="field">
         New password
-        <input name="password" type="password" autoComplete="new-password" required autoFocus />
+        <PasswordField name="password" autoComplete="new-password" required autoFocus />
         <span className="faint">
           At least 10 characters. A short phrase you will remember beats a complicated word you
           will not.
