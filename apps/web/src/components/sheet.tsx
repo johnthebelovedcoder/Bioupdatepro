@@ -53,7 +53,7 @@ export function Sheet({
         <div className="sheet-grip" aria-hidden="true" />
         <div className="sheet-head">
           <h2>{title}</h2>
-          <button type="button" className="btn btn-ghost btn-icon" onClick={onClose}>
+          <button type="button" className="btn btn-ghost btn-icon" title="Close" onClick={onClose}>
             <Close />
             <span className="sr-only">Close</span>
           </button>

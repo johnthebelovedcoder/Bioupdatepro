@@ -6,6 +6,7 @@ import { formatDate, formatNaira, parseNairaToKobo } from '@/lib/money';
 import { enqueue, flush } from '@/lib/sync-queue';
 import { Card } from './ui';
 import { Sheet } from './sheet';
+import { HelpTerm } from './help';
 
 /**
  * Recording that a treatment was actually given.
@@ -400,7 +401,7 @@ function TreatmentSheet({
         ) : null}
 
         <label className="field">
-          Withdrawal days
+          Withdrawal days <HelpTerm k="withdrawalPeriod" />
           <input
             type="number"
             inputMode="numeric"

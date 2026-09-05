@@ -65,56 +65,57 @@ export function Help({ term, children }: { term: string; children: React.ReactNo
  * Kept together rather than written at each use so the same term cannot be
  * explained two different ways on two screens — which is how a glossary starts
  * contradicting itself.
+ *
+ * Deliberately plain data (a term and a body string), not pre-built
+ * `<Help>...</Help>` elements. The earlier version built the JSX once here and
+ * exported it as `TERMS.henDay` etc. for callers to drop straight in — which
+ * looked right and type-checked, but silently rendered nothing wherever a
+ * Server Component (most pages in this app) was the caller: a plain object
+ * whose values happen to contain JSX referencing a Client Component doesn't
+ * reliably survive that boundary the way importing and using the Client
+ * Component directly does. `HelpTerm` below is that direct usage — the shape
+ * every call site should reach for instead of building `<Help>` itself.
  */
 export const TERMS = {
-  henDay: (
-    <Help term="Hen-day">
-      Eggs laid as a share of the birds alive that day. 90% means nine eggs from every ten
-      birds. It is the fairest way to compare houses of different sizes.
-    </Help>
-  ),
-  fcr: (
-    <Help term="FCR">
-      Feed conversion ratio — kilograms of feed for each kilogram of weight gained. Lower is
-      better. 1.7 means 1.7 kg of feed produced 1 kg of bird.
-    </Help>
-  ),
-  workInProgress: (
-    <Help term="Work in progress">
-      What the animals currently alive have cost so far — feed, treatment and the stock
-      itself. It is not an expense yet and not revenue; it becomes cost of sale when they are
-      sold.
-    </Help>
-  ),
-  withdrawalPeriod: (
-    <Help term="Withdrawal period">
-      After some treatments, eggs or meat cannot be sold for a number of days. That number
-      comes off the product label — we do not know it for you.
-    </Help>
-  ),
-  mortalityRate: (
-    <Help term="Mortality">
-      Deaths so far as a share of the number placed. It only ever rises, because it counts
-      the whole life of the population.
-    </Help>
-  ),
-  costPerAnimal: (
-    <Help term="Cost per animal">
-      Everything spent on the population divided by how many are still alive. It rises when
-      animals are lost — which is the point: the survivors carry the cost of the ones that
-      died.
-    </Help>
-  ),
-  feedRunway: (
-    <Help term="Runway">
-      How many days the feed in the store will last at the rate it is being used now.
-    </Help>
-  ),
-  variance: (
-    <Help term="Variance">
-      A figure that does not match what comparable populations did. It is a discrepancy to
-      look into, not an accusation — over-feeding, spillage, a broken feeder and a miscount
-      all look the same from here.
-    </Help>
-  ),
+  henDay: {
+    term: 'Hen-day',
+    body: 'Eggs laid as a share of the birds alive that day. 90% means nine eggs from every ten birds. It is the fairest way to compare houses of different sizes.',
+  },
+  fcr: {
+    term: 'FCR',
+    body: 'Feed conversion ratio — kilograms of feed for each kilogram of weight gained. Lower is better. 1.7 means 1.7 kg of feed produced 1 kg of bird.',
+  },
+  workInProgress: {
+    term: 'Work in progress',
+    body: 'What the animals currently alive have cost so far — feed, treatment and the stock itself. It is not an expense yet and not revenue; it becomes cost of sale when they are sold.',
+  },
+  withdrawalPeriod: {
+    term: 'Withdrawal period',
+    body: 'After some treatments, eggs or meat cannot be sold for a number of days. That number comes off the product label — we do not know it for you.',
+  },
+  mortalityRate: {
+    term: 'Mortality',
+    body: 'Deaths so far as a share of the number placed. It only ever rises, because it counts the whole life of the population.',
+  },
+  costPerAnimal: {
+    term: 'Cost per animal',
+    body: 'Everything spent on the population divided by how many are still alive. It rises when animals are lost — which is the point: the survivors carry the cost of the ones that died.',
+  },
+  feedRunway: {
+    term: 'Runway',
+    body: 'How many days the feed in the store will last at the rate it is being used now.',
+  },
+  variance: {
+    term: 'Variance',
+    body: 'A figure that does not match what comparable populations did. It is a discrepancy to look into, not an accusation — over-feeding, spillage, a broken feeder and a miscount all look the same from here.',
+  },
 } as const;
+
+/**
+ * The one way to reach a `TERMS` entry from anywhere, including a Server
+ * Component — see the note on `TERMS` above for why this indirection exists.
+ */
+export function HelpTerm({ k }: { k: keyof typeof TERMS }) {
+  const entry = TERMS[k];
+  return <Help term={entry.term}>{entry.body}</Help>;
+}

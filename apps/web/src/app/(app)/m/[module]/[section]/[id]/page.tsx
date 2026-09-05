@@ -5,7 +5,7 @@ import { getGroupDetail, getGroups } from '@/lib/operations';
 import { getSpeciesBreeds } from '@/lib/trade';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
-import { TERMS } from '@/components/help';
+import { HelpTerm } from '@/components/help';
 import { NewGroupForm } from '@/components/new-group-form';
 import { StageChange } from '@/components/record-stage-change';
 import { TrendChart } from '@/components/trend-chart';
@@ -116,14 +116,14 @@ export default async function GroupDetailPage({
           />
           <Stat
             label="Mortality to date"
-            help={TERMS.mortalityRate}
+            help={<HelpTerm k="mortalityRate" />}
             value={`${group.mortalityRate.toFixed(2)}%`}
             goodWhen="down"
             hint={`${died.toLocaleString('en-NG')} ${t.animal.many} lost`}
           />
           <Stat
             label={`Cost per live ${t.animal.one}`}
-            help={TERMS.costPerAnimal}
+            help={<HelpTerm k="costPerAnimal" />}
             value={formatNaira(perHead)}
             money
             hint="accumulated"

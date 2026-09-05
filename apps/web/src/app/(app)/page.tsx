@@ -11,6 +11,7 @@ import {
   type ActivityEntry,
 } from '@/lib/demo';
 import { Card, CardLink, PageHeader, Stat } from '@/components/ui';
+import { HelpTerm } from '@/components/help';
 import { NeedsAttention, FeedRunwayCard } from '@/components/attention';
 import { CoreOperations } from '@/components/core-operations';
 import { ShareSummary } from '@/components/share-summary';
@@ -219,6 +220,7 @@ export default async function DashboardPage() {
               value={formatNaira(ledger.workInProgressKobo)}
               money
               hint={hasSpecies ? 'feed and treatment so far' : 'not yet expensed or sold'}
+              help={<HelpTerm k="workInProgress" />}
             />
             <Stat
               label="Owed to us"

@@ -17,7 +17,7 @@ import { getStaff } from '@/lib/demo-trade';
 import { getFarmConfig } from '@/lib/farm-config.server';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, EmptyState, PageHeader, Stat } from './ui';
-import { TERMS } from './help';
+import { HelpTerm } from './help';
 import { HealthSchedule } from './record-treatment';
 import { HarvestLog } from './record-harvest';
 import { StageChange } from './record-stage-change';
@@ -109,7 +109,7 @@ export async function ProductionSection({
             value={averageRate !== null ? `${averageRate}%` : String(rows.length)}
             goodWhen="up"
             hint={averageRate !== null ? 'hen-day' : 'in the period'}
-            {...(averageRate !== null ? { help: TERMS.henDay } : {})}
+            {...(averageRate !== null ? { help: <HelpTerm k="henDay" /> } : {})}
           />
           <Stat
             label={`Producing ${t.group.many}`}
@@ -403,7 +403,7 @@ export async function PerformanceSection({ module }: { module: SpeciesModule }) 
                     Lay rate
                   </th>
                   <th className="right" style={{ width: 90 }}>
-                    FCR
+                    FCR <HelpTerm k="fcr" />
                   </th>
                   <th className="right" style={{ width: 130 }}>
                     Cost per {t.animal.one}

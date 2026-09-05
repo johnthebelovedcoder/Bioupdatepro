@@ -128,6 +128,7 @@ export function AppShell({
             type="button"
             className="btn btn-icon nav-toggle"
             aria-label="Open navigation"
+            title="Open navigation"
             aria-expanded={navOpen}
             onClick={() => setNavOpen((open) => !open)}
           >

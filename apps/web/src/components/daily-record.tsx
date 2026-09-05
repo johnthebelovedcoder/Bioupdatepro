@@ -1076,6 +1076,7 @@ function Stepper({
         type="button"
         className="stepper-btn"
         aria-label={`Decrease ${label}`}
+        title={`Decrease ${label}`}
         disabled={value <= 0}
         onClick={() => onAdjust(-step)}
       >
@@ -1099,6 +1100,7 @@ function Stepper({
         type="button"
         className="stepper-btn"
         aria-label={`Increase ${label}`}
+        title={`Increase ${label}`}
         onClick={() => onAdjust(step)}
       >
         +

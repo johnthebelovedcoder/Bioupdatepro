@@ -553,6 +553,7 @@ function QtyStepper({
         type="button"
         className="stepper-btn"
         aria-label={`Fewer ${label}`}
+        title={`Fewer ${label}`}
         disabled={value <= 0}
         onClick={() => onChange(Math.max(0, value - 1))}
       >
@@ -573,6 +574,7 @@ function QtyStepper({
         type="button"
         className="stepper-btn"
         aria-label={`More ${label}`}
+        title={`More ${label}`}
         onClick={() => onChange(value + 1)}
       >
         +

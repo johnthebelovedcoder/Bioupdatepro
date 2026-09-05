@@ -475,6 +475,79 @@ a:hover {
   display: none;
 }
 
+/* --------------------------------------------------------------------------
+   Account menu — same trigger/dropdown recipe as the module switcher above,
+   so the two menus in the header feel like one design, not two.
+   -------------------------------------------------------------------------- */
+
+.user-menu {
+  position: relative;
+}
+
+.user-menu-trigger {
+  display: flex;
+  align-items: center;
+  font: inherit;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.user-menu-trigger:hover {
+  background: var(--gray-50);
+  border-color: var(--border);
+}
+
+.user-menu-trigger[aria-expanded='true'] {
+  background: var(--gray-50);
+  border-color: var(--border-strong);
+}
+
+.user-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 240px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: var(--sp-1);
+}
+
+.user-menu-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-1);
+}
+
+.user-menu-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  text-align: left;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--gray-700);
+  cursor: pointer;
+}
+
+.user-menu-option:hover {
+  background: var(--gray-50);
+}
+
 /* ==========================================================================
    Page furniture
    ========================================================================== */
@@ -1859,12 +1932,29 @@ body:has(.offline-banner) .app-sidebar {
   color: var(--error-700);
 }
 
+.sync-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 .sync-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: currentColor;
+  border: 1.5px solid var(--info-50);
   flex-shrink: 0;
+}
+
+.sync-pill-warning .sync-dot {
+  border-color: var(--warning-50);
+}
+.sync-pill-danger .sync-dot {
+  border-color: var(--error-50);
 }
 
 .sync-pill-accent .sync-dot {

@@ -11,6 +11,7 @@ import {
   type QueueItem,
 } from '@/lib/sync-queue';
 import { Sheet } from './sheet';
+import { IconCloudSync } from './icons';
 
 /**
  * The outbox indicator, and the outbox itself.
@@ -71,9 +72,20 @@ export function SyncStatus() {
         type="button"
         className={`sync-pill sync-pill-${tone}`}
         onClick={() => setOpen(true)}
-        title="Outbox"
+        title={`Outbox — ${
+          blocked > 0
+            ? `${blocked} not sent`
+            : !online
+              ? items.length > 0
+                ? `offline, ${items.length} waiting`
+                : 'offline'
+              : `${waiting} sending`
+        }`}
       >
-        <span className="sync-dot" aria-hidden="true" />
+        <span className="sync-icon-wrap">
+          <IconCloudSync size={18} />
+          <span className="sync-dot" aria-hidden="true" />
+        </span>
         <span className="hide-on-phone">
           {blocked > 0
             ? `${blocked} not sent`

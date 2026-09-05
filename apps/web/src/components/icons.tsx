@@ -226,3 +226,11 @@ export const IconConstruction = (p: IconProps) => (
     <path d="m7 9.5 3-6M13 9.5l3-6" />
   </Svg>
 );
+
+/** The outbox trigger's icon — the same cloud-sync idiom as Drive/Dropbox/Notion for "is my work saved". */
+export const IconCloudSync = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96 6 6 0 0 1 11.4-2.3A4.5 4.5 0 0 1 17 18.5H7Z" />
+    <path d="M9.5 13.5 12 11l2.5 2.5M12 11.2V17" />
+  </Svg>
+);
