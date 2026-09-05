@@ -1,18 +1,20 @@
 import Link from 'next/link';
+import { ForgotPasswordForm } from '@/components/forgot-password-form';
+import { emailAvailable } from './actions';
 
 export const metadata = { title: 'Forgot password — BioAssetPro' };
 
 /**
- * Honest rather than a form that goes nowhere.
+ * A real form when one can actually do something, an honest fallback when it can't.
  *
- * There is no mail transport in this product (see `PasswordResetToken`'s own
- * schema comment), so a "type your email, get a reset link" form here would
- * either silently do nothing or need to lie about what happens next. The
- * true answer is simpler and just as fast on a small farm: an administrator
- * — Farm Manager, CFO or System Admin — can generate a reset link from
- * Staff & roles and hand it to whoever needs it directly.
+ * Same "ask before offering" rule the Google/Facebook sign-in buttons already
+ * follow: this used to always show the fallback, because no email transport
+ * existed at all. Now that Resend is wired in (see `EmailService`), the page
+ * asks the API which is true rather than assuming.
  */
-export default function ForgotPasswordPage() {
+export default async function ForgotPasswordPage() {
+  const hasEmail = await emailAvailable();
+
   return (
     <main className="login-page">
       <div className="login-panel">
@@ -34,17 +36,28 @@ export default function ForgotPasswordPage() {
 
         <div className="card">
           <div className="card-body stack" style={{ gap: 'var(--sp-4)' }}>
-            <p style={{ fontSize: 15, lineHeight: 1.6, margin: 0 }}>
-              Ask your farm&rsquo;s administrator, farm manager or CFO to reset it for you. They
-              can do this from <strong>Staff &amp; roles</strong> — find your name, choose{' '}
-              <strong>Reset password</strong>, and they will send you a fresh sign-in link
-              directly.
-            </p>
-            <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-              This product does not send email yet, so there is no automatic reset link — the
-              same reason a new teammate is invited by a link someone hands them, not an
-              automatic email.
-            </p>
+            {hasEmail ? (
+              <>
+                <p className="muted" style={{ fontSize: 14, margin: 0 }}>
+                  Tell us the email you sign in with, and we&rsquo;ll send you a link to set a
+                  new password.
+                </p>
+                <ForgotPasswordForm />
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 15, lineHeight: 1.6, margin: 0 }}>
+                  Ask your farm&rsquo;s administrator, farm manager or CFO to reset it for you.
+                  They can do this from <strong>Staff &amp; roles</strong> — find your name,
+                  choose <strong>Reset password</strong>, and they will send you a fresh
+                  sign-in link directly.
+                </p>
+                <p className="muted" style={{ fontSize: 14, margin: 0 }}>
+                  This farm hasn&rsquo;t set up automatic email yet, so there is no reset link
+                  to send you directly.
+                </p>
+              </>
+            )}
             <Link className="btn" href="/login">
               Back to sign in
             </Link>

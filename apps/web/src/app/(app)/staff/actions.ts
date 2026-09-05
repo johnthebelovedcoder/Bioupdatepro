@@ -136,22 +136,31 @@ export async function reactivatePerson(id: string): Promise<void> {
 export interface PasswordResetResult {
   error: string | null;
   /**
-   * The link, returned ONCE — same reasoning as `InviteResult.link`. There is
-   * no mail transport in this product, so whoever generated it hands it to
-   * the person directly, and the server keeps only a hash of the token, so
-   * this genuinely is the only moment it can be read.
+   * The link, returned ONCE — same reasoning as `InviteResult.link`. Kept
+   * even now that email can send it automatically: shown as a fallback in
+   * case delivery is unconfigured, slow, or lands in spam, and the server
+   * keeps only a hash of the token, so this genuinely is the only moment it
+   * can be read regardless.
    */
   link?: string;
   email?: string;
+  /** Whether Resend actually accepted the message — see `EmailService.send()`. */
+  emailed?: boolean;
 }
 
 export async function resetPersonPassword(id: string): Promise<PasswordResetResult> {
   try {
-    const reset = await api<{ token: string; email: string }>(`/auth/users/${id}/reset-password`, {
-      method: 'POST',
-    });
+    const reset = await api<{ token: string; email: string; emailed: boolean }>(
+      `/auth/users/${id}/reset-password`,
+      { method: 'POST' },
+    );
     const origin = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-    return { error: null, email: reset.email, link: `${origin}/reset-password/${reset.token}` };
+    return {
+      error: null,
+      email: reset.email,
+      link: `${origin}/reset-password/${reset.token}`,
+      emailed: reset.emailed,
+    };
   } catch (caught) {
     return {
       error: caught instanceof Error ? caught.message : 'That did not work. Please try again.',

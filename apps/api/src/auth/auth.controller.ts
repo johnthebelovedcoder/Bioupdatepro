@@ -7,6 +7,7 @@ import type { WorkflowActor } from '../workflow/workflow.types';
 import { RegistrationService } from './registration.service';
 import { InvitationService } from './invitation.service';
 import { PasswordResetService } from './password-reset.service';
+import { EmailService } from './email.service';
 import { RoleSectionAccessService } from './role-section-access.service';
 import { Roles, AnyRole } from './roles.guard';
 
@@ -43,6 +44,7 @@ export class AuthController {
     private readonly registration: RegistrationService,
     private readonly invitations: InvitationService,
     private readonly passwordResets: PasswordResetService,
+    private readonly emailService: EmailService,
     private readonly roleSections: RoleSectionAccessService,
   ) {}
 
@@ -74,6 +76,11 @@ export class AuthController {
       password: true,
       google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
       facebook: Boolean(process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET),
+      // Same "ask before offering" reasoning as the two above: the forgot-
+      // password page shows a working email form only when one actually
+      // exists, and falls back to the honest "ask your admin" message when
+      // it does not, rather than a form that would silently do nothing.
+      email: this.emailService.isConfigured(),
     };
   }
 
@@ -152,12 +159,24 @@ export class AuthController {
   }
 
   /* --- Password recovery -------------------------------------------------
-   * Admin-relayed, the same shape as an invitation — see
-   * PasswordResetService's own doc comment for why there is no self-service
-   * "type your email" form: this product has no mail transport, and the one
-   * person who could use such a form (someone still signed in) is not the
-   * person the feature is for.
+   * See PasswordResetService's own doc comment: a real "type your email" form
+   * below now sends an actual message when EmailService is configured, and
+   * the admin-relayed link (originally the only option, before there was
+   * anywhere for a self-service link to go) stays as the manual fallback.
    */
+
+  /**
+   * Deliberately returns the same shape whether or not the email had an
+   * account — see `PasswordResetService.requestForSelf()`'s own comment for
+   * why. The controller must not be the layer that undoes that by, say,
+   * only calling the service when the email looks plausible.
+   */
+  @Public()
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email: string }) {
+    await this.passwordResets.requestForSelf(body.email ?? '');
+    return { ok: true };
+  }
 
   @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
   @Post('users/:id/reset-password')

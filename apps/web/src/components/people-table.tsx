@@ -200,13 +200,20 @@ function ResetPasswordSheet({ person, onClose }: { person: Person; onClose: () =
         </div>
       ) : state?.link ? (
         <div className="stack" style={{ gap: 'var(--sp-4)' }}>
-          <div className="notice notice-warning">
-            <span>
-              <strong>Copy this link now.</strong> It is shown once and cannot be read again.
-              Anyone holding an earlier link for {state.email} will find it has stopped
-              working — this one replaces it. It expires in one hour.
-            </span>
-          </div>
+          {state.emailed ? (
+            <div className="notice notice-info">
+              An email is on its way to {state.email}. Copy the link below too, in case it
+              doesn&rsquo;t arrive — it expires in one hour either way.
+            </div>
+          ) : (
+            <div className="notice notice-warning">
+              <span>
+                <strong>Copy this link now.</strong> It is shown once and cannot be read again.
+                Anyone holding an earlier link for {state.email} will find it has stopped
+                working — this one replaces it. It expires in one hour.
+              </span>
+            </div>
+          )}
 
           <label className="field">
             Link for {state.email}

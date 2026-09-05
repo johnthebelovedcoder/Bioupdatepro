@@ -8,6 +8,7 @@ import {
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { EmailService } from './email.service';
 import { hashPassword } from './password';
 import { passwordProblem } from './registration.service';
 import { AuthService, type AuthenticatedUser } from './auth.service';
@@ -20,24 +21,27 @@ const VALID_FOR_HOURS = 1;
 /**
  * Recovering an account whose password was forgotten.
  *
- * See `PasswordResetToken`'s own schema comment for why this cannot be the
- * ordinary self-service "type your email, get a link" flow: there is no mail
- * transport in this product, and — the more fundamental reason — a person
- * who forgot their password cannot sign in to request anything for
- * themselves anyway. So this mirrors `InvitationService` almost exactly: an
- * administrator generates a link and relays it by whatever channel actually
- * reaches the person, the same honest workaround already accepted for
- * inviting people onto a farm.
+ * Two paths generate the same kind of link:
+ *
+ *   1. Self-service (`requestForSelf`) — the person types their own email
+ *      and, if `EmailService` is configured, gets a real message. This is
+ *      the ordinary "forgot password" flow, and only exists because real
+ *      email delivery does now: earlier there was nowhere for the link to
+ *      go, since the one person who could use a self-service form is
+ *      exactly the person who, by definition, cannot sign in to request
+ *      anything else for themselves.
+ *   2. Admin-relayed (`initiate`) — the same mechanism `InvitationService`
+ *      already uses: an administrator generates a link for someone else and
+ *      hands it over directly. Kept even with email working, for the same
+ *      reason a support desk keeps a manual override: email is unconfigured,
+ *      undeliverable, or landed in spam, and someone still needs a way in.
  *
  * One deliberate difference from invitations, roles-editing and
- * deactivation: this does NOT refuse acting on your own account. Those
- * refuse self-service because self-service there is a privilege-escalation
- * or lockout risk; here self-service is the ordinary case for a solo owner
- * who still has a session open somewhere and wants to set a fresh password
- * as a precaution. It is only reachable from an already-authenticated
- * session either way — someone actually locked out still needs another
- * admin to act for them, which this product cannot solve without a mail
- * transport, and does not pretend to.
+ * deactivation: `initiate` does NOT refuse acting on your own account.
+ * Those refuse self-service because self-service there is a privilege-
+ * escalation or lockout risk; here self-service is the ordinary case for
+ * a solo owner who still has a session open somewhere and wants a fresh
+ * password as a precaution.
  */
 @Injectable()
 export class PasswordResetService {
@@ -45,6 +49,7 @@ export class PasswordResetService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly auth: AuthService,
+    private readonly email: EmailService,
   ) {}
 
   /** Create a reset link and return the raw token ONCE — same discipline as `InvitationService.invite()`. */
@@ -52,7 +57,7 @@ export class PasswordResetService {
     companyId: string;
     actor: WorkflowActor;
     userId: string;
-  }): Promise<{ token: string; email: string; expiresAt: Date }> {
+  }): Promise<{ token: string; email: string; expiresAt: Date; emailed: boolean }> {
     const user = await this.prisma.user.findFirst({
       where: { id: params.userId, companyId: params.companyId },
     });
@@ -65,28 +70,10 @@ export class PasswordResetService {
       this.assertCanAct(params.actor.roles ?? [], user.roles);
     }
 
-    // A previous outstanding link for the same person is superseded, not left
-    // alongside — same rule `InvitationService.invite()` applies to a repeat
-    // invite, so two live credentials never exist for one account.
-    await this.prisma.passwordResetToken.updateMany({
-      where: { userId: user.id, usedAt: null, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
-
-    const token = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + VALID_FOR_HOURS * 60 * 60 * 1000);
-
-    const created = await this.prisma.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: hashToken(token),
-        createdById: params.actor.userId,
-        expiresAt,
-      },
-    });
+    const { token, expiresAt } = await this.createToken({ userId: user.id, createdById: params.actor.userId });
 
     await this.audit.write({
-      transactionId: created.id,
+      transactionId: user.id,
       module: 'AUTH',
       entityType: 'User',
       entityId: user.id,
@@ -98,7 +85,84 @@ export class PasswordResetService {
       comments: `Password reset link generated for ${user.email}`,
     });
 
-    return { token, email: user.email, expiresAt };
+    // Best-effort: the admin still gets the link back to relay manually
+    // either way, so a failed or unconfigured send does not block them.
+    const emailed = await this.email.send({
+      to: user.email,
+      subject: 'Reset your BioAssetPro password',
+      html: resetEmailHtml(linkFor(token)),
+    });
+
+    return { token, email: user.email, expiresAt, emailed };
+  }
+
+  /**
+   * The self-service entry point. Deliberately returns nothing about whether
+   * the email had an account — same reasoning `AuthService.login()` already
+   * gives for one generic failure message: telling the caller either way is
+   * how a "forgot password" form becomes an email-enumeration tool. The
+   * response takes the same minimum time regardless, so the network request
+   * itself cannot be timed to tell the two cases apart from the outside.
+   */
+  async requestForSelf(rawEmail: string): Promise<void> {
+    const startedAt = Date.now();
+    const email = rawEmail.trim().toLowerCase();
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (user?.active) {
+      const { token } = await this.createToken({ userId: user.id, createdById: user.id });
+
+      await this.audit.write({
+        transactionId: user.id,
+        module: 'AUTH',
+        entityType: 'User',
+        entityId: user.id,
+        status: 'PENDING',
+        action: AuditAction.UPDATE,
+        userId: user.id,
+        comments: 'Password reset requested (self-service)',
+      });
+
+      await this.email.send({
+        to: user.email,
+        subject: 'Reset your BioAssetPro password',
+        html: resetEmailHtml(linkFor(token)),
+      });
+    }
+
+    const MIN_RESPONSE_MS = 400;
+    const elapsed = Date.now() - startedAt;
+    if (elapsed < MIN_RESPONSE_MS) {
+      await new Promise((resolve) => setTimeout(resolve, MIN_RESPONSE_MS - elapsed));
+    }
+  }
+
+  /** Shared by both entry points: mint a token, superseding whatever the person had outstanding. */
+  private async createToken(params: {
+    userId: string;
+    createdById: string;
+  }): Promise<{ token: string; expiresAt: Date }> {
+    // A previous outstanding link for the same person is superseded, not left
+    // alongside — same rule `InvitationService.invite()` applies to a repeat
+    // invite, so two live credentials never exist for one account.
+    await this.prisma.passwordResetToken.updateMany({
+      where: { userId: params.userId, usedAt: null, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + VALID_FOR_HOURS * 60 * 60 * 1000);
+
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: params.userId,
+        tokenHash: hashToken(token),
+        createdById: params.createdById,
+        expiresAt,
+      },
+    });
+
+    return { token, expiresAt };
   }
 
   /** What the person following the link should be shown before they commit. */
@@ -191,4 +255,18 @@ export class PasswordResetService {
 /** The stored form of a token. Never reversible, only comparable. */
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/** Where the link in the email points — the API has no page of its own for this, the web app does. */
+function linkFor(token: string): string {
+  const origin = process.env.APP_URL ?? 'http://localhost:3000';
+  return `${origin}/reset-password/${token}`;
+}
+
+function resetEmailHtml(link: string): string {
+  return `
+    <p>Someone asked to reset the password on this BioAssetPro account.</p>
+    <p><a href="${link}">Set a new password</a></p>
+    <p>This link works once and expires in one hour. If you did not ask for this, you can ignore it — your password will not change.</p>
+  `.trim();
 }
