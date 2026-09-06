@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { IsEmail, IsString, MinLength } from 'class-validator';
+import { Throttle, ThrottlerGuard, minutes } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService, AuthenticatedUser } from './auth.service';
 import { CurrentCompany, CurrentUser, Public } from './current-user.decorator';
@@ -48,7 +49,19 @@ export class AuthController {
     private readonly roleSections: RoleSectionAccessService,
   ) {}
 
+  /*
+   * Brute-force protection lives here, not on every route: this is the one
+   * place a stolen password list actually gets tested against, and unlike
+   * everywhere else in the API, the cost of guessing wrong is not "hold a
+   * valid bearer token" — it's nothing at all. Per-IP rather than per-email
+   * on purpose: keying on the email in the body would let an attacker
+   * rotate through addresses to stay under the limit while hammering one
+   * password, which is the more realistic attack against a farm where
+   * everyone's email follows the same pattern.
+   */
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: minutes(15) } })
   @Post('login')
   async login(@Body() body: LoginDto) {
     return this.auth.login(body.email, body.password);
@@ -56,6 +69,8 @@ export class AuthController {
 
   /** Create a farm and its first user. */
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: minutes(60) } })
   @Post('register')
   async register(@Body() body: RegisterDto) {
     return this.registration.register(body);
@@ -172,6 +187,8 @@ export class AuthController {
    * only calling the service when the email looks plausible.
    */
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: minutes(15) } })
   @Post('forgot-password')
   async forgotPassword(@Body() body: { email: string }) {
     await this.passwordResets.requestForSelf(body.email ?? '');
@@ -195,6 +212,8 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: minutes(15) } })
   @Post('password-reset/token/:token/complete')
   async completePasswordReset(
     @Param('token') token: string,
@@ -215,6 +234,8 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: minutes(15) } })
   @Post('invitations/token/:token/accept')
   async acceptInvitation(
     @Param('token') token: string,

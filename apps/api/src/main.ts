@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { BigIntSerialiserInterceptor } from './common/bigint.interceptor';
 
@@ -26,7 +27,18 @@ function loadEnv(): void {
 async function bootstrap(): Promise<void> {
   loadEnv();
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  /*
+   * Trust the platform's own proxy for the caller's real IP.
+   *
+   * Render (and any container platform) terminates the connection and
+   * forwards it, so without this every request looks like it came from the
+   * proxy's own address — which means rate limiting would count every
+   * caller as the same one caller. Safe locally too: a direct connection
+   * has no X-Forwarded-For to trust in the first place.
+   */
+  app.set('trust proxy', 1);
 
   // The web app is served from its own origin. An allow-list, not a wildcard:
   // the API carries bearer tokens and posting endpoints.

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { ThrottlerModule, minutes } from '@nestjs/throttler';
 import { CoreModule } from '../core.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -28,6 +29,17 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
         signOptions: { expiresIn: JWT_EXPIRES_IN },
       }),
     }),
+    /*
+     * Scoped here, not registered globally — the routes that actually need
+     * brute-force protection (login, register, forgot-password, a reset or
+     * invitation token being redeemed) are the handful of @Public() ones in
+     * this module that accept credentials from someone with no session yet.
+     * Everything else already sits behind JwtAuthGuard, where the cost of
+     * guessing is a valid bearer token, not a password. Each route below
+     * applies its own @Throttle() limit; this default only covers one that
+     * doesn't bother to override it.
+     */
+    ThrottlerModule.forRoot([{ name: 'default', ttl: minutes(15), limit: 20 }]),
   ],
   controllers: [AuthController],
   providers: [
