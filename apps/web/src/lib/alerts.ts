@@ -3,7 +3,7 @@ import { getFarmConfig } from './farm-config.server';
 import { getInventory } from './demo-trade';
 import { getSalesInvoices } from './demo-trade';
 import { getFeeding, getHealth } from './operations';
-import { getGroups, getGroupDetail } from './operations';
+import { getGroups, getGroupDetail, getUnpostedAcquisitions } from './operations';
 import { getVarianceFindings } from './variance';
 import { formatNaira, toKobo } from './money';
 import { standardAt, standardFor, type FarmConfig } from './farm-config';
@@ -265,6 +265,8 @@ function sectionForKind(kind: string): Section {
     case 'vaccinationDue':
     case 'dailyRoundMissing':
       return 'livestock';
+    case 'postingGap':
+      return 'ledger';
     default:
       return 'money';
   }
@@ -443,6 +445,32 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
         });
       }
     }
+  }
+
+  /*
+   * --- Biological assets recorded but not posted to the ledger -----------
+   *
+   * Not gated on a farm's own alert toggle, unlike everything above and
+   * below it — this is not a preference, it is the accounting engine
+   * silently doing nothing. `postAcquisition()` and `postFeedIssues()` are
+   * deliberately built to let the operational record stand even when
+   * posting fails (see operations-posting.service.ts), which is right for
+   * the worker who recorded it — but it means nobody sees the gap unless
+   * something surfaces it. This is that something.
+   */
+  const unpostedAcquisitions = await getUnpostedAcquisitions();
+  if (unpostedAcquisitions.length > 0) {
+    const codes = unpostedAcquisitions.slice(0, 3).map((group) => group.code).join(', ');
+    const more = unpostedAcquisitions.length > 3 ? `, and ${unpostedAcquisitions.length - 3} more` : '';
+    alerts.push({
+      id: 'ba-unposted-acquisition',
+      kind: 'postingGap',
+      severity: 'warning',
+      title: `${unpostedAcquisitions.length} population${unpostedAcquisitions.length === 1 ? '' : 's'} recorded but not posted to the ledger`,
+      detail: `${codes}${more} — acquisition has not posted, most likely because the chart of accounts is missing an account it needs. Mortality, stage transfers and valuations for ${unpostedAcquisitions.length === 1 ? 'it' : 'them'} cannot post either until this does.`,
+      action: { label: 'See populations', href: '/agripro/biological-assets' },
+      rank: 8,
+    });
   }
 
   /* --- Money owed -------------------------------------------------------- */

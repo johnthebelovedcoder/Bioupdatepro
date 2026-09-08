@@ -51,6 +51,26 @@ export async function getGroupDetail(
   }
 }
 
+/**
+ * Populations whose acquisition has never posted to the ledger.
+ *
+ * `/biological-assets/groups` already carries `acquisitionPosted` — this just
+ * reads it. Nothing downstream of an unposted acquisition can post either:
+ * mortality, stage transfers and valuations all price themselves off the
+ * carrying value acquisition sets, so a group stuck here is the root cause,
+ * not one symptom among several.
+ */
+export async function getUnpostedAcquisitions(): Promise<
+  Array<{ id: string; code: string }>
+> {
+  const groups = await api<
+    Array<{ id: string; code: string; acquisitionCostKobo: string; acquisitionPosted: boolean }>
+  >('/biological-assets/groups');
+  return groups
+    .filter((group) => !group.acquisitionPosted && BigInt(group.acquisitionCostKobo) > 0n)
+    .map((group) => ({ id: group.id, code: group.code }));
+}
+
 export async function getProduction(moduleKey: string, days = 30): Promise<ProductionRow[]> {
   return api<ProductionRow[]>(
     `/operations/production?species=${encodeURIComponent(moduleKey)}&days=${days}`,
