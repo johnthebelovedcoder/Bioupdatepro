@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { AccountType, NormalBalance, Prisma, WarehouseType } from '@bioassetpro/database';
 
@@ -74,7 +75,68 @@ const ACCOUNTS: AccountSeed[] = [
   { number: '1701', name: 'Property, Plant & Equipment', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
   { number: '1702', name: 'Accumulated Depreciation', type: AccountType.ASSET, normal: NormalBalance.CREDIT },
   { number: '5501', name: 'Depreciation Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
+
+  /*
+   * The biological-asset lifecycle (§61/§67 — PCR-037 through PCR-071).
+   * Six-digit, additive to this chart's own convention like Fixed Assets
+   * above, not the client's full spec chart (that migration is the same
+   * still-open client decision noted there).
+   *
+   * Without these, `BiologicalAssetService.postAcquisition()` and every
+   * event downstream of it (mortality, stage transfer, valuation) could
+   * never resolve an account for a freshly registered company — the
+   * operational record would still save, but its accounting effect would
+   * be silently and permanently dropped. Names and codes are the client's
+   * own, from posting-control.json's PCR-004/037-071.
+   */
+  { number: '210200', name: 'GRNI', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+  { number: '130200', name: 'BA — Snail Breeders', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  { number: '130201', name: 'BA — Snail Eggs', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  { number: '130202', name: 'BA — Snail Hatchlings', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  { number: '130203', name: 'BA — Snail Juveniles', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  { number: '130204', name: 'BA — Market Snails', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  { number: '130210', name: 'BA — Poultry', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  { number: '420100', name: 'Fair-Value Gain/Loss — Snails', type: AccountType.REVENUE, normal: NormalBalance.CREDIT },
+  { number: '420200', name: 'Fair-Value Gain/Loss — Poultry', type: AccountType.REVENUE, normal: NormalBalance.CREDIT },
 ];
+
+/**
+ * Which GL account each species/stage carries its biological asset in.
+ *
+ * Duplicated from `packages/database/src/seed-biological-assets.ts` rather
+ * than imported, for the same reason as the chart above: that file's own
+ * package export resolves to the generated Prisma client only, so reaching
+ * its `src/` from here needs a deep relative import this package boundary
+ * doesn't offer cleanly. See that file's own header for why each mapping is
+ * what it is, and for the two vocabulary-migration entries kept for
+ * defensive compatibility.
+ */
+const SNAIL_STAGE_ACCOUNTS: Record<string, string> = {
+  Breeder: '130200',
+  Egg: '130201',
+  Hatchling: '130202',
+  Juvenile: '130203',
+  Grower: '130203',
+  'Market-ready': '130204',
+  'Breeder cohort': '130200',
+  Growers: '130203',
+  Juveniles: '130203',
+};
+
+const POULTRY_STAGE_ACCOUNTS: Record<string, string> = {
+  Chick: '130210',
+  Grower: '130210',
+  'Market-ready': '130210',
+  'Point-of-lay': '130210',
+  Layer: '130210',
+  Broiler: '130210',
+  Pullet: '130210',
+  Cockerel: '130210',
+  Breeder: '130210',
+};
+
+/** PROVISIONAL — see BiologicalAssetConfiguration's schema-level note. */
+const ABNORMAL_MORTALITY_THRESHOLD_PERCENT = '2';
 
 /** Enough hierarchy to attribute farm costs. The farm can add its own. */
 const COST_CENTRES = [
@@ -225,18 +287,20 @@ export class ProvisioningService {
       centres.set(centre.code, created.id);
     }
 
-    for (const account of ACCOUNTS) {
-      await tx.gLAccount.create({
-        data: {
-          companyId: company.id,
-          accountNumber: account.number,
-          name: account.name,
-          accountType: account.type,
-          normalBalance: account.normal,
-          requiresCostCentre: account.requiresCostCentre ?? false,
-        },
-      });
-    }
+    // One round trip for the whole chart rather than one per account — this
+    // list has grown from 24 rows to 33 with the biological-asset accounts
+    // below, and every extra sequential round trip narrows the margin
+    // against Prisma's interactive-transaction timeout under Neon's latency.
+    await tx.gLAccount.createMany({
+      data: ACCOUNTS.map((account) => ({
+        companyId: company.id,
+        accountNumber: account.number,
+        name: account.name,
+        accountType: account.type,
+        normalBalance: account.normal,
+        requiresCostCentre: account.requiresCostCentre ?? false,
+      })),
+    });
 
     const farm = await tx.farm.create({
       data: {
@@ -247,20 +311,19 @@ export class ProvisioningService {
       },
     });
 
-    for (const warehouse of WAREHOUSES) {
-      await tx.warehouse.create({
-        data: {
-          companyId: company.id,
-          branchId: branch.id,
-          code: warehouse.code,
-          name: warehouse.name,
-          type: warehouse.type,
-        },
-      });
-    }
+    await tx.warehouse.createMany({
+      data: WAREHOUSES.map((warehouse) => ({
+        companyId: company.id,
+        branchId: branch.id,
+        code: warehouse.code,
+        name: warehouse.name,
+        type: warehouse.type,
+      })),
+    });
 
     await this.openFinancialYear(tx, company.id, input.financialYearStartMonth ?? 1);
     await this.seedWorkflow(tx, company.id);
+    await this.seedBiologicalAssetAccounts(tx, company.id);
 
     this.logger.log(`Provisioned ${company.name} (${code})`);
     return { companyId: company.id, branchId: branch.id, farmId: farm.id };
@@ -276,32 +339,36 @@ export class ProvisioningService {
    * which re-runs against the same company and has to be idempotent.
    */
   private async seedWorkflow(tx: Prisma.TransactionClient, companyId: string): Promise<void> {
-    for (const spec of WORKFLOW_TYPES) {
-      const definition = await tx.workflowDefinition.create({
-        data: {
-          companyId,
-          transactionType: spec.type,
-          name: `${spec.name} — standard approval`,
-          description:
-            'Company-wide default route. Add a narrower definition to give a ' +
-            'branch, farm or cost centre its own ladder.',
-          autoPostOnApproval: spec.autoPost,
-          effectiveFrom: new Date('2026-01-01'),
-        },
-      });
+    /*
+     * Two round trips for the whole ladder rather than one per definition
+     * plus one per step (this used to be ~120 sequential creates: 24
+     * definitions and 96 steps). IDs are generated here instead of left to
+     * the database default specifically so the step rows can name their
+     * definition without waiting on a round trip to learn its id.
+     */
+    const definitions = WORKFLOW_TYPES.map((spec) => ({
+      id: randomUUID(),
+      companyId,
+      transactionType: spec.type,
+      name: `${spec.name} — standard approval`,
+      description:
+        'Company-wide default route. Add a narrower definition to give a ' +
+        'branch, farm or cost centre its own ladder.',
+      autoPostOnApproval: spec.autoPost,
+      effectiveFrom: new Date('2026-01-01'),
+    }));
+    await tx.workflowDefinition.createMany({ data: definitions });
 
-      for (const rung of APPROVAL_LADDER) {
-        await tx.workflowStep.create({
-          data: {
-            definitionId: definition.id,
-            level: rung.level,
-            roleCode: rung.roleCode,
-            name: rung.name,
-            maxAmountKobo: rung.maxAmountKobo,
-          },
-        });
-      }
-    }
+    const steps = definitions.flatMap((definition) =>
+      APPROVAL_LADDER.map((rung) => ({
+        definitionId: definition.id,
+        level: rung.level,
+        roleCode: rung.roleCode,
+        name: rung.name,
+        maxAmountKobo: rung.maxAmountKobo,
+      })),
+    );
+    await tx.workflowStep.createMany({ data: steps });
 
     await tx.workflowEscalationRule.create({
       data: {
@@ -343,19 +410,67 @@ export class ProvisioningService {
       },
     });
 
-    for (let index = 0; index < 12; index += 1) {
+    const periods = Array.from({ length: 12 }, (_, index) => {
       const periodStart = new Date(Date.UTC(startYear, month - 1 + index, 1));
       const periodEnd = new Date(Date.UTC(startYear, month + index, 0));
-      await tx.financialPeriod.create({
-        data: {
-          financialYearId: year.id,
-          periodNumber: index + 1,
-          name: `${MONTHS[periodStart.getUTCMonth()]} ${periodStart.getUTCFullYear()}`,
-          startDate: periodStart,
-          endDate: periodEnd,
-        },
-      });
+      return {
+        financialYearId: year.id,
+        periodNumber: index + 1,
+        name: `${MONTHS[periodStart.getUTCMonth()]} ${periodStart.getUTCFullYear()}`,
+        startDate: periodStart,
+        endDate: periodEnd,
+      };
+    });
+    await tx.financialPeriod.createMany({ data: periods });
+  }
+
+  /**
+   * Wire the species/stage vocabulary above to the GL accounts just created,
+   * and set the default abnormal-mortality threshold — mirrors
+   * `seedBiologicalAssets()` in the demo seed. No existence checks, same
+   * reasoning as `seedWorkflow`: the company and its chart were both just
+   * created in this same transaction.
+   */
+  private async seedBiologicalAssetAccounts(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+  ): Promise<void> {
+    const accounts = await tx.gLAccount.findMany({
+      where: { companyId },
+      select: { id: true, accountNumber: true },
+    });
+    const byNumber = new Map(accounts.map((account) => [account.accountNumber, account.id]));
+
+    // One round trip rather than one per mapping — `seedWorkflow` above alone
+    // already runs to nearly a hundred sequential creates in this same
+    // transaction, and every extra round trip narrows the margin against
+    // Prisma's interactive-transaction timeout under Neon's latency (a
+    // recurring pattern this codebase has hit repeatedly elsewhere).
+    const rows: Array<{ companyId: string; speciesKey: string; stage: string; glAccountId: string }> = [];
+    for (const [speciesKey, stages] of [
+      ['snail', SNAIL_STAGE_ACCOUNTS],
+      ['poultry', POULTRY_STAGE_ACCOUNTS],
+    ] as const) {
+      for (const [stage, accountNumber] of Object.entries(stages)) {
+        const glAccountId = byNumber.get(accountNumber);
+        // Cannot be missing — every code these maps name was just added to
+        // ACCOUNTS above — but skip rather than throw if that ever drifts,
+        // matching the demo seed's own tolerance for an unmapped stage.
+        if (!glAccountId) continue;
+        rows.push({ companyId, speciesKey, stage, glAccountId });
+      }
     }
+    if (rows.length > 0) {
+      await tx.biologicalAssetStageAccount.createMany({ data: rows });
+    }
+
+    await tx.biologicalAssetConfiguration.create({
+      data: {
+        companyId,
+        abnormalMortalityThresholdPercent: ABNORMAL_MORTALITY_THRESHOLD_PERCENT,
+        effectiveFrom: new Date('2026-01-01'),
+      },
+    });
   }
 
   /** Naira, shared across companies rather than duplicated per tenant. */
