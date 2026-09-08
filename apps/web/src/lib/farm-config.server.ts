@@ -1,5 +1,5 @@
 import 'server-only';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { DEFAULT_CONFIG, type FarmConfig } from './farm-config';
 
 /**
@@ -18,6 +18,7 @@ export async function getFarmConfig(): Promise<FarmConfig> {
   try {
     const { overrides } = await api<{ overrides: DeepPartial<FarmConfig> | null }>(
       '/company-config',
+      { cache: 'force-cache' },
     );
     if (!overrides) return DEFAULT_CONFIG;
     return merge(DEFAULT_CONFIG, overrides);
@@ -32,9 +33,12 @@ export async function getFarmConfig(): Promise<FarmConfig> {
 /** Whether this company has ever saved a setting — distinct from `getFarmConfig()`, which always returns something usable either way. */
 export async function hasSavedSettings(): Promise<boolean> {
   try {
-    const { overrides } = await api<{ overrides: unknown }>('/company-config');
+    const { overrides } = await api<{ overrides: unknown }>('/company-config', {
+      cache: 'force-cache',
+    });
     return overrides !== null && overrides !== undefined;
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 429) return false;
     return false;
   }
 }
