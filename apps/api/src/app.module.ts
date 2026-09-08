@@ -18,6 +18,7 @@ import { ProductionModule } from './production/production.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PoultryEggModule } from './poultry-egg/poultry-egg.module';
 import { RoutingModule } from './routing/routing.module';
+import { FarmConfigModule } from './farm-config/farm-config.module';
 import { MastersController } from './masters/masters.controller';
 import { MasterDataController } from './masters/master-data.controller';
 import { ProcurementController } from './procurement/procurement.controller';
@@ -70,6 +71,7 @@ const developmentOnlyControllers =
     InventoryModule,
     PoultryEggModule,
     RoutingModule,
+    FarmConfigModule,
   ],
   providers: [KpiService],
   controllers: [

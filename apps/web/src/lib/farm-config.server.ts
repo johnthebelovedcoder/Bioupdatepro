@@ -1,37 +1,41 @@
 import 'server-only';
-import { cookies } from 'next/headers';
+import { api } from './api';
 import { DEFAULT_CONFIG, type FarmConfig } from './farm-config';
 
 /**
  * The farm's configuration, with this farm's overrides applied.
  *
- * Overrides are held in a cookie rather than client state for one reason: every
- * screen in this product is server-rendered, so a setting kept in the browser
- * would not reach the code that needs it. A cookie is readable during the
- * render that has to honour it.
+ * Reads a real per-company record now — see `CompanyConfig`'s own schema
+ * comment for why this used to be a browser cookie and why that was wrong:
+ * every other setting in this product is shared across whoever signs into
+ * the farm, and this one silently wasn't. Everything downstream of this
+ * function is unchanged; only where the override object comes from moved.
  *
- * Only the DIFFERENCE from the defaults is stored. A cookie is capped around
- * 4KB and the breed standards alone would blow that; storing deltas keeps it to
- * a few hundred bytes and means a farm that changes nothing carries nothing.
- *
- * This is a stand-in for the organisation's settings record. When tenancy
- * exists it becomes a database read, and every caller is unchanged.
+ * Only the DIFFERENCE from the defaults is stored, same discipline the
+ * cookie already had — a farm that changes nothing still stores nothing.
  */
-
-export const CONFIG_COOKIE = 'bap_config';
-
 export async function getFarmConfig(): Promise<FarmConfig> {
-  const store = await cookies();
-  const raw = store.get(CONFIG_COOKIE)?.value;
-  if (!raw) return DEFAULT_CONFIG;
-
   try {
-    const overrides = JSON.parse(decodeURIComponent(raw)) as DeepPartial<FarmConfig>;
+    const { overrides } = await api<{ overrides: DeepPartial<FarmConfig> | null }>(
+      '/company-config',
+    );
+    if (!overrides) return DEFAULT_CONFIG;
     return merge(DEFAULT_CONFIG, overrides);
   } catch {
-    // A malformed cookie must not take the farm's whole app down. Fall back to
-    // defaults rather than throwing on every page.
+    // A farm's whole app must not go down because settings could not be
+    // read — every page that renders reads this. Fall back to defaults, the
+    // same way a malformed cookie used to.
     return DEFAULT_CONFIG;
+  }
+}
+
+/** Whether this company has ever saved a setting — distinct from `getFarmConfig()`, which always returns something usable either way. */
+export async function hasSavedSettings(): Promise<boolean> {
+  try {
+    const { overrides } = await api<{ overrides: unknown }>('/company-config');
+    return overrides !== null && overrides !== undefined;
+  } catch {
+    return false;
   }
 }
 

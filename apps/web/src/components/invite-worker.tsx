@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createInvitation, revokeInvitation, type InviteResult, type PendingInvitation } from '@/app/(app)/staff/actions';
+import { humanRole } from '@/lib/roles';
 import { Card } from './ui';
 import { Sheet } from './sheet';
 
@@ -46,9 +47,11 @@ export const ROLES: Array<{ code: string; label: string; what: string }> = [
   },
 ];
 
-export function humanRole(code: string): string {
-  return ROLES.find((role) => role.code === code)?.label ?? code;
-}
+// Re-exported so `people-table.tsx` and `role-section-matrix.tsx` do not
+// need to know the transform moved to `@/lib/roles` — see that file's own
+// comment for why it lives there now instead of a lookup against `ROLES`
+// above, which only ever covered six of this system's twenty real roles.
+export { humanRole };
 
 /**
  * Inviting somebody onto the farm.

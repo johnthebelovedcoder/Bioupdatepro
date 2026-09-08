@@ -1,10 +1,9 @@
 import Link from 'next/link';
-import { cookies } from 'next/headers';
-import { getFarmConfig, CONFIG_COOKIE } from '@/lib/farm-config.server';
+import { getFarmConfig, hasSavedSettings } from '@/lib/farm-config.server';
 import { getContext } from '@/lib/org';
 import { subscribedModules } from '@/lib/modules';
 import { getFeeding, getGroups, getProduction } from '@/lib/operations';
-import { listPeople } from '@/app/(app)/staff/actions';
+import { getTeamSize } from '@/app/(app)/staff/actions';
 import { Card, PageHeader } from '@/components/ui';
 import { IconArrowRight, IconCheckCircle, IconClipboard } from '@/components/icons';
 
@@ -25,10 +24,9 @@ export const metadata = { title: 'Welcome — BioAssetPro' };
 export default async function WelcomePage() {
   // The company from the ledger, not the local default — this page greets
   // somebody by their farm's name moments after they typed it.
-  const [config, context, cookieStore] = await Promise.all([
+  const [config, context] = await Promise.all([
     getFarmConfig(),
     getContext().catch(() => null),
-    cookies(),
   ]);
   const farmName = context?.company?.name ?? config.organisation.name;
   const modules = subscribedModules(config.modules);
@@ -55,13 +53,17 @@ export default async function WelcomePage() {
   ]);
   const hasWalkedRound = [...production.flat(), ...feeding.flat()].length > 0;
 
-  // The settings cookie holds only the DIFFERENCE from defaults (see
-  // `farm-config.server.ts`'s own note) — so its mere presence already means
-  // this farm changed something, with no extra tracking needed.
-  const hasConfiguredSettings = Boolean(cookieStore.get(CONFIG_COOKIE)?.value);
+  // A real per-company record now (see `CompanyConfig`'s own schema
+  // comment) — this asks whether the FARM has ever saved a setting, not
+  // whether this particular browser has, which is what the cookie this
+  // replaced could actually answer.
+  const hasConfiguredSettings = await hasSavedSettings();
 
-  const staff = await listPeople().catch(() => []);
-  const hasTeam = staff.length > 1;
+  // A headcount, not the roster `listPeople` returns — that endpoint is
+  // restricted to the roles that manage staff, so asking it here silently
+  // told every other role their fully-staffed farm still needed a first
+  // invitation.
+  const hasTeam = (await getTeamSize()) > 1;
 
   return (
     <>

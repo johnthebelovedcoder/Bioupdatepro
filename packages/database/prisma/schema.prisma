@@ -195,6 +195,7 @@ model User {
   invitationsSent           Invitation[]               @relation("InvitationSender")
   passwordResetsReceived    PasswordResetToken[]       @relation("PasswordResetTarget")
   passwordResetsIssued      PasswordResetToken[]       @relation("PasswordResetIssuer")
+  companyConfigsUpdated     CompanyConfig[]
   valuationsPrepared        BiologicalAssetValuation[] @relation("ValuationPreparer")
   fixedAssetsCapitalised    FixedAsset[]               @relation("FixedAssetCapitaliser")
   depreciationRunsCreated   DepreciationRun[]          @relation("DepreciationRunCreator")
@@ -309,6 +310,7 @@ model Company {
   marketPriceLists              MarketPriceList[]
   payrollPayments                PayrollPayment[]
   roleSectionAccess               RoleSectionAccess[]
+  config                          CompanyConfig?
   productionOrders               ProductionOrder[]
   inventoryTransfers              InventoryTransfer[]
   inventoryWriteOffs              InventoryWriteOff[]
@@ -994,6 +996,38 @@ model RoleSectionAccess {
 
   @@unique([companyId, role, section])
   @@map("role_section_access")
+}
+
+/// How this farm's own copy of the app is configured — feed lead times,
+/// mortality-photo policy, variance tolerances, worker language, and every
+/// other threshold `apps/web/src/lib/farm-config.ts` defines a default for.
+///
+/// This used to be a diff-from-defaults JSON blob in a browser cookie, on
+/// the reasoning that it was a stand-in for "once tenancy exists." Tenancy
+/// existed everywhere else in this schema by the time that was written — the
+/// cookie was simply never migrated, which meant two people on the same farm
+/// could see two different "configured" states depending on whose browser
+/// they were sitting at, and clearing cookies silently reset a farm's own
+/// settings with no warning. This table is that migration: one row per
+/// company, keyed the same way `RoleSectionAccess` above is. The
+/// diff-from-defaults shape carries over unchanged — a company that has
+/// changed nothing still stores nothing — only where it lives changes.
+model CompanyConfig {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @unique @map("company_id") @db.Uuid
+
+  /// A `DeepPartial<FarmConfig>` (see farm-config.ts), never the whole
+  /// resolved config — only what this company overrode from the defaults.
+  overrides Json
+
+  updatedById String   @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  company   Company @relation(fields: [companyId], references: [id])
+  updatedBy User    @relation(fields: [updatedById], references: [id])
+
+  @@map("company_configs")
 }
 
 // ---------------------------------------------------------------------------

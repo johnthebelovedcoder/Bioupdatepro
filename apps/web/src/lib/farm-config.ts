@@ -20,8 +20,12 @@
  *      things and the interface says which is which, because a benchmark of
  *      unknown origin sitting beside a real figure is worse than no benchmark.
  *
- *   3. Shaped as the API will return it, so this becomes an endpoint later
- *      rather than a rewrite.
+ *   3. Shaped as the API returns it — `getFarmConfig()` in
+ *      `farm-config.server.ts` merges a real per-company override record
+ *      (the `POST /company-config` endpoint) onto the defaults below, the
+ *      same seam this file was always meant to have. Everything in this
+ *      file itself stays the shared defaults and types; the overrides
+ *      themselves live in the database, not here.
  */
 
 import type { ModuleKey } from './modules';
@@ -516,16 +520,6 @@ export const DEFAULT_CONFIG: FarmConfig = {
   standards: PUBLISHED_STANDARDS,
   modules: ['poultry', 'snail'],
 };
-
-/**
- * The farm's configuration.
- *
- * Reads defaults today. Becomes a call to the organisation's settings endpoint
- * once tenancy exists — one seam, not a rewrite.
- */
-export async function getFarmConfig(): Promise<FarmConfig> {
-  return DEFAULT_CONFIG;
-}
 
 /** The standard that applies to a population, if the farm has one. */
 export function standardFor(

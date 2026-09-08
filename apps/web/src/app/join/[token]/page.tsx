@@ -1,17 +1,9 @@
 import Link from 'next/link';
 import { JoinForm } from '@/components/join-form';
+import { humanRole } from '@/lib/roles';
 import { describeInvitation } from './actions';
 
 export const metadata = { title: 'Join a farm — BioAssetPro' };
-
-/** Role codes are not words. Show what the person will actually be able to do. */
-function humanRole(code: string): string {
-  return code
-    .toLowerCase()
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
 
 export default async function JoinPage({
   params,

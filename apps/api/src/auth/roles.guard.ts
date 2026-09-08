@@ -133,7 +133,30 @@ export class RolesGuard implements CanActivate {
      * the permission model from the outside.
      */
     throw new ForbiddenException(
-      `This needs one of: ${needed.join(', ')}. Ask an administrator.`,
+      `This needs one of: ${needed.map(humanRole).join(', ')}. Ask an administrator.`,
     );
   }
+}
+
+/**
+ * `FARM_ACCOUNTANT` read back to a person as "Farm Accountant".
+ *
+ * This message reaches whoever the API just refused, in whatever screen
+ * rendered the refusal — and every other place a role name reaches an end
+ * user already goes through the equivalent transform in
+ * `apps/web/src/lib/roles.ts` (same algorithm, same acronym list — the two
+ * cannot share a module across the API/web boundary, so this is kept a
+ * small, stable, generic string transform rather than anything that could
+ * drift into a second source of truth). A refusal that skipped it was the
+ * one place left where a raw enum constant, underscores and all, was the
+ * actual thing shown to somebody who did nothing wrong except lack a role.
+ */
+const ACRONYMS = new Set(['cfo', 'ap', 'ar', 'qa']);
+
+function humanRole(code: string): string {
+  return code
+    .toLowerCase()
+    .split('_')
+    .map((word) => (ACRONYMS.has(word) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(' ');
 }

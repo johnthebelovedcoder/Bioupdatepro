@@ -325,6 +325,19 @@ export class InvitationService {
   }
 
   /**
+   * How many people work on this farm — nothing else. `listUsers` above
+   * carries names, emails and roles, and stays restricted to the roles that
+   * manage staff; a bare headcount isn't the same kind of information and
+   * has a legitimate reader in anyone who might ask "am I the only one
+   * here" (the onboarding checklist's own "invite your team" step, for one,
+   * used to ask `listUsers` this and got a silent, wrong "yes" from every
+   * role that call refuses).
+   */
+  async countUsers(companyId: string): Promise<number> {
+    return this.prisma.user.count({ where: { companyId } });
+  }
+
+  /**
    * Change what an existing person may do.
    *
    * Deliberately refuses to touch the caller's own roles — not a technical

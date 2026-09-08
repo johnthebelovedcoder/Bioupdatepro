@@ -99,6 +99,24 @@ export async function listPeople(): Promise<Person[]> {
   }
 }
 
+/**
+ * Just the headcount, for anyone to read — not everyone who needs to know
+ * "is this farm staffed yet" holds a role that can call `listPeople` above.
+ * The onboarding checklist is exactly that caller: it used to ask
+ * `listPeople` and, for most roles, silently get an empty list back from
+ * the role check refusing it rather than the farm genuinely having nobody
+ * on it, which told a Finance Controller their fully-staffed farm still
+ * needed a first invitation.
+ */
+export async function getTeamSize(): Promise<number> {
+  try {
+    const { count } = await api<{ count: number }>('/auth/users/count');
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
 export interface RoleEditResult {
   error: string | null;
   ok?: boolean;

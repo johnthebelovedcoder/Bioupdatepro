@@ -142,6 +142,16 @@ export class AuthController {
     return this.invitations.listUsers(companyId);
   }
 
+  /**
+   * A bare headcount, open to any role — see `InvitationService.countUsers()`'s
+   * own comment for why this is not just `listUsers` with a smaller response.
+   */
+  @AnyRole('A headcount carries no name, email or role — anyone may ask whether they are alone on this farm.')
+  @Get('users/count')
+  async countUsers(@CurrentCompany() companyId: string) {
+    return { count: await this.invitations.countUsers(companyId) };
+  }
+
   @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
   @Post('users/:id/roles')
   async updateUserRoles(

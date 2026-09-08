@@ -10,6 +10,7 @@ import {
   type Provenance,
 } from '@/lib/farm-config';
 import { formatNaira, parseNairaToKobo } from '@/lib/money';
+import { humanRole } from '@/lib/roles';
 import { Card, PageHeader } from './ui';
 import { Tabs } from './tabs';
 
@@ -114,9 +115,8 @@ export function SettingsForm({ config }: { config: FarmConfig }) {
 
         <Card>
           <p className="faint" style={{ margin: 0 }}>
-            Settings are stored on this device until the organisation record exists in the
-            backend. They apply to every screen you open here, but a colleague on another
-            phone will still see the defaults.
+            Settings are shared across the whole farm — anyone who signs in, on any device,
+            sees what is saved here.
           </p>
         </Card>
 
@@ -736,11 +736,3 @@ const CHANNEL_LABELS: Record<AlertChannel, string> = {
   sms: 'SMS',
   email: 'Email',
 };
-
-function humanRole(code: string): string {
-  return code
-    .toLowerCase()
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}

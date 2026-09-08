@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { logout } from '@/app/login/actions';
 import type { SessionUser } from '@/lib/session';
+import { humanRole } from '@/lib/roles';
 import { IconSignOut } from './icons';
 
 /**
@@ -144,12 +145,4 @@ function initials(name: string): string {
   const first = parts[0]![0] ?? '';
   const last = parts.length > 1 ? (parts[parts.length - 1]![0] ?? '') : '';
   return (first + last).toUpperCase();
-}
-
-export function humanRole(code: string): string {
-  return code
-    .toLowerCase()
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
 }
