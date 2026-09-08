@@ -113,7 +113,7 @@ export default async function DashboardPage() {
    */
   const hasSpecies = modules.length > 0;
   let money: Awaited<ReturnType<typeof getMoneySummary>> | null = null;
-  let tasks: Awaited<ReturnType<typeof getUpcomingTasks>>[] = [];
+  let tasks: Awaited<ReturnType<typeof getUpcomingTasks>> = [];
   let activity: ActivityEntry[] = [];
   let overviews: Awaited<ReturnType<typeof getModuleOverview>>[] = [];
   try {
@@ -124,7 +124,7 @@ export default async function DashboardPage() {
       ...modules.map((module) => getModuleOverview(module.key)),
     ]);
     money = results[0] as Awaited<ReturnType<typeof getMoneySummary>>;
-    tasks = results[1] as Awaited<ReturnType<typeof getUpcomingTasks>>[];
+    tasks = results[1] as Awaited<ReturnType<typeof getUpcomingTasks>>;
     activity = results[2] as ActivityEntry[];
     overviews = results.slice(3) as Awaited<ReturnType<typeof getModuleOverview>>[];
   } catch (caught) {
