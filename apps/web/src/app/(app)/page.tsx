@@ -387,7 +387,7 @@ export default async function DashboardPage() {
             </Card>
 
             {/* Feed and the farm's task list are both livestock work. */}
-            {hasSpecies ? <FeedRunwayCard runway={runway} /> : null}
+            {hasSpecies ? <FeedRunwayCard runway={runway ?? []} /> : null}
 
             {hasSpecies ? (
             <Card title="Upcoming tasks" padded={false}>
