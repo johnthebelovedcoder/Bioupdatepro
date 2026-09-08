@@ -193,24 +193,34 @@ export interface TodayActivityItem {
  * screens are still on their own fixtures (see the broader migration this is
  * the first slice of).
  */
-export async function getTodayActivity(moduleKeys: string[]): Promise<TodayActivityItem[]> {
-  const today = todayInLagos();
-  const items: TodayActivityItem[] = [];
+interface DatedActivityItem extends TodayActivityItem {
+  date: string;
+}
+
+/**
+ * The shared gather behind both `getTodayActivity` (filters to today) and
+ * `getActivityLog` (groups the same items by day) — one place that decides
+ * what counts as farm activity, so the two screens cannot quietly disagree
+ * about it.
+ */
+async function gatherActivity(moduleKeys: string[], days: number): Promise<DatedActivityItem[]> {
+  const items: DatedActivityItem[] = [];
 
   for (const moduleKey of moduleKeys) {
     const module = getModule(moduleKey);
     if (!module) continue;
 
     const [feeding, production, harvests] = await Promise.all([
-      getFeeding(moduleKey, 1),
-      getProduction(moduleKey, 1),
+      getFeeding(moduleKey, days),
+      getProduction(moduleKey, days),
       getHarvests(moduleKey),
     ]);
 
     for (const row of feeding) {
-      if (row.date.slice(0, 10) !== today || row.kg <= 0) continue;
+      if (row.kg <= 0) continue;
       items.push({
-        id: `feed-${moduleKey}-${row.groupCode}`,
+        id: `feed-${moduleKey}-${row.groupCode}-${row.date}`,
+        date: row.date.slice(0, 10),
         kind: 'feed',
         title: 'Feed distributed',
         detail: `${row.house} · ${row.kg.toLocaleString('en-NG')} kg ${row.feedType}`,
@@ -218,7 +228,6 @@ export async function getTodayActivity(moduleKeys: string[]): Promise<TodayActiv
     }
 
     for (const row of production) {
-      if (row.date.slice(0, 10) !== today) continue;
       const total = Object.values(row.values).reduce((sum, value) => sum + value, 0);
       if (total <= 0) continue;
       const parts = Object.entries(row.values)
@@ -228,7 +237,8 @@ export async function getTodayActivity(moduleKeys: string[]): Promise<TodayActiv
           return `${value.toLocaleString('en-NG')} ${field?.label.toLowerCase() ?? key}`;
         });
       items.push({
-        id: `production-${moduleKey}-${row.groupCode}`,
+        id: `production-${moduleKey}-${row.groupCode}-${row.date}`,
+        date: row.date.slice(0, 10),
         kind: 'production',
         title: `${module.terms.productionRecord} recorded`,
         detail: `${row.house} · ${parts.join(', ')}`,
@@ -236,9 +246,11 @@ export async function getTodayActivity(moduleKeys: string[]): Promise<TodayActiv
     }
 
     for (const row of harvests) {
-      if (row.date.slice(0, 10) !== today) continue;
+      const rowDate = row.date.slice(0, 10);
+      if (rowDate < todayMinus(days - 1)) continue;
       items.push({
         id: `harvest-${moduleKey}-${row.id}`,
+        date: rowDate,
         kind: 'harvest',
         title: 'Harvest recorded',
         detail: `${row.colonyCode} · ${row.kg.toLocaleString('en-NG')} kg, ${row.count.toLocaleString('en-NG')} ${row.count === 1 ? module.terms.animal.one : module.terms.animal.many}`,
@@ -247,6 +259,45 @@ export async function getTodayActivity(moduleKeys: string[]): Promise<TodayActiv
   }
 
   return items;
+}
+
+function todayMinus(days: number): string {
+  const date = new Date(`${todayInLagos()}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+export async function getTodayActivity(moduleKeys: string[]): Promise<TodayActivityItem[]> {
+  const today = todayInLagos();
+  const items = await gatherActivity(moduleKeys, 1);
+  return items.filter((item) => item.date === today);
+}
+
+export interface ActivityDay {
+  date: string;
+  entries: TodayActivityItem[];
+}
+
+/**
+ * The multi-day version of `getTodayActivity` — replacing `lib/demo-ops.ts`'s
+ * `getActivityLog()`, whose own page carried an honest "nothing here is
+ * stored yet" notice that stopped being true once feeding, production and
+ * harvest reads went real. Grouped and sorted most-recent first, the same
+ * order the fixture used.
+ */
+export async function getActivityLog(moduleKeys: string[], days = 14): Promise<ActivityDay[]> {
+  const items = await gatherActivity(moduleKeys, days);
+
+  const byDate = new Map<string, TodayActivityItem[]>();
+  for (const { date, ...entry } of items) {
+    const bucket = byDate.get(date);
+    if (bucket) bucket.push(entry);
+    else byDate.set(date, [entry]);
+  }
+
+  return [...byDate.entries()]
+    .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
+    .map(([date, entries]) => ({ date, entries }));
 }
 
 export interface UpcomingTaskItem {

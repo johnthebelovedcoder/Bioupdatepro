@@ -1,29 +1,29 @@
-import { getActivityLog } from '@/lib/demo-ops';
+import { getActivityLog } from '@/lib/operations';
+import { subscribedModules } from '@/lib/modules';
+import { getFarmConfig } from '@/lib/farm-config.server';
 import { formatDate } from '@/lib/money';
 import { Card, PageHeader } from '@/components/ui';
-import {
-  IconAlert,
-  IconCart,
-  IconCheckCircle,
-  IconClipboard,
-  IconEgg,
-  IconFeed,
-  IconTag,
-} from '@/components/icons';
+import { IconCheckCircle, IconEgg, IconFeed } from '@/components/icons';
 import { Tabs } from '@/components/tabs';
 
 export const metadata = { title: 'Daily activity — BioAssetPro' };
 
 /**
- * The farm's operational history, in one timeline.
+ * The farm's operational history, in one timeline — feeding, production and
+ * harvests, real, across every subscribed module.
  *
- * Every module and every kind of event in one place, because "what happened on
- * Tuesday" is not a question anyone asks per species. This is a view over the
- * event log rather than a table of its own — which is exactly why the event log
- * is one table and not ten.
+ * Sales, purchases and mortality are not in this timeline yet: sales and
+ * purchases are still on their own fixtures elsewhere in this migration, and
+ * there is no single real endpoint for mortality as dated events the way
+ * feeding/production/harvest each have one (only a per-population 14-day
+ * series, which would mean one request per population to assemble here).
+ * Leaving them out is the honest choice until each has a real source —
+ * showing three real kinds beats showing six where half are invented.
  */
 export default async function ActivityPage() {
-  const days = await getActivityLog();
+  const config = await getFarmConfig();
+  const moduleKeys = subscribedModules(config.modules).map((module) => module.key);
+  const days = await getActivityLog(moduleKeys);
 
   return (
     <>
@@ -46,28 +46,26 @@ export default async function ActivityPage() {
               const Icon = iconFor(entry.kind);
               return (
                 <div className="list-row" key={entry.id}>
-                  <span className={`list-icon ${toneFor(entry.kind)}`}>
+                  <span className="list-icon">
                     <Icon size={16} />
                   </span>
                   <div className="list-main">
                     <div className="list-title">{entry.title}</div>
                     <div className="list-sub">{entry.detail}</div>
-                    <div className="faint">{entry.by}</div>
                   </div>
-                  <span className="list-time">{entry.time}</span>
                 </div>
               );
             })}
           </Card>
         ))}
 
-        <Card>
-          <p className="muted" style={{ fontSize: 14 }}>
-            This will be a view over the farm event log — the same records the daily round
-            writes — filtered by farm, house, population, worker or date. Nothing here is
-            stored yet.
-          </p>
-        </Card>
+        {days.length === 0 ? (
+          <Card>
+            <p className="muted" style={{ fontSize: 14 }}>
+              Nothing recorded in the last two weeks.
+            </p>
+          </Card>
+        ) : null}
       </div>
     </>
   );
@@ -79,30 +77,7 @@ function iconFor(kind: string) {
       return IconEgg;
     case 'feed':
       return IconFeed;
-    case 'mortality':
-      return IconAlert;
-    case 'sale':
-      return IconTag;
-    case 'purchase':
-      return IconCart;
-    case 'health':
+    default:
       return IconCheckCircle;
-    default:
-      return IconClipboard;
-  }
-}
-
-function toneFor(kind: string): string {
-  switch (kind) {
-    case 'mortality':
-      return 'tone-danger';
-    case 'production':
-    case 'sale':
-      return 'tone-success';
-    case 'health':
-    case 'purchase':
-      return 'tone-info';
-    default:
-      return '';
   }
 }
