@@ -323,7 +323,7 @@ export class ProvisioningService {
 
     await this.openFinancialYear(tx, company.id, input.financialYearStartMonth ?? 1);
     await this.seedWorkflow(tx, company.id);
-    await this.seedBiologicalAssetAccounts(tx, company.id);
+    await this.seedDomainAccountConfiguration(tx, company.id);
 
     this.logger.log(`Provisioned ${company.name} (${code})`);
     return { companyId: company.id, branchId: branch.id, farmId: farm.id };
@@ -425,13 +425,14 @@ export class ProvisioningService {
   }
 
   /**
-   * Wire the species/stage vocabulary above to the GL accounts just created,
-   * and set the default abnormal-mortality threshold — mirrors
-   * `seedBiologicalAssets()` in the demo seed. No existence checks, same
-   * reasoning as `seedWorkflow`: the company and its chart were both just
-   * created in this same transaction.
+   * Point every domain service's own account resolver at the chart just
+   * created, so a freshly registered company can actually post through the
+   * three engines that each resolve their own accounts rather than through
+   * §66's declarative posting-rule table: biological assets, procurement,
+   * and sales. No existence checks, same reasoning as `seedWorkflow`: the
+   * company and its chart were both just created in this same transaction.
    */
-  private async seedBiologicalAssetAccounts(
+  private async seedDomainAccountConfiguration(
     tx: Prisma.TransactionClient,
     companyId: string,
   ): Promise<void> {
@@ -471,6 +472,51 @@ export class ProvisioningService {
         effectiveFrom: new Date('2026-01-01'),
       },
     });
+
+    /*
+     * Procurement and sales BOTH refuse to post — and, unlike biological
+     * assets, refuse to even CREATE a goods receipt or a delivery — without
+     * their own company-level configuration (`ProcurementConfigService
+     * .resolve()` / `SalesPricingService.configuration()` both throw
+     * outright: "this system will not make on the company's behalf"). That
+     * refusal is the right call for a real policy decision — the three-way
+     * match tolerances, whether negative stock is allowed — which is why
+     * only the GL accounts are set here and everything else is left to the
+     * schema's own conservative defaults (0% tolerance, exact match). But an
+     * account is not a policy, it is a fact about the chart just created
+     * above, and leaving it unset meant no new company could receive a
+     * delivery or raise an invoice AT ALL, with no path to fix it short of
+     * an admin screen most farms would not think to look for on day one.
+     */
+    const grni = byNumber.get('210200');
+    const payables = byNumber.get('2201');
+    if (grni && payables) {
+      await tx.procurementConfiguration.create({
+        data: {
+          companyId,
+          grniGlAccountId: grni,
+          payablesGlAccountId: payables,
+          effectiveFrom: new Date('2026-01-01'),
+        },
+      });
+    }
+
+    const receivable = byNumber.get('1201');
+    const revenue = byNumber.get('4101');
+    const costOfSales = byNumber.get('5001');
+    const finishedGoods = byNumber.get('1401');
+    if (receivable && revenue && costOfSales && finishedGoods) {
+      await tx.salesConfiguration.create({
+        data: {
+          companyId,
+          receivableGlAccountId: receivable,
+          revenueGlAccountId: revenue,
+          costOfSalesGlAccountId: costOfSales,
+          inventoryGlAccountId: finishedGoods,
+          effectiveFrom: new Date('2026-01-01'),
+        },
+      });
+    }
   }
 
   /** Naira, shared across companies rather than duplicated per tenant. */
