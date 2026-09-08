@@ -34,9 +34,30 @@ export class PrismaService
 {
   private readonly logger = new Logger(PrismaService.name);
 
+  /**
+   * Neon's compute suspends after a few minutes idle and takes a handful of
+   * seconds to wake on the next connection. A single failed `$connect()` here
+   * used to crash the whole process before it ever reached `app.listen()` —
+   * taking down every route, not just database ones, until someone noticed
+   * and restarted it by hand. Retrying with backoff absorbs that cold start
+   * instead of going down for it.
+   */
   async onModuleInit(): Promise<void> {
-    await this.$connect();
-    this.logger.log('Database connected');
+    const maxAttempts = 5;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.$connect();
+        this.logger.log('Database connected');
+        return;
+      } catch (error) {
+        if (attempt === maxAttempts) throw error;
+        const delayMs = Math.min(1000 * 2 ** (attempt - 1), 8000);
+        this.logger.warn(
+          `Database connection attempt ${attempt}/${maxAttempts} failed — retrying in ${delayMs}ms (Neon's compute may still be waking up).`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
