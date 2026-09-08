@@ -80,11 +80,25 @@ export default async function DashboardPage() {
   }
 
   const config = await getFarmConfig();
-  const [alerts, runway, ledger] = await Promise.all([
-    getAlerts(roles),
-    getFeedRunway(config),
-    canSee(roles, 'money') ? getLedgerMoney() : null,
-  ]);
+  let alerts = [] as Awaited<ReturnType<typeof getAlerts>>;
+  let runway: Awaited<ReturnType<typeof getFeedRunway>> | null = null;
+  let ledger: Awaited<ReturnType<typeof getLedgerMoney>> | null = null;
+  try {
+    [alerts, runway, ledger] = await Promise.all([
+      getAlerts(roles),
+      getFeedRunway(config),
+      canSee(roles, 'money') ? getLedgerMoney() : null,
+    ]);
+  } catch (caught) {
+    // If the API rate-limited or another downstream call failed, don't crash
+    // the whole dashboard — show what we can and surface a gentle message
+    // where data is missing.
+    alerts = [];
+    runway = null;
+    ledger = null;
+    // Preserve ledgerError for the ledger card if applicable.
+    if (!ledger) ledgerError = caught instanceof ApiError ? caught.message : ledgerError;
+  }
 
   const modules = subscribedModules(config.modules);
   /*
@@ -98,12 +112,28 @@ export default async function DashboardPage() {
    * platform — money, approvals, what is in flight.
    */
   const hasSpecies = modules.length > 0;
-  const [money, tasks, activity, ...overviews] = await Promise.all([
-    getMoneySummary(),
-    getUpcomingTasks(),
-    getRecentActivity(),
-    ...modules.map((module) => getModuleOverview(module.key)),
-  ]);
+  let money: Awaited<ReturnType<typeof getMoneySummary>> | null = null;
+  let tasks: Awaited<ReturnType<typeof getUpcomingTasks>>[] = [];
+  let activity: ActivityEntry[] = [];
+  let overviews: Awaited<ReturnType<typeof getModuleOverview>>[] = [];
+  try {
+    const results = await Promise.all([
+      getMoneySummary(),
+      getUpcomingTasks(),
+      getRecentActivity(),
+      ...modules.map((module) => getModuleOverview(module.key)),
+    ]);
+    money = results[0] as Awaited<ReturnType<typeof getMoneySummary>>;
+    tasks = results[1] as Awaited<ReturnType<typeof getUpcomingTasks>>[];
+    activity = results[2] as ActivityEntry[];
+    overviews = results.slice(3) as Awaited<ReturnType<typeof getModuleOverview>>[];
+  } catch (caught) {
+    // Non-fatal: show missing sections empty rather than crash.
+    money = null;
+    tasks = [];
+    activity = [];
+    overviews = [];
+  }
 
   // From the ledger, like the screen. The summary somebody sends to the owner
   // and the summary on the screen have to be the same figures, or the two
