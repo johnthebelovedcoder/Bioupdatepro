@@ -4,12 +4,11 @@ import { formatNaira, toKobo } from '@/lib/money';
 import { defaultYear, getContext, type OrgContext } from '@/lib/org';
 import { subscribedModules, title } from '@/lib/modules';
 import {
-  getModuleOverview,
-  getMoneySummary,
-  getRecentActivity,
-  getUpcomingTasks,
-  type ActivityEntry,
-} from '@/lib/demo';
+  getModuleSummary,
+  getTodayActivity,
+  getUpcomingHealthTasks,
+  type TodayActivityItem,
+} from '@/lib/operations';
 import { Card, CardLink, PageHeader, Stat } from '@/components/ui';
 import { HelpTerm } from '@/components/help';
 import { NeedsAttention, FeedRunwayCard } from '@/components/attention';
@@ -20,15 +19,11 @@ import { canSee } from '@/lib/permissions';
 import { getAlerts, getFeedRunway } from '@/lib/alerts';
 import { getFarmConfig } from '@/lib/farm-config.server';
 import {
-  IconAlert,
   IconArrowRight,
-  IconBox,
-  IconCart,
   IconCheckCircle,
   IconClipboard,
   IconEgg,
   IconFeed,
-  IconTag,
 } from '@/components/icons';
 
 export const metadata = { title: 'Dashboard — BioAssetPro' };
@@ -112,24 +107,21 @@ export default async function DashboardPage() {
    * platform — money, approvals, what is in flight.
    */
   const hasSpecies = modules.length > 0;
-  let money: Awaited<ReturnType<typeof getMoneySummary>> | null = null;
-  let tasks: Awaited<ReturnType<typeof getUpcomingTasks>> = [];
-  let activity: ActivityEntry[] = [];
-  let overviews: Awaited<ReturnType<typeof getModuleOverview>>[] = [];
+  const moduleKeys = modules.map((module) => module.key);
+  let tasks: Awaited<ReturnType<typeof getUpcomingHealthTasks>> = [];
+  let activity: TodayActivityItem[] = [];
+  let overviews: Awaited<ReturnType<typeof getModuleSummary>>[] = [];
   try {
     const results = await Promise.all([
-      getMoneySummary(),
-      getUpcomingTasks(),
-      getRecentActivity(),
-      ...modules.map((module) => getModuleOverview(module.key)),
+      getUpcomingHealthTasks(moduleKeys),
+      getTodayActivity(moduleKeys),
+      ...modules.map((module) => getModuleSummary(module.key)),
     ]);
-    money = results[0] as Awaited<ReturnType<typeof getMoneySummary>>;
-    tasks = results[1] as Awaited<ReturnType<typeof getUpcomingTasks>>;
-    activity = results[2] as ActivityEntry[];
-    overviews = results.slice(3) as Awaited<ReturnType<typeof getModuleOverview>>[];
+    tasks = results[0] as Awaited<ReturnType<typeof getUpcomingHealthTasks>>;
+    activity = results[1] as TodayActivityItem[];
+    overviews = results.slice(2) as Awaited<ReturnType<typeof getModuleSummary>>[];
   } catch (caught) {
     // Non-fatal: show missing sections empty rather than crash.
-    money = null;
     tasks = [];
     activity = [];
     overviews = [];
@@ -475,32 +467,19 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ActivityRow({ entry }: { entry: ActivityEntry }) {
+function ActivityRow({ entry }: { entry: TodayActivityItem }) {
   const Icon =
-    entry.kind === 'production'
-      ? IconEgg
-      : entry.kind === 'feed'
-        ? IconFeed
-        : entry.kind === 'mortality'
-          ? IconAlert
-          : entry.kind === 'sale'
-            ? IconTag
-            : entry.kind === 'purchase'
-              ? IconCart
-              : IconCheckCircle;
-
-  const tone = entry.tone === 'neutral' ? '' : `tone-${entry.tone}`;
+    entry.kind === 'production' ? IconEgg : entry.kind === 'feed' ? IconFeed : IconCheckCircle;
 
   return (
     <div className="list-row">
-      <span className={`list-icon ${tone}`}>
+      <span className="list-icon">
         <Icon size={16} />
       </span>
       <div className="list-main">
         <div className="list-title">{entry.title}</div>
         <div className="list-sub">{entry.detail}</div>
       </div>
-      <span className="list-time">{entry.time}</span>
     </div>
   );
 }

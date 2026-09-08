@@ -106,6 +106,187 @@ export async function getStageBreakdown(
   return api<StageBucket[]>(`/operations/stages?${query.toString()}`);
 }
 
+export interface ModuleMetricFigure {
+  value: string;
+}
+
+export interface ModuleSummary {
+  groupCount: number;
+  /** Keyed by the metric keys the module registry declares — see modules.ts. */
+  metrics: Record<string, ModuleMetricFigure | undefined>;
+}
+
+/** Today's date in the timezone the rest of the dashboard already uses. */
+function todayInLagos(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Lagos' }).format(new Date());
+}
+
+/**
+ * The dashboard's per-module summary card — real figures, replacing what
+ * `lib/demo.ts`'s `getModuleOverview()` used to invent wholesale (a fixed
+ * "84.7% hatch rate", "6,240" eggs, etc. that never changed no matter what a
+ * farm actually recorded).
+ *
+ * Built entirely from reads this app already has real endpoints for —
+ * `getGroups` for population and mortality, `getFeeding`/`getProduction` for
+ * what happened today — rather than a new backend surface. Population and
+ * mortality are real for every module; eggs-today is real for poultry, whose
+ * production fields name a 'whole' egg count. A module with no real source
+ * for a metric (snail's hatch rate has none of this app's daily-round data
+ * behind it yet) simply omits that key rather than inventing a figure — the
+ * card already renders whichever keys are present and skips the rest.
+ */
+export async function getModuleSummary(moduleKey: string): Promise<ModuleSummary> {
+  const groups = await getGroups(moduleKey);
+  const active = groups.filter((group) => group.status === 'ACTIVE');
+  const population = active.reduce((sum, group) => sum + group.population, 0);
+
+  const openingTotal = active.reduce((sum, group) => sum + group.openingPopulation, 0);
+  const mortalityRate =
+    openingTotal > 0
+      ? active.reduce((sum, group) => sum + group.mortalityRate * group.openingPopulation, 0) /
+        openingTotal
+      : 0;
+
+  const today = todayInLagos();
+  const feeding = await getFeeding(moduleKey, 1);
+  const feedToday = feeding
+    .filter((row) => row.date.slice(0, 10) === today)
+    .reduce((sum, row) => sum + row.kg, 0);
+
+  const metrics: ModuleSummary['metrics'] = {
+    population: { value: population.toLocaleString('en-NG') },
+    mortality: { value: `${mortalityRate.toFixed(1)}%` },
+    feed: { value: feedToday >= 1000 ? `${(feedToday / 1000).toFixed(2)} t` : `${feedToday.toLocaleString('en-NG')} kg` },
+  };
+
+  if (moduleKey === 'poultry') {
+    const production = await getProduction(moduleKey, 1);
+    const eggsToday = production
+      .filter((row) => row.date.slice(0, 10) === today)
+      .reduce((sum, row) => sum + (row.values.whole ?? 0), 0);
+    metrics.eggs = { value: eggsToday.toLocaleString('en-NG') };
+  }
+
+  return { groupCount: active.length, metrics };
+}
+
+export interface TodayActivityItem {
+  id: string;
+  kind: 'feed' | 'production' | 'harvest';
+  title: string;
+  detail: string;
+}
+
+/**
+ * What actually happened today, across a farm's subscribed modules —
+ * replacing `lib/demo.ts`'s `getRecentActivity()`, which showed the same
+ * seven invented entries ("Adaeze Okonkwo", "Sunrise Foods") regardless of
+ * what a farm had done or who was signed in.
+ *
+ * Built from feeding, production and harvest reads, all real. Deliberately
+ * NOT a claimed exact time of day — `FeedingRow`/`ProductionRow`/`HarvestRow`
+ * carry a day, not a timestamp, because that is what a `DailyRecord` actually
+ * records. Inventing a clock time the data does not have would be exactly
+ * the kind of number this whole pass exists to stop showing. Sales,
+ * purchases and other document-driven activity are not included yet — those
+ * screens are still on their own fixtures (see the broader migration this is
+ * the first slice of).
+ */
+export async function getTodayActivity(moduleKeys: string[]): Promise<TodayActivityItem[]> {
+  const today = todayInLagos();
+  const items: TodayActivityItem[] = [];
+
+  for (const moduleKey of moduleKeys) {
+    const module = getModule(moduleKey);
+    if (!module) continue;
+
+    const [feeding, production, harvests] = await Promise.all([
+      getFeeding(moduleKey, 1),
+      getProduction(moduleKey, 1),
+      getHarvests(moduleKey),
+    ]);
+
+    for (const row of feeding) {
+      if (row.date.slice(0, 10) !== today || row.kg <= 0) continue;
+      items.push({
+        id: `feed-${moduleKey}-${row.groupCode}`,
+        kind: 'feed',
+        title: 'Feed distributed',
+        detail: `${row.house} · ${row.kg.toLocaleString('en-NG')} kg ${row.feedType}`,
+      });
+    }
+
+    for (const row of production) {
+      if (row.date.slice(0, 10) !== today) continue;
+      const total = Object.values(row.values).reduce((sum, value) => sum + value, 0);
+      if (total <= 0) continue;
+      const parts = Object.entries(row.values)
+        .filter(([, value]) => value > 0)
+        .map(([key, value]) => {
+          const field = module.productionFields.find((f) => f.key === key);
+          return `${value.toLocaleString('en-NG')} ${field?.label.toLowerCase() ?? key}`;
+        });
+      items.push({
+        id: `production-${moduleKey}-${row.groupCode}`,
+        kind: 'production',
+        title: `${module.terms.productionRecord} recorded`,
+        detail: `${row.house} · ${parts.join(', ')}`,
+      });
+    }
+
+    for (const row of harvests) {
+      if (row.date.slice(0, 10) !== today) continue;
+      items.push({
+        id: `harvest-${moduleKey}-${row.id}`,
+        kind: 'harvest',
+        title: 'Harvest recorded',
+        detail: `${row.colonyCode} · ${row.kg.toLocaleString('en-NG')} kg, ${row.count.toLocaleString('en-NG')} ${row.count === 1 ? module.terms.animal.one : module.terms.animal.many}`,
+      });
+    }
+  }
+
+  return items;
+}
+
+export interface UpcomingTaskItem {
+  id: string;
+  title: string;
+  detail: string;
+  due: string;
+  urgency: 'overdue' | 'today' | 'soon';
+}
+
+/**
+ * Vaccinations and treatments due soon — replacing `lib/demo.ts`'s
+ * `getUpcomingTasks()`, which mixed one real category (vaccinations) with
+ * two this app has no backing for at all ("Weekly stock count", "Generator
+ * service" — no stock-count or maintenance-schedule model exists anywhere).
+ * Rather than invent those two, this only returns what `getHealth()` — the
+ * same real DUE/OVERDUE data `lib/alerts.ts`'s vaccination alert already
+ * uses — can actually back.
+ */
+export async function getUpcomingHealthTasks(moduleKeys: string[]): Promise<UpcomingTaskItem[]> {
+  const items: UpcomingTaskItem[] = [];
+
+  for (const moduleKey of moduleKeys) {
+    const events = await getHealth(moduleKey);
+    for (const event of events) {
+      if (event.status !== 'DUE' && event.status !== 'OVERDUE') continue;
+      const dueDate = new Date(event.dueOn);
+      items.push({
+        id: `health-${moduleKey}-${event.id}`,
+        title: `${event.kind === 'VACCINATION' ? 'Vaccination' : 'Treatment'} — ${event.groupCode}`,
+        detail: event.name,
+        due: dueDate.toLocaleDateString('en-NG', { day: 'numeric', month: 'short' }),
+        urgency: event.status === 'OVERDUE' ? 'overdue' : 'today',
+      });
+    }
+  }
+
+  return items;
+}
+
 /**
  * How each population is doing, against its breed standard where one exists.
  *

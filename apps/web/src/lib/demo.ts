@@ -28,52 +28,10 @@ export { getBatches, getGroups, getGroupDetail } from './demo-register';
 
 export const IS_DEMO = true;
 
-export interface FarmSummary {
-  totalBirds: number;
-  totalSnails: number;
-  eggsToday: number;
-  eggsYesterday: number;
-  mortalityToday: number;
-  mortalityAverage: number;
-  feedStockKg: number;
-  activeBatches: number;
-}
-
-export interface MoneySummary {
-  revenueKobo: string;
-  expenseKobo: string;
-  revenuePriorKobo: string;
-  expensePriorKobo: string;
-  receivableKobo: string;
-}
-
 export interface ProductionPoint {
   date: string;
   eggs: number;
   mortality: number;
-}
-
-export interface StockAlert {
-  item: string;
-  currentKg: number;
-  reorderKg: number;
-}
-
-export interface UpcomingTask {
-  id: string;
-  title: string;
-  detail: string;
-  due: string;
-  urgency: 'overdue' | 'today' | 'soon';
-}
-
-export interface ActivityEntry {
-  id: string;
-  time: string;
-  title: string;
-  detail: string;
-  tone: 'success' | 'warning' | 'danger' | 'info' | 'neutral';
-  kind: 'production' | 'feed' | 'mortality' | 'sale' | 'purchase' | 'task';
 }
 
 /**
@@ -145,29 +103,6 @@ export interface GroupDetail extends BatchSummary {
 
 /* -------------------------------------------------------------------------- */
 
-export async function getFarmSummary(): Promise<FarmSummary> {
-  return {
-    totalBirds: 8450,
-    totalSnails: 12300,
-    eggsToday: 6240,
-    eggsYesterday: 6015,
-    mortalityToday: 17,
-    mortalityAverage: 12,
-    feedStockKg: 2800,
-    activeBatches: 7,
-  };
-}
-
-export async function getMoneySummary(): Promise<MoneySummary> {
-  return {
-    revenueKobo: '480000000', // ₦4,800,000.00
-    expenseKobo: '310000000', // ₦3,100,000.00
-    revenuePriorKobo: '426000000',
-    expensePriorKobo: '298000000',
-    receivableKobo: '87500000',
-  };
-}
-
 /**
  * Daily production, ending at a fixed anchor.
  *
@@ -201,108 +136,6 @@ export async function getProductionSeries(days = 14): Promise<ProductionPoint[]>
   }
 
   return points;
-}
-
-export async function getStockAlerts(): Promise<StockAlert[]> {
-  return [
-    { item: 'Layer mash', currentKg: 240, reorderKg: 500 },
-    { item: 'Snail feed concentrate', currentKg: 70, reorderKg: 100 },
-    { item: 'Broiler finisher', currentKg: 430, reorderKg: 500 },
-  ];
-}
-
-export async function getUpcomingTasks(): Promise<UpcomingTask[]> {
-  return [
-    {
-      id: 't1',
-      title: 'Feed inventory restock',
-      detail: 'Layer mash below reorder level',
-      due: 'Today',
-      urgency: 'today',
-    },
-    {
-      id: 't2',
-      title: 'Vaccination — Flock L-2026-003',
-      detail: 'Lasota booster, 1,950 birds',
-      due: 'Tomorrow',
-      urgency: 'soon',
-    },
-    {
-      id: 't3',
-      title: 'Weekly stock count',
-      detail: 'Feed store and packaging',
-      due: 'In 2 days',
-      urgency: 'soon',
-    },
-    {
-      id: 't4',
-      title: 'Generator service',
-      detail: '250 hours since last service',
-      due: 'In 3 days',
-      urgency: 'soon',
-    },
-  ];
-}
-
-export async function getRecentActivity(): Promise<ActivityEntry[]> {
-  return [
-    {
-      id: 'a1',
-      time: '18:00',
-      title: 'Daily farm report submitted',
-      detail: 'Adaeze Okonkwo · Main Farm',
-      tone: 'neutral',
-      kind: 'task',
-    },
-    {
-      id: 'a2',
-      time: '16:40',
-      title: 'Egg order created',
-      detail: 'Sunrise Foods · 120 crates',
-      tone: 'success',
-      kind: 'sale',
-    },
-    {
-      id: 'a3',
-      time: '14:20',
-      title: 'Layer mash received',
-      detail: '2,000 kg from Greenfields Feeds',
-      tone: 'info',
-      kind: 'purchase',
-    },
-    {
-      id: 'a4',
-      time: '11:30',
-      title: 'Snail feeding completed',
-      detail: 'Cohort S-001 · 18 kg',
-      tone: 'neutral',
-      kind: 'feed',
-    },
-    {
-      id: 'a5',
-      time: '09:00',
-      title: 'Mortality recorded',
-      detail: 'Flock L-2026-001 · 5 birds · heat stress',
-      tone: 'danger',
-      kind: 'mortality',
-    },
-    {
-      id: 'a6',
-      time: '08:15',
-      title: 'Egg collection recorded',
-      detail: 'Poultry House 1 · 1,602 whole, 24 cracked',
-      tone: 'success',
-      kind: 'production',
-    },
-    {
-      id: 'a7',
-      time: '06:30',
-      title: 'Feed distributed',
-      detail: 'Poultry House 1 · 245 kg layer mash',
-      tone: 'neutral',
-      kind: 'feed',
-    },
-  ];
 }
 
 /* -------------------------------------------------------------------------- */
