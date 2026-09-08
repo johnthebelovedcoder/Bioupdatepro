@@ -14,6 +14,7 @@ import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
 import { AnyRole, Roles } from '../auth/roles.guard';
 import { FarmStructureService } from './farm-structure.service';
+import { StockMovementService } from '../inventory/stock-movement.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
 /**
@@ -31,6 +32,7 @@ export class MasterDataController {
     private readonly employees: EmployeeService,
     private readonly recipes: RecipeService,
     private readonly structure: FarmStructureService,
+    private readonly stockMovements: StockMovementService,
   ) {}
 
   // --- Suppliers ----------------------------------------------------------
@@ -197,6 +199,66 @@ export class MasterDataController {
       vatCode: i.vatTaxCode?.code ?? null,
       standardCostKobo: i.standardCosts[0]?.standardCostKobo.toString() ?? null,
       weightedAverageCostKobo: i.weightedAverageCostKobo?.toString() ?? null,
+    }));
+  }
+
+  /**
+   * Items with what is actually on hand — quantity, value and last
+   * movement — derived from the `StockMovement` ledger rather than a stored
+   * balance, the same discipline `StockMovementService.currentPosition()`
+   * uses for one item. Open to everyone, like `listItems`: a storekeeper or
+   * supervisor deciding whether to reorder needs this as much as a manager.
+   */
+  @AnyRole('Stock on hand is operational information, not a finance-only figure.')
+  @Get('items/stock')
+  async listItemStock(@CurrentCompany() companyId: string) {
+    const [items, positions] = await Promise.all([
+      this.items.list(companyId),
+      this.stockMovements.listPositions(companyId),
+    ]);
+
+    return items
+      .filter((item) => item.active)
+      .map((item) => {
+        const position = positions.get(item.id);
+        const onHand = position?.quantity.toNumber() ?? 0;
+        const valueKobo = position?.valueKobo ?? 0n;
+        const unitCostKobo =
+          onHand > 0 ? valueKobo / BigInt(Math.round(onHand)) : (item.weightedAverageCostKobo ?? 0n);
+        return {
+          id: item.id,
+          code: item.code,
+          name: item.description,
+          category: item.category,
+          unit: item.unitOfMeasure.code,
+          onHand,
+          // Null, not 0 — "nobody has set a reorder level" is a different
+          // fact from "the reorder level is zero", and coercing the two
+          // together flagged every never-configured item as below reorder.
+          reorderLevel: item.reorderLevel?.toNumber() ?? null,
+          unitCostKobo: unitCostKobo.toString(),
+          valueKobo: valueKobo.toString(),
+          lastMovedOn: position?.lastMovedOn?.toISOString() ?? null,
+        };
+      });
+  }
+
+  @AnyRole('Every movement kept, so stock on hand is provably the sum of its history.')
+  @Get('stock-movements')
+  async listStockMovements(@CurrentCompany() companyId: string, @Query('limit') limit?: string) {
+    const rows = await this.stockMovements.recentMovements(
+      companyId,
+      limit ? Number(limit) : undefined,
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      itemCode: row.item.code,
+      itemName: row.item.description,
+      unit: row.item.unitOfMeasure.code,
+      direction: row.direction,
+      quantity: row.quantity.toNumber(),
+      reference: row.documentReference,
+      date: row.movementDate.toISOString(),
     }));
   }
 

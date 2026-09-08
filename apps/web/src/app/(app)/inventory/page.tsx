@@ -1,4 +1,4 @@
-import { getInventory, getStockMovements } from '@/lib/demo-trade';
+import { getStockItems, getStockMovements } from '@/lib/masters';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { IconBox } from '@/components/icons';
@@ -7,17 +7,26 @@ import { Tabs } from '@/components/tabs';
 export const metadata = { title: 'Inventory — BioAssetPro' };
 
 /**
- * Stock on hand, what it is worth, and every movement.
+ * Stock on hand, what it is worth, and every movement — all real, from the
+ * `StockMovement` ledger (`/masters/items/stock`, `/masters/stock-movements`).
+ * On-hand quantity and value are never a stored balance; they are the sum of
+ * every movement recorded, the same way a bank balance is the sum of its
+ * transactions rather than a number someone typed over.
  *
  * Not species-scoped: a bag of layer mash and a crate of eggs are the same kind
  * of object whether the farm keeps birds or snails, and splitting inventory by
  * module would mean two places to look for one feed store.
  */
 export default async function InventoryPage() {
-  const [items, movements] = await Promise.all([getInventory(), getStockMovements()]);
+  const [items, movements] = await Promise.all([getStockItems(), getStockMovements()]);
 
   const totalValue = items.reduce((sum, item) => sum + toKobo(item.valueKobo), 0n);
-  const low = items.filter((item) => item.onHand <= item.reorderLevel);
+  // Only items with a reorder level someone actually set — an item nobody
+  // has configured one for is not "below reorder", it is unconfigured.
+  const low = items.filter(
+    (item): item is typeof item & { reorderLevel: number } =>
+      item.reorderLevel !== null && item.onHand <= item.reorderLevel,
+  );
   const feedValue = items
     .filter((item) => item.category === 'Feed')
     .reduce((sum, item) => sum + toKobo(item.valueKobo), 0n);
@@ -75,7 +84,7 @@ export default async function InventoryPage() {
               </thead>
               <tbody>
                 {items.map((item) => {
-                  const low = item.onHand <= item.reorderLevel;
+                  const low = item.reorderLevel !== null && item.onHand <= item.reorderLevel;
                   return (
                     <tr key={item.id}>
                       <td className="num strong" style={{ textAlign: 'left' }}>
@@ -85,14 +94,16 @@ export default async function InventoryPage() {
                         {item.name}
                         <div className="faint">Last moved {formatDate(item.lastMovedOn)}</div>
                       </td>
-                      <td className="faint">{item.category}</td>
+                      <td className="faint">{item.category ?? '—'}</td>
                       <td className="num">
                         <span style={low ? { color: 'var(--error-700)', fontWeight: 600 } : undefined}>
                           {item.onHand.toLocaleString('en-NG')}
                         </span>
                         <span className="faint"> {item.unit}</span>
                       </td>
-                      <td className="num faint">{item.reorderLevel.toLocaleString('en-NG')}</td>
+                      <td className="num faint">
+                        {item.reorderLevel === null ? '—' : item.reorderLevel.toLocaleString('en-NG')}
+                      </td>
                       <td className="num">{formatNaira(item.unitCostKobo)}</td>
                       <td className="num">{formatNaira(item.valueKobo)}</td>
                     </tr>
@@ -112,15 +123,7 @@ export default async function InventoryPage() {
         <Card title="Recent movements" padded={false}>
           {movements.map((movement) => (
             <div className="list-row" key={movement.id}>
-              <span
-                className={`list-icon ${
-                  movement.kind === 'RECEIPT'
-                    ? 'tone-success'
-                    : movement.kind === 'ADJUSTMENT'
-                      ? 'tone-warning'
-                      : ''
-                }`}
-              >
+              <span className={`list-icon ${movement.direction === 'IN' ? 'tone-success' : ''}`}>
                 <IconBox size={16} />
               </span>
               <div className="list-main">
@@ -132,10 +135,10 @@ export default async function InventoryPage() {
                   className="num"
                   style={{
                     fontSize: 13,
-                    color: movement.quantity > 0 ? 'var(--success-700)' : 'var(--gray-900)',
+                    color: movement.direction === 'IN' ? 'var(--success-700)' : 'var(--gray-900)',
                   }}
                 >
-                  {movement.quantity > 0 ? '+' : ''}
+                  {movement.direction === 'IN' ? '+' : '−'}
                   {movement.quantity.toLocaleString('en-NG')} {movement.unit}
                 </div>
                 <div className="list-time">{formatDate(movement.date)}</div>
@@ -148,14 +151,6 @@ export default async function InventoryPage() {
               number someone typed over.
             </span>
           </div>
-        </Card>
-
-        <Card>
-          <p className="muted" style={{ fontSize: 14 }}>
-            The backend for inventory already exists and is tested — items, stock movements,
-            standard costs and valuation. What is missing is the read endpoints. These
-            figures are illustrative until those are wired up.
-          </p>
         </Card>
       </div>
     </>

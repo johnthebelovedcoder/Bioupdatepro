@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { Prisma, StockDirection } from '@bioassetpro/database';
+import { PrismaService } from '../prisma/prisma.service';
 import { AccountingRuleViolation } from '../common/errors';
 
 export interface StockPosition {
@@ -25,6 +26,62 @@ export interface StockPosition {
  */
 @Injectable()
 export class StockMovementService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * On-hand quantity, value and weighted-average-cost date for EVERY item in
+   * one pass — the same computation `currentPosition()` does for one item at
+   * a time, batched so a read screen listing every item is one query rather
+   * than one query per item.
+   */
+  async listPositions(
+    companyId: string,
+  ): Promise<Map<string, { quantity: Decimal; valueKobo: bigint; lastMovedOn: Date | null }>> {
+    const movements = await this.prisma.stockMovement.findMany({
+      where: { companyId },
+      select: { itemId: true, direction: true, quantity: true, valueKobo: true, movementDate: true },
+    });
+
+    const positions = new Map<
+      string,
+      { quantity: Decimal; valueKobo: bigint; lastMovedOn: Date | null }
+    >();
+    for (const movement of movements) {
+      const sign = movement.direction === StockDirection.IN ? 1 : -1;
+      const current = positions.get(movement.itemId) ?? {
+        quantity: new Decimal(0),
+        valueKobo: 0n,
+        lastMovedOn: null as Date | null,
+      };
+      current.quantity = current.quantity.plus(new Decimal(movement.quantity.toString()).mul(sign));
+      current.valueKobo += movement.valueKobo * BigInt(sign);
+      if (!current.lastMovedOn || movement.movementDate > current.lastMovedOn) {
+        current.lastMovedOn = movement.movementDate;
+      }
+      positions.set(movement.itemId, current);
+    }
+    return positions;
+  }
+
+  /** The most recent movements company-wide, newest first — the ledger a
+   * store screen shows so stock on hand is provably the sum of its history
+   * rather than a number someone typed over. */
+  async recentMovements(companyId: string, limit = 30) {
+    return this.prisma.stockMovement.findMany({
+      where: { companyId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        direction: true,
+        quantity: true,
+        movementDate: true,
+        documentReference: true,
+        item: { select: { code: true, description: true, unitOfMeasure: { select: { code: true } } } },
+      },
+    });
+  }
+
   /**
    * On-hand quantity, value and moving weighted-average cost for an item,
    * from every `StockMovement` recorded so far. Never a stored balance —
