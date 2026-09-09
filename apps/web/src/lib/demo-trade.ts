@@ -191,49 +191,6 @@ export async function getReceivablesAgeing(): Promise<AgeingBucket[]> {
 
 /* -------------------------------------------------------------------------- */
 
-export interface ExpenseRow {
-  id: string;
-  date: string;
-  category: string;
-  description: string;
-  farm: string;
-  batch: string | null;
-  /** Which species module the batch belongs to, so links resolve correctly. */
-  batchModule: 'poultry' | 'snail' | null;
-  method: string;
-  amountKobo: string;
-  by: string;
-}
-
-export async function getExpenses(): Promise<ExpenseRow[]> {
-  return [
-    { id: 'e1', date: daysAgo(0), category: 'Feed', description: 'Layer mash — 2,000 kg', farm: 'Main Farm', batch: null, batchModule: null, method: 'Bank transfer', amountKobo: '124000000', by: 'Chinedu Eze' },
-    { id: 'e2', date: daysAgo(2), category: 'Fuel', description: 'Generator diesel — 200 litres', farm: 'Main Farm', batch: null, batchModule: null, method: 'Cash', amountKobo: '24000000', by: 'Chinedu Eze' },
-    { id: 'e3', date: daysAgo(4), category: 'Labour', description: 'Casual workers — pen cleaning', farm: 'Main Farm', batch: null, batchModule: null, method: 'Cash', amountKobo: '9000000', by: 'Funmilayo Adeyemi' },
-    { id: 'e4', date: daysAgo(6), category: 'Medication', description: 'Newcastle booster doses', farm: 'Main Farm', batch: 'L-2026-003', batchModule: 'poultry', method: 'Bank transfer', amountKobo: '2340000', by: 'Ibrahim Danjuma' },
-    { id: 'e5', date: daysAgo(9), category: 'Transport', description: 'Delivery to Sunrise Foods', farm: 'Main Farm', batch: null, batchModule: null, method: 'Cash', amountKobo: '4500000', by: 'Funmilayo Adeyemi' },
-    { id: 'e6', date: daysAgo(12), category: 'Repairs', description: 'Water pump repair', farm: 'Main Farm', batch: null, batchModule: null, method: 'Cash', amountKobo: '6800000', by: 'Chinedu Eze' },
-    { id: 'e7', date: daysAgo(15), category: 'Electricity', description: 'Monthly bill', farm: 'Main Farm', batch: null, batchModule: null, method: 'Bank transfer', amountKobo: '18500000', by: 'Funmilayo Adeyemi' },
-  ];
-}
-
-export interface CashPoint {
-  date: string;
-  inKobo: string;
-  outKobo: string;
-}
-
-export async function getCashFlow(): Promise<CashPoint[]> {
-  const months = ['Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'];
-  const inflow = [382, 401, 366, 428, 455, 480];
-  const outflow = [291, 318, 302, 331, 298, 310];
-  return months.map((_, index) => ({
-    date: new Date(Date.UTC(2026, 2 + index, 1)).toISOString(),
-    inKobo: String((inflow[index] ?? 0) * 1_000_000),
-    outKobo: String((outflow[index] ?? 0) * 1_000_000),
-  }));
-}
-
 /* -------------------------------------------------------------------------- */
 
 export interface StaffMember {
