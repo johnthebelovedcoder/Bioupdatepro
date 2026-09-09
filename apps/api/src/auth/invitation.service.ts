@@ -338,6 +338,22 @@ export class InvitationService {
   }
 
   /**
+   * Names only, active people only — nothing else. `listUsers` above carries
+   * email and roles and stays restricted to the roles that manage staff; this
+   * exists for screens like treatment recording, where anyone allowed to
+   * record an event needs to attribute it to a real name on the farm, not
+   * just to themselves, and does not need to see who else can manage staff.
+   */
+  async listActiveNames(companyId: string): Promise<Array<{ id: string; name: string }>> {
+    const rows = await this.prisma.user.findMany({
+      where: { companyId, active: true },
+      orderBy: { fullName: 'asc' },
+      select: { id: true, fullName: true },
+    });
+    return rows.map((row) => ({ id: row.id, name: row.fullName }));
+  }
+
+  /**
    * Change what an existing person may do.
    *
    * Deliberately refuses to touch the caller's own roles — not a technical

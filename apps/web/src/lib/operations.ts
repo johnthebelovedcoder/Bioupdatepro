@@ -9,7 +9,7 @@ import type {
   ProductionRow,
   StageBucket,
 } from './demo-ops';
-import { getModule } from './modules';
+import { getModule, type SpeciesModule } from './modules';
 import { getFarmConfig } from './farm-config.server';
 import { standardAt, standardFor } from './farm-config';
 import { toKobo } from './money';
@@ -169,6 +169,70 @@ export async function getModuleSummary(moduleKey: string): Promise<ModuleSummary
   }
 
   return { groupCount: active.length, metrics };
+}
+
+export interface ModuleTrend {
+  chartTitle: string;
+  chartUnit: string;
+  outputSeries: Array<{ date: string; value: number }>;
+  mortalitySeries: Array<{ date: string; value: number }>;
+}
+
+/**
+ * The module overview's two charts — real daily output and mortality,
+ * replacing `lib/demo.ts`'s `getModuleOverview()`, which drew both from a
+ * fixed 2026-08-10 anchor regardless of what a farm had actually recorded
+ * (a hard-coded "6,240" eggs and a hand-written mortality wave, both frozen
+ * in time).
+ *
+ * Output sums the module's primary production field — eggs for poultry,
+ * harvested kg for snails, whichever `productionFields[0]` names — across
+ * every producing population, for whatever window was asked for. Mortality
+ * is summed the same way across every active population's own detail record,
+ * but only ever carries the real window `/operations/groups/:code` returns
+ * (its last 14 recorded days) — a wider period filter does not stretch it
+ * further back, because there is nothing this endpoint keeps to stretch it
+ * with.
+ */
+export async function getModuleTrend(module: SpeciesModule, days: number): Promise<ModuleTrend> {
+  const primaryField = module.productionFields[0];
+  const [production, groups] = await Promise.all([
+    getProduction(module.key, days),
+    getGroups(module.key),
+  ]);
+
+  const outputByDate = new Map<string, number>();
+  if (primaryField) {
+    for (const row of production) {
+      const value = row.values[primaryField.key] ?? 0;
+      const date = row.date.slice(0, 10);
+      outputByDate.set(date, (outputByDate.get(date) ?? 0) + value);
+    }
+  }
+
+  const active = groups.filter((group) => group.status === 'ACTIVE');
+  const details = await Promise.all(
+    active.map((group) => getGroupDetail(module.key, group.code)),
+  );
+  const mortalityByDate = new Map<string, number>();
+  for (const detail of details) {
+    if (!detail) continue;
+    for (const point of detail.mortalitySeries) {
+      mortalityByDate.set(point.date, (mortalityByDate.get(point.date) ?? 0) + point.value);
+    }
+  }
+
+  const toSeries = (map: Map<string, number>) =>
+    [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, value]) => ({ date, value }));
+
+  return {
+    chartTitle: module.terms.productionRecord,
+    chartUnit: primaryField?.unit ?? module.terms.output.many,
+    outputSeries: toSeries(outputByDate),
+    mortalitySeries: toSeries(mortalityByDate),
+  };
 }
 
 export interface TodayActivityItem {

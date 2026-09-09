@@ -117,6 +117,19 @@ export async function getTeamSize(): Promise<number> {
   }
 }
 
+/**
+ * Active people's names, for "recorded by" pickers — open to any role, unlike
+ * `listPeople` above. A production supervisor recording a treatment cannot
+ * call the staff-management endpoint, but still needs to say who did it.
+ */
+export async function getActiveNames(): Promise<Array<{ id: string; name: string }>> {
+  try {
+    return await api<Array<{ id: string; name: string }>>('/auth/users/names');
+  } catch {
+    return [];
+  }
+}
+
 export interface RoleEditResult {
   error: string | null;
   ok?: boolean;

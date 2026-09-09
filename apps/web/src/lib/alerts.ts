@@ -1,7 +1,7 @@
 import 'server-only';
 import { getFarmConfig } from './farm-config.server';
-import { getInventory } from './demo-trade';
-import { getSalesInvoices } from './demo-trade';
+import { getStockItems } from './masters';
+import { getReceivableInvoices } from './sales';
 import { getFeeding, getHealth } from './operations';
 import { getGroups, getGroupDetail, getUnpostedAcquisitions } from './operations';
 import { getVarianceFindings } from './variance';
@@ -183,7 +183,7 @@ export async function getFeedRunway(config: FarmConfig): Promise<FeedRunway[]> {
   // snail here meant a farm with neither still had their feed measured, and a
   // farm with a third module would have had its own feed ignored.
   const [inventory, ...feeding] = await Promise.all([
-    getInventory(),
+    getStockItems(),
     ...subscribedModules(config.modules).map((module) =>
       getFeeding(module.key, config.feed.consumptionWindowDays),
     ),
@@ -324,10 +324,12 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
 
   /* --- Other stock below reorder ---------------------------------------- */
   if (enabled.has('lowStock')) {
-    const inventory = await getInventory();
+    const inventory = await getStockItems();
     for (const item of inventory) {
       if (item.category === 'Feed') continue; // covered by the runway above
-      if (item.onHand > item.reorderLevel) continue;
+      // Null means nobody has configured a reorder level yet — not zero, and
+      // not something to warn about until the farm sets one.
+      if (item.reorderLevel === null || item.onHand > item.reorderLevel) continue;
       alerts.push({
         id: `low-${item.code}`,
         kind: 'lowStock',
@@ -361,9 +363,12 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
        * week one looks permanently bad, and one dying today looks fine until
        * the average catches up.
        */
+      // getGroupDetail looks a population up by its CODE, not its id — passing
+      // the id here meant every lookup 404'd, the alert silently caught it as
+      // "no such population" and moved on, and this check never once fired.
       const detail = await getGroupDetail(
         group.species === 'SNAIL' ? 'snail' : 'poultry',
-        group.id,
+        group.code,
       );
       if (!detail || detail.mortalitySeries.length < 4) continue;
 
@@ -475,8 +480,12 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
 
   /* --- Money owed -------------------------------------------------------- */
   if (enabled.has('paymentOverdue')) {
-    const invoices = await getSalesInvoices();
-    const overdue = invoices.filter((invoice) => invoice.status === 'OVERDUE');
+    // Receivable invoices already have an outstanding balance and a real
+    // status (POSTED/PART_PAID) — there is no separate OVERDUE status in the
+    // ledger, so overdue is simply a due date already in the past.
+    const receivable = await getReceivableInvoices();
+    const today = new Date();
+    const overdue = receivable.filter((invoice) => new Date(invoice.dueDate) < today);
     if (overdue.length > 0) {
       const total = overdue.reduce(
         (sum, invoice) => sum + toKobo(invoice.outstandingKobo),
@@ -505,7 +514,7 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
      */
     const hasPoultry = subscribedModules(config.modules).some((m) => m.key === 'poultry');
     const [poultry, stock] = hasPoultry
-      ? await Promise.all([getGroups('poultry'), getInventory()])
+      ? await Promise.all([getGroups('poultry'), getStockItems()])
       : [[], []];
 
     for (const group of poultry) {

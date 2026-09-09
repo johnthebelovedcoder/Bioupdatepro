@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getModule, title } from '@/lib/modules';
-import { getModuleOverview } from '@/lib/demo';
+import { getGroups, getModuleSummary, getModuleTrend } from '@/lib/operations';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { TrendChart } from '@/components/trend-chart';
 import { PeriodFilter } from '@/components/period-filter';
@@ -44,26 +44,32 @@ export default async function ModuleOverviewPage({
   // control.
   if (!module || !module.subscribed) notFound();
 
-  const overview = await getModuleOverview(module.key, period.days);
+  const [summary, groups, trend] = await Promise.all([
+    getModuleSummary(module.key),
+    getGroups(module.key),
+    getModuleTrend(module, period.days),
+  ]);
+  const active = groups.filter((group) => group.status === 'ACTIVE');
 
   return (
     <>
       <PageHeader
         title={`${title(module.terms.animal.many)} overview`}
-        subtitle={`${module.productName} · ${overview.groupCount} active ${
-          overview.groupCount === 1 ? module.terms.group.one : module.terms.group.many
+        subtitle={`${module.productName} · ${summary.groupCount} active ${
+          summary.groupCount === 1 ? module.terms.group.one : module.terms.group.many
         }`}
       />
 
       <div className="stack">
         <PeriodFilter active={period.key as PeriodKey} />
 
-        {/* Three metrics. Which three is the module's decision, not this
-            page's — mortality matters everywhere, but hatch rate is a snail
-            concern and eggs are a poultry one. */}
+        {/* Whichever metrics the module declares — a module with no real
+            source for one (snail's hatch rate has no backing data yet)
+            simply has no figure for that key, and the card skips it rather
+            than showing an invented number. */}
         <div className="stat-grid">
           {module.metrics.map((metric) => {
-            const figure = overview.metrics[metric.key];
+            const figure = summary.metrics[metric.key];
             if (!figure) return null;
             return (
               <Stat
@@ -71,7 +77,6 @@ export default async function ModuleOverviewPage({
                 label={metric.label}
                 value={figure.value}
                 goodWhen={metric.goodWhen}
-                {...(figure.trend ? { trend: figure.trend } : {})}
                 {...(metric.hint ? { hint: metric.hint } : {})}
               />
             );
@@ -79,22 +84,26 @@ export default async function ModuleOverviewPage({
         </div>
 
         <Card
-          title={overview.chartTitle}
+          title={trend.chartTitle}
           subtitle={period.caption}
         >
-          <TrendChart points={overview.outputSeries} valueLabel={overview.chartUnit} />
+          <TrendChart points={trend.outputSeries} valueLabel={trend.chartUnit} />
         </Card>
 
         <Card
           title="Daily mortality"
-          subtitle={`All ${module.terms.group.many}, ${period.caption}`}
+          subtitle={`All ${module.terms.group.many}, last 14 recorded days`}
         >
           {/* Separate from the chart above rather than a second line on it.
               Output runs orders of magnitude above mortality; sharing an axis
               would need two scales, and where two such lines cross would be an
-              artefact of the scales chosen rather than a fact about the farm. */}
+              artefact of the scales chosen rather than a fact about the farm.
+              The window here is fixed rather than following the period filter
+              above — each population's mortality record only ever carries its
+              own last 14 recorded days, so a wider period would not add days,
+              only claim a caption the data cannot back. */}
           <TrendChart
-            points={overview.mortalitySeries}
+            points={trend.mortalitySeries}
             kind="bar"
             tone="danger"
             valueLabel="deaths"
@@ -123,7 +132,7 @@ export default async function ModuleOverviewPage({
                 </tr>
               </thead>
               <tbody>
-                {overview.groups.map((group) => (
+                {active.map((group) => (
                   <tr key={group.id}>
                     <td className="num strong" style={{ textAlign: 'left' }}>
                       {group.code}

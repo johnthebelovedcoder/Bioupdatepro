@@ -13,10 +13,10 @@ import {
   getProduction,
   getStageBreakdown,
 } from '@/lib/operations';
-import { getStaff } from '@/lib/demo-trade';
+import { getActiveNames } from '@/app/(app)/staff/actions';
 import { getFarmConfig } from '@/lib/farm-config.server';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
-import { Card, EmptyState, PageHeader, Stat } from './ui';
+import { Card, DemoFlag, EmptyState, PageHeader, Stat } from './ui';
 import { HelpTerm } from './help';
 import { HealthSchedule } from './record-treatment';
 import { HarvestLog } from './record-harvest';
@@ -283,10 +283,10 @@ export async function FeedingSection({
 /* ========================================================================== */
 
 export async function HealthSection({ module }: { module: SpeciesModule }) {
-  const [events, groups, staff] = await Promise.all([
+  const [events, groups, people] = await Promise.all([
     getHealth(module.key),
     getGroups(module.key),
-    getStaff(),
+    getActiveNames(),
   ]);
   const t = module.terms;
 
@@ -337,9 +337,7 @@ export async function HealthSection({ module }: { module: SpeciesModule }) {
                 population: group.population,
                 output: (t.outputByPurpose?.[group.purpose] ?? t.output).many,
               }))}
-            staff={staff
-              .filter((person) => person.status === 'ACTIVE')
-              .map((person) => person.name)}
+            staff={people.map((person) => person.name)}
             today={new Date().toISOString().slice(0, 10)}
             labels={{
               group: title(t.group.one),
@@ -497,6 +495,7 @@ export async function BreedingSection({ module }: { module: SpeciesModule }) {
       />
 
       <div className="stack">
+        <DemoFlag note="Breeding has no model behind it yet — these cycles are illustrative, not this farm's real records." />
         <div className="stat-grid">
           <Stat label="Average hatch rate" value={`${averageRate}%`} goodWhen="up" hint="completed cycles" />
           <Stat

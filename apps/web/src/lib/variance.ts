@@ -3,7 +3,7 @@ import { getFarmConfig } from './farm-config.server';
 import { standardAt, standardFor, type FarmConfig } from './farm-config';
 import { getFeeding, getProduction } from './operations';
 import { getGroups } from './operations';
-import { getInventory } from './demo-trade';
+import { getStockItems } from './masters';
 import { getModule, subscribedModules, type ModuleKey } from './modules';
 import { toKobo } from './money';
 
@@ -77,7 +77,7 @@ export async function getVarianceFindings(): Promise<VarianceFinding[]> {
     ]),
   );
 
-  const findings = [...perModule, await stockCounts(config)];
+  const findings = [...perModule, await stockCounts()];
 
   return findings
     .flat()
@@ -108,7 +108,7 @@ async function feedPerHead(
   const [rows, groups, inventory] = await Promise.all([
     getFeeding(moduleKey, config.feed.consumptionWindowDays),
     getGroups(moduleKey),
-    getInventory(),
+    getStockItems(),
   ]);
 
   // Average grams per head per day for each population over the window.
@@ -264,41 +264,15 @@ async function productionShortfall(
  * Stock counted against stock on the books.
  *
  * The most direct measure there is, and the only one here that needs someone to
- * physically walk the store. Until stock counts are capturable this reports the
- * adjustments already recorded, which is the same discrepancy after the fact.
+ * physically walk the store. NOTHING IS REPORTED: the stock ledger only knows
+ * IN and OUT movements tied to a real receipt, issue or sale — there is no
+ * physical-count/adjustment concept yet to compare against, and inventing one
+ * by mislabelling ordinary issues as write-offs would be the fabricated
+ * accusation this file's own principles rule out. Reinstate this once a real
+ * stock-count/adjustment feature exists to measure it from.
  */
-async function stockCounts(config: FarmConfig): Promise<VarianceFinding[]> {
-  const { getStockMovements } = await import('./demo-trade');
-  const [movements, inventory] = await Promise.all([getStockMovements(), getInventory()]);
-
-  const findings: VarianceFinding[] = [];
-
-  for (const movement of movements) {
-    if (movement.kind !== 'ADJUSTMENT') continue;
-
-    const item = inventory.find((entry) => entry.code === movement.itemCode);
-    if (!item) continue;
-
-    const size = Math.abs(movement.quantity);
-    const gapPct = item.onHand > 0 ? (size / item.onHand) * 100 : 100;
-    if (gapPct <= config.variance.stockCountTolerancePct) continue;
-
-    findings.push({
-      id: `stock-${movement.id}`,
-      kind: 'STOCK_COUNT',
-      severity: gapPct > config.variance.stockCountTolerancePct * 3 ? 'critical' : 'warning',
-      subject: item.name,
-      headline: `${size.toLocaleString('en-NG')} ${item.unit} of ${item.name.toLowerCase()} was written off`,
-      expected: `${(item.onHand + size).toLocaleString('en-NG')} ${item.unit} on the books`,
-      actual: `${item.onHand.toLocaleString('en-NG')} ${item.unit} counted`,
-      gapPct: Number(gapPct.toFixed(1)),
-      gapValueKobo: (toKobo(item.unitCostKobo) * BigInt(size)).toString(),
-      basis: movement.reference,
-      action: { label: 'See movements', href: '/inventory' },
-    });
-  }
-
-  return findings;
+async function stockCounts(): Promise<VarianceFinding[]> {
+  return [];
 }
 
 /* -------------------------------------------------------------------------- */

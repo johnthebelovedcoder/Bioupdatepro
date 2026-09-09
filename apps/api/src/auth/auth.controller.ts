@@ -152,6 +152,18 @@ export class AuthController {
     return { count: await this.invitations.countUsers(companyId) };
   }
 
+  /**
+   * Active people's names, open to any role — see
+   * `InvitationService.listActiveNames()`'s own comment. Feeds "recorded by"
+   * pickers on screens like treatment recording, which is open to far more
+   * roles than staff management is.
+   */
+  @AnyRole('A name carries no email or role — anyone recording an event needs to attribute it to a real person on the farm.')
+  @Get('users/names')
+  async listActiveNames(@CurrentCompany() companyId: string) {
+    return this.invitations.listActiveNames(companyId);
+  }
+
   @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
   @Post('users/:id/roles')
   async updateUserRoles(
