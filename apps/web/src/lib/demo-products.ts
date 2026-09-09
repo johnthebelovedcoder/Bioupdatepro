@@ -1,7 +1,11 @@
 /**
- * DEMONSTRATION DATA — NOT REAL FARM RECORDS.
+ * The shape of a sellable/purchasable product, and its VAT-label copy.
  *
- * What the farm sells, and what it normally charges.
+ * Not demo data despite this file's neighbours — `getSellableItems()` and
+ * `getPurchasableItems()` in lib/trade.ts read real items from
+ * `/masters/items` into exactly this shape (the same "match the shape,
+ * swap the source" discipline as the rest of this migration), so only the
+ * type and the static VAT labels live here now.
  *
  * The price is a DEFAULT, not a fixed rate. Nigerian farm-gate prices move
  * week to week and are haggled at the gate; a system that will not let the
@@ -41,99 +45,6 @@ export interface Product {
   moduleKey?: ModuleKey;
   /** Animals removed per unit sold. A bird is 1; a kg of snails is many. */
   animalsPerUnit?: number;
-}
-
-export async function getProducts(): Promise<Product[]> {
-  return [
-    {
-      id: 'p-egg-crate',
-      code: 'EGG-CRATE',
-      name: 'Eggs — crate of 30',
-      category: 'Eggs',
-      unit: 'crate',
-      defaultPriceKobo: '480000',
-      vat: 'ZERO_RATED',
-      fromPopulation: false,
-    },
-    {
-      id: 'p-egg-cracked',
-      code: 'EGG-CRACK',
-      name: 'Cracked eggs — crate',
-      category: 'Eggs',
-      unit: 'crate',
-      defaultPriceKobo: '260000',
-      vat: 'ZERO_RATED',
-      fromPopulation: false,
-    },
-    {
-      id: 'p-broiler-live',
-      code: 'BRD-LIVE',
-      name: 'Live broiler',
-      category: 'Live birds',
-      unit: 'bird',
-      defaultPriceKobo: '650000',
-      vat: 'ZERO_RATED',
-      fromPopulation: true,
-      moduleKey: 'poultry',
-      animalsPerUnit: 1,
-    },
-    {
-      id: 'p-spent-layer',
-      code: 'BRD-SPENT',
-      name: 'Spent layer',
-      category: 'Live birds',
-      unit: 'bird',
-      defaultPriceKobo: '420000',
-      vat: 'ZERO_RATED',
-      fromPopulation: true,
-      moduleKey: 'poultry',
-      animalsPerUnit: 1,
-    },
-    {
-      id: 'p-dressed',
-      code: 'BRD-DRESS',
-      name: 'Dressed chicken',
-      category: 'Dressed',
-      unit: 'kg',
-      defaultPriceKobo: '380000',
-      vat: 'ZERO_RATED',
-      fromPopulation: false,
-    },
-    {
-      id: 'p-snail-table',
-      code: 'SNL-TABLE',
-      name: 'Table-size snails',
-      category: 'Snails',
-      unit: 'kg',
-      defaultPriceKobo: '350000',
-      vat: 'ZERO_RATED',
-      fromPopulation: true,
-      moduleKey: 'snail',
-      animalsPerUnit: 12,
-    },
-    {
-      id: 'p-snail-breeder',
-      code: 'SNL-BREED',
-      name: 'Breeding snails',
-      category: 'Snails',
-      unit: 'piece',
-      defaultPriceKobo: '35000',
-      vat: 'ZERO_RATED',
-      fromPopulation: true,
-      moduleKey: 'snail',
-      animalsPerUnit: 1,
-    },
-    {
-      id: 'p-manure',
-      code: 'BY-MANURE',
-      name: 'Poultry manure',
-      category: 'By-product',
-      unit: 'bag',
-      defaultPriceKobo: '90000',
-      vat: 'ZERO_RATED',
-      fromPopulation: false,
-    },
-  ];
 }
 
 export const VAT_LABELS: Record<VatTreatment, string> = {
