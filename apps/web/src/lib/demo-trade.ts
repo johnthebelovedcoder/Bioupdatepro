@@ -257,21 +257,3 @@ export async function getStaff(): Promise<StaffMember[]> {
   ];
 }
 
-export interface RoleDefinition {
-  code: string;
-  name: string;
-  summary: string;
-  approvalLimit: string | null;
-  canSeeMoney: boolean;
-}
-
-export async function getRoles(): Promise<RoleDefinition[]> {
-  return [
-    { code: 'PRODUCTION_SUPERVISOR', name: 'Production Supervisor', summary: 'Daily rounds, production, mortality, feeding', approvalLimit: null, canSeeMoney: false },
-    { code: 'FARM_MANAGER', name: 'Farm Manager', summary: 'All operations, plus approvals up to the first rung', approvalLimit: '₦250,000.00', canSeeMoney: true },
-    { code: 'FINANCE_MANAGER', name: 'Finance Manager', summary: 'Sales, procurement, expenses and payments', approvalLimit: '₦2,000,000.00', canSeeMoney: true },
-    { code: 'FINANCE_CONTROLLER', name: 'Finance Controller', summary: 'Full ledger, period close and statutory returns', approvalLimit: '₦10,000,000.00', canSeeMoney: true },
-    { code: 'CFO', name: 'CFO', summary: 'Everything, with unlimited approval authority', approvalLimit: 'Unlimited', canSeeMoney: true },
-    { code: 'ADMINISTRATOR', name: 'Administrator', summary: 'User and configuration management', approvalLimit: null, canSeeMoney: true },
-  ];
-}
