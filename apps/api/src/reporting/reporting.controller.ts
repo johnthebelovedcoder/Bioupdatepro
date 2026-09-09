@@ -922,16 +922,122 @@ export class ReportingController {
     };
   }
 
-  /** Net movement across every account of a type, in kobo. */
-  private async balanceOfType(companyId: string, accountType: 'REVENUE' | 'EXPENSE') {
+  /**
+   * Revenue and expense, period by period, plus the latest period's expense
+   * broken down by account — the Finance page's simplified trend, at the
+   * same broad access level as `money-summary` above rather than
+   * `/reporting/profit-loss`'s finance-only gate. That report and this one
+   * answer the same question for two different audiences: a Farm Manager
+   * has the 'money' section on the web side and is meant to see this simple
+   * view of their own farm's income and spending, but not the formal P&L a
+   * Finance Controller reads — reusing that stricter endpoint here would
+   * have quietly handed Farm Manager a ledger-level report through the back
+   * door of a page a Farm Manager was always allowed to open.
+   */
+  @Roles(
+    'FINANCE_MANAGER',
+    'FINANCE_CONTROLLER',
+    'CFO',
+    'FARM_MANAGER',
+    'INTERNAL_AUDITOR',
+    'FARM_ACCOUNTANT',
+  )
+  @Get('money-summary/trend')
+  async moneySummaryTrend(
+    @CurrentCompany() companyId: string,
+    @Query('periods') periodsParam?: string,
+  ) {
+    const count = Math.min(24, Math.max(1, Number(periodsParam) || 6));
+
+    const currentPeriodId = await currentFinancialPeriodId(this.prisma, companyId);
+    if (!currentPeriodId) return { points: [], expenseByCategory: [] };
+
+    const current = await this.prisma.financialPeriod.findUniqueOrThrow({
+      where: { id: currentPeriodId },
+      select: { financialYearId: true, periodNumber: true },
+    });
+    const window = await this.prisma.financialPeriod.findMany({
+      where: {
+        financialYearId: current.financialYearId,
+        periodNumber: { lte: current.periodNumber },
+      },
+      orderBy: { periodNumber: 'asc' },
+      take: -count,
+      select: { id: true, name: true, startDate: true },
+    });
+
+    const points = await Promise.all(
+      window.map(async (period) => {
+        const [revenue, expense] = await Promise.all([
+          this.balanceOfType(companyId, 'REVENUE', period.id),
+          this.balanceOfType(companyId, 'EXPENSE', period.id),
+        ]);
+        return {
+          date: period.startDate.toISOString(),
+          label: period.name,
+          revenueKobo: (-revenue).toString(),
+          expenseKobo: expense.toString(),
+        };
+      }),
+    );
+
+    const latestPeriodId = window[window.length - 1]?.id;
+    const expenseByCategory = latestPeriodId
+      ? await this.expenseByAccount(companyId, latestPeriodId)
+      : [];
+
+    return { points, expenseByCategory };
+  }
+
+  /** Net movement across every account of a type, in kobo — company-wide
+   * lifetime unless `financialPeriodId` scopes it to one period's postings. */
+  private async balanceOfType(
+    companyId: string,
+    accountType: 'REVENUE' | 'EXPENSE',
+    financialPeriodId?: string,
+  ) {
     const result = await this.prisma.journalLine.aggregate({
       where: {
-        journalEntry: { companyId, status: 'POSTED' },
+        journalEntry: {
+          companyId,
+          status: 'POSTED',
+          ...(financialPeriodId ? { financialPeriodId } : {}),
+        },
         glAccount: { companyId, accountType },
       },
       _sum: { debitKobo: true, creditKobo: true },
     });
     return (result._sum.debitKobo ?? 0n) - (result._sum.creditKobo ?? 0n);
+  }
+
+  /** One period's expense, by account — debit-normal, so a genuine expense
+   * balance is already positive. */
+  private async expenseByAccount(companyId: string, financialPeriodId: string) {
+    const rows = await this.prisma.journalLine.groupBy({
+      by: ['glAccountId'],
+      where: {
+        journalEntry: { companyId, status: 'POSTED', financialPeriodId },
+        glAccount: { companyId, accountType: 'EXPENSE' },
+      },
+      _sum: { debitKobo: true, creditKobo: true },
+    });
+    if (rows.length === 0) return [];
+
+    const accounts = await this.prisma.gLAccount.findMany({
+      where: { id: { in: rows.map((row) => row.glAccountId) } },
+      select: { id: true, accountNumber: true, name: true },
+    });
+    const byId = new Map(accounts.map((account) => [account.id, account]));
+
+    return rows
+      .map((row) => {
+        const account = byId.get(row.glAccountId);
+        const amountKobo = (row._sum.debitKobo ?? 0n) - (row._sum.creditKobo ?? 0n);
+        return account
+          ? { accountNumber: account.accountNumber, accountName: account.name, amountKobo: amountKobo.toString() }
+          : null;
+      })
+      .filter((line): line is NonNullable<typeof line> => line !== null && line.amountKobo !== '0');
   }
 
   private async balanceOfAccount(companyId: string, accountNumber: string) {

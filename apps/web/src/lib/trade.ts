@@ -190,6 +190,43 @@ export async function getLedgerMoney(): Promise<LedgerMoney> {
   return api<LedgerMoney>('/reporting/money-summary');
 }
 
+export interface ExpenseCategoryLine {
+  accountNumber: string;
+  accountName: string;
+  amountKobo: string;
+}
+
+export interface FinancePeriodPoint {
+  date: string;
+  label: string;
+  revenueKobo: string;
+  expenseKobo: string;
+}
+
+export interface FinanceTrend {
+  points: FinancePeriodPoint[];
+  /** By account, for the most recent of the periods in `points`. */
+  expenseByCategory: ExpenseCategoryLine[];
+}
+
+/**
+ * Revenue and expense, period by period — the Finance page's trend charts,
+ * replacing lib/demo-trade.ts's getCashFlow() (six months that never moved,
+ * whatever a farm actually posted).
+ *
+ * Built on `/reporting/money-summary/trend`, not `/reporting/profit-loss`:
+ * both compute the same figures from the same posted journal lines, but
+ * profit-loss is gated to finance-only roles while this page's own stated
+ * intent is a simplified view "in the words a farm manager uses" — a Farm
+ * Manager has the 'money' section on the web side and was always allowed to
+ * open this page, so the endpoint behind it has to match that, not quietly
+ * hand over a ledger-level report through the back door of a page a Farm
+ * Manager already had.
+ */
+export async function getFinanceTrend(periods = 6): Promise<FinanceTrend> {
+  return api<FinanceTrend>(`/reporting/money-summary/trend?periods=${periods}`);
+}
+
 function categoryFor(row: ApiItem): Product['category'] {
   const code = row.code.toUpperCase();
   if (code.startsWith('FG-')) return 'Dressed';
