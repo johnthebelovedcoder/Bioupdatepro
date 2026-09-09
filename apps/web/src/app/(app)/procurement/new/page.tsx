@@ -1,4 +1,4 @@
-import { getInventory } from '@/lib/demo-trade';
+import { getStockItems } from '@/lib/masters';
 import { getSuppliers } from '@/lib/trade';
 import { getFeedRunway } from '@/lib/alerts';
 import { getFarmConfig } from '@/lib/farm-config.server';
@@ -12,7 +12,7 @@ export default async function NewPurchasePage({
   searchParams: Promise<{ item?: string }>;
 }) {
   const [items, suppliers, config, query] = await Promise.all([
-    getInventory(),
+    getStockItems(),
     getSuppliers(),
     getFarmConfig(),
     searchParams,

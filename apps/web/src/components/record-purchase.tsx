@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { InventoryItem, Supplier } from '@/lib/demo-trade';
+import type { Supplier } from '@/lib/demo-trade';
+import type { StockItem as InventoryItem } from '@/lib/masters';
 import { formatNaira, parseNairaToKobo, toKobo } from '@/lib/money';
 import { enqueue, flush } from '@/lib/sync-queue';
 import { Card, PageHeader } from './ui';
@@ -202,7 +203,7 @@ export function RecordPurchase({
           {items.map((item) => {
             const line = lineFor(item);
             const active = line.quantity > 0;
-            const low = item.onHand <= item.reorderLevel;
+            const low = item.reorderLevel !== null && item.onHand <= item.reorderLevel;
             return (
               <div
                 className="sale-line"
@@ -223,8 +224,10 @@ export function RecordPurchase({
                       ) : null}
                     </div>
                     <div className="faint">
-                      {item.onHand.toLocaleString('en-NG')} {item.unit} in store · reorder at{' '}
-                      {item.reorderLevel.toLocaleString('en-NG')}
+                      {item.onHand.toLocaleString('en-NG')} {item.unit} in store
+                      {item.reorderLevel !== null
+                        ? ` · reorder at ${item.reorderLevel.toLocaleString('en-NG')}`
+                        : ''}
                     </div>
                   </div>
                   <QtyStepper
