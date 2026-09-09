@@ -1,4 +1,6 @@
-import { getRoles } from '@/lib/demo-trade';
+import { ROLE_CATALOGUE } from '@/lib/role-catalogue';
+import { getApprovalLadder } from '@/lib/workflow';
+import { formatNaira } from '@/lib/money';
 import { listInvitations, listPeople } from './actions';
 import { InviteWorker } from '@/components/invite-worker';
 import { PeopleTable } from '@/components/people-table';
@@ -11,15 +13,24 @@ import type { SessionUser } from '@/lib/session';
 export const metadata = { title: 'Staff & roles — BioAssetPro' };
 
 export default async function StaffPage() {
-  const [staff, roles, invitations, me] = await Promise.all([
+  const [staff, ladder, invitations, me] = await Promise.all([
     listPeople(),
-    getRoles(),
+    getApprovalLadder(),
     listInvitations(),
     api<SessionUser>('/auth/me'),
   ]);
 
+  const limitByRole = new Map(ladder.map((entry) => [entry.roleCode, entry.maxAmountKobo]));
+  const roles = ROLE_CATALOGUE.map((role) => ({
+    ...role,
+    // Present in the ladder with a null amount means unlimited; absent
+    // means this role has no approval step configured at all.
+    approvalLimitKobo: limitByRole.get(role.code),
+    hasApprovalStep: limitByRole.has(role.code),
+  }));
+
   const active = staff.filter((person) => person.status === 'ACTIVE');
-  const approvers = roles.filter((role) => role.approvalLimit !== null);
+  const approvers = roles.filter((role) => role.hasApprovalStep);
 
   return (
     <>
@@ -69,10 +80,10 @@ export default async function StaffPage() {
                 ) : null}
               </div>
               <div style={{ textAlign: 'right' }}>
-                {role.approvalLimit ? (
+                {role.hasApprovalStep ? (
                   <>
                     <div className="num" style={{ fontSize: 13 }}>
-                      {role.approvalLimit}
+                      {role.approvalLimitKobo === null ? 'Unlimited' : formatNaira(role.approvalLimitKobo)}
                     </div>
                     <div className="list-time">provisional limit</div>
                   </>
@@ -89,14 +100,13 @@ export default async function StaffPage() {
               organisation&apos;s structure are not fully wired up to screen permissions yet.
               {/*
                 Worth keeping honest rather than letting a Naira figure on screen read as
-                settled: these are starting figures, not numbers taken from a confirmed
-                policy. See how far to go with that disclosure without lapsing back into
-                build-status language a farm user has no reason to parse.
+                settled: this is what is actually configured today, not a number taken
+                from a confirmed policy. See how far to go with that disclosure without
+                lapsing back into build-status language a farm user has no reason to parse.
               */}{' '}
-              The amounts shown — ₦250,000 / ₦2,000,000 / ₦10,000,000 — are starting
-              figures, not yet confirmed against your organisation&apos;s real approval
-              policy. There is no screen to change them yet; for now, treat them as
-              provisional.
+              The amounts shown are what is configured today — starting figures, not yet
+              confirmed against your organisation&apos;s real approval policy. There is no
+              screen to change them yet; for now, treat them as provisional.
             </span>
           </div>
         </Card>

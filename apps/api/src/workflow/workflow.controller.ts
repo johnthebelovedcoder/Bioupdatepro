@@ -3,6 +3,7 @@ import { WorkflowService } from './workflow.service';
 import { DelegationService } from './delegation.service';
 import { EscalationService } from './escalation.service';
 import { NotificationService } from './notification.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { kobo } from '../common/money';
 import { SubmitRequest, WorkflowActor } from './workflow.types';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
@@ -26,7 +27,43 @@ export class WorkflowController {
     private readonly delegations: DelegationService,
     private readonly escalation: EscalationService,
     private readonly notifications: NotificationService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Each role's approval limit, as this company is actually configured —
+   * the same `WorkflowStep` rows `WorkflowRoutingService.resolveDefinition()`
+   * reads to decide who must approve what. A role can appear on several of
+   * the ~24 default ladders (one per transaction type); this takes the
+   * highest limit seen for it, unlimited beating any number, since a role's
+   * authority for this display is what it can approve at its widest, not
+   * tied to one document type.
+   */
+  @AnyRole('Every signed-in person may see who can approve what, and up to how much.')
+  @Get('approval-ladder')
+  async approvalLadder(@CurrentCompany() companyId: string) {
+    const steps = await this.prisma.workflowStep.findMany({
+      where: { definition: { companyId } },
+      select: { roleCode: true, maxAmountKobo: true },
+    });
+
+    const byRole = new Map<string, bigint | null>();
+    for (const step of steps) {
+      if (!byRole.has(step.roleCode)) {
+        byRole.set(step.roleCode, step.maxAmountKobo);
+        continue;
+      }
+      const current = byRole.get(step.roleCode)!;
+      if (current !== null && (step.maxAmountKobo === null || step.maxAmountKobo > current)) {
+        byRole.set(step.roleCode, step.maxAmountKobo);
+      }
+    }
+
+    return [...byRole.entries()].map(([roleCode, maxAmountKobo]) => ({
+      roleCode,
+      maxAmountKobo: maxAmountKobo?.toString() ?? null,
+    }));
+  }
 
   @AnyRole('Raising a document for approval is open; the engine decides who must approve it.')
   @Post('submit')
