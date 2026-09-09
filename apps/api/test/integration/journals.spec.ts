@@ -17,6 +17,7 @@ import { WorkflowRoutingService } from '../../src/workflow/workflow-routing.serv
 import { DelegationService } from '../../src/workflow/delegation.service';
 import { NotificationService } from '../../src/workflow/notification.service';
 import { ManualJournalService } from '../../src/journals/manual-journal.service';
+import { PostingControlService } from '../../src/posting-control/posting-control.service';
 import { ManualJournalPostingHandler } from '../../src/journals/manual-journal.handler';
 import { RecurringJournalService } from '../../src/journals/recurring-journal.service';
 import { PartyLedgerService } from '../../src/journals/party-ledger.service';
@@ -71,7 +72,8 @@ describe('Accounting Adjustment Centre (§3)', () => {
     const notifications = new NotificationService(prisma);
     workflow = new WorkflowService(prisma, routing, delegations, notifications, audit);
 
-    journals = new ManualJournalService(prisma, audit, posting, workflow);
+    const postingControl = new PostingControlService(prisma);
+    journals = new ManualJournalService(prisma, audit, posting, workflow, postingControl);
     recurring = new RecurringJournalService(prisma, audit);
     ledgers = new PartyLedgerService(prisma);
 

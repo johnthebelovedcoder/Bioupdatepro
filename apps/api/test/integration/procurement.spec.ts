@@ -27,6 +27,7 @@ import { PartyService } from '../../src/masters/party.service';
 import { ProcurementConfigService } from '../../src/procurement/procurement-config.service';
 import { PurchaseOrderService } from '../../src/procurement/purchase-order.service';
 import { GoodsReceiptService } from '../../src/procurement/goods-receipt.service';
+import { StockMovementService } from '../../src/inventory/stock-movement.service';
 import { SupplierInvoiceService } from '../../src/procurement/supplier-invoice.service';
 import { SupplierPaymentService } from '../../src/procurement/supplier-payment.service';
 import {
@@ -100,8 +101,10 @@ describe('Procure-to-Pay (§5)', () => {
     parties = new PartyService(prisma, audit);
     const config = new ProcurementConfigService(prisma);
 
+    const stockMovements = new StockMovementService(prisma);
+
     orders = new PurchaseOrderService(prisma, audit, workflow, tax);
-    receipts = new GoodsReceiptService(prisma, audit, posting, workflow, config);
+    receipts = new GoodsReceiptService(prisma, audit, posting, workflow, config, stockMovements);
     invoices = new SupplierInvoiceService(
       prisma, audit, posting, workflow, tax, registers, config,
     );

@@ -385,7 +385,36 @@ describe('Order-to-Cash (§6)', () => {
     financialPeriodId: fixture.periodIds[0]!,
   });
 
+  /**
+   * Stock at the delivery warehouse, checked since US-897-022
+   * (`DeliveryService.create` refuses to take stock negative — Consolidated
+   * Reference §14). Tagged `OpeningStock` so tests that count real stock
+   * movements (a return, a delivery's own OUT) can exclude this fixture
+   * receipt rather than mistake it for the thing under test.
+   */
+  async function receiveStock(quantity: number) {
+    await prisma.stockMovement.create({
+      data: {
+        companyId: fixture.companyId,
+        branchId: fixture.branchId,
+        itemId,
+        warehouseId,
+        direction: 'IN',
+        quantity: quantity.toString(),
+        unitCostKobo: UNIT_COST,
+        valueKobo: UNIT_COST * BigInt(quantity),
+        sourceModule: 'test-fixture',
+        sourceDocumentType: 'OpeningStock',
+        sourceDocumentId: 'FIXTURE-STOCK-001',
+        documentReference: 'Test fixture opening stock',
+        movementDate: new Date('2026-01-01'),
+      },
+    });
+  }
+
   async function makeApprovedOrder(quantity = 100, unitPrice = UNIT_PRICE) {
+    await receiveStock(quantity);
+
     const order = await orders.createOrder({
       companyId: fixture.companyId,
       orderNumber: `SO-${Math.random().toString(36).slice(2, 8)}`,
@@ -816,7 +845,11 @@ describe('Order-to-Cash (§6)', () => {
       const order = await makeApprovedOrder(100);
       await deliverAll(order.id);
 
-      const movements = await prisma.stockMovement.findMany({});
+      // Excludes the fixture's own opening-stock receipt (makeApprovedOrder)
+      // — this is about the delivery's OWN movement, not the stock it drew on.
+      const movements = await prisma.stockMovement.findMany({
+        where: { direction: 'OUT' },
+      });
       expect(movements).toHaveLength(1);
       expect(movements[0]!.direction).toBe('OUT');
       expect(movements[0]!.valueKobo).toBe(6_000_000n);
@@ -825,7 +858,8 @@ describe('Order-to-Cash (§6)', () => {
         companyId: fixture.companyId,
         itemId,
       });
-      expect(onHand.quantity).toBe('-100.000000');
+      // 100 received (fixture), 100 delivered — net zero.
+      expect(onHand.quantity).toBe('0.000000');
 
       const after = await prisma.salesOrder.findUniqueOrThrow({ where: { id: order.id } });
       expect(after.status).toBe(SalesOrderStatus.FULLY_DELIVERED);
@@ -1092,7 +1126,11 @@ describe('Order-to-Cash (§6)', () => {
       expect(await accountBalance('5001')).toBe(5_400_000n);
       expect(await accountBalance('1401')).toBe(-5_400_000n);
 
-      const inward = await prisma.stockMovement.findMany({ where: { direction: 'IN' } });
+      // Excludes the fixture's own opening-stock receipt — this is about the
+      // return's OWN inward movement.
+      const inward = await prisma.stockMovement.findMany({
+        where: { direction: 'IN', sourceDocumentType: { not: 'OpeningStock' } },
+      });
       expect(inward).toHaveLength(1);
       expect(inward[0]!.valueKobo).toBe(600_000n);
     });
@@ -1130,7 +1168,11 @@ describe('Order-to-Cash (§6)', () => {
 
       // Customer credited, but the goods are worthless — cost of sales stands.
       expect(await accountBalance('5001')).toBe(6_000_000n);
-      expect(await prisma.stockMovement.count({ where: { direction: 'IN' } })).toBe(0);
+      expect(
+        await prisma.stockMovement.count({
+          where: { direction: 'IN', sourceDocumentType: { not: 'OpeningStock' } },
+        }),
+      ).toBe(0);
     });
 
     it('requires a return document when the reason is returned goods', async () => {

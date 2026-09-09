@@ -188,6 +188,12 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
           isTaxable: true,
           isPensionable: spec.pensionable,
           isGrossPayComponent: true,
+          // The Nigeria_Statutory_Payroll workbook computes NHF on gross, not
+          // basic alone (see the "uses basic+housing+transport for pension,
+          // NOT gross" test above, which asserts NHF at 2.5% of 327,000 —
+          // the full gross figure) — so every gross-pay component here is
+          // also the NHF base.
+          isNhfBase: true,
         },
       });
     }
@@ -565,6 +571,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 327_000_00n,
         pensionableEmolumentsKobo: 297_000_00n,
+        // NHF genuinely is charged on gross in this fixture — see the
+        // dedicated comment on the "uses basic+housing+transport" test below.
+        nhfBaseKobo: 327_000_00n,
         pensionEnrolled: true,
         nhfEnrolled: true,
         // Company_Setup B7 in the workbook.
@@ -585,6 +594,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 327_000_00n,
         pensionableEmolumentsKobo: 297_000_00n,
+        // NHF genuinely is charged on gross in this fixture — see the
+        // dedicated comment on the "uses basic+housing+transport" test below.
+        nhfBaseKobo: 327_000_00n,
         pensionEnrolled: true,
         nhfEnrolled: true,
         employeeCount: 30,
@@ -605,6 +617,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 327_000_00n,
         pensionableEmolumentsKobo: 297_000_00n,
+        // NHF genuinely is charged on gross in this fixture — see the
+        // dedicated comment on the "uses basic+housing+transport" test below.
+        nhfBaseKobo: 327_000_00n,
         pensionEnrolled: true,
         nhfEnrolled: true,
         employeeCount: 30,
@@ -621,6 +636,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 327_000_00n,
         pensionableEmolumentsKobo: 297_000_00n,
+        // NHF genuinely is charged on gross in this fixture — see the
+        // dedicated comment on the "uses basic+housing+transport" test below.
+        nhfBaseKobo: 327_000_00n,
         pensionEnrolled: true,
         nhfEnrolled: true,
         employeeCount: 2,
@@ -636,6 +654,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 327_000_00n,
         pensionableEmolumentsKobo: 297_000_00n,
+        // NHF genuinely is charged on gross in this fixture — see the
+        // dedicated comment on the "uses basic+housing+transport" test below.
+        nhfBaseKobo: 327_000_00n,
         pensionEnrolled: true,
         nhfEnrolled: false,
         employeeCount: 30,
@@ -648,6 +669,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 327_000_00n,
         pensionableEmolumentsKobo: 297_000_00n,
+        // NHF genuinely is charged on gross in this fixture — see the
+        // dedicated comment on the "uses basic+housing+transport" test below.
+        nhfBaseKobo: 327_000_00n,
         pensionEnrolled: true,
         nhfEnrolled: true,
         employeeCount: 30,
@@ -662,6 +686,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 65_000_00n,
         pensionableEmolumentsKobo: 60_000_00n,
+        nhfBaseKobo: 65_000_00n,
         pensionEnrolled: true,
         nhfEnrolled: true,
         employeeCount: 30,
@@ -676,6 +701,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 327_000_00n,
         pensionableEmolumentsKobo: 297_000_00n,
+        // NHF genuinely is charged on gross in this fixture — see the
+        // dedicated comment on the "uses basic+housing+transport" test below.
+        nhfBaseKobo: 327_000_00n,
         pensionEnrolled: false,
         nhfEnrolled: false,
         employeeCount: 1,
@@ -690,6 +718,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 327_000_00n,
         pensionableEmolumentsKobo: 297_000_00n,
+        // NHF genuinely is charged on gross in this fixture — see the
+        // dedicated comment on the "uses basic+housing+transport" test below.
+        nhfBaseKobo: 327_000_00n,
         pensionEnrolled: true,
         nhfEnrolled: true,
         employeeCount: 10,
@@ -705,6 +736,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         companyId: fixture.companyId,
         grossPayKobo: 327_000_00n,
         pensionableEmolumentsKobo: 297_000_00n,
+        // NHF genuinely is charged on gross in this fixture — see the
+        // dedicated comment on the "uses basic+housing+transport" test below.
+        nhfBaseKobo: 327_000_00n,
         pensionEnrolled: true,
         nhfEnrolled: true,
         employeeCount: 30,
@@ -723,6 +757,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
           companyId: fixture.companyId,
           grossPayKobo: 327_000_00n,
           pensionableEmolumentsKobo: 297_000_00n,
+          nhfBaseKobo: 327_000_00n,
           pensionEnrolled: true,
           nhfEnrolled: true,
           employeeCount: 30,
