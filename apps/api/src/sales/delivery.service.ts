@@ -339,14 +339,16 @@ export class DeliveryService {
       );
       journalEntryId = result.journalEntryId;
 
-      // Stamp each line so the invoice path cannot recognise it again. The
-      // database refuses a second stamp regardless.
-      for (const line of delivery.lines) {
-        await params.tx.deliveryNoteLine.update({
-          where: { id: line.id },
-          data: { cogsPostedAt: CogsRecognitionPoint.DELIVERY },
-        });
-      }
+      // Stamp every line in one round trip rather than one update per line —
+      // each interactive transaction has a fixed timeout, and a delivery with
+      // several lines was serializing enough network round trips against a
+      // remote database to exceed it. Same reasoning as the GL account/
+      // warehouse/financial-period seeds' createMany batching. The database
+      // still refuses a second stamp regardless of how this writes it.
+      await params.tx.deliveryNoteLine.updateMany({
+        where: { id: { in: delivery.lines.map((line) => line.id) } },
+        data: { cogsPostedAt: CogsRecognitionPoint.DELIVERY },
+      });
     } else {
       // Cost of sales is recognised at invoice for this company, so the
       // delivery produces no GL entry. It is still APPROVED work — the stock
@@ -356,42 +358,45 @@ export class DeliveryService {
 
     // Stock movements are written whether or not COGS was recognised: the goods
     // have gone either way, and the stock ledger is a record of physical fact.
-    for (const line of delivery.lines) {
-      await params.tx.stockMovement.create({
-        data: {
-          companyId: delivery.companyId,
-          branchId: delivery.branchId,
-          itemId: line.itemId,
-          warehouseId: delivery.warehouseId,
-          direction: StockDirection.OUT,
-          quantity: line.quantity,
-          unitCostKobo: line.unitCostKobo,
-          valueKobo: line.costKobo,
-          batchReference: line.batchReference,
-          sourceModule: 'sales',
-          sourceDocumentType: 'DeliveryNote',
-          sourceDocumentId: delivery.id,
-          documentReference: delivery.deliveryNumber,
-          movementDate: delivery.deliveryDate,
-          journalEntryId,
-        },
-      });
+    // One createMany rather than one create per line, for the same round-trip
+    // reason as the cogsPostedAt stamp above.
+    await params.tx.stockMovement.createMany({
+      data: delivery.lines.map((line) => ({
+        companyId: delivery.companyId,
+        branchId: delivery.branchId,
+        itemId: line.itemId,
+        warehouseId: delivery.warehouseId,
+        direction: StockDirection.OUT,
+        quantity: line.quantity,
+        unitCostKobo: line.unitCostKobo,
+        valueKobo: line.costKobo,
+        batchReference: line.batchReference,
+        sourceModule: 'sales',
+        sourceDocumentType: 'DeliveryNote',
+        sourceDocumentId: delivery.id,
+        documentReference: delivery.deliveryNumber,
+        movementDate: delivery.deliveryDate,
+        journalEntryId,
+      })),
+    });
 
-      // Advance the order line's delivered quantity.
-      const orderLine = await params.tx.salesOrderLine.findUniqueOrThrow({
-        where: { id: line.salesOrderLineId },
-      });
-      await params.tx.salesOrderLine.update({
-        where: { id: line.salesOrderLineId },
-        data: {
-          deliveredQuantity: new Prisma.Decimal(
-            new Decimal(orderLine.deliveredQuantity.toString())
-              .plus(new Decimal(line.quantity.toString()))
-              .toFixed(6),
-          ),
-        },
-      });
-    }
+    // Advance each order line's delivered quantity. `increment` rather than a
+    // read-then-write: the prior read added a second round trip per line for
+    // a value this atomic update does not need, and it also made two
+    // concurrent deliveries against the same order line racy (the second
+    // write could overwrite the first's read-based total).
+    await Promise.all(
+      delivery.lines.map((line) =>
+        params.tx.salesOrderLine.update({
+          where: { id: line.salesOrderLineId },
+          data: {
+            deliveredQuantity: {
+              increment: new Prisma.Decimal(new Decimal(line.quantity.toString()).toFixed(6)),
+            },
+          },
+        }),
+      ),
+    );
 
     await params.tx.deliveryNote.update({
       where: { id: delivery.id },
