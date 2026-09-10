@@ -77,6 +77,16 @@ export class MasterDataController {
     } as Parameters<PartyService['createSupplier']>[0]);
   }
 
+  // Same set as createSupplier: whoever may register a supplier must also be
+  // able to see the list they're registering into, or every procurement
+  // screen that lists suppliers is unusable for them.
+  @Roles(
+    'FARM_MANAGER',
+    'FINANCE_MANAGER',
+    'FINANCE_CONTROLLER',
+    'PROCUREMENT_OFFICER',
+    'CFO',
+  )
   @Get('suppliers')
   async listSuppliers(
     @CurrentCompany() companyId: string,
@@ -183,6 +193,15 @@ export class MasterDataController {
     } as Parameters<ItemService['create']>[0]);
   }
 
+  // Same reasoning as listSuppliers: raising a requisition or PO means
+  // reading the item catalogue first, so whoever raises one needs to see it.
+  @Roles(
+    'FARM_MANAGER',
+    'FINANCE_MANAGER',
+    'FINANCE_CONTROLLER',
+    'PROCUREMENT_OFFICER',
+    'CFO',
+  )
   @Get('items')
   async listItems(
     @CurrentCompany() companyId: string,

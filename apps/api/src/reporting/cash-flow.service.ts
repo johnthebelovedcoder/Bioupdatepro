@@ -45,6 +45,13 @@ const PAYABLE_ACCOUNTS = [
   // Payroll's own statutory payables (PayrollRunService's hardcoded map) —
   // salary, pension, NHF, NSITF, ITF, PAYE.
   '2101', '2102', '2103', '2104', '2105', '2110',
+  // Standard-costing recovery/clearing liabilities (Dr WIP / Cr Recovery as
+  // standard cost is absorbed, cleared against actual cost at settlement) —
+  // real posted liability balances that move independently of every other
+  // bucket here. Missing these understated "change in payables" by exactly
+  // their period movement, breaking the closing-cash reconciliation this
+  // service exists to prove.
+  '219810', '219820', '219830',
 ];
 const BANK_ACCOUNTS = ['1101'];
 const PPE_ACCOUNTS = ['1701'];
