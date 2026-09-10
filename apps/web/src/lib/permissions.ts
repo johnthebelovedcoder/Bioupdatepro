@@ -90,8 +90,13 @@ const BY_ROLE: Record<string, Section[]> = {
   PRODUCTION_LEAD: ['dashboard', 'livestock', 'recording', 'inventory'],
 
   // ROL-009. Matches invoices against goods receipt and keeps supplier
-  // accounts — reads the trade side, not the ledger.
-  AP_OFFICER: ['dashboard', 'trade', 'money'],
+  // accounts — reads the trade side, not the ledger. Needs 'inventory' too:
+  // the only door to entering an invoice is a link on the goods-received
+  // list ("Enter the supplier's invoice"), and the API's own GET
+  // /procurement/receipts/:id is explicitly open to "anyone entering an
+  // invoice" — without this section that door was behind a wall for the
+  // one role whose job the whole screen exists for.
+  AP_OFFICER: ['dashboard', 'trade', 'money', 'inventory'],
 
   // ROL-010. "Create order, dispatch and invoice; cannot override credit/QA hold."
   SALES_OFFICER: ['dashboard', 'trade'],
@@ -104,8 +109,12 @@ const BY_ROLE: Record<string, Section[]> = {
   FARM_ACCOUNTANT: ['dashboard', 'livestock', 'inventory', 'ledger'],
 
   // ROL-014. Prepares payments and reconciles the bank — the money section,
-  // not the books themselves.
-  TREASURY_OFFICER: ['dashboard', 'money'],
+  // not the books themselves. Needs 'trade' too: the only screen with a
+  // payment form is Buying > Invoices (/procurement/invoices), and the API's
+  // own POST /procurement/payments names TREASURY_OFFICER as who makes this —
+  // without this section the one person whose job is paying suppliers could
+  // not reach the button that does it.
+  TREASURY_OFFICER: ['dashboard', 'money', 'trade'],
 
   // ROL-015. Configuration and access, explicitly NOT finance or operations
   // ("cannot approve finance/operations") — so no money, ledger or approvals.

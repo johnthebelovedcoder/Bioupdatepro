@@ -77,14 +77,17 @@ export class MasterDataController {
     } as Parameters<PartyService['createSupplier']>[0]);
   }
 
-  // Same set as createSupplier: whoever may register a supplier must also be
-  // able to see the list they're registering into, or every procurement
-  // screen that lists suppliers is unusable for them.
+  // Same set as createSupplier, plus AP_OFFICER and TREASURY_OFFICER: the
+  // supplier-invoices screen (list + payment form) renders for both of them
+  // and needs this list to do it, even though neither one registers a new
+  // supplier.
   @Roles(
     'FARM_MANAGER',
     'FINANCE_MANAGER',
     'FINANCE_CONTROLLER',
     'PROCUREMENT_OFFICER',
+    'AP_OFFICER',
+    'TREASURY_OFFICER',
     'CFO',
   )
   @Get('suppliers')
