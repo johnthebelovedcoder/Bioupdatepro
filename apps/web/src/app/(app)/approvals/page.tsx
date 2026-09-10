@@ -2,6 +2,7 @@ import { getPendingApprovals } from '@/lib/procurement';
 import { formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { DecideButtons } from '@/components/approve-button';
+import { EscalationSweepButton } from '@/components/escalation-sweep-button';
 import { IconCheckCircle } from '@/components/icons';
 
 export const metadata = { title: 'Approvals — BioAssetPro' };
@@ -27,6 +28,7 @@ export default async function ApprovalsPage() {
       <PageHeader
         title="Approvals"
         subtitle="Documents waiting on you, and what approving each one will do"
+        actions={<EscalationSweepButton />}
       />
 
       <div className="stack">

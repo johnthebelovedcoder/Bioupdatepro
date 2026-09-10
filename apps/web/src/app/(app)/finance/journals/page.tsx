@@ -6,6 +6,7 @@ import { IconTag } from '@/components/icons';
 import { CreateManualJournalForm } from '@/components/create-manual-journal-form';
 import { CreateRecurringJournalForm } from '@/components/create-recurring-journal-form';
 import { GenerateDueRecurringButton } from '@/components/generate-due-recurring-button';
+import { SubmitJournalButton } from '@/components/submit-journal-button';
 import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Journals — BioAssetPro' };
@@ -55,6 +56,7 @@ export default async function JournalsPage() {
                       Amount
                     </th>
                     <th style={{ width: 130 }}>Status</th>
+                    <th style={{ width: 110 }}>Decision</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -86,6 +88,13 @@ export default async function JournalsPage() {
                         >
                           {j.status.toLowerCase().replace('_', ' ')}
                         </span>
+                      </td>
+                      <td>
+                        {j.status === 'DRAFT' || j.status === 'RETURNED' ? (
+                          <SubmitJournalButton manualJournalId={j.id} />
+                        ) : (
+                          '—'
+                        )}
                       </td>
                     </tr>
                   ))}

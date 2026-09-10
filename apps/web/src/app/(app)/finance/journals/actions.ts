@@ -176,6 +176,32 @@ export async function createRecurringJournal(
   return { error: null, message: `${code} created — next due ${startDateRaw}.` };
 }
 
+/**
+ * Send an existing draft into the approval pipeline.
+ *
+ * The only other path to SUBMITTED is `createManualJournal`, which bundles
+ * create-and-submit into one call for a journal raised on this screen. A
+ * draft with no maker action still waiting on it — one a recurring template
+ * generated, or one returned to its maker for correction — had no way back
+ * into the pipeline at all until this existed.
+ */
+export async function submitManualJournal(manualJournalId: string): Promise<FlowState> {
+  const me = await api<SessionUser>('/auth/me');
+  try {
+    await api('/journal/submit', {
+      method: 'POST',
+      body: {
+        manualJournalId,
+        actor: { userId: me.userId, roles: me.roles },
+      },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not submit that journal.');
+  }
+  revalidatePath('/finance/journals');
+  return { error: null, message: 'Journal sent for approval.' };
+}
+
 /** Generate every template whose next run date has arrived — drafts only, each still needs approval. */
 export async function generateDueRecurring(): Promise<FlowState> {
   const context = await getContext();

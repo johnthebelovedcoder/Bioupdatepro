@@ -72,3 +72,15 @@ export interface StockMovementRow {
 export async function getStockMovements(limit = 30): Promise<StockMovementRow[]> {
   return api<StockMovementRow[]>(`/masters/stock-movements?limit=${limit}`);
 }
+
+export interface Warehouse {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  active: boolean;
+}
+
+export async function getWarehouses(): Promise<Warehouse[]> {
+  return api<Warehouse[]>('/masters/warehouses');
+}

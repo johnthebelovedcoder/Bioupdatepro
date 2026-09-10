@@ -237,6 +237,12 @@ export const SECTIONS: NavSection[] = [
         hidden: true,
       },
       {
+        href: '/inventory/transfers',
+        label: 'Transfers & write-offs',
+        hint: 'Move stock between stores, or remove it with a reason',
+        keywords: ['transfer', 'write-off', 'writeoff', 'move stock', 'adjustment', 'loss'],
+      },
+      {
         href: '/items',
         label: 'Items',
         hint: 'Everything the farm buys, stores or sells',
@@ -422,7 +428,13 @@ export const SECTIONS: NavSection[] = [
         href: '/approvals',
         label: 'Waiting on you',
         hint: 'Documents you can approve or send back',
-        keywords: ['approve', 'reject', 'authorise', 'sign off', 'queue', 'inbox'],
+        keywords: ['approve', 'reject', 'authorise', 'sign off', 'queue'],
+      },
+      {
+        href: '/approvals/inbox',
+        label: 'Notifications',
+        hint: 'What workflow events have sent you, newest first',
+        keywords: ['notification', 'inbox', 'alert', 'message'],
       },
     ],
   },

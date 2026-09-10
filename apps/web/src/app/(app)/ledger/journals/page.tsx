@@ -5,6 +5,7 @@ import { Pagination } from '@/components/pagination';
 import { JournalFilters } from './filters';
 import { PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
+import { ReverseJournalButton } from '@/components/reverse-journal-button';
 
 export const metadata = { title: 'Journal entries — BioAssetPro' };
 
@@ -103,6 +104,7 @@ export default async function JournalsPage({
                       Amount
                     </th>
                     <th style={{ width: 90 }}>Status</th>
+                    <th style={{ width: 110 }}>Decision</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -175,9 +177,12 @@ function JournalRow({ entry }: { entry: Entry }) {
             {entry.status.toLowerCase()}
           </span>
         </td>
+        <td>
+          {entry.status === 'POSTED' ? <ReverseJournalButton journalId={entry.id} /> : '—'}
+        </td>
       </tr>
       <tr>
-        <td colSpan={6} style={{ padding: 0, borderBottom: '1px solid var(--border)' }}>
+        <td colSpan={7} style={{ padding: 0, borderBottom: '1px solid var(--border)' }}>
           <table className="data" style={{ background: 'var(--surface-sunken)' }}>
             <tbody>
               {entry.lines.map((line) => (
