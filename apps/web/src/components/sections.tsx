@@ -1,9 +1,11 @@
 import Link from 'next/link';
 import type { SpeciesModule } from '@/lib/modules';
 import { title } from '@/lib/modules';
-// Breeding has no model behind it yet, so it stays on the fixture and keeps
-// its Demo data badge. Everything else on these screens now reads the database.
+// Snail breeding has no model behind it yet, so it stays on the fixture and
+// keeps its Demo data badge. Poultry breeding (egg collection, incubation,
+// hatch) is real — see getEggBatches/getIncubationBatches below.
 import { getBreedingCycles } from '@/lib/demo-ops';
+import { getEggBatches, getIncubationBatches, getLayingGroups } from '@/lib/poultry-eggs';
 import {
   getFeeding,
   getGroups,
@@ -23,6 +25,7 @@ import { HarvestLog } from './record-harvest';
 import { StageChange } from './record-stage-change';
 import { TrendChart } from './trend-chart';
 import { PeriodFilter } from './period-filter';
+import { PoultryBreeding } from './poultry-breeding';
 import { resolvePeriod, type PeriodKey } from '@/lib/period';
 import { IconAlert, IconBox, IconCheckCircle, IconClipboard, IconEgg } from './icons';
 
@@ -475,6 +478,8 @@ export async function PerformanceSection({ module }: { module: SpeciesModule }) 
 /* ========================================================================== */
 
 export async function BreedingSection({ module }: { module: SpeciesModule }) {
+  if (module.key === 'poultry') return <PoultryBreedingSection module={module} />;
+
   const cycles = await getBreedingCycles();
   const t = module.terms;
 
@@ -569,6 +574,35 @@ export async function BreedingSection({ module }: { module: SpeciesModule }) {
           </div>
         </Card>
       </div>
+    </>
+  );
+}
+
+/**
+ * The real thing, for poultry: egg collection, incubation and hatching,
+ * backed by `EggCollectionBatch`/`IncubationBatch`/`HatchEvent` — not the
+ * fixture `BreedingSection` above still uses for snail, which has no
+ * breeding model in the database at all.
+ */
+async function PoultryBreedingSection({ module }: { module: SpeciesModule }) {
+  const [eggBatches, incubationBatches, layingGroups] = await Promise.all([
+    getEggBatches(),
+    getIncubationBatches(),
+    getLayingGroups(),
+  ]);
+
+  return (
+    <>
+      <PageHeader
+        title={module.nav.find((n) => n.slug === 'breeding')?.label ?? 'Breeding'}
+        subtitle="Eggs collected, set to incubate, and what hatched"
+      />
+      <PoultryBreeding
+        eggBatches={eggBatches}
+        incubationBatches={incubationBatches}
+        layingGroups={layingGroups}
+        today={new Date().toISOString().slice(0, 10)}
+      />
     </>
   );
 }

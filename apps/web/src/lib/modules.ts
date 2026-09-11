@@ -248,6 +248,7 @@ const POULTRY: SpeciesModule = {
     { slug: 'flocks', label: 'Flocks', icon: IconClipboard, hint: 'Every flock, its stage and how many birds' },
     { slug: 'records', label: 'Daily round', icon: IconFarm, hint: 'Eggs, feed and mortality — one entry per flock' },
     { slug: 'production', label: 'Eggs', icon: IconEgg, hint: 'What has been collected, whole, cracked and dirty' },
+    { slug: 'breeding', label: 'Incubation', icon: IconEgg, hint: 'Hatching eggs set into an incubator, and what hatched' },
     { slug: 'feeding', label: 'Feeding', icon: IconFeed, hint: 'What has gone out, and what it cost' },
     { slug: 'health', label: 'Health', icon: IconCheckCircle, hint: 'Treatments and mortality, by cause' },
     {

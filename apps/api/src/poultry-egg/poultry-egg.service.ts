@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { IdempotencyService } from '../idempotency/idempotency.service';
 import { AccountingRuleViolation } from '../common/errors';
 
 /**
@@ -25,9 +26,18 @@ import { AccountingRuleViolation } from '../common/errors';
  */
 @Injectable()
 export class PoultryEggService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly idempotency: IdempotencyService,
+  ) {}
 
-  /** P-EGG-01/02, PCR-067 — daily laying plus collection/grading in one record. */
+  /**
+   * P-EGG-01/02, PCR-067 — daily laying plus collection/grading in one record.
+   *
+   * Idempotency-keyed like every other outbox-queued write (Rule 6) — this is
+   * reached from the offline sync queue, where a retry after a lost response
+   * is the expected case, not the exception.
+   */
   async recordCollection(params: {
     companyId: string;
     sourceGroupId: string;
@@ -38,13 +48,8 @@ export class PoultryEggService {
     rejectCount: number;
     notes?: string | null;
     recordedById: string;
+    idempotencyKey: string;
   }) {
-    const group = await this.prisma.livestockGroup.findUniqueOrThrow({
-      where: { id: params.sourceGroupId },
-    });
-    if (group.speciesKey !== 'poultry') {
-      throw new BadRequestException('Egg collection is a PoultryPro event — the source group is not poultry.');
-    }
     if (params.hatchingCount < 0 || params.tableCount < 0 || params.rejectCount < 0) {
       throw new BadRequestException('Egg counts cannot be negative.');
     }
@@ -53,23 +58,39 @@ export class PoultryEggService {
       throw new BadRequestException('At least one egg must be recorded.');
     }
 
-    return this.prisma.eggCollectionBatch.create({
-      data: {
-        companyId: params.companyId,
-        branchId: group.branchId,
-        sourceGroupId: group.id,
-        farmId: group.farmId,
-        penHouseId: group.penHouseId,
-        code: params.code.trim(),
-        collectedOn: params.collectedOn,
-        totalCount,
-        hatchingCount: params.hatchingCount,
-        tableCount: params.tableCount,
-        rejectCount: params.rejectCount,
-        hatchingRemaining: params.hatchingCount,
-        notes: params.notes ?? null,
-        recordedById: params.recordedById,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const scope = 'poultry-egg.collection';
+      const reserved = await this.idempotency.reserve(scope, params.idempotencyKey, params, tx);
+      if (reserved.replayed) return tx.eggCollectionBatch.findUniqueOrThrow({ where: { id: reserved.resultRef! } });
+
+      const group = await tx.livestockGroup.findUniqueOrThrow({
+        where: { id: params.sourceGroupId },
+      });
+      if (group.speciesKey !== 'poultry') {
+        throw new BadRequestException('Egg collection is a PoultryPro event — the source group is not poultry.');
+      }
+
+      const batch = await tx.eggCollectionBatch.create({
+        data: {
+          companyId: params.companyId,
+          branchId: group.branchId,
+          sourceGroupId: group.id,
+          farmId: group.farmId,
+          penHouseId: group.penHouseId,
+          code: params.code.trim(),
+          collectedOn: params.collectedOn,
+          totalCount,
+          hatchingCount: params.hatchingCount,
+          tableCount: params.tableCount,
+          rejectCount: params.rejectCount,
+          hatchingRemaining: params.hatchingCount,
+          notes: params.notes ?? null,
+          recordedById: params.recordedById,
+        },
+      });
+
+      await this.idempotency.commit(scope, params.idempotencyKey, params, batch.id, tx);
+      return batch;
     });
   }
 
@@ -83,12 +104,17 @@ export class PoultryEggService {
     incubator?: string | null;
     notes?: string | null;
     recordedById: string;
+    idempotencyKey: string;
   }) {
     if (params.setQuantity <= 0) {
       throw new BadRequestException('Set quantity must be greater than zero.');
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const scope = 'poultry-egg.incubation';
+      const reserved = await this.idempotency.reserve(scope, params.idempotencyKey, params, tx);
+      if (reserved.replayed) return tx.incubationBatch.findUniqueOrThrow({ where: { id: reserved.resultRef! } });
+
       const eggBatch = await tx.eggCollectionBatch.findUniqueOrThrow({
         where: { id: params.eggBatchId },
       });
@@ -119,6 +145,7 @@ export class PoultryEggService {
         data: { hatchingRemaining: eggBatch.hatchingRemaining - params.setQuantity },
       });
 
+      await this.idempotency.commit(scope, params.idempotencyKey, params, batch.id, tx);
       return batch;
     });
   }
@@ -140,12 +167,20 @@ export class PoultryEggService {
     purpose?: string;
     penHouseId?: string;
     recordedById: string;
+    idempotencyKey: string;
   }) {
     if (params.hatchedCount < 0 || params.unhatchedCount < 0 || params.damagedCount < 0) {
       throw new BadRequestException('Hatch counts cannot be negative.');
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const scope = 'poultry-egg.hatch';
+      const reserved = await this.idempotency.reserve(scope, params.idempotencyKey, params, tx);
+      if (reserved.replayed) {
+        const replayedHatch = await tx.hatchEvent.findUniqueOrThrow({ where: { id: reserved.resultRef! } });
+        return { ...replayedHatch, chickGroupId: replayedHatch.chickGroupId };
+      }
+
       const incubation = await tx.incubationBatch.findUniqueOrThrow({
         where: { id: params.incubationBatchId },
         include: { eggBatch: { include: { sourceGroup: true } }, hatchEvent: true },
@@ -213,6 +248,7 @@ export class PoultryEggService {
         data: { status: 'HATCHED' },
       });
 
+      await this.idempotency.commit(scope, params.idempotencyKey, params, hatch.id, tx);
       return { ...hatch, chickGroupId };
     });
   }

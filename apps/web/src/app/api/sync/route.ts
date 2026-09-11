@@ -44,6 +44,9 @@ const ROUTES: Record<string, string> = {
   'new-group': '/operations/placements',
   sale: '/operations/sales',
   purchase: '/operations/purchases',
+  'egg-collection': '/poultry/eggs/collections',
+  'egg-incubation': '/poultry/eggs/incubations',
+  'egg-hatch': '/poultry/eggs/hatch',
 };
 
 export async function POST(request: Request) {

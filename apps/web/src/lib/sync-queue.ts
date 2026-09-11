@@ -55,7 +55,10 @@ export interface QueueItem {
     | 'new-group'
     | 'treatment'
     | 'harvest'
-    | 'stage-change';
+    | 'stage-change'
+    | 'egg-collection'
+    | 'egg-incubation'
+    | 'egg-hatch';
   /** Human summary, so the queue is readable without decoding the payload. */
   label: string;
   payload: unknown;
