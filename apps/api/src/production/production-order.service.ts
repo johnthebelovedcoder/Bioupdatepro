@@ -432,8 +432,15 @@ export class ProductionOrderService {
       : null;
     const warehouseByItem = new Map(componentItems.map((i) => [i.id, i.defaultWarehouseId ?? fallbackWarehouseId!]));
 
+    /*
+     * Guarded the same way packagingLines below guards packagingTotal — a
+     * harvest valued at exactly zero (no FVLCTS valuation posted yet, a
+     * legitimate starting state, not an error) would otherwise produce a
+     * debit-0/credit-0 line pair, which PostingService.post() correctly
+     * refuses as an empty line, blocking issue() entirely for that order.
+     */
     const lines =
-      issueRule && rules.issueRuleId
+      issueRule && rules.issueRuleId && order.biologicalInputValueKobo > 0n
         ? [
             {
               glAccountId: this.requireSide(issueRule.debit, rules.issueRuleId, 'debit').glAccountId,

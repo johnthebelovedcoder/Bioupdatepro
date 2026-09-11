@@ -243,6 +243,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['transfer', 'write-off', 'writeoff', 'move stock', 'adjustment', 'loss'],
       },
       {
+        href: '/production',
+        label: 'Processing orders',
+        hint: 'SnailPro, PoultryPro and Feed Mill — turning stock into a different product',
+        keywords: ['production', 'processing', 'snailpro', 'poultrypro', 'feed mill', 'convert', 'manufacture', 'wip'],
+      },
+      {
         href: '/items',
         label: 'Items',
         hint: 'Everything the farm buys, stores or sells',
@@ -557,10 +563,6 @@ export const HOME: NavSection = {
  * has one somewhere.
  */
 export const NOT_BUILT_YET: Array<{ label: string; belongsUnder: string; why: string }> = [
-  { label: 'Supplier invoices', belongsUnder: 'Buying', why: 'Clears GRNI and adds the VAT' },
-  { label: 'Payments', belongsUnder: 'Buying', why: 'Settles what is owed to a vendor' },
-  { label: 'Feed mill', belongsUnder: 'Store', why: 'Making feed rather than buying it' },
-  { label: 'Processing', belongsUnder: 'Store', why: 'Turning livestock into product' },
   {
     label: 'Payroll runs',
     belongsUnder: 'People',

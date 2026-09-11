@@ -400,6 +400,15 @@ export class MasterDataController {
 
   // --- Recipes ------------------------------------------------------------
 
+  // PRODUCTION_LEAD raises processing orders and needs to pick a recipe to
+  // run — the same reasoning listItems/listSuppliers already use for the
+  // roles that consume, rather than maintain, a master list.
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'PRODUCTION_LEAD', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('recipes')
+  async listRecipes(@CurrentCompany() companyId: string) {
+    return this.recipes.list(companyId);
+  }
+
   @Post('recipes/versions')
   async createDraftVersion(
     @Body()

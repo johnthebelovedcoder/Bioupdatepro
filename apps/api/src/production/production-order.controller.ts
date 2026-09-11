@@ -19,13 +19,44 @@ export class ProductionOrderController {
     private readonly orders: ProductionOrderService,
   ) {}
 
+  /**
+   * Harvests with no processing order against them yet — what a "raise an
+   * order" screen picks from. `createFromHarvest()` refuses a harvest that
+   * already has one (a second order would double-count the WIP debit), so
+   * offering an already-linked harvest here would just be a guaranteed
+   * rejection on submit.
+   */
+  @Roles('PRODUCTION_LEAD', 'FARM_MANAGER', 'FARM_ACCOUNTANT')
+  @Get('available-harvests')
+  async availableHarvests(@CurrentCompany() companyId: string) {
+    const rows = await this.prisma.harvestRecord.findMany({
+      where: { companyId, productionOrder: null },
+      orderBy: { harvestedOn: 'desc' },
+      include: { group: { select: { code: true, speciesKey: true } } },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      date: row.harvestedOn.toISOString().slice(0, 10),
+      groupCode: row.group.code,
+      speciesKey: row.group.speciesKey,
+      count: row.count,
+      weightKg: row.weightKg.toString(),
+      grade: row.grade,
+    }));
+  }
+
   @AnyRole('Every processing order and where it stands.')
   @Get()
   async list(@CurrentCompany() companyId: string) {
     return this.prisma.productionOrder.findMany({
       where: { companyId },
       orderBy: { createdAt: 'desc' },
-      include: { components: true, outputs: true, lossEvents: true },
+      include: {
+        components: true,
+        outputs: true,
+        lossEvents: true,
+        recipeVersion: { include: { recipe: { include: { outputItem: true } } } },
+      },
     });
   }
 
@@ -35,7 +66,14 @@ export class ProductionOrderController {
     await this.orders.syncOrderStatus(id);
     return this.prisma.productionOrder.findUniqueOrThrow({
       where: { id },
-      include: { components: true, outputs: true, lossEvents: true },
+      include: {
+        components: { include: { componentItem: { select: { code: true, description: true } } } },
+        outputs: { include: { item: { select: { code: true, description: true } } } },
+        lossEvents: true,
+        recipeVersion: { include: { recipe: { include: { outputItem: true } } } },
+        sourceGroup: { select: { code: true, speciesKey: true } },
+        harvestRecord: { select: { harvestedOn: true, count: true, weightKg: true } },
+      },
     });
   }
 

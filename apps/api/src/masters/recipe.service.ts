@@ -393,6 +393,48 @@ export class RecipeService {
   }
 
   /** The version in force for a recipe on a date. */
+  /**
+   * Every active recipe with its currently-effective version, for a create-
+   * order screen to pick from. A recipe with no version effective today is
+   * still listed (so its existence is visible) but carries a null
+   * `activeVersionId`, which the caller should treat as "not selectable".
+   */
+  async list(companyId: string, on: Date = new Date()) {
+    const recipes = await this.prisma.productRecipe.findMany({
+      where: { companyId, active: true },
+      orderBy: { code: 'asc' },
+      include: { outputItem: { select: { code: true, description: true } } },
+    });
+
+    const day = new Date(Date.UTC(on.getUTCFullYear(), on.getUTCMonth(), on.getUTCDate()));
+
+    return Promise.all(
+      recipes.map(async (recipe) => {
+        const version = await this.prisma.productRecipeVersion.findFirst({
+          where: {
+            recipeId: recipe.id,
+            status: RecipeVersionStatus.ACTIVE,
+            effectiveFrom: { lte: day },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: day } }],
+          },
+          select: { id: true, version: true, batchSize: true },
+        });
+
+        return {
+          id: recipe.id,
+          code: recipe.code,
+          name: recipe.name,
+          outputItemId: recipe.outputItemId,
+          outputItemCode: recipe.outputItem.code,
+          outputItemDescription: recipe.outputItem.description,
+          activeVersionId: version?.id ?? null,
+          activeVersionNumber: version?.version ?? null,
+          batchSize: version?.batchSize.toString() ?? null,
+        };
+      }),
+    );
+  }
+
   async activeVersion(recipeId: string, on: Date) {
     const day = new Date(Date.UTC(on.getUTCFullYear(), on.getUTCMonth(), on.getUTCDate()));
 
