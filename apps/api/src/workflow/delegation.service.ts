@@ -3,7 +3,7 @@ import { AuditAction, Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
-import { DelegationRequest } from './workflow.types';
+import { DelegationRequest, WorkflowActor } from './workflow.types';
 
 export interface ActingAuthority {
   /** True when the user may act on the step. */
@@ -36,6 +36,19 @@ export class DelegationService {
         'Consolidated Reference §2 — Delegation',
         'A user cannot delegate approval authority to themselves.',
         { userId: request.delegatorId },
+      );
+    }
+    // A user may only lend their OWN authority — Administrators may set one
+    // up on someone else's behalf (a leave handover, say), the same carve-out
+    // `authorityFor` below already grants them over acting on a step directly.
+    if (
+      request.delegatorId !== request.actor.userId &&
+      !request.actor.roles.includes(roleAdministrator)
+    ) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §2 — Delegation',
+        'You may only delegate your own approval authority. An administrator can set up a delegation on someone else’s behalf.',
+        { actorId: request.actor.userId, delegatorId: request.delegatorId },
       );
     }
     if (request.endDate <= request.startDate) {
@@ -89,7 +102,27 @@ export class DelegationService {
     return delegation;
   }
 
-  async revoke(delegationId: string, actorId: string) {
+  /**
+   * Revocable by the delegator themselves — withdrawing authority you lent is
+   * self-service, the same as cancelling your own submission — or by an
+   * Administrator. Not by every senior ladder role: a Finance Manager has no
+   * business unwinding a delegation between two other people.
+   */
+  async revoke(delegationId: string, actor: WorkflowActor) {
+    const delegation = await this.prisma.workflowDelegation.findUniqueOrThrow({
+      where: { id: delegationId },
+    });
+    if (
+      delegation.delegatorId !== actor.userId &&
+      !actor.roles.includes(roleAdministrator)
+    ) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §2 — Delegation',
+        'Only the person who granted a delegation — or an administrator — may revoke it.',
+        { delegationId, actorId: actor.userId },
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.workflowDelegation.update({
         where: { id: delegationId },
@@ -103,11 +136,31 @@ export class DelegationService {
           entityId: delegationId,
           status: 'REVOKED',
           action: AuditAction.CONFIG_CHANGE,
-          userId: actorId,
+          userId: actor.userId,
         },
         tx,
       );
       return updated;
+    });
+  }
+
+  /**
+   * Every delegation `userId` can see — the ones they have granted (as
+   * delegator) and the ones lent to them (as delegate). Personal, the same
+   * scope `pendingFor`/the notification inbox already use: an approval
+   * inbox has no legitimate reason to show somebody else's arrangement.
+   */
+  async listFor(companyId: string, userId: string) {
+    return this.prisma.workflowDelegation.findMany({
+      where: {
+        companyId,
+        OR: [{ delegatorId: userId }, { delegateId: userId }],
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        delegator: { select: { fullName: true } },
+        delegate: { select: { fullName: true } },
+      },
     });
   }
 

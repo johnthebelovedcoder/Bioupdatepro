@@ -139,35 +139,65 @@ export class WorkflowController {
     return this.workflow.cancel({ transactionId, actor, comments: body?.comments ?? null });
   }
 
+  /**
+   * Lend approval authority for a window. Defaults `delegatorId` to the
+   * caller — lending your own authority needs no special role, the same as
+   * raising a document does. Naming somebody else as delegator is refused by
+   * `DelegationService.create()` unless the caller is an Administrator; see
+   * its own comment for why.
+   */
+  @AnyRole('Lending your own approval authority for a window needs no special role.')
   @Post('delegate')
   async delegate(
+    @CurrentUser() actor: WorkflowActor,
+    @CurrentCompany() companyId: string,
     @Body()
     body: {
-      companyId: string;
-      delegatorId: string;
+      delegatorId?: string;
       delegateId: string;
       transactionType?: string | null;
       startDate: string;
       endDate: string;
       reason: string;
-      actor: WorkflowActor;
     },
   ) {
     return this.delegations.create({
-      ...body,
+      companyId,
+      delegatorId: body.delegatorId ?? actor.userId,
+      delegateId: body.delegateId,
+      transactionType: body.transactionType ?? null,
       startDate: new Date(body.startDate),
       endDate: new Date(body.endDate),
+      reason: body.reason,
+      actor,
     });
   }
 
+  /** Your own delegations — granted by you, or lent to you. */
+  @AnyRole('Your own arrangements. The service scopes it to the caller.')
+  @Get('delegations')
+  async myDelegations(@CurrentUser() actor: WorkflowActor, @CurrentCompany() companyId: string) {
+    const rows = await this.delegations.listFor(companyId, actor.userId);
+    return rows.map((d) => ({
+      id: d.id,
+      delegatorId: d.delegatorId,
+      delegatorName: d.delegator.fullName,
+      delegateId: d.delegateId,
+      delegateName: d.delegate.fullName,
+      transactionType: d.transactionType,
+      startDate: d.startDate,
+      endDate: d.endDate,
+      reason: d.reason,
+      active: d.active,
+      direction: d.delegatorId === actor.userId ? 'GRANTED' : 'RECEIVED',
+    }));
+  }
+
   @OwnedRecord('workflowDelegation', 'id')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @AnyRole('The delegator, or an administrator. DelegationService.revoke() enforces which.')
   @Post('delegations/:id/revoke')
-  async revokeDelegation(
-    @Param('id') id: string,
-    @Body() body: { actor: WorkflowActor },
-  ) {
-    return this.delegations.revoke(id, body.actor.userId);
+  async revokeDelegation(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
+    return this.delegations.revoke(id, actor);
   }
 
   /*

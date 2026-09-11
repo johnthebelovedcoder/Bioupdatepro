@@ -658,7 +658,7 @@ describe('Workflow & Approval Engine (§2)', () => {
         ...window(),
         actor: { userId: users.admin.id, roles: users.admin.roles },
       });
-      await delegations.revoke(delegation.id, users.admin.id);
+      await delegations.revoke(delegation.id, { userId: users.admin.id, roles: users.admin.roles });
 
       const submitted = await workflow.submit(submitRequest());
       await expect(

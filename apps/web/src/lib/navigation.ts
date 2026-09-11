@@ -436,6 +436,12 @@ export const SECTIONS: NavSection[] = [
         hint: 'What workflow events have sent you, newest first',
         keywords: ['notification', 'inbox', 'alert', 'message'],
       },
+      {
+        href: '/approvals/delegations',
+        label: 'Delegations',
+        hint: 'Lend your approval authority to a colleague, or see what has been lent to you',
+        keywords: ['delegate', 'delegation', 'authority', 'leave', 'cover', 'stand in'],
+      },
     ],
   },
 
