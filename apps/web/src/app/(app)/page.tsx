@@ -15,7 +15,8 @@ import { NeedsAttention, FeedRunwayCard } from '@/components/attention';
 import { CoreOperations } from '@/components/core-operations';
 import { ShareSummary } from '@/components/share-summary';
 import { getLedgerMoney } from '@/lib/trade';
-import { canSee } from '@/lib/permissions';
+import { applyOverrides, sectionsFor } from '@/lib/permissions';
+import { getRoleSectionOverrides } from '@/lib/role-sections';
 import { getAlerts, getFeedRunway } from '@/lib/alerts';
 import { getFarmConfig } from '@/lib/farm-config.server';
 import {
@@ -75,6 +76,10 @@ export default async function DashboardPage() {
   }
 
   const config = await getFarmConfig();
+  // Admin-set overrides (US-897-035) on top of the hardcoded role→section
+  // table — the same merge the sidebar, the tab bar and the layout's own
+  // gate use.
+  const allowedSections = applyOverrides(sectionsFor(roles), roles, await getRoleSectionOverrides());
   let alerts = [] as Awaited<ReturnType<typeof getAlerts>>;
   let runway: Awaited<ReturnType<typeof getFeedRunway>> | null = null;
   let ledger: Awaited<ReturnType<typeof getLedgerMoney>> | null = null;
@@ -82,7 +87,7 @@ export default async function DashboardPage() {
     [alerts, runway, ledger] = await Promise.all([
       getAlerts(roles),
       getFeedRunway(config),
-      canSee(roles, 'money') ? getLedgerMoney() : null,
+      allowedSections.has('money') ? getLedgerMoney() : null,
     ]);
   } catch (caught) {
     // If the API rate-limited or another downstream call failed, don't crash
@@ -326,7 +331,7 @@ export default async function DashboardPage() {
               everybody else too, because a document waiting on somebody is more
               urgent than a list of what happened this morning.
             */}
-            {canSee(roles, 'trade') ? <CoreOperations /> : null}
+            {allowedSections.has('trade') ? <CoreOperations /> : null}
 
             {/* The farm's day. Nothing to show without a species module — the
                 entries are feeding, mortality, egg collection and harvest. */}

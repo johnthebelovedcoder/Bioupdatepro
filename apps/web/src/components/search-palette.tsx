@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { allEntries } from '@/lib/navigation';
-import { canSee } from '@/lib/permissions';
+import { applyOverrides, sectionsFor } from '@/lib/permissions';
+import { useRoleSectionOverrides } from './roles-context';
 import { IconSearch } from './icons';
 
 /**
@@ -32,6 +33,7 @@ interface Hit {
 
 export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
   const router = useRouter();
+  const roleSectionOverrides = useRoleSectionOverrides();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [records, setRecords] = useState<Hit[]>([]);
@@ -71,8 +73,9 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
   const screens = useMemo(() => {
     const term = query.trim().toLowerCase();
     if (term.length < 1) return [];
+    const allowed = applyOverrides(sectionsFor(roles), roles, roleSectionOverrides);
     return allEntries()
-      .filter((entry) => canSee(roles, entry.section.section))
+      .filter((entry) => allowed.has(entry.section.section))
       .map((entry) => {
         const haystack = [
           entry.label,
@@ -97,7 +100,7 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
         href: entry.hidden ? entry.section.href : entry.href,
         rank: -1,
       }));
-  }, [query, roles]);
+  }, [query, roles, roleSectionOverrides]);
 
   /* Records, debounced so a fast typist makes one request rather than nine. */
   useEffect(() => {

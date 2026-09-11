@@ -233,10 +233,6 @@ export function sectionsFor(roles: readonly string[]): Set<Section> {
   return allowed;
 }
 
-export function canSee(roles: readonly string[], section: Section): boolean {
-  return sectionsFor(roles).has(section);
-}
-
 /**
  * Which section a path belongs to.
  *

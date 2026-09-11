@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { sectionFor } from '@/lib/navigation';
-import { canSee } from '@/lib/permissions';
-import { useRoles } from './roles-context';
+import { applyOverrides, sectionsFor } from '@/lib/permissions';
+import { useRoles, useRoleSectionOverrides } from './roles-context';
 
 /**
  * Tabs across the pages of one section.
@@ -21,6 +21,7 @@ export function Tabs() {
   const pathname = usePathname();
   const router = useRouter();
   const roles = useRoles();
+  const roleSectionOverrides = useRoleSectionOverrides();
   const section = sectionFor(pathname);
 
   /*
@@ -30,8 +31,13 @@ export function Tabs() {
    * which is theirs — looking at a "Purchase orders" tab that answered "ask an
    * administrator". Every tab in a section shares that section's permission, so
    * the check is one call rather than one per tab.
+   *
+   * Applies admin-set overrides on top of the hardcoded table — the same
+   * merge the sidebar and the layout's own gate use — so a role an admin has
+   * granted a section back does not lose its tab bar on every page in it.
    */
-  if (!section || !canSee(roles, section.section)) return null;
+  const allowed = applyOverrides(sectionsFor(roles), roles, roleSectionOverrides);
+  if (!section || !allowed.has(section.section)) return null;
 
   const tabs = section.children.filter((child) => !child.hidden);
   if (tabs.length < 2) return null;

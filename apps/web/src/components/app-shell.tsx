@@ -62,7 +62,7 @@ export function AppShell({
   }, [navOpen]);
 
   return (
-    <RolesProvider roles={user.roles}>
+    <RolesProvider roles={user.roles} roleSectionOverrides={roleSectionOverrides}>
     <div className="app-shell">
       <OfflineSupport />
       {navOpen ? (

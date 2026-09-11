@@ -8,7 +8,8 @@ import { getVarianceFindings } from './variance';
 import { formatNaira, toKobo } from './money';
 import { standardAt, standardFor, type FarmConfig } from './farm-config';
 import { defaultFeedFor, getModule, subscribedModules, type ModuleKey } from './modules';
-import { canSee, sectionForPath, type Section } from './permissions';
+import { applyOverrides, sectionForPath, sectionsFor, type Section } from './permissions';
+import { getRoleSectionOverrides } from './role-sections';
 
 /**
  * What needs attention, and what to do about it.
@@ -575,8 +576,15 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
   const ordered = applicable.sort((a, b) => a.rank - b.rank);
   if (!roles) return ordered;
 
+  // Admin-set overrides (US-897-035) on top of the hardcoded role→section
+  // table — the same merge the sidebar, the tab bar and the layout's own
+  // gate use, so a role an admin has granted a section back sees its alerts
+  // too, not just the pages.
+  const overrides = await getRoleSectionOverrides();
+  const allowed = applyOverrides(sectionsFor(roles), roles, overrides);
+
   return ordered
-    .filter((alert) => canSee(roles, sectionForKind(alert.kind)))
+    .filter((alert) => allowed.has(sectionForKind(alert.kind)))
     .map((alert) => {
       /*
        * An alert may be visible while its answer is not.
@@ -587,7 +595,7 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
        * warning stays; the action goes.
        */
       if (!alert.action) return alert;
-      if (canSee(roles, sectionForPath(alert.action.href))) return alert;
+      if (allowed.has(sectionForPath(alert.action.href))) return alert;
       return { ...alert, action: null };
     });
 }
