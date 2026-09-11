@@ -315,12 +315,17 @@ export class MasterDataController {
   // --- Employees ----------------------------------------------------------
 
   @Post('employees')
-  async createEmployee(@Body() body: Record<string, unknown>) {
-    const input = body;
+  async createEmployee(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: Record<string, unknown>,
+  ) {
     return this.employees.create({
-      ...input,
-      employmentDate: new Date(String(input.employmentDate)),
-      dateOfBirth: input.dateOfBirth ? new Date(String(input.dateOfBirth)) : null,
+      ...body,
+      companyId,
+      actorId: actor.userId,
+      employmentDate: new Date(String(body.employmentDate)),
+      dateOfBirth: body.dateOfBirth ? new Date(String(body.dateOfBirth)) : null,
     } as unknown as Parameters<EmployeeService['create']>[0]);
   }
 
