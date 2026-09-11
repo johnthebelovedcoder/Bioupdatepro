@@ -121,15 +121,22 @@ export class MasterDataController {
   // --- Customers ----------------------------------------------------------
 
   @Post('customers')
-  async createCustomer(@Body() body: Record<string, unknown>) {
-    const input = body;
+  async createCustomer(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: Record<string, unknown>,
+  ) {
+    const company = await this.parties.companyDefaults(companyId);
     return this.parties.createCustomer({
-      ...input,
+      ...body,
+      companyId,
+      actorId: actor.userId,
+      currencyId: company.baseCurrencyId,
       creditLimit:
-        input.creditLimitKobo !== undefined && input.creditLimitKobo !== null
-          ? kobo(BigInt(String(input.creditLimitKobo)))
+        body.creditLimitKobo !== undefined && body.creditLimitKobo !== null
+          ? kobo(BigInt(String(body.creditLimitKobo)))
           : null,
-      customerSince: input.customerSince ? new Date(String(input.customerSince)) : null,
+      customerSince: body.customerSince ? new Date(String(body.customerSince)) : null,
     } as Parameters<PartyService['createCustomer']>[0]);
   }
 
