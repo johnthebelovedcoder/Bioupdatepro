@@ -2,8 +2,9 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ChecklistItemStatus } from '@bioassetpro/database';
 import { PeriodCloseService } from './period-close.service';
 import { YearEndService } from './year-end.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowActor } from '../workflow/workflow.types';
-import { CurrentCompany } from '../auth/current-user.decorator';
+import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
 import { Roles } from '../auth/roles.guard';
 
@@ -14,7 +15,36 @@ export class ClosingController {
   constructor(
     private readonly periods: PeriodCloseService,
     private readonly yearEnd: YearEndService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Reopen requests for one period — what a "reopen" screen needs to show
+   * who asked, why, and whether it has been approved yet. No endpoint listed
+   * these; `approveReopenRequest`/`reopen` only ever took a known id.
+   */
+  @OwnedRecord('financialPeriod', 'periodId')
+  @Get('period/:periodId/reopen-requests')
+  async reopenRequestsFor(@Param('periodId') periodId: string) {
+    const requests = await this.prisma.periodReopenRequest.findMany({
+      where: { financialPeriodId: periodId },
+      orderBy: { requestedAt: 'desc' },
+      include: {
+        requestedBy: { select: { id: true, fullName: true } },
+        approvedBy: { select: { fullName: true } },
+      },
+    });
+    return requests.map((r) => ({
+      id: r.id,
+      reason: r.reason,
+      requestedById: r.requestedBy.id,
+      requestedByName: r.requestedBy.fullName,
+      requestedAt: r.requestedAt,
+      approvedByName: r.approvedBy?.fullName ?? null,
+      approvedAt: r.approvedAt,
+      reopenedAt: r.reopenedAt,
+    }));
+  }
 
   // --- Period ---------------------------------------------------------------
 
@@ -44,9 +74,10 @@ export class ClosingController {
   @Post('period/checklist/:checklistId')
   async settleChecklistItem(
     @Param('checklistId') checklistId: string,
-    @Body() body: { status: ChecklistItemStatus; comments?: string; actorId: string },
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { status: ChecklistItemStatus; comments?: string },
   ) {
-    return this.periods.settleChecklistItem({ checklistId, ...body });
+    return this.periods.settleChecklistItem({ checklistId, ...body, actorId: actor.userId });
   }
 
   @OwnedRecord('financialPeriod', 'id')
@@ -59,48 +90,42 @@ export class ClosingController {
   @Post('period/:id/soft-close')
   async softClose(
     @Param('id') id: string,
-    @Body() body: { actor: WorkflowActor; reason?: string },
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { reason?: string },
   ) {
-    return this.periods.softClose({ financialPeriodId: id, ...body });
+    return this.periods.softClose({ financialPeriodId: id, actor, ...body });
   }
 
   @OwnedRecord('financialPeriod', 'id')
   @Post('period/:id/close')
   async close(
     @Param('id') id: string,
-    @Body() body: { actor: WorkflowActor; reason?: string },
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { reason?: string },
   ) {
-    return this.periods.close({ financialPeriodId: id, ...body });
+    return this.periods.close({ financialPeriodId: id, actor, ...body });
   }
 
   @OwnedRecord('financialPeriod', 'id')
   @Post('period/:id/request-reopen')
   async requestReopen(
     @Param('id') id: string,
-    @Body() body: { actor: WorkflowActor; reason: string },
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { reason: string },
   ) {
-    return this.periods.requestReopen({ financialPeriodId: id, ...body });
+    return this.periods.requestReopen({ financialPeriodId: id, actor, ...body });
   }
 
   @OwnedRecord('periodReopenRequest', 'requestId')
   @Post('period/reopen-requests/:requestId/approve')
-  async approveReopen(
-    @Param('requestId') requestId: string,
-    @Body() body: { actor: WorkflowActor },
-  ) {
-    return this.periods.approveReopenRequest({
-      reopenRequestId: requestId,
-      actor: body.actor,
-    });
+  async approveReopen(@Param('requestId') requestId: string, @CurrentUser() actor: WorkflowActor) {
+    return this.periods.approveReopenRequest({ reopenRequestId: requestId, actor });
   }
 
   @OwnedRecord('periodReopenRequest', 'requestId')
   @Post('period/reopen-requests/:requestId/reopen')
-  async reopen(
-    @Param('requestId') requestId: string,
-    @Body() body: { actor: WorkflowActor },
-  ) {
-    return this.periods.reopen({ reopenRequestId: requestId, actor: body.actor });
+  async reopen(@Param('requestId') requestId: string, @CurrentUser() actor: WorkflowActor) {
+    return this.periods.reopen({ reopenRequestId: requestId, actor });
   }
 
   @Get('period-close-log')
@@ -132,16 +157,16 @@ export class ClosingController {
 
   @Post('year-end/close')
   async closeYear(
+    @CurrentUser() actor: WorkflowActor,
     @Body()
     body: {
       financialYearId: string;
-      actor: WorkflowActor;
       retainedEarningsGlAccountId?: string;
       rollForward?: boolean;
       nextYearCode?: string;
     },
   ) {
-    return this.yearEnd.close(body);
+    return this.yearEnd.close({ ...body, actor });
   }
 
   @OwnedRecord('financialYear', 'id')
