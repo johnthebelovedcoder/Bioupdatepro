@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
+import { withDbRetry } from '../prisma/retry';
 import { verifyPassword } from './password';
 
 export interface AuthenticatedUser {
@@ -38,9 +39,11 @@ export class AuthService {
     email: string,
     password: string,
   ): Promise<{ accessToken: string; user: AuthenticatedUser }> {
-    const user = await this.prisma.user.findUnique({
-      where: { email: email.trim().toLowerCase() },
-    });
+    const user = await withDbRetry(() =>
+      this.prisma.user.findUnique({
+        where: { email: email.trim().toLowerCase() },
+      }),
+    );
 
     // One message for every failure. Distinguishing "no such user" from "wrong
     // password" tells an attacker which emails are real.
@@ -84,7 +87,7 @@ export class AuthService {
    * which tenant's data the request can reach.
    */
   async resolve(userId: string): Promise<AuthenticatedUser> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await withDbRetry(() => this.prisma.user.findUnique({ where: { id: userId } }));
     if (!user || !user.active) {
       throw new UnauthorizedException('Session is no longer valid.');
     }
