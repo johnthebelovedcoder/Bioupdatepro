@@ -106,6 +106,13 @@ export function HealthSchedule({
               </tr>
             </thead>
             <tbody>
+              {events.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="faint" style={{ textAlign: 'center' }}>
+                    Nothing scheduled yet — record one above.
+                  </td>
+                </tr>
+              ) : null}
               {events.map((event) => {
                 const justRecorded = recorded[event.id];
                 const done = event.status === 'DONE' || Boolean(justRecorded);

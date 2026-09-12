@@ -27,7 +27,7 @@ import { TrendChart } from './trend-chart';
 import { PeriodFilter } from './period-filter';
 import { PoultryBreeding } from './poultry-breeding';
 import { resolvePeriod, type PeriodKey } from '@/lib/period';
-import { IconAlert, IconBox, IconCheckCircle, IconClipboard, IconEgg } from './icons';
+import { IconAlert, IconBox, IconClipboard, IconEgg } from './icons';
 
 /**
  * The module sections.
@@ -321,34 +321,32 @@ export async function HealthSection({ module }: { module: SpeciesModule }) {
           </div>
         ) : null}
 
-        {events.length === 0 ? (
-          <Card>
-            <EmptyState
-              icon={<IconCheckCircle size={22} />}
-              title="No health events"
-              body={`Nothing is scheduled against any ${t.group.one}.`}
-            />
-          </Card>
-        ) : (
-          <HealthSchedule
-            events={events}
-            groups={groups
-              .filter((group) => group.status === 'ACTIVE')
-              .map((group) => ({
-                code: group.code,
-                house: group.house,
-                population: group.population,
-                output: (t.outputByPurpose?.[group.purpose] ?? t.output).many,
-              }))}
-            staff={people.map((person) => person.name)}
-            today={new Date().toISOString().slice(0, 10)}
-            labels={{
-              group: title(t.group.one),
-              animal: t.animal.one,
-              output: t.output.many,
-            }}
-          />
-        )}
+        {/*
+          Always rendered, even with zero events: this card is also the only
+          way to record a treatment (its "Record a treatment" button), and a
+          brand new company — with nothing scheduled yet, which is every
+          company on day one — could otherwise never record its first one.
+          The table's own empty row carries the "nothing scheduled" message
+          this used to show instead.
+        */}
+        <HealthSchedule
+          events={events}
+          groups={groups
+            .filter((group) => group.status === 'ACTIVE')
+            .map((group) => ({
+              code: group.code,
+              house: group.house,
+              population: group.population,
+              output: (t.outputByPurpose?.[group.purpose] ?? t.output).many,
+            }))}
+          staff={people.map((person) => person.name)}
+          today={new Date().toISOString().slice(0, 10)}
+          labels={{
+            group: title(t.group.one),
+            animal: t.animal.one,
+            output: t.output.many,
+          }}
+        />
       </div>
     </>
   );
