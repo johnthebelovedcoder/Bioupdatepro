@@ -172,7 +172,33 @@ export class FarmStructureService {
   /* --- Reference lists --------------------------------------------------- */
 
   /** Units of measure this company has. */
+  /**
+   * Same "signed up for real and it was empty" shape this file's own header
+   * describes for pens, found the same way: a fresh company's Item form
+   * offered "Kg" (the web form's own hardcoded fallback for an empty list —
+   * see `apps/web/src/app/(app)/items/page.tsx`) and every submission failed
+   * with 'Unit of measure "Kg" is not configured' — because `ProvisioningService`
+   * never wrote a single `UnitOfMeasure` row; only the demo seed did, and
+   * render.yaml deliberately never runs that against a real deployment. No
+   * unit exists means no item can ever be created, which blocks procurement,
+   * sales and production behind it. Self-heals here rather than only at
+   * signup, so it also reaches every company that already existed.
+   */
+  private async ensureDefaultUnits(companyId: string): Promise<void> {
+    const existing = await this.prisma.unitOfMeasure.count({ where: { companyId } });
+    if (existing > 0) return;
+
+    await this.prisma.unitOfMeasure.createMany({
+      data: [
+        { companyId, code: 'Unit', name: 'Unit', precision: 0 },
+        { companyId, code: 'L', name: 'Litre', precision: 3 },
+        { companyId, code: 'Kg', name: 'Kilogramme', precision: 3 },
+      ],
+    });
+  }
+
   async listUnits(companyId: string) {
+    await this.ensureDefaultUnits(companyId);
     return this.prisma.unitOfMeasure.findMany({
       where: { companyId },
       orderBy: { code: 'asc' },
