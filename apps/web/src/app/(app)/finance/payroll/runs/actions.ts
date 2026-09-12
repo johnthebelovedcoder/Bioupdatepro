@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { api, ApiError } from '@/lib/api';
 import { getContext, defaultYear } from '@/lib/org';
-import type { SessionUser } from '@/lib/session';
 
 export interface FlowState {
   error: string | null;
@@ -26,10 +25,7 @@ export async function createPayrollRun(
   const financialPeriodId = String(formData.get('financialPeriodId') ?? '').trim();
   if (!financialPeriodId) return { error: 'Choose a period.', message: null };
 
-  const [context, me] = await Promise.all([
-    getContext(),
-    api<SessionUser>('/auth/me'),
-  ]);
+  const context = await getContext();
   if (!context.company) return { error: 'No company is set up yet.', message: null };
   const branch = context.branches[0];
   if (!branch) return { error: 'This company has no active branch.', message: null };
@@ -51,14 +47,10 @@ export async function createPayrollRun(
         financialYearId: year.id,
         financialPeriodId: period.id,
         currencyId: context.company.currency.id,
-        actorId: me.userId,
       },
     });
 
-    await api(`/payroll/runs/${run.id}/calculate`, {
-      method: 'POST',
-      body: { actorId: me.userId },
-    });
+    await api(`/payroll/runs/${run.id}/calculate`, { method: 'POST', body: {} });
 
     revalidatePath('/finance/payroll/runs');
     return { error: null, message: `${run.reference} created and calculated.` };
@@ -76,11 +68,7 @@ export async function submitPayrollRun(
   if (!runId) return { error: 'No run selected.', message: null };
 
   try {
-    const me = await api<SessionUser>('/auth/me');
-    await api(`/payroll/runs/${runId}/submit`, {
-      method: 'POST',
-      body: { actor: { userId: me.userId, roles: me.roles } },
-    });
+    await api(`/payroll/runs/${runId}/submit`, { method: 'POST', body: {} });
   } catch (caught) {
     return fail(caught, 'Could not submit that run for approval.');
   }

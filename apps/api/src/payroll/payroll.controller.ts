@@ -52,6 +52,7 @@ export class PayrollController {
 
   @Post('runs')
   async createRun(
+    @CurrentUser() actor: WorkflowActor,
     @Body()
     body: {
       companyId: string;
@@ -61,10 +62,9 @@ export class PayrollController {
       financialYearId: string;
       financialPeriodId: string;
       currencyId: string;
-      actorId: string;
     },
   ) {
-    const run = await this.runs.createRun(body);
+    const run = await this.runs.createRun({ ...body, actorId: actor.userId });
     return { id: run.id, reference: run.reference, status: run.status };
   }
 
@@ -76,8 +76,8 @@ export class PayrollController {
 
   @OwnedRecord('payrollRun', 'id')
   @Post('runs/:id/calculate')
-  async calculate(@Param('id') id: string, @Body() body: { actorId: string }) {
-    const run = await this.runs.calculate({ payrollRunId: id, actorId: body.actorId });
+  async calculate(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
+    const run = await this.runs.calculate({ payrollRunId: id, actorId: actor.userId });
     return {
       reference: run.reference,
       status: run.status,
@@ -94,8 +94,8 @@ export class PayrollController {
 
   @OwnedRecord('payrollRun', 'id')
   @Post('runs/:id/submit')
-  async submit(@Param('id') id: string, @Body() body: { actor: WorkflowActor }) {
-    return this.runs.submit({ payrollRunId: id, actor: body.actor });
+  async submit(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
+    return this.runs.submit({ payrollRunId: id, actor });
   }
 
   @OwnedRecord('payrollRun', 'id')

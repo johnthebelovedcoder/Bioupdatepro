@@ -76,6 +76,22 @@ export class PayrollRunService {
       },
     });
     if (existing) {
+      /*
+       * DRAFT means calculate() never got past its own validation for this
+       * run — "no employees eligible" being the case that sent someone here
+       * in the first place. Without this, that run sits forever as an
+       * empty, permanent placeholder: the web app's "Create and calculate"
+       * is one action, so a company that adds its first employee AFTER
+       * that first attempt could never retry the same period — every
+       * subsequent attempt hits this same uniqueness check and refuses,
+       * with no screen anywhere to recalculate an existing run instead of
+       * creating one. Once calculate() has actually run (CALCULATED or
+       * later), reusing it would be wrong — that is a real run with real
+       * numbers — so the refusal still stands for every other status.
+       */
+      if (existing.status === PayrollRunStatus.DRAFT) {
+        return existing;
+      }
       throw new AccountingRuleViolation(
         'Consolidated Reference §7 — Payroll processing',
         `A payroll run already exists for ${input.year}-${String(input.month).padStart(2, '0')} ` +
