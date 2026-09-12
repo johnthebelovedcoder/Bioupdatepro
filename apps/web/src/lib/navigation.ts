@@ -420,6 +420,12 @@ export const SECTIONS: NavSection[] = [
         hint: 'Who did what, when, and what changed',
         keywords: ['audit', 'trail', 'history', 'who changed'],
       },
+      {
+        href: '/ledger/period-close',
+        label: 'Period close',
+        hint: 'Checklist, validation and close, one period at a time',
+        keywords: ['period close', 'close', 'checklist', 'soft close', 'reopen', 'month end'],
+      },
     ],
   },
 
@@ -570,7 +576,11 @@ export const NOT_BUILT_YET: Array<{ label: string; belongsUnder: string; why: st
   },
   { label: 'Banking', belongsUnder: 'Money', why: 'Accounts and reconciliation' },
   { label: 'Fixed assets', belongsUnder: 'Money', why: 'Register and depreciation' },
-  { label: 'Period close', belongsUnder: 'Books', why: 'Checklist, close and year end' },
+  {
+    label: 'Year-end close',
+    belongsUnder: 'Books',
+    why: 'Rolling one financial year into the next — the monthly checklist, validation and close/reopen are built, under Period close',
+  },
   { label: 'Chart of accounts', belongsUnder: 'Setup', why: 'The accounts everything posts to' },
 ];
 
