@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
+import { PurchaseOrderStatus, SalesOrderStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
 import { SalesOrderService } from '../sales/sales-order.service';
@@ -94,20 +95,44 @@ export class TradeService {
           throw new BadRequestException('A sale needs at least one line.');
         }
 
-        const order = await this.salesOrders.createOrder({
-          companyId,
-          orderNumber: documentNumber('SO', payload.date, idempotencyKey),
-          customerId,
-          orderDate: new Date(payload.date),
-          currencyId: context.currencyId,
-          branchId: context.branchId,
-          warehouseId: context.warehouseId,
-          farmId: context.farmId,
-          lines,
-          actor,
+        const orderNumber = documentNumber('SO', payload.date, idempotencyKey);
+
+        /*
+         * Recover a previous attempt that created the order but never
+         * finished submitting it — a business-rule rejection from
+         * `submitOrder` (a missing sales configuration, failed credit
+         * routing), or a crash, either of which leaves this exact order
+         * number sitting in the database with nothing recorded in
+         * `idempotencyRecord` yet (that only gets written once `work()`
+         * below returns). `createOrder` and `submitOrder` are two separate,
+         * already-committed transactions, so a retry that just called
+         * `createOrder` again would collide with `orderNumber`'s own
+         * uniqueness constraint and fail with a confusing duplicate-key
+         * error instead of either resuming or reporting the original one —
+         * which is exactly the failure the outbox's retry exists to avoid.
+         */
+        const existing = await this.prisma.salesOrder.findUnique({
+          where: { companyId_orderNumber: { companyId, orderNumber } },
         });
 
-        await this.salesOrders.submitOrder({ salesOrderId: order.id, actor });
+        const order =
+          existing ??
+          (await this.salesOrders.createOrder({
+            companyId,
+            orderNumber,
+            customerId,
+            orderDate: new Date(payload.date),
+            currencyId: context.currencyId,
+            branchId: context.branchId,
+            warehouseId: context.warehouseId,
+            farmId: context.farmId,
+            lines,
+            actor,
+          }));
+
+        if (order.status === SalesOrderStatus.DRAFT) {
+          await this.salesOrders.submitOrder({ salesOrderId: order.id, actor });
+        }
 
         /*
          * Livestock leaving the farm is an operational fact as well as a
@@ -225,20 +250,35 @@ export class TradeService {
           throw new BadRequestException('A purchase needs at least one line.');
         }
 
-        const order = await this.purchaseOrders.createOrder({
-          companyId,
-          orderNumber: documentNumber('PO', payload.date, idempotencyKey),
-          supplierId: supplier.id,
-          orderDate: new Date(payload.date),
-          currencyId: context.currencyId,
-          branchId: context.branchId,
-          warehouseId: context.warehouseId,
-          farmId: context.farmId,
-          lines,
-          actor,
+        const orderNumber = documentNumber('PO', payload.date, idempotencyKey);
+
+        // Same recovery as `recordSale` above, and for the same reason:
+        // `createOrder` and `submitOrder` are two separately-committed
+        // steps, so a retry after `submitOrder` fails must not blindly
+        // recreate the order — it would collide with `orderNumber`'s own
+        // uniqueness constraint instead of resuming.
+        const existing = await this.prisma.purchaseOrder.findUnique({
+          where: { companyId_orderNumber: { companyId, orderNumber } },
         });
 
-        await this.purchaseOrders.submitOrder({ purchaseOrderId: order.id, actor });
+        const order =
+          existing ??
+          (await this.purchaseOrders.createOrder({
+            companyId,
+            orderNumber,
+            supplierId: supplier.id,
+            orderDate: new Date(payload.date),
+            currencyId: context.currencyId,
+            branchId: context.branchId,
+            warehouseId: context.warehouseId,
+            farmId: context.farmId,
+            lines,
+            actor,
+          }));
+
+        if (order.status === PurchaseOrderStatus.DRAFT) {
+          await this.purchaseOrders.submitOrder({ purchaseOrderId: order.id, actor });
+        }
 
         /*
          * "Goods received" from the phone still stops at a submitted order.
