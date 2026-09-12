@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { getModule, title } from '@/lib/modules';
 import { getGroupDetail, getGroups } from '@/lib/operations';
 import { getSpeciesBreeds } from '@/lib/trade';
+import { getPens } from '@/lib/masters';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { HelpTerm } from '@/components/help';
@@ -52,11 +53,21 @@ export default async function GroupDetailPage({
   // the same as the daily round — it just cannot reach a server yet, and says
   // so on submit rather than pretending.
   if (id === 'new') {
-    const [existing, speciesBreeds] = await Promise.all([
-      getGroups(module.key),
+    const [pens, speciesBreeds] = await Promise.all([
+      getPens(),
       getSpeciesBreeds(module.key),
     ]);
-    const houses = [...new Set(existing.map((group) => group.house))].sort();
+    /*
+     * Real houses/pens, not ones derived from an existing population's own
+     * `.house` field — that reads back empty for every company's first ever
+     * placement, since nothing has been placed anywhere yet. A fresh signup
+     * could never start its first flock or cohort: the picker had nothing to
+     * offer and there was no way to type one in either.
+     */
+    const houses = pens
+      .filter((pen) => pen.active)
+      .map((pen) => pen.name)
+      .sort();
     return (
       <NewGroupForm
         moduleKey={module.key}
@@ -67,11 +78,16 @@ export default async function GroupDetailPage({
     );
   }
 
-  const [group, siblings] = await Promise.all([
+  const [group, siblings, pens] = await Promise.all([
     getGroupDetail(module.key, id),
     getGroups(module.key),
+    getPens(),
   ]);
   if (!group) notFound();
+
+  // Every real house, not only ones a population already sits in — an empty
+  // pen is a perfectly good stage-change destination.
+  const allHouseNames = pens.filter((pen) => pen.active).map((pen) => pen.name);
 
   const t = module.terms;
   const died = group.openingPopulation - group.population;
@@ -299,7 +315,9 @@ export default async function GroupDetailPage({
                         },
                       ]}
                       stages={t.stages}
-                      houses={[...new Set(siblings.map((entry) => entry.house))].sort()}
+                      houses={[
+                        ...new Set([...siblings.map((entry) => entry.house), ...allHouseNames]),
+                      ].sort()}
                       today={new Date().toISOString().slice(0, 10)}
                       labels={{
                         group: title(t.group.one),
