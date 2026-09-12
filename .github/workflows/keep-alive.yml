@@ -1,0 +1,27 @@
+name: Keep Render services awake
+
+# Render's free plan suspends a web service after 15 minutes with no
+# incoming HTTP traffic, and the next request pays a 30-60s cold-boot
+# penalty — on top of the separate database cold-start `withDbRetry`
+# (apps/api/src/prisma/retry.ts) already absorbs. For a login attempt,
+# that reads as "the site is broken" rather than "please wait a moment".
+#
+# A ping every 10 minutes — comfortably inside the 15-minute window —
+# keeps both free services warm so a real user never hits a cold boot.
+# This is a workaround for the free plan's own limit, not a fix to
+# application code: the plan will still spin a service down if this
+# workflow itself stops running (repo made inactive, Actions disabled).
+# Upgrading off the free plan removes the underlying limit entirely.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping web service
+        run: curl -fsS --max-time 30 https://bioassetpro-web.onrender.com/login -o /dev/null || true
+      - name: Ping API health check
+        run: curl -fsS --max-time 30 https://bioassetpro-api.onrender.com/api/auth/providers -o /dev/null || true
