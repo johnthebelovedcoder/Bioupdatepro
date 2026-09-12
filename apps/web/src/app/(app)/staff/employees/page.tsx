@@ -152,6 +152,15 @@ export default async function EmployeesPage() {
                 <tbody>
                   {employees.map((employee, index) => {
                     const status = readiness[index]!;
+                    // "Not activated" is always present in the raw blocker
+                    // list before activation — it's what the button fixes,
+                    // not a reason to hide it. `EmployeeService.activateForPayroll()`
+                    // filters this exact one out before deciding whether to
+                    // refuse; the row does the same so the button appears
+                    // the moment every OTHER blocker clears.
+                    const realBlockers = status.blockers.filter(
+                      (b) => !b.includes('not been activated for payroll'),
+                    );
                     return (
                       <tr key={employee.id}>
                         <td className="num strong" style={{ textAlign: 'left' }}>
@@ -168,11 +177,11 @@ export default async function EmployeesPage() {
                         <td style={{ minWidth: 220 }}>
                           {employee.payrollActive ? (
                             <span className="faint">Ready to run.</span>
-                          ) : status.ready ? (
+                          ) : realBlockers.length === 0 ? (
                             <ActivatePayrollButton employeeId={employee.id} />
                           ) : (
                             <span className="faint" style={{ whiteSpace: 'normal' }}>
-                              {status.blockers[0] ?? 'Not ready yet.'}
+                              {realBlockers[0]}
                             </span>
                           )}
                         </td>
