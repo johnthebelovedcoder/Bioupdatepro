@@ -171,7 +171,22 @@ export class OperationsReadService {
 
     return records.map((record) => {
       const values: Record<string, number> = {};
-      for (const line of record.production) values[line.fieldKey] = Number(line.quantity);
+      for (const line of record.production) {
+        /*
+         * A farm collecting more than once a day splits the primary field
+         * into `key:label` per collection time when the round is recorded
+         * (daily-record.tsx) — "whole:morning", "whole:afternoon" — but
+         * every reader of this map (the module trend chart, the eggs-today
+         * dashboard figure, this species' own production table) looks up
+         * the bare field key from the module registry ("whole"), which
+         * then never existed and read as zero for any farm using that
+         * setting. Collapsed back to the base key here, once, so every
+         * consumer sees the true daily total without needing to know the
+         * collection-label convention exists.
+         */
+        const baseKey = line.fieldKey.split(':')[0]!;
+        values[baseKey] = (values[baseKey] ?? 0) + Number(line.quantity);
+      }
 
       // Hen-day: eggs laid against the birds that were alive to lay them.
       const laid = Object.values(values).reduce((sum, value) => sum + value, 0);
