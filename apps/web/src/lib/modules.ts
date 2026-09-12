@@ -66,6 +66,20 @@ export interface Terminology {
    * purpose absent here falls back to `output`.
    */
   outputByPurpose?: Record<string, Word>;
+  /**
+   * The stage a NEW population actually starts at, when its purpose implies
+   * one distinctly different from `stages[0]`.
+   *
+   * `stages[0]` is right for a species where every population starts the
+   * same way regardless of purpose — poultry is always placed as day-old
+   * chicks, whatever it will grow up to be kept for. It is wrong for a
+   * purpose that names an adult acquisition: a "Breeder cohort" is bought
+   * as breeding-age stock, not as eggs, and posting its acquisition cost
+   * under the Egg stage's biological-asset account would misstate which
+   * bucket that money sits in. Absent here, a purpose falls back to
+   * `stages[0]` — unchanged from before this existed.
+   */
+  stageByPurpose?: Record<string, string>;
   /** What a day's production record is called. */
   productionRecord: string;
   /** New stock arriving. */
@@ -307,6 +321,21 @@ const SNAIL: SpeciesModule = {
      * requiring every farm to.
      */
     stages: ['Egg', 'Hatchling', 'Juvenile', 'Grower', 'Market-ready', 'Breeder'],
+    /*
+     * Unlike poultry, a snail cohort is not always acquired as eggs — a
+     * "Breeder cohort" is bought at breeding age, "Growers"/"Juveniles" at
+     * their own named stage. Defaulting every new cohort to `stages[0]`
+     * ("Egg") regardless of purpose posted 200 already-arrived breeder
+     * snails' acquisition cost under the Egg biological-asset account
+     * instead of Breeder's — the mapping here is the same one
+     * `SNAIL_STAGE_ACCOUNTS`'s own "vocabulary-migration" entries already
+     * treat as equivalent (`packages/database/src/seed-biological-assets.ts`).
+     */
+    stageByPurpose: {
+      'Breeder cohort': 'Breeder',
+      Growers: 'Grower',
+      Juveniles: 'Juvenile',
+    },
     output: { one: 'harvest', many: 'harvests' },
     productionRecord: 'Harvest record',
     intake: 'Stocking',

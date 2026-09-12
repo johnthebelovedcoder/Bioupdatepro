@@ -65,8 +65,10 @@ export function NewGroupForm({
         purpose,
         // The population's true lifecycle stage, not what it is kept for — the
         // API stores these separately and has no species vocabulary of its own
-        // to derive one from the other.
-        stage: t.stages[0] ?? purpose,
+        // to derive one from the other. `stageByPurpose` is the one place this
+        // module registry DOES know the two are the same thing for a given
+        // purpose (a snail "Breeder cohort" starts at the Breeder stage, not Egg).
+        stage: t.stageByPurpose?.[purpose] ?? t.stages[0] ?? purpose,
         house,
         openingPopulation: countValue,
         startedOn,
