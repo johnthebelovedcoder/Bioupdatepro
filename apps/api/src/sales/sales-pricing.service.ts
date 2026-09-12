@@ -195,15 +195,61 @@ export class SalesPricingService {
       orderBy: { effectiveFrom: 'desc' },
     });
 
-    if (!config) {
-      throw new AccountingRuleViolation(
-        'Consolidated Reference §6 — Sales configuration',
-        `No sales configuration is effective on ${day.toISOString().slice(0, 10)}. ` +
-          `The receivable, revenue, cost-of-sales and inventory accounts are choices ` +
-          `this system will not make on the company's behalf.`,
-        { companyId, date: day.toISOString().slice(0, 10) },
-      );
-    }
-    return config;
+    if (config) return config;
+
+    const healed = await this.ensureDefaultConfiguration(companyId, client);
+    if (healed) return healed;
+
+    throw new AccountingRuleViolation(
+      'Consolidated Reference §6 — Sales configuration',
+      `No sales configuration is effective on ${day.toISOString().slice(0, 10)}. ` +
+        `The receivable, revenue, cost-of-sales and inventory accounts are choices ` +
+        `this system will not make on the company's behalf.`,
+      { companyId, date: day.toISOString().slice(0, 10) },
+    );
+  }
+
+  /**
+   * The exact default `ProvisioningService.provisionCompany()` sets up for a
+   * brand new company, applied here too.
+   *
+   * A company registered before that provisioning code shipped never got a
+   * `SalesConfiguration` row and had no admin screen to add one — every sale
+   * on it failed outright, forever, with no path to fix it short of someone
+   * writing the row by hand. This is not a new policy choice: it is the same
+   * well-known account numbers provisioning already uses, applied lazily so
+   * an already-broken company heals the moment it next tries to sell,
+   * instead of only future signups being spared. Returns `null` (never
+   * throws) when even those default accounts are missing, so the caller's
+   * own "will not guess" error still fires for a company this bare.
+   */
+  private async ensureDefaultConfiguration(
+    companyId: string,
+    client: Prisma.TransactionClient | PrismaService,
+  ) {
+    const accounts = await client.gLAccount.findMany({
+      where: {
+        companyId,
+        accountNumber: { in: ['1201', '4101', '5001', '1401'] },
+      },
+      select: { id: true, accountNumber: true },
+    });
+    const byNumber = new Map(accounts.map((a) => [a.accountNumber, a.id]));
+    const receivable = byNumber.get('1201');
+    const revenue = byNumber.get('4101');
+    const costOfSales = byNumber.get('5001');
+    const finishedGoods = byNumber.get('1401');
+    if (!receivable || !revenue || !costOfSales || !finishedGoods) return null;
+
+    return client.salesConfiguration.create({
+      data: {
+        companyId,
+        receivableGlAccountId: receivable,
+        revenueGlAccountId: revenue,
+        costOfSalesGlAccountId: costOfSales,
+        inventoryGlAccountId: finishedGoods,
+        effectiveFrom: new Date('2026-01-01'),
+      },
+    });
   }
 }
