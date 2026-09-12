@@ -69,10 +69,15 @@ export class PostedTransactionImmutableError extends AccountingRuleViolation {
 }
 
 export class MakerCheckerViolation extends AccountingRuleViolation {
+  /**
+   * The one caller (`WorkflowService.assertNotMaker`) only ever throws this
+   * when the maker IS the current actor — so the message names nobody by id
+   * or by name, and needed neither: "you" is always the person reading it.
+   */
   constructor(reference: string, userId: string) {
     super(
       'Rule 4 — Maker-checker',
-      `User ${userId} created ${reference} and therefore cannot approve it.`,
+      `You created ${reference} yourself, so you cannot also approve it — ask someone else.`,
       { reference, userId },
     );
   }
