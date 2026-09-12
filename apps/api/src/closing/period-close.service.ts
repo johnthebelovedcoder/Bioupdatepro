@@ -34,6 +34,135 @@ export interface PeriodValidation {
 }
 
 /**
+ * §8's checklist steps — the same list `packages/database/src/seed.ts`'s
+ * `seedCloseChecklist` writes for the demo company, duplicated here rather
+ * than imported for the reason `ProvisioningService`'s own chart-of-accounts
+ * duplication already documents: that file runs a seed on import. Keep the
+ * two lists in sync.
+ */
+const DEFAULT_CLOSE_CHECKLIST_STEPS: Array<{
+  code: string;
+  name: string;
+  description: string;
+  blocking: boolean;
+  automatedCheck: string | null;
+}> = [
+  {
+    code: 'CL-010',
+    name: 'All sub-ledgers posted to the general ledger',
+    description:
+      'No approved document from procurement, sales, payroll or production is ' +
+      'still waiting to reach the GL for this period.',
+    blocking: true,
+    automatedCheck: null,
+  },
+  {
+    code: 'CL-020',
+    name: 'No transactions awaiting approval',
+    description: 'Every workflow transaction dated in the period has reached a terminal state.',
+    blocking: true,
+    automatedCheck: 'NO_PENDING_APPROVALS',
+  },
+  {
+    code: 'CL-030',
+    name: 'No draft journals left in the period',
+    description: 'Draft manual journals are either posted or cancelled before the period shuts.',
+    blocking: true,
+    automatedCheck: 'NO_DRAFT_JOURNALS',
+  },
+  {
+    code: 'CL-040',
+    name: 'Bank accounts reconciled',
+    description:
+      'Each bank GL account agrees to its statement at the period end date, with ' +
+      'reconciling items listed.',
+    blocking: true,
+    automatedCheck: null,
+  },
+  {
+    code: 'CL-050',
+    name: 'Stock count reconciled to the stock ledger',
+    description:
+      'Physical counts are entered and variances either explained or written off ' +
+      'through an approved adjustment.',
+    blocking: true,
+    automatedCheck: null,
+  },
+  {
+    code: 'CL-060',
+    name: 'GRNI reviewed and aged',
+    description:
+      'Goods received not invoiced is a real liability. Anything aged beyond the ' +
+      'agreed window is chased or accrued.',
+    blocking: true,
+    automatedCheck: 'GRNI_REVIEWED',
+  },
+  {
+    code: 'CL-070',
+    name: 'Payroll posted for the period',
+    description: 'Every payroll run covering the period is approved and posted.',
+    blocking: true,
+    automatedCheck: 'PAYROLL_POSTED',
+  },
+  {
+    code: 'CL-080',
+    name: 'VAT and WHT registers agree to the control accounts',
+    description:
+      'Register totals reconcile to movement on the input VAT, output VAT, WHT ' +
+      'receivable and WHT payable accounts.',
+    blocking: true,
+    automatedCheck: null,
+  },
+  {
+    code: 'CL-090',
+    name: 'Statutory returns filed',
+    description:
+      'VAT and PAYE returns for the period are filed and the remittance evidence ' +
+      'attached. Due dates: VAT and PAYE by the 21st and 10th of the following ' +
+      'month respectively — confirm with the client for their filing calendar.',
+    blocking: false,
+    automatedCheck: 'TAX_PERIODS_FILED',
+  },
+  {
+    code: 'CL-100',
+    name: 'Accruals and prepayments reviewed',
+    description: 'Recurring accruals released or rolled, prepayments amortised for the period.',
+    blocking: false,
+    automatedCheck: null,
+  },
+  {
+    code: 'CL-110',
+    name: 'Depreciation posted',
+    description: 'Fixed asset depreciation for the period is calculated and posted.',
+    blocking: false,
+    automatedCheck: null,
+  },
+  {
+    code: 'CL-120',
+    name: 'Intercompany and interbranch balances agree',
+    description: 'Branch-to-branch balances net to zero across the company.',
+    blocking: false,
+    automatedCheck: null,
+  },
+  {
+    code: 'CL-130',
+    name: 'Trial balance in balance',
+    description: 'Total debits equal total credits for the period.',
+    blocking: true,
+    automatedCheck: 'TRIAL_BALANCE',
+  },
+  {
+    code: 'CL-140',
+    name: 'Management accounts reviewed and signed off',
+    description:
+      'The period result is reviewed against budget and the variances explained ' +
+      'before the period is shut.',
+    blocking: false,
+    automatedCheck: null,
+  },
+];
+
+/**
  * Period-End Closing (§8).
  *
  * §8's statuses were built in Phase 1 and PeriodService already gates postings
@@ -68,6 +197,8 @@ export class PeriodCloseService {
       include: { financialYear: true },
     });
 
+    await this.ensureDefaultTemplates(period.financialYear.companyId);
+
     const templates = await this.prisma.periodCloseChecklistTemplate.findMany({
       where: { companyId: period.financialYear.companyId, active: true },
       orderBy: { sequence: 'asc' },
@@ -87,6 +218,35 @@ export class PeriodCloseService {
     }
 
     return this.checklist(financialPeriodId);
+  }
+
+  /**
+   * A company with zero checklist templates is not a company that chose to
+   * have no checklist — it is one nothing ever seeded. `ProvisioningService`
+   * (self-signup) never wrote these rows, only the dev-only demo seed did,
+   * so every real, self-registered company hit "Prepare checklist" and got
+   * an empty list back with no error at all: the call genuinely had nothing
+   * to copy. Self-healing here, on first use, means the default list only
+   * has to be maintained in one place and reaches a company regardless of
+   * how old it is or how it was created — a migration would only reach
+   * companies that already existed the day it ran.
+   */
+  private async ensureDefaultTemplates(companyId: string): Promise<void> {
+    const existing = await this.prisma.periodCloseChecklistTemplate.count({ where: { companyId } });
+    if (existing > 0) return;
+
+    await this.prisma.periodCloseChecklistTemplate.createMany({
+      data: DEFAULT_CLOSE_CHECKLIST_STEPS.map((step, index) => ({
+        companyId,
+        code: step.code,
+        name: step.name,
+        description: step.description,
+        sequence: (index + 1) * 10,
+        blocking: step.blocking,
+        appliesToYearEnd: true,
+        automatedCheck: step.automatedCheck,
+      })),
+    });
   }
 
   async checklist(financialPeriodId: string) {
