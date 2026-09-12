@@ -276,6 +276,12 @@ export const SECTIONS: NavSection[] = [
         hint: 'Who works here, and what they may do',
         keywords: ['employee', 'worker', 'staff', 'user', 'role', 'invite'],
       },
+      {
+        href: '/staff/employees',
+        label: 'Employees',
+        hint: 'Records payroll runs against — bank details, cost centre, tax state',
+        keywords: ['employee', 'payroll', 'salary', 'bank', 'pension', 'nhf', 'tax'],
+      },
     ],
   },
 

@@ -9,7 +9,7 @@ export interface FieldSpec {
   name: string;
   label: string;
   hint?: string;
-  type?: 'text' | 'email' | 'number' | 'checkbox';
+  type?: 'text' | 'email' | 'number' | 'checkbox' | 'date';
   required?: boolean;
   /** Renders a select rather than an input. */
   options?: Array<{ value: string; label: string }>;

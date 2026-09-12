@@ -113,11 +113,13 @@ export default async function StaffPage() {
 
         <Card>
           <p className="muted" style={{ fontSize: 14 }}>
-            Employee records and statutory payroll deductions are supported. You can turn
-            on your statutory rates under <a href="/finance/payroll">Money → Payroll setup</a>;
-            raising and approving an actual monthly payroll run is not available yet. You can
-            change another person&apos;s roles or switch off their access from the table above
-            — you cannot do this to your own account; ask another administrator instead.
+            Employee records, statutory payroll deductions and running a monthly payroll are
+            all supported. Turn on your statutory rates under{' '}
+            <a href="/finance/payroll">Money → Payroll setup</a>, add employees under{' '}
+            <a href="/staff/employees">People → Employees</a>, then raise a run from{' '}
+            <a href="/finance/payroll/runs">Money → Payroll runs</a>. You can change another
+            person&apos;s roles or switch off their access from the table above — you cannot do
+            this to your own account; ask another administrator instead.
           </p>
         </Card>
       </div>
