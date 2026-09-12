@@ -163,12 +163,37 @@ export function DailyRecordEntry({
   const say = translator(language);
 
   /**
-   * What the feed picker actually offers. The farm's own feed items when it
-   * has any — the only names `priceFeed` on the API side can match — else the
-   * generic species list, so a farm that has not set up its item master yet
-   * still gets a usable picker instead of an empty one.
+   * What the feed picker actually offers: one entry per THIS species'
+   * generic feed type, each swapped for a real item when the farm has one
+   * that matches — never a real item wholesale, and never company-wide.
+   *
+   * `feedItemNames` is every biological-feed item on the company, with no
+   * species of its own to filter by (the item master carries none) — a
+   * mixed poultry-and-snail farm's one real "Chick Mash" item is not a
+   * snail's default anything. Replacing the whole generic list with it the
+   * moment ANY real item existed made it worse two ways at once: a snail
+   * round defaulted to a poultry item, and a poultry farm with only ONE
+   * real item (say, Chick Mash) lost every other stage — Layer mash,
+   * Broiler starter — from the picker entirely, with no way to record them
+   * until an item existed for every single one. Matching per generic type
+   * instead keeps every stage selectable, priced wherever a real item
+   * exists for it and left as the old, honestly-unpriced placeholder
+   * everywhere else — same fallback this already had, just scoped to the
+   * one generic type it actually replaces instead of the whole list.
    */
-  const feedNames = feedItemNames.length > 0 ? feedItemNames : module.feedTypes.map((f) => f.name);
+  const feedNames = [
+    ...new Set(
+      module.feedTypes.map((generic) => {
+        const lower = generic.name.toLowerCase();
+        const match =
+          feedItemNames.find((name) => name.toLowerCase() === lower) ??
+          feedItemNames.find(
+            (name) => name.toLowerCase().includes(lower) || lower.includes(name.toLowerCase()),
+          );
+        return match ?? generic.name;
+      }),
+    ),
+  ];
 
   /**
    * The fields a worker fills in, expanded for how often this farm collects.
