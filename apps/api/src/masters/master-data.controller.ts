@@ -259,6 +259,7 @@ export class MasterDataController {
           code: item.code,
           name: item.description,
           category: item.category,
+          isBiologicalFeed: item.isBiologicalFeed,
           unit: item.unitOfMeasure.code,
           onHand,
           // Null, not 0 — "nobody has set a reorder level" is a different

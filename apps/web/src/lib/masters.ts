@@ -45,6 +45,7 @@ export interface StockItem {
   code: string;
   name: string;
   category: string | null;
+  isBiologicalFeed: boolean;
   unit: string;
   onHand: number;
   /** Null when nobody has configured one — distinct from a reorder level of zero. */
@@ -56,6 +57,25 @@ export interface StockItem {
 
 export async function getStockItems(): Promise<StockItem[]> {
   return api<StockItem[]>('/masters/items/stock');
+}
+
+/**
+ * Names of the company's own feed items — what the daily round's feed-type
+ * picker should actually offer.
+ *
+ * The round used to offer a generic, species-standard list ("Chick mash",
+ * "Broiler starter"...) that named no real item. Whatever a worker picked
+ * from it, `priceFeed` on the API side matches by description or code
+ * against the `Item` table — and a name that matches nothing there prices
+ * silently at zero: the feed is recorded, but never costed, never moves
+ * inventory, and nothing on screen says so. A brand-new company, which has
+ * only ever created the feed items it actually buys, could never pick a
+ * match. Sourcing the picker from these same items closes that gap at the
+ * root, rather than only warning about it after the fact.
+ */
+export async function getFeedItemNames(): Promise<string[]> {
+  const items = await getStockItems();
+  return items.filter((item) => item.isBiologicalFeed).map((item) => item.name);
 }
 
 export interface StockMovementRow {

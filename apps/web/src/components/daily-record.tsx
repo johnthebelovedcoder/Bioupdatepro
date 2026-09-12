@@ -68,10 +68,27 @@ interface Draft {
  * A blank entry for one population, with the feed that suits it already
  * chosen — a 31-day broiler opens on finisher, a laying hen on layer mash.
  * Picking it four times a morning is how the wrong one eventually gets picked.
+ *
+ * `feedNames`, when the company has configured any, are the ONLY names that
+ * price and move inventory — see `getFeedItemNames`. The generic suggestion
+ * from the species registry still picks which one sounds right for this
+ * population; it just has to land on a name the farm actually stocks.
  */
-function emptyDraft(module: SpeciesModule, group?: BatchSummary): Draft {
+function emptyDraft(module: SpeciesModule, feedNames: string[], group?: BatchSummary): Draft {
+  const suggested = group ? defaultFeedFor(module, group) : (module.feedTypes[0]?.name ?? '');
+  const feedType =
+    feedNames.length === 0
+      ? suggested
+      : (feedNames.find((name) => name.toLowerCase() === suggested.toLowerCase()) ??
+        feedNames.find(
+          (name) =>
+            name.toLowerCase().includes(suggested.toLowerCase()) ||
+            suggested.toLowerCase().includes(name.toLowerCase()),
+        ) ??
+        feedNames[0] ??
+        suggested);
   return {
-    feedType: group ? defaultFeedFor(module, group) : (module.feedTypes[0]?.name ?? ''),
+    feedType,
     feedKg: 0,
     production: {},
     deaths: 0,
@@ -94,6 +111,7 @@ function hasContent(draft: Draft | undefined): boolean {
 export function DailyRecordEntry({
   moduleKey,
   groups,
+  feedItemNames,
   today,
   startAt,
   collectionLabels,
@@ -112,6 +130,12 @@ export function DailyRecordEntry({
    */
   moduleKey: ModuleKey;
   groups: BatchSummary[];
+  /**
+   * The company's own feed items (§5, `isBiologicalFeed`). Empty for a farm
+   * that has not set any up yet, in which case the picker falls back to the
+   * generic species list rather than being empty outright.
+   */
+  feedItemNames: string[];
   today: string;
   /** Population to open on, when arriving from that population's own page. */
   startAt?: string;
@@ -137,6 +161,14 @@ export function DailyRecordEntry({
   const module = getModule(moduleKey)!;
   const t = module.terms;
   const say = translator(language);
+
+  /**
+   * What the feed picker actually offers. The farm's own feed items when it
+   * has any — the only names `priceFeed` on the API side can match — else the
+   * generic species list, so a farm that has not set up its item master yet
+   * still gets a usable picker instead of an empty one.
+   */
+  const feedNames = feedItemNames.length > 0 ? feedItemNames : module.feedTypes.map((f) => f.name);
 
   /**
    * The fields a worker fills in, expanded for how often this farm collects.
@@ -322,14 +354,14 @@ export function DailyRecordEntry({
   }
 
   function draftFor(groupId: string): Draft {
-    return drafts[groupId] ?? emptyDraft(module, groupById(groupId));
+    return drafts[groupId] ?? emptyDraft(module, feedNames, groupById(groupId));
   }
 
   function update(groupId: string, change: Partial<Draft>) {
     setDrafts((current) => ({
       ...current,
       [groupId]: {
-        ...(current[groupId] ?? emptyDraft(module, groupById(groupId))),
+        ...(current[groupId] ?? emptyDraft(module, feedNames, groupById(groupId))),
         ...change,
       },
     }));
@@ -338,7 +370,7 @@ export function DailyRecordEntry({
   /** Functional so rapid taps cannot compute from a stale value. */
   function adjust(groupId: string, field: 'feedKg' | 'deaths', delta: number) {
     setDrafts((current) => {
-      const draft = current[groupId] ?? emptyDraft(module, groupById(groupId));
+      const draft = current[groupId] ?? emptyDraft(module, feedNames, groupById(groupId));
       return {
         ...current,
         [groupId]: { ...draft, [field]: Math.max(0, draft[field] + delta) },
@@ -356,7 +388,7 @@ export function DailyRecordEntry({
    */
   function toggleCause(groupId: string, option: string, allowMultiple: boolean) {
     setDrafts((current) => {
-      const draft = current[groupId] ?? emptyDraft(module, groupById(groupId));
+      const draft = current[groupId] ?? emptyDraft(module, feedNames, groupById(groupId));
       const has = draft.causes.includes(option);
       const causes = has
         ? draft.causes.filter((entry) => entry !== option)
@@ -369,7 +401,7 @@ export function DailyRecordEntry({
 
   function adjustProduction(groupId: string, key: string, delta: number) {
     setDrafts((current) => {
-      const draft = current[groupId] ?? emptyDraft(module, groupById(groupId));
+      const draft = current[groupId] ?? emptyDraft(module, feedNames, groupById(groupId));
       return {
         ...current,
         [groupId]: {
@@ -598,6 +630,7 @@ export function DailyRecordEntry({
                 module={module}
                 say={say}
                 fields={fields}
+                feedNames={feedNames}
                 group={group}
                 draft={draftFor(group.id)}
                 problem={problemFor(group)}
@@ -798,6 +831,7 @@ function GroupEntry({
   module,
   say,
   fields,
+  feedNames,
   mortalityPhoto,
   multipleCauses,
   previous,
@@ -814,6 +848,8 @@ function GroupEntry({
   say: ReturnType<typeof translator>;
   /** Expanded for this farm's collection times — see the caller. */
   fields: SpeciesModule['productionFields'];
+  /** What the feed picker offers — see `DailyRecordEntry`'s own prop. */
+  feedNames: string[];
   mortalityPhoto: 'off' | 'optional' | 'required';
   multipleCauses: boolean;
   /** Yesterday's figures, when the farm has that shortcut switched on. */
@@ -851,9 +887,9 @@ function GroupEntry({
               value={draft.feedType}
               onChange={(event) => onChange({ feedType: event.target.value })}
             >
-              {module.feedTypes.map((item) => (
-                <option key={item.name} value={item.name}>
-                  {item.name}
+              {feedNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
                 </option>
               ))}
             </select>
