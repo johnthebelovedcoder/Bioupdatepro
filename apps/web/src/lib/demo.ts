@@ -28,6 +28,14 @@ export interface BatchSummary {
   stage: string;
   population: number;
   openingPopulation: number;
+  /**
+   * Actual deaths — daily-round mortality plus mortality-in-transit on a
+   * stage change. NOT openingPopulation - population: that also falls
+   * whenever the population sells, transfers out, or is harvested, and
+   * would contradict `mortalityRate` (built from this same count) the
+   * moment any of those has happened.
+   */
+  deaths: number;
   ageDays: number;
   mortalityRate: number;
   status: 'ACTIVE' | 'CLOSED';

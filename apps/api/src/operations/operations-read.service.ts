@@ -362,6 +362,12 @@ export class OperationsReadService {
       stage: group.stage,
       population: group.population,
       openingPopulation: group.openingPopulation,
+      // The same trueMortality the rate above is built from — a screen that
+      // shows "N lost" next to a mortality percentage must count the same
+      // thing the percentage does, or the two contradict each other the
+      // moment a population has also lost animals to a sale, transfer or
+      // harvest (openingPopulation - population, which is NOT this).
+      deaths: trueMortality,
       ageDays: daysSince(group.startedOn),
       mortalityRate:
         group.openingPopulation > 0

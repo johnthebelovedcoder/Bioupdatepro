@@ -90,7 +90,12 @@ export default async function GroupDetailPage({
   const allHouseNames = pens.filter((pen) => pen.active).map((pen) => pen.name);
 
   const t = module.terms;
-  const died = group.openingPopulation - group.population;
+  // NOT openingPopulation - population — that also falls whenever the
+  // population sells, transfers out, or is harvested, and would contradict
+  // the mortality rate right next to it the moment any of those has
+  // happened. `group.deaths` is built from the same true-mortality count
+  // the rate is.
+  const died = group.deaths;
   const totalCost = group.costBreakdown.reduce(
     (sum, line) => sum + toKobo(line.kobo),
     0n,
