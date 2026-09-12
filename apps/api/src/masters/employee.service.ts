@@ -153,11 +153,14 @@ export class EmployeeService {
       select: { id: true, companyId: true, employeeNumber: true },
     });
 
-    const component = await this.prisma.salaryComponent.findUnique({
+    let component = await this.prisma.salaryComponent.findUnique({
       where: {
         companyId_code: { companyId: employee.companyId, code: params.componentCode },
       },
     });
+    if (!component) {
+      component = await this.ensureDefaultSalaryComponents(employee.companyId, params.componentCode);
+    }
     if (!component) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §7 — Payroll setup',
@@ -236,6 +239,110 @@ export class EmployeeService {
       );
 
       return created;
+    });
+  }
+
+  /**
+   * The same default salary components `ProvisioningService.provisionCompany()`
+   * now gives a new signup, applied lazily for a company that predates that
+   * fix — same shape as `ensureDefaultUnits`/`ensureDefaultTemplates`
+   * elsewhere in this codebase. Only runs when the company has literally
+   * none yet, so it can never overwrite a company's own, deliberately
+   * different component set. Returns the row matching `wantCode` if the
+   * default set includes it, else `null` — a code outside the known
+   * defaults is a real "not configured" case, not something to guess at.
+   */
+  private async ensureDefaultSalaryComponents(companyId: string, wantCode: string) {
+    const existing = await this.prisma.salaryComponent.count({ where: { companyId } });
+    if (existing > 0) return null;
+
+    const accounts = await this.prisma.gLAccount.findMany({
+      where: {
+        companyId,
+        accountNumber: { in: ['5101', '2101', '2102', '2103', '2104', '2105', '2110', '5102', '5103', '5104'] },
+      },
+      select: { id: true, accountNumber: true },
+    });
+    const byNumber = new Map(accounts.map((a) => [a.accountNumber, a.id]));
+
+    const earnings = [
+      { code: 'BASIC', name: 'Basic salary', taxable: true, pensionable: true, nhfBase: true },
+      { code: 'HOUSING', name: 'Housing allowance', taxable: true, pensionable: true, nhfBase: false },
+      { code: 'TRANSPORT', name: 'Transport', taxable: true, pensionable: true, nhfBase: false },
+      { code: 'UTILITY', name: 'Utility', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'MEAL', name: 'Meal', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'RESPONSIBILITY', name: 'Responsibility', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'LEAVE', name: 'Leave allowance', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'BONUS', name: 'Bonus', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'OVERTIME', name: 'Overtime', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'COMMISSION', name: 'Commission', taxable: true, pensionable: false, nhfBase: false },
+    ] as const;
+
+    const rows: Prisma.SalaryComponentCreateManyInput[] = earnings.map((spec) => ({
+      companyId,
+      code: spec.code,
+      name: spec.name,
+      type: SalaryComponentType.EARNING,
+      isTaxable: spec.taxable,
+      isPensionable: spec.pensionable,
+      isNhfBase: spec.nhfBase,
+      isGrossPayComponent: true,
+      expenseGlAccountId: byNumber.get('5101') ?? null,
+      payableGlAccountId: byNumber.get('2101') ?? null,
+    }));
+
+    const statutory: Array<{
+      code: string;
+      name: string;
+      type: SalaryComponentType;
+      payable: string;
+      expense?: string;
+    }> = [
+      { code: 'PAYE', name: 'PAYE', type: SalaryComponentType.DEDUCTION, payable: '2110' },
+      { code: 'PENSION-EE', name: 'Employee pension', type: SalaryComponentType.DEDUCTION, payable: '2102' },
+      { code: 'NHF', name: 'NHF', type: SalaryComponentType.DEDUCTION, payable: '2103' },
+      {
+        code: 'PENSION-ER',
+        name: 'Employer pension',
+        type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
+        payable: '2102',
+        expense: '5102',
+      },
+      {
+        code: 'NSITF',
+        name: 'NSITF',
+        type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
+        payable: '2104',
+        expense: '5103',
+      },
+      {
+        code: 'ITF',
+        name: 'ITF',
+        type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
+        payable: '2105',
+        expense: '5104',
+      },
+    ];
+    for (const spec of statutory) {
+      rows.push({
+        companyId,
+        code: spec.code,
+        name: spec.name,
+        type: spec.type,
+        isTaxable: false,
+        isPensionable: false,
+        isGrossPayComponent: false,
+        payableGlAccountId: byNumber.get(spec.payable) ?? null,
+        expenseGlAccountId: spec.expense ? (byNumber.get(spec.expense) ?? null) : null,
+      });
+    }
+
+    await this.prisma.salaryComponent.createMany({ data: rows });
+
+    const wanted = rows.find((r) => r.code === wantCode);
+    if (!wanted) return null;
+    return this.prisma.salaryComponent.findUnique({
+      where: { companyId_code: { companyId, code: wantCode } },
     });
   }
 

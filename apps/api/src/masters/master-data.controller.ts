@@ -352,13 +352,13 @@ export class MasterDataController {
   @Post('employees/:id/salary-component')
   async setSalaryComponent(
     @Param('id') id: string,
+    @CurrentUser() actor: WorkflowActor,
     @Body()
     body: {
       componentCode: string;
       amountKobo?: string | number;
       rate?: string;
       effectiveFrom: string;
-      actorId: string;
     },
   ) {
     return this.employees.setSalaryComponent({
@@ -370,7 +370,7 @@ export class MasterDataController {
           : null,
       rate: body.rate ?? null,
       effectiveFrom: new Date(body.effectiveFrom),
-      actorId: body.actorId,
+      actorId: actor.userId,
     });
   }
 
@@ -390,12 +390,13 @@ export class MasterDataController {
   @Post('employees/:id/activate-payroll')
   async activatePayroll(
     @Param('id') id: string,
-    @Body() body: { actorId: string; on?: string },
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { on?: string },
   ) {
     return this.employees.activateForPayroll({
       employeeId: id,
       on: body.on ? new Date(body.on) : new Date(),
-      actorId: body.actorId,
+      actorId: actor.userId,
     });
   }
 

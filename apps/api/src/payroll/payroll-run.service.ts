@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  AccountType,
   AuditAction,
   EmploymentStatus,
+  NormalBalance,
   PayrollRunStatus,
   Prisma,
 } from '@bioassetpro/database';
@@ -720,10 +722,50 @@ export class PayrollRunService {
       payePayable: '2110',
     } as const;
 
-    const accounts = await tx.gLAccount.findMany({
+    let accounts = await tx.gLAccount.findMany({
       where: { companyId, accountNumber: { in: Object.values(required) } },
       select: { id: true, accountNumber: true, active: true, isPostingAccount: true },
     });
+
+    /*
+     * Four of these ten (2102-2105, 5102-5104 below) were missing entirely
+     * from `ProvisioningService`'s chart for every company registered
+     * before that gap was closed — a company could calculate a payroll run
+     * but never approve one. Created here, lazily, the same shape as the
+     * sales/procurement self-heals elsewhere, and ONLY for a number that is
+     * completely absent: an account that exists but is inactive or not a
+     * posting account is a real, deliberate configuration problem and still
+     * refuses below rather than being silently overridden.
+     */
+    const found = new Set(accounts.map((a) => a.accountNumber));
+    const missing = Object.values(required).filter((number) => !found.has(number));
+    if (missing.length > 0) {
+      const definitions: Record<string, { name: string; type: AccountType; normal: NormalBalance }> = {
+        '2102': { name: 'Pension Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+        '2103': { name: 'NHF Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+        '2104': { name: 'NSITF Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+        '2105': { name: 'ITF Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+        '5102': { name: 'Employer Pension Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
+        '5103': { name: 'NSITF Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
+        '5104': { name: 'ITF Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
+      };
+      const toCreate = missing.filter((number) => definitions[number]);
+      if (toCreate.length > 0) {
+        await tx.gLAccount.createMany({
+          data: toCreate.map((number) => ({
+            companyId,
+            accountNumber: number,
+            name: definitions[number]!.name,
+            accountType: definitions[number]!.type,
+            normalBalance: definitions[number]!.normal,
+          })),
+        });
+        accounts = await tx.gLAccount.findMany({
+          where: { companyId, accountNumber: { in: Object.values(required) } },
+          select: { id: true, accountNumber: true, active: true, isPostingAccount: true },
+        });
+      }
+    }
 
     const byNumber = new Map(accounts.map((a) => [a.accountNumber, a]));
     const resolved: Record<string, string> = {};

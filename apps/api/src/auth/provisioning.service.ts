@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
-import { AccountType, NormalBalance, Prisma, WarehouseType } from '@bioassetpro/database';
+import {
+  AccountType,
+  NormalBalance,
+  Prisma,
+  SalaryComponentType,
+  WarehouseType,
+} from '@bioassetpro/database';
 
 /**
  * Everything a new farm needs before it can record anything.
@@ -50,6 +56,13 @@ const ACCOUNTS: AccountSeed[] = [
   { number: '1602', name: 'WHT Receivable', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
 
   { number: '2101', name: 'Salary Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+  // Payroll's own resolveAccounts() (PayrollRunService) refuses to post
+  // without all four of these — without them a company could calculate a
+  // run but never approve one.
+  { number: '2102', name: 'Pension Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+  { number: '2103', name: 'NHF Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+  { number: '2104', name: 'NSITF Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+  { number: '2105', name: 'ITF Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
   { number: '2110', name: 'PAYE Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
   { number: '2120', name: 'Output VAT Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
   { number: '2130', name: 'WHT Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
@@ -65,6 +78,9 @@ const ACCOUNTS: AccountSeed[] = [
 
   { number: '5001', name: 'Cost of Sales', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
   { number: '5101', name: 'Salaries and Wages', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
+  { number: '5102', name: 'Employer Pension Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
+  { number: '5103', name: 'NSITF Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
+  { number: '5104', name: 'ITF Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
   { number: '5305', name: 'Production Loss Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT, requiresCostCentre: true },
   { number: '5401', name: 'Operating Expenses', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
 
@@ -517,6 +533,103 @@ export class ProvisioningService {
         },
       });
     }
+
+    /*
+     * The salary components (§7) `EmployeeService.setSalaryComponent()`
+     * assigns pay against, and payroll's own statutory deductions post
+     * through. Without these, a new company's first attempt to pay anyone
+     * fails outright with "Salary component ... is not configured", the
+     * same "nowhere to fix it" shape as procurement/sales above — this is
+     * the same well-known set `packages/database/src/seed.ts` gives the
+     * demo company, applied here so a real signup gets it too rather than
+     * only ever getting it from a seed script that never runs against a
+     * real tenant.
+     */
+    await this.seedSalaryComponents(tx, companyId, byNumber);
+  }
+
+  private async seedSalaryComponents(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    byNumber: Map<string, string>,
+  ): Promise<void> {
+    const earnings = [
+      { code: 'BASIC', name: 'Basic salary', taxable: true, pensionable: true, nhfBase: true },
+      { code: 'HOUSING', name: 'Housing allowance', taxable: true, pensionable: true, nhfBase: false },
+      { code: 'TRANSPORT', name: 'Transport', taxable: true, pensionable: true, nhfBase: false },
+      { code: 'UTILITY', name: 'Utility', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'MEAL', name: 'Meal', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'RESPONSIBILITY', name: 'Responsibility', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'LEAVE', name: 'Leave allowance', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'BONUS', name: 'Bonus', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'OVERTIME', name: 'Overtime', taxable: true, pensionable: false, nhfBase: false },
+      { code: 'COMMISSION', name: 'Commission', taxable: true, pensionable: false, nhfBase: false },
+    ] as const;
+
+    const salaryExpense = byNumber.get('5101');
+    const salaryPayable = byNumber.get('2101');
+
+    const rows: Prisma.SalaryComponentCreateManyInput[] = earnings.map((spec) => ({
+      companyId,
+      code: spec.code,
+      name: spec.name,
+      type: SalaryComponentType.EARNING,
+      isTaxable: spec.taxable,
+      isPensionable: spec.pensionable,
+      isNhfBase: spec.nhfBase,
+      isGrossPayComponent: true,
+      expenseGlAccountId: salaryExpense ?? null,
+      payableGlAccountId: salaryPayable ?? null,
+    }));
+
+    const statutory: Array<{
+      code: string;
+      name: string;
+      type: SalaryComponentType;
+      payable: string;
+      expense?: string;
+    }> = [
+      { code: 'PAYE', name: 'PAYE', type: SalaryComponentType.DEDUCTION, payable: '2110' },
+      { code: 'PENSION-EE', name: 'Employee pension', type: SalaryComponentType.DEDUCTION, payable: '2102' },
+      { code: 'NHF', name: 'NHF', type: SalaryComponentType.DEDUCTION, payable: '2103' },
+      {
+        code: 'PENSION-ER',
+        name: 'Employer pension',
+        type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
+        payable: '2102',
+        expense: '5102',
+      },
+      {
+        code: 'NSITF',
+        name: 'NSITF',
+        type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
+        payable: '2104',
+        expense: '5103',
+      },
+      {
+        code: 'ITF',
+        name: 'ITF',
+        type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
+        payable: '2105',
+        expense: '5104',
+      },
+    ];
+
+    for (const spec of statutory) {
+      rows.push({
+        companyId,
+        code: spec.code,
+        name: spec.name,
+        type: spec.type,
+        isTaxable: false,
+        isPensionable: false,
+        isGrossPayComponent: false,
+        payableGlAccountId: byNumber.get(spec.payable) ?? null,
+        expenseGlAccountId: spec.expense ? (byNumber.get(spec.expense) ?? null) : null,
+      });
+    }
+
+    await tx.salaryComponent.createMany({ data: rows });
   }
 
   /** Naira, shared across companies rather than duplicated per tenant. */
