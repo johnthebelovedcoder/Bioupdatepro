@@ -269,15 +269,27 @@ function HarvestSheet({
           />
         </label>
 
+        {/*
+          A list of suggestions rather than a fixed dropdown — same reasoning
+          as breed on the new-population form. `grades` comes from this
+          farm's own past harvests, which means a locked <select> had no
+          options at all until one existed, and none ever could: the first
+          harvest anywhere could never name a grade, and every harvest after
+          it inherited that same empty list forever.
+        */}
         <label className="field">
           Grade
-          <select value={grade} onChange={(event) => setGrade(event.target.value)}>
+          <input
+            value={grade}
+            onChange={(event) => setGrade(event.target.value)}
+            list="grade-options"
+            placeholder="Type or choose"
+          />
+          <datalist id="grade-options">
             {grades.map((entry) => (
-              <option key={entry} value={entry}>
-                {entry}
-              </option>
+              <option key={entry} value={entry} />
             ))}
-          </select>
+          </datalist>
         </label>
 
         <label className="field">
