@@ -229,8 +229,15 @@ export default async function DashboardPage() {
               money
               goodWhen="up"
               hint="posted and approved"
+              href="/ledger/profit-loss"
             />
-            <Stat label="Expenses" value={formatNaira(ledger.expenseKobo)} money goodWhen="down" />
+            <Stat
+              label="Expenses"
+              value={formatNaira(ledger.expenseKobo)}
+              money
+              goodWhen="down"
+              href="/ledger/profit-loss"
+            />
             {/*
               The figure a livestock farm actually lives on: what the animals
               currently alive have cost so far. It is neither an expense nor
@@ -248,12 +255,14 @@ export default async function DashboardPage() {
               money
               hint={hasSpecies ? 'feed and treatment so far' : 'not yet expensed or sold'}
               help={<HelpTerm k="workInProgress" />}
+              href={hasSpecies ? '/agripro/biological-assets' : '/ledger/trial-balance'}
             />
             <Stat
               label="Owed to us"
               value={formatNaira(ledger.receivableKobo)}
               money
               hint="outstanding"
+              href="/ledger/ar-ageing"
             />
           </div>
           {toKobo(ledger.revenueKobo) === 0n ? (

@@ -16,6 +16,21 @@ interface Kpi {
 }
 
 /**
+ * Where each KPI's own number is counted from — the story behind the
+ * figure, not just the figure. Three keys are deliberately absent: yield,
+ * cost variance and asset utilisation are never computable yet (see the
+ * page's own note), so there is no source to send anyone to.
+ */
+const KPI_SOURCE: Record<string, string> = {
+  survivalRate: '/agripro/biological-assets',
+  mortalityRate: '/agripro/biological-assets',
+  grossMargin: '/ledger/profit-loss',
+  dso: '/ledger/ar-ageing',
+  dpo: '/ledger/ap-ageing',
+  payrollCostPerHead: '/finance/payroll/runs',
+};
+
+/**
  * The nine KPIs the client's user story names, each computed or explicitly
  * refused. Three of them — yield, cost variance, asset utilisation — always
  * come back not-yet-computable: they need a production order or a
@@ -59,6 +74,7 @@ export default async function KpisPage() {
             label={kpi.label}
             value={kpi.computable ? formatValue(kpi) : '—'}
             hint={kpi.computable ? undefined : `Not yet computable — ${kpi.reason}`}
+            href={kpi.computable ? KPI_SOURCE[kpi.key] : undefined}
           />
         ))}
       </div>

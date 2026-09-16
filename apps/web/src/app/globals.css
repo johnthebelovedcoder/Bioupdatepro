@@ -669,6 +669,40 @@ a:hover {
   box-shadow: var(--shadow-xs);
 }
 
+/*
+ * A stat tile that links to the transactions behind its own number —
+ * revenue to the P&L, mortality rate to the register it's counted from.
+ * Styled as a link (a whole tile, not just its value) rather than only
+ * adding an href, since a number nobody suspects is clickable might as
+ * well not be.
+ */
+a.stat.stat-linked {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+a.stat.stat-linked:hover {
+  border-color: var(--brand-500);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+a.stat.stat-linked:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+.stat-linked .stat-label {
+  justify-content: space-between;
+}
+
+.stat-linked .stat-drill-icon {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
 .stat-label {
   display: flex;
   align-items: center;

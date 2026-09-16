@@ -90,6 +90,12 @@ export function Stat({
   hint,
   icon,
   help,
+  /**
+   * Where this figure's own transactions live — the P&L for revenue, the
+   * AR ageing for what's owed. A tile linking somewhere is the difference
+   * between a number you can only look at and one you can act on.
+   */
+  href,
 }: {
   label: string;
   value: string;
@@ -100,13 +106,15 @@ export function Stat({
   icon?: React.ReactNode;
   /** An explanation of the term, for figures whose name is jargon. */
   help?: React.ReactNode;
+  href?: string;
 }) {
-  return (
-    <div className="stat">
+  const body = (
+    <>
       <div className="stat-label">
         {icon}
         {label}
         {help}
+        {href ? <IconArrowRight size={13} className="stat-drill-icon" /> : null}
       </div>
       <div className={`stat-value${money ? ' is-money' : ''}`}>{value}</div>
       {trend || hint ? (
@@ -115,8 +123,18 @@ export function Stat({
           {hint ? <span>{hint}</span> : null}
         </div>
       ) : null}
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="stat stat-linked">
+        {body}
+      </Link>
+    );
+  }
+
+  return <div className="stat">{body}</div>;
 }
 
 function Delta({ trend, goodWhen }: { trend: Trend; goodWhen: 'up' | 'down' | 'neutral' }) {
