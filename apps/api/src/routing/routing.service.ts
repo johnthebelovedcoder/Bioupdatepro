@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { AuditAction, RoutingResourceType } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { Kobo } from '../common/money';
+
+/** Long enough for a create plus its audit record on a cold connection pool — same margin every other master-data write in this codebase uses. */
+const TRANSACTION_OPTIONS = { timeout: 20_000 };
 
 /**
  * Routing and activity-based costing — BOM_Routing, ABC_Pools_Drivers,
@@ -16,7 +22,197 @@ import { AccountingRuleViolation } from '../common/errors';
  */
 @Injectable()
 export class RoutingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  /* ------------------------------------------------------------------ */
+  /* Cost pools — the ABC side (US-897-015)                              */
+  /* ------------------------------------------------------------------ */
+
+  async createCostPool(params: {
+    companyId: string;
+    code: string;
+    name: string;
+    driverName: string;
+    actorId: string;
+  }) {
+    const pool = await this.prisma.costPool.create({
+      data: {
+        companyId: params.companyId,
+        code: params.code,
+        name: params.name,
+        driverName: params.driverName,
+      },
+    });
+
+    await this.audit.write({
+      transactionId: pool.id,
+      module: 'routing',
+      entityType: 'CostPool',
+      entityId: pool.id,
+      status: 'ACTIVE',
+      action: AuditAction.CREATE,
+      userId: params.actorId,
+      comments: `Created cost pool ${pool.code} — ${pool.name}, driven by ${pool.driverName}.`,
+    });
+
+    return pool;
+  }
+
+  /**
+   * Set a pool's cost and practical capacity, effective from a date —
+   * closing the previous rate the day before, the same discipline
+   * `ItemService.setStandardCost()` already uses for standard cost, so a
+   * production order costed last month still resolves the rate that
+   * applied then.
+   *
+   * `ratePerUnitKobo` is computed here, never taken from the caller — the
+   * story's own formula is "reconciled pool cost ÷ practical capacity",
+   * and a rate typed in by hand could silently drift from the two numbers
+   * it is supposed to be derived from.
+   */
+  async setCostPoolRate(params: {
+    companyId: string;
+    poolId: string;
+    poolCost: Kobo;
+    practicalCapacity: string;
+    effectiveFrom: Date;
+    sourceReference?: string | null;
+    actorId: string;
+  }) {
+    const pool = await this.prisma.costPool.findFirstOrThrow({
+      where: { id: params.poolId, companyId: params.companyId },
+    });
+
+    const capacity = Number(params.practicalCapacity);
+    if (!(capacity > 0)) {
+      throw new AccountingRuleViolation(
+        'ABC_Pools_Drivers — practical capacity',
+        `Practical capacity must be greater than zero — a pool with no capacity has no rate to divide into.`,
+        { poolId: pool.id },
+      );
+    }
+    const ratePerUnitKobo = BigInt(Math.round(Number(params.poolCost) / capacity));
+
+    const day = new Date(
+      Date.UTC(
+        params.effectiveFrom.getUTCFullYear(),
+        params.effectiveFrom.getUTCMonth(),
+        params.effectiveFrom.getUTCDate(),
+      ),
+    );
+    const previousDay = new Date(day);
+    previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.costPoolRate.updateMany({
+        where: { poolId: pool.id, effectiveTo: null, effectiveFrom: { lt: day } },
+        data: { effectiveTo: previousDay },
+      });
+
+      const created = await tx.costPoolRate.create({
+        data: {
+          poolId: pool.id,
+          poolCostKobo: params.poolCost,
+          practicalCapacity: params.practicalCapacity,
+          ratePerUnitKobo,
+          effectiveFrom: day,
+          sourceReference: params.sourceReference ?? null,
+        },
+      });
+
+      await this.audit.write(
+        {
+          transactionId: pool.id,
+          module: 'routing',
+          entityType: 'CostPoolRate',
+          entityId: created.id,
+          status: 'ACTIVE',
+          action: AuditAction.CREATE,
+          userId: params.actorId,
+          comments:
+            `${pool.code}: pool cost ${params.poolCost} kobo over ${params.practicalCapacity} ` +
+            `capacity from ${day.toISOString().slice(0, 10)} — rate ${ratePerUnitKobo} kobo/unit.`,
+          metadata: {
+            poolCostKobo: String(params.poolCost),
+            practicalCapacity: params.practicalCapacity,
+            ratePerUnitKobo: ratePerUnitKobo.toString(),
+          },
+        },
+        tx,
+      );
+
+      return created;
+    }, TRANSACTION_OPTIONS);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Routing operations — the labour/machine side (US-897-014)           */
+  /* ------------------------------------------------------------------ */
+
+  /** One recipe version's routing, in sequence — the master data `snapshotRouting()` freezes onto an order. */
+  async listRoutingOperations(companyId: string, recipeVersionId: string) {
+    return this.prisma.routingOperation.findMany({
+      where: { companyId, recipeVersionId, active: true },
+      include: { costCentre: true, costPool: true },
+      orderBy: { sequence: 'asc' },
+    });
+  }
+
+  async createRoutingOperation(params: {
+    companyId: string;
+    recipeVersionId: string;
+    costCentreId: string;
+    costPoolId: string;
+    operationName: string;
+    resourceType: RoutingResourceType;
+    setupHours?: string;
+    runHoursPerUnit?: string;
+    actorId: string;
+  }) {
+    // Ownership check on the recipe version the same way RecipeService.addComponent
+    // does — a body-supplied recipeVersionId naming another company's version must
+    // not be addable to just because the id happens to exist somewhere in the DB.
+    await this.prisma.productRecipeVersion.findFirstOrThrow({
+      where: { id: params.recipeVersionId, recipe: { companyId: params.companyId } },
+      select: { id: true },
+    });
+
+    const last = await this.prisma.routingOperation.findFirst({
+      where: { recipeVersionId: params.recipeVersionId },
+      orderBy: { sequence: 'desc' },
+      select: { sequence: true },
+    });
+
+    const operation = await this.prisma.routingOperation.create({
+      data: {
+        companyId: params.companyId,
+        recipeVersionId: params.recipeVersionId,
+        costCentreId: params.costCentreId,
+        costPoolId: params.costPoolId,
+        sequence: (last?.sequence ?? 0) + 1,
+        operationName: params.operationName,
+        resourceType: params.resourceType,
+        setupHours: params.setupHours ?? '0',
+        runHoursPerUnit: params.runHoursPerUnit ?? '0',
+      },
+    });
+
+    await this.audit.write({
+      transactionId: operation.id,
+      module: 'routing',
+      entityType: 'RoutingOperation',
+      entityId: operation.id,
+      status: 'ACTIVE',
+      action: AuditAction.CREATE,
+      userId: params.actorId,
+      comments: `Added routing operation "${operation.operationName}" (${operation.resourceType}) at sequence ${operation.sequence}.`,
+    });
+
+    return operation;
+  }
 
   /**
    * Snapshots every active routing operation for the order's recipe version

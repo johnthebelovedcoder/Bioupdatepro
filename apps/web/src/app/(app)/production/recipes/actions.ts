@@ -113,6 +113,49 @@ export async function addComponent(
   return { error: null };
 }
 
+export interface AddRoutingOperationState {
+  error: string | null;
+}
+
+/** A labour/machine standard on a recipe version — US-897-014. */
+export async function addRoutingOperation(
+  _previous: AddRoutingOperationState,
+  formData: FormData,
+): Promise<AddRoutingOperationState> {
+  const recipeId = String(formData.get('recipeId') ?? '');
+  const recipeVersionId = String(formData.get('recipeVersionId') ?? '');
+  const costCentreId = String(formData.get('costCentreId') ?? '');
+  const costPoolId = String(formData.get('costPoolId') ?? '');
+  const operationName = String(formData.get('operationName') ?? '').trim();
+  const resourceType = String(formData.get('resourceType') ?? '');
+  const setupHours = String(formData.get('setupHours') ?? '').trim();
+  const runHoursPerUnit = String(formData.get('runHoursPerUnit') ?? '').trim();
+
+  if (!operationName) return { error: 'Name the operation.' };
+  if (!costCentreId) return { error: 'Choose which cost centre this operation belongs to.' };
+  if (!costPoolId) return { error: 'Choose which cost pool absorbs this operation’s overhead.' };
+  if (!resourceType) return { error: 'Say whether this is a labour or a machine standard.' };
+
+  try {
+    await api(`/masters/recipes/versions/${recipeVersionId}/routing`, {
+      method: 'POST',
+      body: {
+        costCentreId,
+        costPoolId,
+        operationName,
+        resourceType,
+        setupHours: setupHours || '0',
+        runHoursPerUnit: runHoursPerUnit || '0',
+      },
+    });
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not add that operation.' };
+  }
+
+  revalidatePath(`/production/recipes/${recipeId}`);
+  return { error: null };
+}
+
 export interface ActivateVersionState {
   error: string | null;
 }

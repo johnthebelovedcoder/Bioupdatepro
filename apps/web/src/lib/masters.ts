@@ -104,3 +104,14 @@ export interface Warehouse {
 export async function getWarehouses(): Promise<Warehouse[]> {
   return api<Warehouse[]>('/masters/warehouses');
 }
+
+export interface CostCentre {
+  id: string;
+  code: string;
+  name: string;
+  active: boolean;
+}
+
+export async function getCostCentres(): Promise<CostCentre[]> {
+  return api<CostCentre[]>('/masters/cost-centres');
+}

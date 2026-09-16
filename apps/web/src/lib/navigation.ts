@@ -255,6 +255,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['recipe', 'bom', 'bill of materials', 'formula', 'components'],
       },
       {
+        href: '/production/cost-pools',
+        label: 'Cost pools',
+        hint: 'Overhead grouped by what drives it, for routing to absorb',
+        keywords: ['cost pool', 'overhead', 'abc', 'activity based costing', 'driver', 'absorption'],
+      },
+      {
         href: '/items',
         label: 'Items',
         hint: 'Everything the farm buys, stores or sells',

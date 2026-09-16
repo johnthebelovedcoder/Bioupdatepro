@@ -176,3 +176,47 @@ export async function getRecipeDetail(id: string): Promise<RecipeDetail | null> 
     throw caught;
   }
 }
+
+/**
+ * Activity cost pools (US-897-015) — overhead, allocated to a routing
+ * operation by a measurable driver rather than folded blindly into every
+ * unit's cost.
+ */
+export interface CostPool {
+  id: string;
+  code: string;
+  name: string;
+  driverName: string;
+  poolCostKobo: string | null;
+  practicalCapacity: string | null;
+  ratePerUnitKobo: string | null;
+  sourceReference: string | null;
+}
+
+export async function getCostPools(): Promise<CostPool[]> {
+  try {
+    return await api<CostPool[]>('/costing/cost-pools');
+  } catch {
+    return [];
+  }
+}
+
+/** Labour/machine standards (US-897-014) for one recipe version. */
+export interface RoutingOperationRow {
+  id: string;
+  sequence: number;
+  operationName: string;
+  resourceType: 'LABOUR' | 'MACHINE';
+  setupHours: string;
+  runHoursPerUnit: string;
+  costCentre: { code: string; name: string };
+  costPool: { code: string; name: string };
+}
+
+export async function getRoutingOperations(recipeVersionId: string): Promise<RoutingOperationRow[]> {
+  try {
+    return await api<RoutingOperationRow[]>(`/masters/recipes/${recipeVersionId}/routing`);
+  } catch {
+    return [];
+  }
+}
