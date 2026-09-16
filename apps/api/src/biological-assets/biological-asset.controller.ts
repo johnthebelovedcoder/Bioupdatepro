@@ -63,6 +63,22 @@ export class BiologicalAssetController {
     return this.assets.rollForward(id);
   }
 
+  /*
+   * Acquisition posts once, the moment a population is placed
+   * (OperationsService.recordNewGroup) — there was no way to ask for it
+   * again. That left a population whose acquisition failed only because an
+   * account was missing (the exact gap `BiologicalAssetService` now
+   * self-heals) unposted forever: the account gets created the NEXT time
+   * anything for that species/stage tries to post, never for the group
+   * that already hit the gap. Same roles as raising the placement itself.
+   */
+  @OwnedRecord('livestockGroup', 'id')
+  @Roles('FARM_MANAGER', 'CFO')
+  @Post('groups/:id/retry-posting')
+  async retryPosting(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
+    return this.assets.postAcquisition({ groupId: id, actor });
+  }
+
   @AnyRole('The valuations raised, and where each stands.')
   @Get('valuations')
   async valuations(@CurrentCompany() companyId: string) {

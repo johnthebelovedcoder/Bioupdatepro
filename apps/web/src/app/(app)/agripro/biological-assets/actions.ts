@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, tryApi } from '@/lib/api';
 import { parseNairaToKobo } from '@/lib/money';
 
 export interface ValuationState {
@@ -116,4 +116,35 @@ export async function setMarketPrice(
 
   revalidatePath('/agripro/valuations');
   return { error: null, message: `Priced ${breed}. New valuations for it will default from this.` };
+}
+
+export interface RetryPostingState {
+  error: string | null;
+}
+
+/**
+ * Ask acquisition to post again for one population.
+ *
+ * Acquisition otherwise posts exactly once, the moment a population is
+ * placed — there was never a reason to ask twice, until a population could
+ * fail to post only because the company's chart of accounts was missing an
+ * account `BiologicalAssetService` now creates on demand. That gap heals
+ * itself the next time anything for the SAME species/stage tries to post,
+ * but never for the population that already hit it. This is that retry.
+ */
+export async function retryPosting(
+  _previous: RetryPostingState,
+  formData: FormData,
+): Promise<RetryPostingState> {
+  const groupId = String(formData.get('groupId') ?? '');
+  const result = await tryApi<{ posted: boolean; reason?: string }>(
+    `/biological-assets/groups/${groupId}/retry-posting`,
+    { method: 'POST' },
+  );
+
+  if (!result.ok) return { error: result.error };
+  if (!result.data.posted) return { error: result.data.reason ?? 'Still not posted.' };
+
+  revalidatePath('/agripro/biological-assets');
+  return { error: null };
 }

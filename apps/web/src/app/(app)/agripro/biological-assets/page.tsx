@@ -4,6 +4,7 @@ import { Card, EmptyState, PageHeader, Stat } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
 import { IconBox } from '@/components/icons';
+import { RetryPostingButton } from '@/components/retry-posting-button';
 
 export const metadata = { title: 'Biological assets — BioAssetPro' };
 
@@ -92,7 +93,10 @@ export default async function BiologicalAssetsPage() {
                           {g.acquisitionPosted ? (
                             <span className="badge badge-success">posted</span>
                           ) : BigInt(g.acquisitionCostKobo) > 0n ? (
-                            <span className="badge badge-warning">not posted</span>
+                            <div className="stack" style={{ gap: 'var(--sp-1)' }}>
+                              <span className="badge badge-warning">not posted</span>
+                              <RetryPostingButton groupId={g.id} />
+                            </div>
                           ) : (
                             <span className="faint">no cost recorded</span>
                           )}
