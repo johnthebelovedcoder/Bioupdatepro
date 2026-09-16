@@ -42,11 +42,20 @@ export async function login(
 
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+    /*
+     * The API's own 401 always carries a real string here — see
+     * `AuthService.login()`. Falling through to it meant a cold-starting or
+     * momentarily unreachable API, which answers with an HTML error page
+     * rather than JSON, silently became "Email or password is incorrect" —
+     * telling someone their real credentials were wrong when the actual
+     * problem was that BioAssetPro had not woken up yet. Only a body this
+     * API actually sent should ever name the credentials as the problem.
+     */
     const message = Array.isArray(body?.message)
       ? body.message.join(' ')
       : typeof body?.message === 'string'
         ? body.message
-        : 'Email or password is incorrect.';
+        : "BioAssetPro didn't respond correctly — it may still be starting up. Wait a few seconds and try again.";
     return { error: message };
   }
 
