@@ -582,6 +582,7 @@ describe('Master Data (§5, §6, §7, §10)', () => {
       await recipes.activateVersion({ recipeVersionId: version.id, actorId: fixture.makerId });
 
       const v2 = await recipes.createDraftVersion({
+        companyId: fixture.companyId,
         recipeId: recipe.id,
         batchSize: '1',
         effectiveFrom: new Date('2026-06-01'),

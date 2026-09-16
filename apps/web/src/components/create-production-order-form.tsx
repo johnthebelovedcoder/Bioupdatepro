@@ -116,6 +116,11 @@ function HarvestForm({
             </option>
           ))}
         </select>
+        {recipes.length === 0 ? (
+          <span className="faint">
+            Nothing to pick — <a href="/production/recipes">add and activate a recipe</a> first.
+          </span>
+        ) : null}
       </label>
 
       <label className="field">
@@ -191,6 +196,11 @@ function FeedForm({
             </option>
           ))}
         </select>
+        {recipes.length === 0 ? (
+          <span className="faint">
+            Nothing to pick — <a href="/production/recipes">add and activate a recipe</a> first.
+          </span>
+        ) : null}
       </label>
 
       <label className="field">

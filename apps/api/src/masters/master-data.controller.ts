@@ -411,8 +411,26 @@ export class MasterDataController {
     return this.recipes.list(companyId);
   }
 
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'PRODUCTION_LEAD', 'FARM_ACCOUNTANT', 'CFO')
+  @OwnedRecord('productRecipe', 'id')
+  @Get('recipes/:id')
+  async recipeDetail(@CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.recipes.detail(companyId, id);
+  }
+
+  // There was no way to create the recipe itself — only to add a version
+  // under one that already existed. See RecipeService.create's own header.
+  @Post('recipes')
+  async createRecipe(
+    @CurrentCompany() companyId: string,
+    @Body() body: { code: string; name: string; outputItemId: string },
+  ) {
+    return this.recipes.create({ ...body, companyId });
+  }
+
   @Post('recipes/versions')
   async createDraftVersion(
+    @CurrentCompany() companyId: string,
     @Body()
     body: {
       recipeId: string;
@@ -425,6 +443,7 @@ export class MasterDataController {
   ) {
     return this.recipes.createDraftVersion({
       ...body,
+      companyId,
       effectiveFrom: new Date(body.effectiveFrom),
       expectedYieldPercent: body.expectedYieldPercent ?? null,
       copyFromVersionId: body.copyFromVersionId ?? null,
@@ -432,10 +451,43 @@ export class MasterDataController {
     });
   }
 
+  // The other half of the same gap: a draft version with nothing to put a
+  // component ON. See RecipeService.addComponent's own header.
+  @OwnedRecord('productRecipeVersion', 'id')
+  @Post('recipes/versions/:id/components')
+  async addRecipeComponent(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      componentItemId: string;
+      quantityPerBatch: string;
+      unitOfMeasureCode: string;
+      wastagePercent?: string;
+      optional?: boolean;
+    },
+  ) {
+    return this.recipes.addComponent({
+      companyId,
+      recipeVersionId: id,
+      componentItemId: body.componentItemId,
+      quantityPerBatch: body.quantityPerBatch,
+      unitOfMeasureCode: body.unitOfMeasureCode,
+      wastagePercent: body.wastagePercent ?? null,
+      optional: body.optional ?? false,
+    });
+  }
+
+  /*
+   * `body.actorId` used to name whose approval this was — a client-supplied
+   * identity a caller could set to anyone, the same actor-spoofing gap fixed
+   * elsewhere this session (closing.controller.ts, delegation.service.ts).
+   * `@CurrentUser()` is the only place that identity can come from.
+   */
   @OwnedRecord('productRecipeVersion', 'id')
   @Post('recipes/versions/:id/activate')
-  async activateVersion(@Param('id') id: string, @Body() body: { actorId: string }) {
-    return this.recipes.activateVersion({ recipeVersionId: id, actorId: body.actorId });
+  async activateVersion(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
+    return this.recipes.activateVersion({ recipeVersionId: id, actorId: actor.userId });
   }
 
   @OwnedRecord('productRecipeVersion', 'id')

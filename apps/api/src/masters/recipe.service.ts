@@ -462,8 +462,133 @@ export class RecipeService {
     return version;
   }
 
+  /**
+   * The recipe itself — the thing a version and its components hang off.
+   * There was no path to create one at all: `createDraftVersion` needs a
+   * `recipeId` that already exists, and nothing in this service (or its
+   * controller) ever created the parent row. Only the demo seed ever wrote
+   * one, so a real company could never raise a processing order — the
+   * recipe picker on that screen had nothing to offer and no way to add to
+   * it. Company-scoped, since `code` is unique per company, not globally.
+   */
+  async create(params: {
+    companyId: string;
+    code: string;
+    name: string;
+    outputItemId: string;
+  }) {
+    const outputItem = await this.prisma.item.findFirst({
+      where: { id: params.outputItemId, companyId: params.companyId },
+      select: { id: true },
+    });
+    if (!outputItem) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §10 — Recipe',
+        'The output item named does not belong to this company.',
+        { outputItemId: params.outputItemId },
+      );
+    }
+
+    return this.prisma.productRecipe.create({
+      data: {
+        companyId: params.companyId,
+        code: params.code,
+        name: params.name,
+        outputItemId: params.outputItemId,
+      },
+    });
+  }
+
+  /**
+   * Add one component line to a draft version.
+   *
+   * The other half of the same gap `create()` closes: `createDraftVersion`
+   * could copy an existing version's components, but there was no way to
+   * add a first one — a company's very first recipe could never actually
+   * name what it consumes. Refuses once the version has left DRAFT, same as
+   * `activateVersion`'s own refusal, for the same reason: an active
+   * version's components are a costed, effective-dated fact, not something
+   * to keep editing under it.
+   */
+  async addComponent(params: {
+    companyId: string;
+    recipeVersionId: string;
+    componentItemId: string;
+    quantityPerBatch: Decimal.Value;
+    unitOfMeasureCode: string;
+    wastagePercent?: Decimal.Value | null;
+    optional?: boolean;
+  }) {
+    const version = await this.prisma.productRecipeVersion.findFirstOrThrow({
+      where: { id: params.recipeVersionId, recipe: { companyId: params.companyId } },
+      select: { id: true, status: true },
+    });
+    if (version.status !== RecipeVersionStatus.DRAFT) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §10 — Recipe versioning',
+        `Only a draft version can have components added — this one is ${version.status}.`,
+        { recipeVersionId: version.id, status: version.status },
+      );
+    }
+
+    const uom = await this.prisma.unitOfMeasure.findUnique({
+      where: { companyId_code: { companyId: params.companyId, code: params.unitOfMeasureCode } },
+    });
+    if (!uom) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §5 — Item master',
+        `Unit of measure "${params.unitOfMeasureCode}" is not configured.`,
+        { unitOfMeasure: params.unitOfMeasureCode },
+      );
+    }
+
+    const last = await this.prisma.productRecipeComponent.findFirst({
+      where: { recipeVersionId: params.recipeVersionId },
+      orderBy: { lineNumber: 'desc' },
+      select: { lineNumber: true },
+    });
+
+    return this.prisma.productRecipeComponent.create({
+      data: {
+        recipeVersionId: params.recipeVersionId,
+        lineNumber: (last?.lineNumber ?? 0) + 1,
+        componentItemId: params.componentItemId,
+        quantityPerBatch: new Prisma.Decimal(params.quantityPerBatch.toString()),
+        unitOfMeasureId: uom.id,
+        wastagePercent:
+          params.wastagePercent !== undefined && params.wastagePercent !== null
+            ? new Prisma.Decimal(params.wastagePercent.toString())
+            : null,
+        optional: params.optional ?? false,
+      },
+    });
+  }
+
+  /** One recipe's versions and their components, most recent first. */
+  async detail(companyId: string, recipeId: string) {
+    const recipe = await this.prisma.productRecipe.findFirstOrThrow({
+      where: { id: recipeId, companyId },
+      include: { outputItem: { select: { code: true, description: true } } },
+    });
+    const versions = await this.prisma.productRecipeVersion.findMany({
+      where: { recipeId },
+      orderBy: { version: 'desc' },
+      include: {
+        components: {
+          orderBy: { lineNumber: 'asc' },
+          include: {
+            componentItem: { select: { code: true, description: true } },
+            unitOfMeasure: { select: { code: true } },
+          },
+        },
+      },
+    });
+    return { recipe, versions };
+  }
+
   /** Start a new draft, optionally copying an existing version's components. */
   async createDraftVersion(params: {
+    companyId: string;
     recipeId: string;
     batchSize: Decimal.Value;
     expectedYieldPercent?: Decimal.Value | null;
@@ -471,6 +596,16 @@ export class RecipeService {
     copyFromVersionId?: string | null;
     notes?: string | null;
   }) {
+    /*
+     * `recipeId` arrives in the body, not a route param `@OwnedRecord` can
+     * check — so without this, any signed-in caller from ANY company could
+     * name another tenant's recipe id here and add a version to it.
+     */
+    await this.prisma.productRecipe.findFirstOrThrow({
+      where: { id: params.recipeId, companyId: params.companyId },
+      select: { id: true },
+    });
+
     const latest = await this.prisma.productRecipeVersion.findFirst({
       where: { recipeId: params.recipeId },
       orderBy: { version: 'desc' },

@@ -249,6 +249,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['production', 'processing', 'snailpro', 'poultrypro', 'feed mill', 'convert', 'manufacture', 'wip'],
       },
       {
+        href: '/production/recipes',
+        label: 'Recipes',
+        hint: 'What a processing order consumes to make one batch of output',
+        keywords: ['recipe', 'bom', 'bill of materials', 'formula', 'components'],
+      },
+      {
         href: '/items',
         label: 'Items',
         hint: 'Everything the farm buys, stores or sells',

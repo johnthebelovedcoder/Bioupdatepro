@@ -106,6 +106,10 @@ const RESOLVERS = {
     (await prisma.employee.findUnique({ where: { id }, select: { companyId: true } }))
       ?.companyId ?? null,
 
+  productRecipe: async (prisma: PrismaService, id: string) =>
+    (await prisma.productRecipe.findUnique({ where: { id }, select: { companyId: true } }))
+      ?.companyId ?? null,
+
   // Through the recipe it is a version of.
   productRecipeVersion: async (prisma: PrismaService, id: string) =>
     (

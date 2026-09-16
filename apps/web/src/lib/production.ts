@@ -132,3 +132,47 @@ export interface Recipe {
 export async function getRecipes(): Promise<Recipe[]> {
   return api<Recipe[]>('/masters/recipes');
 }
+
+export interface RecipeComponentRow {
+  id: string;
+  lineNumber: number;
+  componentItem: { code: string; description: string };
+  quantityPerBatch: string;
+  unitOfMeasure: { code: string };
+  wastagePercent: string | null;
+  optional: boolean;
+}
+
+export type RecipeVersionStatus = 'DRAFT' | 'ACTIVE' | 'SUPERSEDED';
+
+export interface RecipeVersionRow {
+  id: string;
+  version: number;
+  status: RecipeVersionStatus;
+  batchSize: string;
+  expectedYieldPercent: string | null;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  notes: string | null;
+  components: RecipeComponentRow[];
+}
+
+export interface RecipeDetail {
+  recipe: {
+    id: string;
+    code: string;
+    name: string;
+    outputItemId: string;
+    outputItem: { code: string; description: string };
+  };
+  versions: RecipeVersionRow[];
+}
+
+export async function getRecipeDetail(id: string): Promise<RecipeDetail | null> {
+  try {
+    return await api<RecipeDetail>(`/masters/recipes/${id}`);
+  } catch (caught) {
+    if (caught instanceof ApiError && caught.status === 404) return null;
+    throw caught;
+  }
+}
