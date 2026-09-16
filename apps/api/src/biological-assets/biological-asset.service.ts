@@ -1,5 +1,12 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { AuditAction, Prisma, ValuationDirection, WorkflowStatus } from '@bioassetpro/database';
+import {
+  AccountType,
+  AuditAction,
+  NormalBalance,
+  Prisma,
+  ValuationDirection,
+  WorkflowStatus,
+} from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { WorkflowService } from '../workflow/workflow.service';
@@ -38,6 +45,82 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  * forbids a second maker-checker mechanism, and building one here would be
  * exactly that.
  */
+
+/**
+ * The biological-asset accounts a company needs, by number — the same set
+ * `ProvisioningService.provisionCompany()` seeds for a brand new company,
+ * duplicated here for the reason every other duplication in this codebase
+ * gives: the seed only runs at signup, so a company registered before this
+ * chart existed (or before a given account was added to it) has none of
+ * these rows, permanently, with no admin screen to add them from. Every
+ * resolver below falls back to creating its account from this table rather
+ * than only throwing — the same "record it now, cost it once a real account
+ * exists" posture `postAcquisition` already uses for the transaction that
+ * depends on them.
+ *
+ * 640300/640500 (abnormal loss) are not in `ProvisioningService.ACCOUNTS` at
+ * all yet — no company, new or old, has ever had them — so this is the only
+ * place they get created, for every company alike.
+ */
+const DEFAULT_ACCOUNTS: Record<
+  string,
+  { name: string; type: AccountType; normal: NormalBalance }
+> = {
+  '210200': { name: 'GRNI', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
+  '130200': { name: 'BA — Snail Breeders', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  '130201': { name: 'BA — Snail Eggs', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  '130202': { name: 'BA — Snail Hatchlings', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  '130203': { name: 'BA — Snail Juveniles', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  '130204': { name: 'BA — Market Snails', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  '130210': { name: 'BA — Poultry', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  '420100': {
+    name: 'Fair-Value Gain/Loss — Snails',
+    type: AccountType.REVENUE,
+    normal: NormalBalance.CREDIT,
+  },
+  '420200': {
+    name: 'Fair-Value Gain/Loss — Poultry',
+    type: AccountType.REVENUE,
+    normal: NormalBalance.CREDIT,
+  },
+  '640300': {
+    name: 'Abnormal Biological Loss — Snails',
+    type: AccountType.EXPENSE,
+    normal: NormalBalance.DEBIT,
+  },
+  '640500': {
+    name: 'Abnormal Biological Loss — Poultry',
+    type: AccountType.EXPENSE,
+    normal: NormalBalance.DEBIT,
+  },
+};
+
+/** Duplicated from `ProvisioningService`'s own map of the same name — see its header. */
+const SNAIL_STAGE_ACCOUNTS: Record<string, string> = {
+  Breeder: '130200',
+  Egg: '130201',
+  Hatchling: '130202',
+  Juvenile: '130203',
+  Grower: '130203',
+  'Market-ready': '130204',
+  'Breeder cohort': '130200',
+  Growers: '130203',
+  Juveniles: '130203',
+};
+
+/** Duplicated from `ProvisioningService`'s own map of the same name — see its header. */
+const POULTRY_STAGE_ACCOUNTS: Record<string, string> = {
+  Chick: '130210',
+  Grower: '130210',
+  'Market-ready': '130210',
+  'Point-of-lay': '130210',
+  Layer: '130210',
+  Broiler: '130210',
+  Pullet: '130210',
+  Cockerel: '130210',
+  Breeder: '130210',
+};
+
 @Injectable()
 export class BiologicalAssetService {
   private readonly logger = new Logger(BiologicalAssetService.name);
@@ -77,20 +160,84 @@ export class BiologicalAssetService {
       include: { glAccount: true },
     });
 
-    if (!row || !row.active) {
-      throw new AccountingRuleViolation(
-        'Consolidated Reference §67 — Biological asset stage account',
-        `No approved GL account is mapped for ${params.speciesKey} at stage "${params.stage}". ` +
-          `The event is recorded; it stays unposted until an account is configured.`,
-        { speciesKey: params.speciesKey, stage: params.stage },
-      );
+    if (row && row.active) {
+      return {
+        glAccountId: row.glAccountId,
+        accountNumber: row.glAccount.accountNumber,
+        accountName: row.glAccount.name,
+      };
     }
 
-    return {
-      glAccountId: row.glAccountId,
-      accountNumber: row.glAccount.accountNumber,
-      accountName: row.glAccount.name,
-    };
+    const healed = await this.ensureStageAccountMapping(params.companyId, params.speciesKey, params.stage);
+    if (healed) return healed;
+
+    throw new AccountingRuleViolation(
+      'Consolidated Reference §67 — Biological asset stage account',
+      `No approved GL account is mapped for ${params.speciesKey} at stage "${params.stage}". ` +
+        `The event is recorded; it stays unposted until an account is configured.`,
+      { speciesKey: params.speciesKey, stage: params.stage },
+    );
+  }
+
+  /**
+   * The mapping `ProvisioningService.provisionCompany()` already creates for
+   * every stage in `SNAIL_STAGE_ACCOUNTS`/`POULTRY_STAGE_ACCOUNTS`, applied
+   * lazily for a company that predates it (or predates a given stage being
+   * added to that table). Returns `null` — never throws — for a stage this
+   * table genuinely has no opinion on (130204 "Market Snails" today), so
+   * `stageAccount`'s own "will not guess" refusal still fires for that case.
+   */
+  private async ensureStageAccountMapping(
+    companyId: string,
+    speciesKey: string,
+    stage: string,
+  ): Promise<{ glAccountId: string; accountNumber: string; accountName: string } | null> {
+    const table = speciesKey === 'snail' ? SNAIL_STAGE_ACCOUNTS : POULTRY_STAGE_ACCOUNTS;
+    const accountNumber = table[stage];
+    if (!accountNumber) return null;
+
+    const account = await this.ensureAccount(companyId, accountNumber);
+    if (!account) return null;
+
+    const created = await this.prisma.biologicalAssetStageAccount.upsert({
+      where: { companyId_speciesKey_stage: { companyId, speciesKey, stage } },
+      update: {},
+      create: { companyId, speciesKey, stage, glAccountId: account.id },
+    });
+    if (!created.active) return null;
+
+    return { glAccountId: account.id, accountNumber: account.accountNumber, accountName: account.name };
+  }
+
+  /**
+   * The account itself, self-healed from `DEFAULT_ACCOUNTS` when a company
+   * predates it — see that table's own header. Returns `null` — never
+   * throws — for a number this table does not recognise, so every caller's
+   * existing "no such account" error still fires for a genuinely unknown one.
+   */
+  private async ensureAccount(
+    companyId: string,
+    accountNumber: string,
+  ): Promise<{ id: string; accountNumber: string; name: string } | null> {
+    const existing = await this.prisma.gLAccount.findFirst({
+      where: { companyId, accountNumber, active: true },
+      select: { id: true, accountNumber: true, name: true },
+    });
+    if (existing) return existing;
+
+    const seed = DEFAULT_ACCOUNTS[accountNumber];
+    if (!seed) return null;
+
+    return this.prisma.gLAccount.create({
+      data: {
+        companyId,
+        accountNumber,
+        name: seed.name,
+        accountType: seed.type,
+        normalBalance: seed.normal,
+      },
+      select: { id: true, accountNumber: true, name: true },
+    });
   }
 
   /**
@@ -135,10 +282,7 @@ export class BiologicalAssetService {
   }
 
   private async grniAccount(companyId: string): Promise<{ glAccountId: string }> {
-    const account = await this.prisma.gLAccount.findFirst({
-      where: { companyId, accountNumber: '210200', active: true },
-      select: { id: true },
-    });
+    const account = await this.ensureAccount(companyId, '210200');
     if (!account) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §66 — Posting chart',
@@ -156,10 +300,7 @@ export class BiologicalAssetService {
     // 420100 Snails, 420200 Poultry — the same numbering pattern the workbook
     // uses throughout (species offset by 100).
     const accountNumber = speciesKey === 'snail' ? '420100' : '420200';
-    const account = await this.prisma.gLAccount.findFirst({
-      where: { companyId, accountNumber, active: true },
-      select: { id: true },
-    });
+    const account = await this.ensureAccount(companyId, accountNumber);
     if (!account) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §66 — Posting chart',
@@ -175,10 +316,7 @@ export class BiologicalAssetService {
     speciesKey: string,
   ): Promise<{ glAccountId: string }> {
     const accountNumber = speciesKey === 'snail' ? '640300' : '640500';
-    const account = await this.prisma.gLAccount.findFirst({
-      where: { companyId, accountNumber, active: true },
-      select: { id: true },
-    });
+    const account = await this.ensureAccount(companyId, accountNumber);
     if (!account) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §66 — Posting chart',
