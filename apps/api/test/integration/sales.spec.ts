@@ -1274,4 +1274,41 @@ describe('Order-to-Cash (§6)', () => {
       expect(await accountBalance('1201')).toBe(0n);
     });
   });
+
+  describe('eggs sold at the value they were collected at (PCR-067)', () => {
+    /** Make the item the farm's eggs item, carried at `wac` per unit as collections would leave it. */
+    async function asEggs(wac: bigint | null) {
+      await prisma.eggValuePolicy.create({
+        data: {
+          companyId: fixture.companyId,
+          itemId,
+          eggsPerUnit: 30,
+          valuePerUnitKobo: 450_00n,
+          effectiveFrom: new Date('2026-01-01'),
+          createdById: fixture.makerId,
+        },
+      });
+      await prisma.item.update({ where: { id: itemId }, data: { weightedAverageCostKobo: wac } });
+    }
+
+    it('costs a delivery of eggs at their carried value, not the standard cost', async () => {
+      await asEggs(450_00n);
+      const order = await makeApprovedOrder(10);
+      const delivery = await deliverAll(order.id);
+
+      const lines = await prisma.deliveryNoteLine.findMany({ where: { deliveryNoteId: delivery.id } });
+      expect(lines[0]!.unitCostKobo).toBe(450_00n); // not the ₦600 standard
+      expect(lines[0]!.costKobo).toBe(4_500_00n);
+      const out = await prisma.stockMovement.findFirstOrThrow({
+        where: { itemId, direction: 'OUT', sourceDocumentType: { not: 'OpeningStock' } },
+      });
+      expect(out.valueKobo).toBe(4_500_00n);
+    });
+
+    it('refuses to sell eggs that were never valued into stock', async () => {
+      await asEggs(null);
+      const order = await makeApprovedOrder(10);
+      await expect(deliverAll(order.id)).rejects.toThrow(/have been valued into stock/);
+    });
+  });
 });

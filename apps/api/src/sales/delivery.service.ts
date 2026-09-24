@@ -1,3 +1,4 @@
+import { eggItemIds, eggUnitCost } from './egg-cost';
 import { Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import {
@@ -92,6 +93,9 @@ export class DeliveryService {
       batchReference: string | null;
     }> = [];
 
+    // Eggs leave at what they went into stock at, not a standard cost (egg-cost.ts).
+    const eggItems = await eggItemIds(this.prisma, order.companyId);
+
     let lineNumber = 1;
     for (const line of input.lines) {
       const orderLine = lineById.get(line.salesOrderLineId);
@@ -140,11 +144,11 @@ export class DeliveryService {
         );
       }
 
-      // Standard cost at the delivery date (Rule 8: effective-dated).
-      const unitCost = await this.recipes.standardCostOn(
-        orderLine.itemId,
-        input.deliveryDate,
-      );
+      // Standard cost at the delivery date (Rule 8: effective-dated) — except
+      // eggs, which leave at the average of the value they came in at.
+      const unitCost = eggItems.has(orderLine.itemId)
+        ? await eggUnitCost(this.prisma, orderLine.itemId)
+        : await this.recipes.standardCostOn(orderLine.itemId, input.deliveryDate);
       const cost = BigInt(
         new Decimal(unitCost.toString())
           .mul(quantity)

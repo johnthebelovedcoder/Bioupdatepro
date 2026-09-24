@@ -1,3 +1,4 @@
+import { eggItemIds, eggUnitCost } from './egg-cost';
 import { Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import {
@@ -170,13 +171,14 @@ export class CreditNoteService {
         const returnLines: Prisma.SalesReturnLineCreateManySalesReturnInput[] = [];
         let lineNumber = 1;
         let totalCost = 0n;
+        // Returned eggs come back at what eggs are carried at, not a standard cost.
+        const eggItems = await eggItemIds(this.prisma, input.companyId);
 
         for (const line of input.salesReturn.lines) {
           const quantity = new Decimal(line.quantity.toString());
-          const unitCost = await this.recipes.standardCostOn(
-            line.itemId,
-            input.salesReturn.returnDate,
-          );
+          const unitCost = eggItems.has(line.itemId)
+            ? await eggUnitCost(this.prisma, line.itemId)
+            : await this.recipes.standardCostOn(line.itemId, input.salesReturn.returnDate);
           const cost = BigInt(
             new Decimal(unitCost.toString())
               .mul(quantity)
