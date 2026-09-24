@@ -46,26 +46,27 @@ services:
     # periodically adds a constraint db push can't prove safe without it, and
     # refused outright rather than guess, which is what broke this deploy.
     #
-    # Migrations run at START, not in the build (2026-09-24). Render's build
-    # machines are not on the private network, so the database's internal
-    # hostname is unreachable there (P1001 / ENOTFOUND — two failed deploys
-    # proved it). A pre-deploy command would be the textbook place, but it is
-    # not available on the free plan. Nor can a STARTING instance reach it:
-    # the database is only reachable once the service is serving. So the start
-    # command makes one short attempt and, on Render, moves on if unreachable;
-    # the API then runs the same migration itself once it is listening
-    # (migrateInBackground in apps/api/src/main.ts) and logs the outcome under
-    # [Migrations]. With nothing pending it is a no-op, so every restart is safe.
+    # Migrations run at START, not in the build (2026-09-24), because a
+    # pre-deploy command is not available on the free plan. The start command
+    # makes one short attempt and, on Render, moves on if the database is
+    # unreachable; the API then runs the same migration itself once it is
+    # listening (migrateInBackground in apps/api/src/main.ts) and logs the
+    # outcome under [Migrations]. With nothing pending it is a no-op, so every
+    # restart is safe. (The P1001s that led here were DATABASE_URL pointing at
+    # an unused Render Postgres — see below — not a network restriction.)
     buildCommand: npm install --include=dev && npm run db:generate && npm run build --workspace @bioassetpro/api
     startCommand: npm run db:migrate && node apps/api/dist/main.js
     healthCheckPath: /api/auth/providers
     envVars:
       - key: NODE_ENV
         value: production
+      # The production database is on Neon, not Render. Entered by hand in the
+      # dashboard: `fromDatabase` pointed this at a Render Postgres, and every
+      # Blueprint sync reset it there, over the Neon URL — the API then spent
+      # 2026-09-24 failing to reach a Render database nobody was using. With
+      # `sync: false` a sync never touches the value set in the dashboard.
       - key: DATABASE_URL
-        fromDatabase:
-          name: bioassetpro-db
-          property: connectionString
+        sync: false
       # Generated once by Render and never seen by anyone. The API refuses to
       # start if this is missing, which is the intended behaviour: a fallback
       # secret that works silently in development ships silently to production.
@@ -110,9 +111,3 @@ services:
       #     https://bioassetpro-api.onrender.com/api
       - key: NEXT_PUBLIC_API_URL
         sync: false
-
-databases:
-  - name: bioassetpro-db
-    plan: free
-    region: frankfurt
-    postgresMajorVersion: "16"

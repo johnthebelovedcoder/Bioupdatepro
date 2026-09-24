@@ -18,7 +18,7 @@
 // hostname cannot be reached from them at all (see render.yaml).
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -87,8 +87,32 @@ if (!first.ok && first.output.includes('P1001') && deferIfUnreachable) {
 }
 if (!first.ok) {
   if (!first.output.includes('P3005')) process.exit(1);
-  console.log(`\nExisting schema with no migration history — marking ${BASELINE} as already applied.`);
-  run('prisma', ['migrate', 'resolve', '--applied', BASELINE]);
+  /*
+   * A database built by `db push` from a LATER schema than the baseline —
+   * production on Neon was pushed up to date before migrations existed — is
+   * already past some migrations too, and running them fails on tables that
+   * exist. If it matches the current schema exactly, every migration is
+   * already in it; otherwise only the baseline is.
+   */
+  const diff = run(
+    'prisma',
+    // --from-schema-datasource reads DATABASE_URL itself, so the URL never
+    // passes through a shell (on Windows it would split at its `&`).
+    ['migrate', 'diff', '--from-schema-datasource', 'prisma/schema.prisma', '--to-schema-datamodel', 'prisma/schema.prisma', '--exit-code'],
+    { allowFailure: true },
+  );
+  const upToDate = diff.ok;
+  const toMark = upToDate
+    ? readdirSync(join(packageDir, 'prisma', 'migrations'), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort()
+    : [BASELINE];
+  console.log(
+    `\nExisting schema with no migration history — marking ${toMark.join(', ')} as already applied` +
+      (upToDate ? ' (it already matches the current schema).' : '.'),
+  );
+  for (const name of toMark) run('prisma', ['migrate', 'resolve', '--applied', name]);
   run('prisma', ['migrate', 'deploy']);
 }
 
