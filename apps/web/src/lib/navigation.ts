@@ -457,6 +457,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['control', 'reconciliation', 'subledger', 'sign off', 'release', 'uat', 'build order'],
       },
       {
+        href: '/ledger/farm-costing',
+        label: 'Farm costing',
+        hint: 'Egg value, and wages and overheads shared across flocks and cohorts',
+        keywords: ['egg value', 'egg price', 'crate', 'allocation', 'animal days', 'labour', 'overhead', 'abc', 'costing'],
+      },
+      {
         href: '/ledger/posting-rules',
         label: 'Posting rules',
         hint: 'Every business event, and the debit and credit it makes',

@@ -19,6 +19,7 @@ import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { ProductionModule } from './production/production.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { PoultryEggModule } from './poultry-egg/poultry-egg.module';
+import { CostAllocationModule } from './cost-allocation/cost-allocation.module';
 import { RoutingModule } from './routing/routing.module';
 import { FarmConfigModule } from './farm-config/farm-config.module';
 import { MastersController } from './masters/masters.controller';
@@ -74,6 +75,7 @@ const developmentOnlyControllers =
     ProductionModule,
     InventoryModule,
     PoultryEggModule,
+    CostAllocationModule,
     RoutingModule,
     FarmConfigModule,
   ],

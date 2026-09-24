@@ -4,8 +4,9 @@ import { api } from './api';
 /**
  * PoultryPro egg production, incubation and hatching (Poultry_Egg_Production
  * P-EGG-01 through P-EGG-08). Three real, enforced stages — collect, set,
- * hatch — with no GL posting yet (DEC-002, egg recognition, is still open;
- * see the API's own PoultryEggService doc comment).
+ * hatch — each posted to the ledger once the farm has set an egg value
+ * (DEC-002, answered 2026-09-24; see EggPostingService and Books → Farm
+ * costing).
  */
 
 export interface EggBatch {

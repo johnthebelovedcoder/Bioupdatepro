@@ -136,7 +136,7 @@ export default async function ControlsPage() {
 
         <Card
           title="Farm records waiting for the ledger"
-          subtitle="Feeding, treatments, and the rearing cost of deaths and sales, that have not posted yet"
+          subtitle="Feeding, treatments, egg collections, and the rearing cost of deaths and sales, that have not posted yet"
         >
           <p className="faint" style={{ marginBottom: 'var(--sp-3)' }}>
             A round recorded while its period was closed, or before a feed item had a cost, is

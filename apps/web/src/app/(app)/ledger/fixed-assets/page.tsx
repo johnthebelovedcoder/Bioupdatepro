@@ -9,6 +9,7 @@ import { IconBox } from '@/components/icons';
 import { CapitaliseAssetForm } from '@/components/capitalise-asset-form';
 import { RunDepreciationForm } from '@/components/run-depreciation-form';
 import { DisposeAssetForm } from '@/components/dispose-asset-form';
+import { PROCESSING_LINES, ProcessingLineForm } from '@/components/processing-line-form';
 import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Fixed assets — BioAssetPro' };
@@ -87,7 +88,7 @@ export default async function FixedAssetsPage() {
                       Net book value
                     </th>
                     <th style={{ width: 120 }}>Status</th>
-                    <th style={{ width: 90 }} />
+                    <th style={{ width: 150 }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -102,6 +103,9 @@ export default async function FixedAssetsPage() {
                           {asset.assetClass}
                           {asset.costCentre ? ` · ${asset.costCentre}` : ''}
                         </div>
+                        {asset.processingCycle ? (
+                          <div className="faint">Depreciates to {PROCESSING_LINES[asset.processingCycle]}</div>
+                        ) : null}
                       </td>
                       <td className="num" style={{ textAlign: 'left' }}>
                         {formatDate(asset.acquisitionDate)}
@@ -123,6 +127,9 @@ export default async function FixedAssetsPage() {
                         )}
                       </td>
                       <td>
+                        {asset.status === 'POSTED' && !asset.disposedOn ? (
+                          <ProcessingLineForm assetId={asset.id} assetNumber={asset.assetNumber} current={asset.processingCycle} />
+                        ) : null}
                         {asset.status === 'POSTED' && !asset.disposedOn && !asset.pendingTransactionId ? (
                           <DisposeAssetForm
                             assetId={asset.id}
@@ -146,7 +153,8 @@ export default async function FixedAssetsPage() {
         <p className="muted" style={{ fontSize: 14 }}>
           Capitalising an asset posts <strong>Dr Property, Plant &amp; Equipment / Cr Trade
           Payables</strong> once approved. Running depreciation posts one{' '}
-          <strong>Dr Depreciation Expense / Cr Accumulated Depreciation</strong> line per asset,
+          <strong>Dr Depreciation Expense / Cr Accumulated Depreciation</strong> line per asset
+          (or, for a machine marked with a processing line, Dr that line&rsquo;s overhead),
           for whichever period is chosen — never more than once per asset per period.
         </p>
       </Card>

@@ -10,6 +10,8 @@ export interface FixedAssetRow {
   costKobo: string;
   usefulLifeMonths: number;
   costCentre: string | null;
+  /** PCR-031: the processing line this machine serves, if any. */
+  processingCycle: 'SNAILPRO' | 'POULTRYPRO' | 'FEED_MILL' | null;
   accumulatedDepreciationKobo: string;
   netBookValueKobo: string;
   status: string;

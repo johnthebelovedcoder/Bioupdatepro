@@ -52,7 +52,7 @@ export class RearingCostService {
     // Posted and still standing: a reversed feed or treatment journal took its
     // cost back out of WIP, so it is no longer in the population either.
     const standing = { is: { reversedBy: { is: null } } };
-    const [feed, treatments, reliefs] = await Promise.all([
+    const [feed, treatments, reliefs, labour] = await Promise.all([
       client.feedIssue.aggregate({
         where: { dailyRecord: { groupId }, journalEntry: standing },
         _sum: { valueKobo: true },
@@ -66,9 +66,16 @@ export class RearingCostService {
         where: { groupId },
         _sum: { amountKobo: true },
       }),
+      // A flock's share of farm labour and overhead (PCR-064), which the farm
+      // capitalises into the same Work in Progress. Snail shares go to
+      // expense (612000), so they were never in WIP.
+      client.farmCostAllocationLine.aggregate({
+        where: { groupId, speciesKey: 'poultry', allocation: { journalEntry: standing } },
+        _sum: { amountKobo: true },
+      }),
     ]);
 
-    let balance = (feed._sum.valueKobo ?? 0n) + (treatments._sum.costKobo ?? 0n);
+    let balance = (feed._sum.valueKobo ?? 0n) + (treatments._sum.costKobo ?? 0n) + (labour._sum.amountKobo ?? 0n);
     for (const row of reliefs) {
       const amount = row._sum.amountKobo ?? 0n;
       balance += row.eventType === 'TRANSFER_IN' ? amount : OUTFLOWS.includes(row.eventType) ? -amount : 0n;

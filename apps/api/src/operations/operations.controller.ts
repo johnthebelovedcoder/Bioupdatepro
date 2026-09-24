@@ -13,6 +13,7 @@ import { OperationsService } from './operations.service';
 import { OperationsReadService } from './operations-read.service';
 import { TradeService } from './trade.service';
 import { OperationsPostingService } from './operations-posting.service';
+import { EggPostingService } from '../poultry-egg/egg-posting.service';
 import { Roles, AnyRole } from '../auth/roles.guard';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -37,6 +38,7 @@ export class OperationsController {
     private readonly reads: OperationsReadService,
     private readonly trade: TradeService,
     private readonly postings: OperationsPostingService,
+    private readonly eggPostings: EggPostingService,
   ) {}
 
   /* --- Reads ------------------------------------------------------------ */
@@ -221,11 +223,18 @@ export class OperationsController {
     @CurrentUser() actor: WorkflowActor,
     @Query('limit') limit?: string,
   ) {
-    return this.postings.postBacklog({
+    const farm = await this.postings.postBacklog({
       companyId,
       actor,
       ...(limit ? { limit: Number(limit) } : {}),
     });
+    // Egg collections, settings and hatches (PCR-067/068/069) wait the same way.
+    const eggs = await this.eggPostings.postPending(companyId, actor);
+    return {
+      ...farm,
+      eggs: { posted: eggs.posted, failed: eggs.failed },
+      reasons: [...new Set([...farm.reasons, ...eggs.reasons])],
+    };
   }
 
   /*

@@ -39,8 +39,9 @@ describe('PostingControlProvisioningService', () => {
     const result = await provisioning.provision(fixture.companyId, fixture.makerId);
     expect(result.rules).toBe(86);
     expect(result.keys).toBe(172);
-    // The workbook names 68 distinct six-digit accounts; 132 keys point at one.
-    expect(result.accountsCreated).toBe(68);
+    // The workbook names 68 distinct six-digit accounts, plus the two it implies
+    // (420210 egg gain, 623100 feed-mill overhead); 132 keys point at one.
+    expect(result.accountsCreated).toBe(70);
     expect(result.linked).toBe(132);
 
     expect(await provisioning.status(fixture.companyId)).toMatchObject({ loaded: true, rules: 86, keys: 172 });
@@ -49,12 +50,14 @@ describe('PostingControlProvisioningService', () => {
     const failing = run.rows.filter((row) => ['PCC-01', 'PCC-02', 'PCC-03', 'PCC-04', 'PCC-05'].includes(row.id) && row.state !== 'PASS');
     expect(failing).toEqual([]);
 
-    // Feed, treatments and live sales resolve through the farm postings; what
-    // stays blocked is labour/overhead/depreciation allocation and egg
-    // valuation — modules not built, and policies the farm has not chosen.
+    // Every rule now posts: through this table, or through the dedicated
+    // farm postings (feed, treatments, live sales, labour and overhead by
+    // animal-days, machine depreciation by line, eggs at a dated value).
+    const keys = run.rows.find((row) => row.id === 'PCC-08')!;
+    expect(keys.state).toBe('PASS');
     const rules = run.rows.find((row) => row.id === 'PCC-09')!;
-    expect(rules.found).toBe('58 through this table, 23 by dedicated code, 5 blocked');
-    expect(rules.next).toContain('PCR-028, PCR-031, PCR-043, PCR-064, PCR-067.');
+    expect(rules.state).toBe('PASS');
+    expect(rules.found).toMatch(/, 0 blocked$/);
   });
 
   it('adds accounts without touching the ones a company already has', async () => {

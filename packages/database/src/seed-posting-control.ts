@@ -149,6 +149,16 @@ const DYNAMIC_RESOLUTION: Record<string, string> = {
   'PCR-063-DR': 'OperationsPostingService.postTreatment() — capitalised into the flock’s Work in Progress (1501)',
   'PCR-063-CR': 'OperationsPostingService.postTreatment() — Raw Material Inventory (1301), the store the medication came from',
   'PCR-073-CR': 'RearingCostService.relieve(DISPOSAL) — the sold birds’ weighted-average share out of Work in Progress (1501) to Cost of Sales (5001)',
+
+  // Built 2026-09-24 under the farm's answers: labour and overhead by
+  // animal-days (flocks capitalised, snails expensed), each machine to one
+  // processing line, eggs at a dated value per crate.
+  'PCR-028-DR': 'FarmCostAllocationService.post() — payroll shared by animal-days to each flock’s Work in Progress (1501) or snail cohort (612000); credits back the salary expense the payroll run charged, since that run already credited Payroll Payable (220100)',
+  'PCR-031-DR': 'FixedAssetService.postApprovedDepreciation() — a machine marked with a processing line posts to that line’s overhead: 621200 snail, 622100 poultry, 623100 feed mill',
+  'PCR-043-CR': 'FarmCostAllocationService.post() — each source account chosen for the run (payroll, overhead or depreciation expense), credited by the amount allocated',
+  'PCR-064-DR': 'FarmCostAllocationService.post() — capitalised into the flock’s Work in Progress (1501), relieved at weighted average',
+  'PCR-064-CR': 'FarmCostAllocationService.post() — each source account chosen for the run (payroll, overhead or depreciation expense), credited by the amount allocated',
+  'PCR-067-CR': 'EggPostingService.postCollection() — Agricultural Produce Gain — Eggs (420210): eggs are produce, recognised at the farm’s dated value per crate',
 };
 
 function statusOf(value: string): PostingRuleStatus {

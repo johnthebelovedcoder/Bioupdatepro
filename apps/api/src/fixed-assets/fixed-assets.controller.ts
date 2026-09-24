@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
+import type { ProductionOrderCycle } from '@bioassetpro/database';
 import { FixedAssetService } from './fixed-asset.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
@@ -78,6 +79,32 @@ export class FixedAssetsController {
       assetId: id,
       actor,
       disposedOn: new Date(body.disposedOn),
+    });
+  }
+
+  /**
+   * PCR-031 — which processing line a machine serves, so its depreciation
+   * becomes that line's overhead. A costing decision, so the finance roles
+   * that approve depreciation make it.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @OwnedRecord('fixedAsset', 'id')
+  @Post('assets/:id/processing-line')
+  async setProcessingLine(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { processingCycle: string | null },
+  ) {
+    const cycle = body?.processingCycle ?? null;
+    if (cycle !== null && !['SNAILPRO', 'POULTRYPRO', 'FEED_MILL'].includes(cycle)) {
+      throw new BadRequestException('processingCycle must be SNAILPRO, POULTRYPRO, FEED_MILL or null.');
+    }
+    return this.assets.setProcessingCycle({
+      companyId,
+      assetId: id,
+      processingCycle: cycle as ProductionOrderCycle | null,
+      actor,
     });
   }
 }

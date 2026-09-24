@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Headers, Post } from '@nestjs/common';
 import { PoultryEggService } from './poultry-egg.service';
+import { EggPostingService } from './egg-posting.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.guard';
@@ -25,7 +26,35 @@ export class PoultryEggController {
   constructor(
     private readonly eggs: PoultryEggService,
     private readonly prisma: PrismaService,
+    private readonly postings: EggPostingService,
   ) {}
+
+  /** DEC-002 — the value eggs are recognised at, by date. */
+  @Get('value-policies')
+  async valuePolicies(@CurrentCompany() companyId: string) {
+    return this.postings.listPolicies(companyId);
+  }
+
+  /** Setting the value is a costing decision, so the finance roles make it. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('value-policies')
+  async setValuePolicy(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { itemId: string; eggsPerUnit: number; valuePerUnitKobo: string; effectiveFrom: string },
+  ) {
+    if (!body?.itemId || !/^d+$/.test(String(body.valuePerUnitKobo ?? '')) || !/^d{4}-d{2}-d{2}$/.test(body.effectiveFrom ?? '')) {
+      throw new BadRequestException('itemId, a whole-kobo valuePerUnitKobo and an effectiveFrom date are required.');
+    }
+    return this.postings.setPolicy({
+      companyId,
+      itemId: body.itemId,
+      eggsPerUnit: Number(body.eggsPerUnit),
+      valuePerUnitKobo: BigInt(body.valuePerUnitKobo),
+      effectiveFrom: new Date(`${body.effectiveFrom}T00:00:00.000Z`),
+      actor,
+    });
+  }
 
   /**
    * Active poultry groups, for the "record a collection" picker.
@@ -69,7 +98,7 @@ export class PoultryEggController {
       notes?: string;
     },
   ) {
-    return this.eggs.recordCollection({
+    const batch = await this.eggs.recordCollection({
       companyId,
       sourceGroupId: body.sourceGroupId,
       code: body.code,
@@ -81,6 +110,10 @@ export class PoultryEggController {
       recordedById: actor.userId,
       idempotencyKey: requireKey(idempotencyKey),
     });
+    // Posted after the record has committed: a refusal leaves it waiting on
+    // Controls rather than losing the worker's count.
+    await this.postings.postCollection(batch.id, actor);
+    return batch;
   }
 
   @Post('incubations')
@@ -98,7 +131,7 @@ export class PoultryEggController {
       notes?: string;
     },
   ) {
-    return this.eggs.setIncubation({
+    const incubation = await this.eggs.setIncubation({
       companyId,
       eggBatchId: body.eggBatchId,
       code: body.code,
@@ -109,6 +142,8 @@ export class PoultryEggController {
       recordedById: actor.userId,
       idempotencyKey: requireKey(idempotencyKey),
     });
+    await this.postings.postIncubation(incubation.id, actor);
+    return incubation;
   }
 
   @Post('hatch')
@@ -129,7 +164,7 @@ export class PoultryEggController {
       penHouseId?: string;
     },
   ) {
-    return this.eggs.recordHatch({
+    const hatch = await this.eggs.recordHatch({
       companyId,
       incubationBatchId: body.incubationBatchId,
       hatchedOn: new Date(body.hatchedOn),
@@ -143,5 +178,7 @@ export class PoultryEggController {
       recordedById: actor.userId,
       idempotencyKey: requireKey(idempotencyKey),
     });
+    await this.postings.postHatch(hatch.id, actor);
+    return hatch;
   }
 }

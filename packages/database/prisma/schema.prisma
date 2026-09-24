@@ -817,6 +817,8 @@ model JournalEntry {
   mortalityRecords          MortalityRecord[]          @relation("MortalityJournal")
   eggCollectionBatches      EggCollectionBatch[]       @relation("EggCollectionJournal")
   hatchEvents               HatchEvent[]                @relation("HatchJournal")
+  incubationBatches         IncubationBatch[]          @relation("IncubationJournal")
+  farmCostAllocations       FarmCostAllocation[]
   stageChanges              StageChange[]              @relation("StageChangeJournal")
   biologicalAssetValuations BiologicalAssetValuation[]
   livestockDisposals        LivestockGroupDisposal[]   @relation("LivestockDisposalJournal")
@@ -5962,6 +5964,14 @@ model EggCollectionBatch {
   /// `LivestockGroup.population` already use.
   hatchingRemaining Int @map("hatching_remaining")
 
+  /// PCR-067 valuation, fixed when the collection posts: the eggs stock item
+  /// the table and hatching eggs were received into, how many eggs make one
+  /// of its units, and what they were valued at under the farm's egg value
+  /// policy (`EggValuePolicy`). Rejects carry no value. Null/zero until posted.
+  itemId      String? @map("item_id") @db.Uuid
+  eggsPerUnit Int?    @map("eggs_per_unit")
+  valueKobo   BigInt  @default(0) @map("value_kobo")
+
   notes String?
 
   journalEntryId String? @map("journal_entry_id") @db.Uuid
@@ -6007,11 +6017,17 @@ model IncubationBatch {
 
   notes String?
 
+  /// PCR-068: the eggs' carrying value moved from Eggs (130215) into Eggs in
+  /// Incubation (130216) — what PCR-069 later hands to the hatched chicks.
+  valueKobo      BigInt  @default(0) @map("value_kobo")
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
   recordedById String   @map("recorded_by_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at")
 
-  company    Company            @relation(fields: [companyId], references: [id])
-  eggBatch   EggCollectionBatch @relation(fields: [eggBatchId], references: [id])
+  company      Company            @relation(fields: [companyId], references: [id])
+  eggBatch     EggCollectionBatch @relation(fields: [eggBatchId], references: [id])
+  journalEntry JournalEntry?      @relation("IncubationJournal", fields: [journalEntryId], references: [id])
   recordedBy User               @relation("IncubationRecorder", fields: [recordedById], references: [id])
 
   hatchEvent HatchEvent?
@@ -6593,6 +6609,11 @@ model FixedAsset {
 
   costCentreId String? @map("cost_centre_id") @db.Uuid
 
+  /// PCR-031: a machine that serves one processing line or the feed mill.
+  /// Its depreciation is that line's overhead, not general depreciation
+  /// expense. Null for every other asset.
+  processingCycle ProductionOrderCycle? @map("processing_cycle")
+
   /// MONEY. Running balance — the sum of every posted DepreciationEntry
   /// against this asset. Denormalised so the register doesn't need to sum
   /// entries to show a book value.
@@ -6934,4 +6955,84 @@ model SnailBreedingCycle {
   @@unique([companyId, code])
   @@index([companyId, breederGroupId])
   @@map("snail_breeding_cycles")
+}
+
+// ---------------------------------------------------------------------------
+// PCR-067 egg valuation policy (DEC-002, answered 2026-09-24): eggs are
+// recognised when collected at a value per unit of an eggs stock item (a crate
+// of 30, usually), effective-dated so a price change never rewrites history.
+// ---------------------------------------------------------------------------
+model EggValuePolicy {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  /// The eggs stock item collections are received into.
+  itemId           String   @map("item_id") @db.Uuid
+  /// Eggs in one unit of that item: 30 for a crate, 1 for single eggs.
+  eggsPerUnit      Int      @map("eggs_per_unit")
+  /// MONEY. Value of one unit (one crate), in kobo.
+  valuePerUnitKobo BigInt   @map("value_per_unit_kobo")
+  effectiveFrom    DateTime @map("effective_from") @db.Date
+  createdById      String   @map("created_by_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([companyId, effectiveFrom])
+  @@map("egg_value_policies")
+}
+
+// ---------------------------------------------------------------------------
+// PCR-028 / PCR-043 / PCR-064 — farm labour and overhead charged to the
+// populations that used it, split by animal-days (the farm's chosen driver).
+// One allocation per period and source set; posted as one journal that takes
+// each source amount back out of its account and charges each population its
+// share: poultry into Work in Progress (1501), snails to 612000.
+// ---------------------------------------------------------------------------
+model FarmCostAllocation {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  financialPeriodId String   @map("financial_period_id") @db.Uuid
+  reference         String
+  /// MONEY. Sum of the sources, equal to the sum of the lines.
+  totalKobo         BigInt   @map("total_kobo")
+  journalEntryId    String?  @map("journal_entry_id") @db.Uuid
+  createdById       String   @map("created_by_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  journalEntry JournalEntry?              @relation(fields: [journalEntryId], references: [id])
+  sources      FarmCostAllocationSource[]
+  lines        FarmCostAllocationLine[]
+
+  @@unique([companyId, reference])
+  @@index([companyId, financialPeriodId])
+  @@map("farm_cost_allocations")
+}
+
+model FarmCostAllocationSource {
+  id           String  @id @default(uuid()) @db.Uuid
+  allocationId String  @map("allocation_id") @db.Uuid
+  glAccountId  String  @map("gl_account_id") @db.Uuid
+  costCentreId String? @map("cost_centre_id") @db.Uuid
+  amountKobo   BigInt  @map("amount_kobo")
+
+  allocation FarmCostAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+
+  @@index([allocationId])
+  @@map("farm_cost_allocation_sources")
+}
+
+model FarmCostAllocationLine {
+  id           String  @id @default(uuid()) @db.Uuid
+  allocationId String  @map("allocation_id") @db.Uuid
+  groupId      String  @map("group_id") @db.Uuid
+  speciesKey   String  @map("species_key")
+  /// QUANTITY. Animals × days alive in the period.
+  animalDays   Decimal @map("animal_days") @db.Decimal(18, 6)
+  /// Where the share was charged: 1501 for poultry, 612000 for snails.
+  glAccountId  String  @map("gl_account_id") @db.Uuid
+  amountKobo   BigInt  @map("amount_kobo")
+
+  allocation FarmCostAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+
+  @@index([allocationId])
+  @@index([groupId])
+  @@map("farm_cost_allocation_lines")
 }

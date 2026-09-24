@@ -105,3 +105,30 @@ export async function disposeAsset(
   revalidatePath('/ledger/fixed-assets');
   return { error: null, message: 'Disposal sent for approval.' };
 }
+
+/** PCR-031 — which processing line a machine serves; its depreciation follows. */
+export async function setProcessingLine(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const assetId = String(formData.get('assetId') ?? '');
+  const line = String(formData.get('processingCycle') ?? '');
+  if (!assetId) return { error: 'No asset was named.', message: null };
+
+  try {
+    await api(`/fixed-assets/assets/${assetId}/processing-line`, {
+      method: 'POST',
+      body: { processingCycle: line || null },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not save the processing line.');
+  }
+
+  revalidatePath('/ledger/fixed-assets');
+  return {
+    error: null,
+    message: line
+      ? 'Saved. From the next depreciation run, this machine is charged to that line.'
+      : 'Saved. From the next depreciation run, this machine goes to general depreciation.',
+  };
+}

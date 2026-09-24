@@ -130,7 +130,7 @@ for throwaway local databases only.
 
 ```bash
 npm run typecheck
-npm test                  # 343 integration and 31 unit tests against a real PostgreSQL
+npm test                  # 357 integration and 31 unit tests against a real PostgreSQL
 ```
 
 The integration suite starts its own ephemeral database. It exercises the
@@ -156,6 +156,15 @@ Stated here rather than discovered later.
   the policy chosen on 2026-09-24. FIFO or standard costing would need their
   own implementation. Relief is exact from that date; feed eaten by animals
   that left before it stays spread over the survivors.
+- **Farm labour and overhead are shared by animal-days only** (Books → Farm
+  costing): a month's chosen expense amounts are split across the flocks and
+  snail cohorts alive that month, flocks into Work in Progress, snails to
+  612000. Timesheet hours are not captured, so the workbook's hours × rate
+  basis is not available. A month before 2026-09-24 can understate a
+  population that later sold live animals, whose counts were not dated then.
+- **A machine depreciates to one processing line**, not split by machine
+  hours. Egg value is one dated price per crate for table and hatching eggs;
+  rejects carry none.
 - **Google and Facebook sign-in are seams, not features.** The flow is ready;
   the credentials must come from your own developer accounts.
 - **Bank statements are imported, not fed.** A CSV export from the bank is

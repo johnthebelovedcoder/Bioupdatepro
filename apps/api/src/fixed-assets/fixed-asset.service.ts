@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { AuditAction, Prisma, WorkflowStatus } from '@bioassetpro/database';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { AuditAction, Prisma, ProductionOrderCycle, WorkflowStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -57,6 +57,7 @@ export class FixedAssetService {
       costKobo: asset.costKobo.toString(),
       usefulLifeMonths: asset.usefulLifeMonths,
       costCentre: asset.costCentre ? `${asset.costCentre.code} — ${asset.costCentre.name}` : null,
+      processingCycle: asset.processingCycle,
       accumulatedDepreciationKobo: asset.accumulatedDepreciationKobo.toString(),
       netBookValueKobo: (asset.costKobo - asset.accumulatedDepreciationKobo).toString(),
       status: asset.status,
@@ -380,9 +381,17 @@ export class FixedAssetService {
       exchangeRate: '1.00000000',
     };
 
+    // PCR-031: a machine that serves a processing line or the feed mill is
+    // that line's overhead, not general depreciation expense.
+    const lineAccounts = await this.processingOverheadAccounts(
+      run.companyId,
+      params.tx,
+      run.entries.map((entry) => entry.asset.processingCycle),
+    );
+
     const lines = run.entries.flatMap((entry) => [
       {
-        glAccountId: accounts.depreciationExpense,
+        glAccountId: entry.asset.processingCycle ? lineAccounts[entry.asset.processingCycle]! : accounts.depreciationExpense,
         description: `Depreciation — ${entry.asset.assetNumber}`,
         debit: kobo(entry.amountKobo),
         dimensions: { ...dimensions, costCentreId: entry.asset.costCentreId },
@@ -654,6 +663,60 @@ export class FixedAssetService {
     return period;
   }
 
+  /**
+   * PCR-031 — mark a machine as serving one processing line (or none). Only
+   * future depreciation follows it; posted runs are never re-pointed.
+   */
+  async setProcessingCycle(params: { companyId: string; assetId: string; processingCycle: ProductionOrderCycle | null; actor: WorkflowActor }) {
+    const asset = await this.prisma.fixedAsset.findFirst({ where: { id: params.assetId, companyId: params.companyId } });
+    if (!asset) throw new NotFoundException('No such asset in this company.');
+    if (params.processingCycle) {
+      await this.processingOverheadAccounts(params.companyId, this.prisma, [params.processingCycle]);
+    }
+    await this.prisma.fixedAsset.update({ where: { id: asset.id }, data: { processingCycle: params.processingCycle } });
+    await this.audit.write({
+      transactionId: asset.id,
+      module: 'fixed-assets',
+      entityType: 'FixedAsset',
+      entityId: asset.id,
+      status: asset.status,
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      oldValue: { processingCycle: asset.processingCycle },
+      newValue: { processingCycle: params.processingCycle },
+    });
+    return { id: asset.id, processingCycle: params.processingCycle };
+  }
+
+  /** Each processing line's overhead pool — PCR-055-DR, PCR-077-DR, and the feed mill's own. */
+  private async processingOverheadAccounts(
+    companyId: string,
+    client: Prisma.TransactionClient | PrismaService,
+    cycles: Array<ProductionOrderCycle | null>,
+  ): Promise<Partial<Record<ProductionOrderCycle, string>>> {
+    const wanted = [...new Set(cycles.filter((c): c is ProductionOrderCycle => !!c))];
+    if (wanted.length === 0) return {};
+    const numbers = wanted.map((cycle) => PROCESSING_OVERHEAD[cycle].number);
+    const accounts = await client.gLAccount.findMany({
+      where: { companyId, accountNumber: { in: numbers }, active: true },
+      select: { id: true, accountNumber: true },
+    });
+    const resolved: Partial<Record<ProductionOrderCycle, string>> = {};
+    for (const cycle of wanted) {
+      const { number, name } = PROCESSING_OVERHEAD[cycle];
+      const account = accounts.find((a) => a.accountNumber === number);
+      if (!account) {
+        throw new AccountingRuleViolation(
+          'PCR-031 — Manufacturing depreciation',
+          `Depreciation for this line posts to ${number} (${name}), which this chart does not have. Load the posting rules on Controls first.`,
+          { accountNumber: number, processingCycle: cycle },
+        );
+      }
+      resolved[cycle] = account.id;
+    }
+    return resolved;
+  }
+
   private async resolveAccounts<K extends string>(
     companyId: string,
     tx: Prisma.TransactionClient,
@@ -689,3 +752,10 @@ export class FixedAssetService {
     return resolved as Record<K, string>;
   }
 }
+
+/** PCR-031-DR "Processing/Feed-mill OH Expense", per line. */
+const PROCESSING_OVERHEAD: Record<ProductionOrderCycle, { number: string; name: string }> = {
+  SNAILPRO: { number: '621200', name: 'Snail Processing Overhead Expense' },
+  POULTRYPRO: { number: '622100', name: 'Poultry Processing Conversion Expense' },
+  FEED_MILL: { number: '623100', name: 'Feed Mill Overhead Expense' },
+};

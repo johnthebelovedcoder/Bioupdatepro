@@ -12,10 +12,10 @@ export function PostBacklogButton() {
   });
   const result = state.result;
   const posted = result
-    ? result.feedIssues.posted + result.treatments.posted + (result.rearingReliefs?.posted ?? 0)
+    ? result.feedIssues.posted + result.treatments.posted + (result.rearingReliefs?.posted ?? 0) + (result.eggs?.posted ?? 0)
     : 0;
   const failed = result
-    ? result.feedIssues.failed + result.treatments.failed + (result.rearingReliefs?.failed ?? 0)
+    ? result.feedIssues.failed + result.treatments.failed + (result.rearingReliefs?.failed ?? 0) + (result.eggs?.failed ?? 0)
     : 0;
 
   return (

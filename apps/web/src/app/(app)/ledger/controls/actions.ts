@@ -51,6 +51,7 @@ export interface BacklogState {
     feedIssues: { posted: number; failed: number };
     treatments: { posted: number; failed: number };
     rearingReliefs?: { posted: number; failed: number };
+    eggs?: { posted: number; failed: number };
     reasons: string[];
   } | null;
 }

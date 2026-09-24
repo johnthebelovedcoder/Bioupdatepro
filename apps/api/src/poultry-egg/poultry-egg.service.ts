@@ -16,13 +16,10 @@ import { AccountingRuleViolation } from '../common/errors';
  * completely unused, the same "stranded — zero callers" shape this session
  * keeps finding.
  *
- * Deliberately carries NO GL posting in this pass. PCR-067's own basis is
- * "Approved egg quantity × policy value" and the client's own Decision
- * Register (DEC-002, "Egg recognition") is still Open — assigning a per-egg
- * value here would be inventing the fair-value policy the client has not yet
- * set. This mirrors `recordHarvest()`'s own already-accepted precedent
- * (US-897-011): the quantity/lifecycle model is real and enforced end to
- * end, the accounting consequence activates once the client answers DEC-002.
+ * This service records the quantities only. The ledger side — PCR-067's
+ * "approved egg quantity × policy value", once the farm answered DEC-002
+ * ("Egg recognition") on 2026-09-24 — is `EggPostingService`, which the
+ * controller calls after each record here has committed.
  */
 @Injectable()
 export class PoultryEggService {

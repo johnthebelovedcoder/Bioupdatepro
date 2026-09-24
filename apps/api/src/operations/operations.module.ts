@@ -7,6 +7,7 @@ import { OperationsPostingService } from './operations-posting.service';
 import { SalesModule } from '../sales/sales.module';
 import { ProcurementModule } from '../procurement/procurement.module';
 import { BiologicalAssetModule } from '../biological-assets/biological-asset.module';
+import { PoultryEggModule } from '../poultry-egg/poultry-egg.module';
 
 /**
  * Operations — the livestock and the work recorded against it.
@@ -21,7 +22,7 @@ import { BiologicalAssetModule } from '../biological-assets/biological-asset.mod
  */
 @Module({
   // PostingService, Prisma, audit and idempotency are all global (CoreModule).
-  imports: [SalesModule, ProcurementModule, BiologicalAssetModule],
+  imports: [SalesModule, ProcurementModule, BiologicalAssetModule, PoultryEggModule],
   controllers: [OperationsController],
   providers: [
     OperationsService,
