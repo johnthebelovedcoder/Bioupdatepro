@@ -18,8 +18,26 @@ if (!url) {
   process.exit(1);
 }
 
-const client = new pg.Client({ connectionString: url });
-await client.connect();
+// Retried: on a build machine the database's internal hostname has been
+// seen to fail to resolve on the first attempt (ENOTFOUND) and succeed a few
+// seconds later. Each attempt uses a fresh client — a failed pg.Client
+// cannot be reconnected.
+async function connect(attempts = 6) {
+  for (let attempt = 1; ; attempt += 1) {
+    const candidate = new pg.Client({ connectionString: url });
+    try {
+      await candidate.connect();
+      return candidate;
+    } catch (error) {
+      await candidate.end().catch(() => {});
+      if (attempt >= attempts) throw error;
+      const wait = 1000 * 2 ** (attempt - 1);
+      console.log(`  database not reachable yet (${error.code ?? error.message}) — retrying in ${wait / 1000}s`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+const client = await connect();
 
 try {
   const files = readdirSync(sqlDir).filter((f) => f.endsWith('.sql')).sort();
