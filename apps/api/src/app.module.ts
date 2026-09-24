@@ -3,6 +3,7 @@ import { AuthModule } from './auth/auth.module';
 import { CoreModule } from './core.module';
 import { WorkflowModule } from './workflow/workflow.module';
 import { TaxModule } from './tax/tax.module';
+import { BankingModule } from './banking/banking.module';
 import { MastersModule } from './masters/masters.module';
 import { JournalsModule } from './journals/journals.module';
 import { PayrollModule } from './payroll/payroll.module';
@@ -56,6 +57,7 @@ const developmentOnlyControllers =
     AuthModule,
     WorkflowModule,
     TaxModule,
+    BankingModule,
     MastersModule,
     JournalsModule,
     PayrollModule,

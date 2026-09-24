@@ -6806,3 +6806,91 @@ model ImplementationPhase {
   @@unique([companyId, code])
   @@map("implementation_phases")
 }
+
+// ---------------------------------------------------------------------------
+// Banking — bank accounts, imported statements, and reconciliation
+// ---------------------------------------------------------------------------
+
+/// A real bank account, named over the ledger account that carries it.
+///
+/// Payments and receipts already credit and debit a GL account chosen as
+/// "paid from"; this is what lets that account be proved against the bank's
+/// own record of it. One ledger account per bank account — two accounts
+/// sharing a GL could never be reconciled separately.
+model BankAccount {
+  id            String  @id @default(uuid()) @db.Uuid
+  companyId     String  @map("company_id") @db.Uuid
+  glAccountId   String  @map("gl_account_id") @db.Uuid
+  name          String
+  bankName      String  @map("bank_name")
+  /// As the bank prints it. Shown masked everywhere but its own settings.
+  accountNumber String  @map("account_number")
+  active        Boolean @default(true)
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  statements BankStatement[]
+
+  @@unique([companyId, glAccountId])
+  @@unique([companyId, name])
+  @@map("bank_accounts")
+}
+
+/// One imported statement: the bank's own figures for a date range.
+model BankStatement {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  bankAccountId String   @map("bank_account_id") @db.Uuid
+  periodFrom    DateTime @map("period_from") @db.Date
+  periodTo      DateTime @map("period_to") @db.Date
+  /// MONEY, as the bank states them — the reconciliation proves the ledger
+  /// against these, so they are recorded exactly, never derived.
+  openingBalanceKobo BigInt @map("opening_balance_kobo")
+  closingBalanceKobo BigInt @map("closing_balance_kobo")
+  sourceFileName     String? @map("source_file_name")
+
+  importedById String   @map("imported_by_id") @db.Uuid
+  importedAt   DateTime @default(now()) @map("imported_at")
+
+  bankAccount BankAccount         @relation(fields: [bankAccountId], references: [id])
+  lines       BankStatementLine[]
+
+  @@index([bankAccountId, periodTo])
+  @@map("bank_statements")
+}
+
+enum BankLineStatus {
+  UNMATCHED
+  MATCHED
+  /// Deliberately set aside — a bank charge to be journalled, a transfer
+  /// between the farm's own accounts — with the reason recorded.
+  IGNORED
+}
+
+/// One line of a statement. Money in is positive, money out negative.
+model BankStatementLine {
+  id          String   @id @default(uuid()) @db.Uuid
+  statementId String   @map("statement_id") @db.Uuid
+  lineNumber  Int      @map("line_number")
+  valueDate   DateTime @map("value_date") @db.Date
+  description String
+  reference   String?
+  /// MONEY. Signed: a receipt is positive, a payment negative.
+  amountKobo  BigInt   @map("amount_kobo")
+
+  status BankLineStatus @default(UNMATCHED)
+  /// The posted ledger line on the bank's GL account this line is. Unique,
+  /// so one ledger movement can never be claimed by two bank lines.
+  matchedJournalLineId String?   @unique @map("matched_journal_line_id") @db.Uuid
+  ignoredReason        String?   @map("ignored_reason")
+  settledById          String?   @map("settled_by_id") @db.Uuid
+  settledAt            DateTime? @map("settled_at")
+
+  statement BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@unique([statementId, lineNumber])
+  @@index([status])
+  @@map("bank_statement_lines")
+}

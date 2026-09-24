@@ -146,6 +146,7 @@ export default async function AdminPage() {
           ))}
         </Card>
 
+        {notYet.length > 0 ? (
         <Card title="Not available yet" padded={false}>
           {notYet.map((entry) => (
             <div className="list-row" key={entry.label}>
@@ -157,6 +158,7 @@ export default async function AdminPage() {
             </div>
           ))}
         </Card>
+        ) : null}
       </div>
     </>
   );

@@ -311,6 +311,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['cash', 'finance', 'income', 'expense'],
       },
       {
+        href: '/finance/banking',
+        label: 'Banking',
+        hint: 'Bank accounts, statement import and reconciliation',
+        keywords: ['bank', 'reconciliation', 'statement', 'cash', 'account', 'recon'],
+      },
+      {
         href: '/finance/batches',
         label: 'What each population made',
         hint: 'Profit and cost per flock or cohort',
@@ -630,7 +636,6 @@ export const HOME: NavSection = {
  * has one somewhere.
  */
 export const NOT_BUILT_YET: Array<{ label: string; belongsUnder: string; why: string }> = [
-  { label: 'Banking', belongsUnder: 'Money', why: 'Bank accounts, statement import and reconciliation' },
 ];
 
 /* --- Derived views ------------------------------------------------------ */
