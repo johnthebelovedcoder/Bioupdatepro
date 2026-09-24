@@ -43,7 +43,7 @@ export class PoultryEggController {
     @CurrentUser() actor: WorkflowActor,
     @Body() body: { itemId: string; eggsPerUnit: number; valuePerUnitKobo: string; effectiveFrom: string },
   ) {
-    if (!body?.itemId || !/^d+$/.test(String(body.valuePerUnitKobo ?? '')) || !/^d{4}-d{2}-d{2}$/.test(body.effectiveFrom ?? '')) {
+    if (!body?.itemId || !/^\d+$/.test(String(body.valuePerUnitKobo ?? '')) || !/^\d{4}-\d{2}-\d{2}$/.test(body.effectiveFrom ?? '')) {
       throw new BadRequestException('itemId, a whole-kobo valuePerUnitKobo and an effectiveFrom date are required.');
     }
     return this.postings.setPolicy({
