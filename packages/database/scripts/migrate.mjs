@@ -43,6 +43,20 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+/*
+ * Migrations need a DIRECT connection. `migrate deploy` holds a Postgres
+ * advisory lock for the whole run, and a transaction-mode pooler (Neon's
+ * `-pooler` host, PgBouncer) cannot keep one — production timed out on it
+ * (P1002, 2026-09-24). DIRECT_URL wins if set; otherwise a Neon pooled host is
+ * turned into its direct host, which is the same name without `-pooler`. The
+ * API itself keeps using the pooled URL.
+ */
+const directUrl = process.env.DIRECT_URL || process.env.DATABASE_URL.replace(/(ep-[a-z0-9-]+?)-pooler\./, '$1.');
+if (directUrl !== process.env.DATABASE_URL) {
+  console.log('Using the direct (unpooled) connection for migrations.');
+  process.env.DATABASE_URL = directUrl;
+}
+
 /** Run a command, echo its output, and hand back what it printed. */
 const run = (command, args, { allowFailure = false } = {}) => {
   const result = spawnSync(command, args, {
@@ -67,18 +81,20 @@ const run = (command, args, { allowFailure = false } = {}) => {
  * Everywhere else (local, CI, tests) unreachable is an error, retried a few
  * times for a database that is still starting.
  */
+/** Unreachable (P1001) or reached but timed out, e.g. on the migration lock (P1002). */
+const transient = (output) => output.includes('P1001') || output.includes('P1002');
 const onRender = process.env.RENDER === 'true';
 const deferIfUnreachable = onRender && process.env.MIGRATE_FROM_API !== '1';
 const attempts = deferIfUnreachable ? 2 : 6;
 let first;
 for (let attempt = 1; ; attempt += 1) {
   first = run('prisma', ['migrate', 'deploy'], { allowFailure: true });
-  if (first.ok || !first.output.includes('P1001') || attempt >= attempts) break;
+  if (first.ok || !transient(first.output) || attempt >= attempts) break;
   const wait = 2000 * 2 ** (attempt - 1);
   console.log(`Database not reachable yet — retrying in ${wait / 1000}s (attempt ${attempt + 1} of ${attempts}).`);
   await new Promise((r) => setTimeout(r, wait));
 }
-if (!first.ok && first.output.includes('P1001') && deferIfUnreachable) {
+if (!first.ok && transient(first.output) && deferIfUnreachable) {
   console.log(
     '\nDatabase not reachable before the service is live — migrations will run from the ' +
       'API once it is listening. Continuing to start.',
