@@ -15,6 +15,6 @@ import { TaxPeriodService } from './tax-period.service';
 @Global()
 @Module({
   providers: [TaxEngineService, TaxRegisterService, TaxPeriodService, TaxSetupService],
-  exports: [TaxEngineService, TaxRegisterService, TaxPeriodService],
+  exports: [TaxEngineService, TaxRegisterService, TaxPeriodService, TaxSetupService],
 })
 export class TaxModule {}
