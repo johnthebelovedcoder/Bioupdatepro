@@ -4,7 +4,8 @@ import { title } from '@/lib/modules';
 // Snail breeding has no model behind it yet, so it stays on the fixture and
 // keeps its Demo data badge. Poultry breeding (egg collection, incubation,
 // hatch) is real — see getEggBatches/getIncubationBatches below.
-import { getBreedingCycles } from '@/lib/demo-ops';
+import { getBreederGroups, getSnailBreedingCycles } from '@/lib/snail-breeding';
+import { RecordBreedingCycleForm, SnailHatchForm } from './snail-breeding-forms';
 import { getEggBatches, getIncubationBatches, getLayingGroups } from '@/lib/poultry-eggs';
 import {
   getFeeding,
@@ -18,7 +19,7 @@ import {
 import { getActiveNames } from '@/app/(app)/staff/actions';
 import { getFarmConfig } from '@/lib/farm-config.server';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
-import { Card, DemoFlag, EmptyState, PageHeader, Stat } from './ui';
+import { Card, EmptyState, PageHeader, Stat } from './ui';
 import { HelpTerm } from './help';
 import { HealthSchedule } from './record-treatment';
 import { HarvestLog } from './record-harvest';
@@ -478,98 +479,101 @@ export async function PerformanceSection({ module }: { module: SpeciesModule }) 
 export async function BreedingSection({ module }: { module: SpeciesModule }) {
   if (module.key === 'poultry') return <PoultryBreedingSection module={module} />;
 
-  const cycles = await getBreedingCycles();
+  const [cycles, breeders] = await Promise.all([getSnailBreedingCycles(), getBreederGroups()]);
   const t = module.terms;
+  const today = new Date().toISOString().slice(0, 10);
 
-  const hatched = cycles.filter((cycle) => cycle.hatchRate !== null);
+  const hatched = cycles.filter((cycle) => cycle.hatchRate !== null && cycle.status === 'HATCHED');
   const averageRate = hatched.length
-    ? Number(
-        (hatched.reduce((sum, cycle) => sum + (cycle.hatchRate ?? 0), 0) / hatched.length).toFixed(
-          1,
-        ),
-      )
-    : 0;
+    ? Number((hatched.reduce((sum, cycle) => sum + (cycle.hatchRate ?? 0), 0) / hatched.length).toFixed(1))
+    : null;
 
   return (
     <>
       <PageHeader
         title={module.nav.find((n) => n.slug === 'breeding')?.label ?? 'Breeding'}
-        subtitle={`${t.breeding} groups and their outcomes`}
+        subtitle={`${t.breeding}s, the eggs laid, and what hatched`}
+        actions={<RecordBreedingCycleForm breeders={breeders} today={today} />}
       />
 
       <div className="stack">
-        <DemoFlag note="Breeding has no model behind it yet — these cycles are illustrative, not this farm's real records." />
         <div className="stat-grid">
-          <Stat label="Average hatch rate" value={`${averageRate}%`} goodWhen="up" hint="completed cycles" />
+          <Stat
+            label="Average hatch rate"
+            value={averageRate === null ? '—' : `${averageRate}%`}
+            goodWhen="up"
+            hint="hatched cycles"
+          />
           <Stat
             label="Eggs laid"
             value={cycles.reduce((sum, cycle) => sum + cycle.eggsLaid, 0).toLocaleString('en-NG')}
           />
           <Stat
             label="Hatchlings"
-            value={cycles
-              .reduce((sum, cycle) => sum + (cycle.hatchlings ?? 0), 0)
-              .toLocaleString('en-NG')}
+            value={cycles.reduce((sum, cycle) => sum + (cycle.hatchedCount ?? 0), 0).toLocaleString('en-NG')}
           />
-          <Stat
-            label="Incubating"
-            value={String(cycles.filter((cycle) => cycle.status === 'INCUBATING').length)}
-          />
+          <Stat label="Incubating" value={String(cycles.filter((cycle) => cycle.status === 'SET').length)} />
         </div>
 
         <Card title="Cycles" subtitle="Most recent first" padded={false}>
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th style={{ width: 110 }}>Set on</th>
-                  <th style={{ width: 110 }}>{title(t.group.one)}</th>
-                  <th className="right" style={{ width: 110 }}>
-                    Breeders
-                  </th>
-                  <th className="right" style={{ width: 110 }}>
-                    Eggs laid
-                  </th>
-                  <th className="right" style={{ width: 110 }}>
-                    Hatchlings
-                  </th>
-                  <th className="right" style={{ width: 110 }}>
-                    Hatch rate
-                  </th>
-                  <th style={{ width: 110 }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cycles.map((cycle) => (
-                  <tr key={cycle.id}>
-                    <td className="num" style={{ textAlign: 'left' }}>
-                      {formatDate(cycle.setOn)}
-                    </td>
-                    <td className="num strong" style={{ textAlign: 'left' }}>
-                      {cycle.colonyCode}
-                    </td>
-                    <td className="num">{cycle.breeders.toLocaleString('en-NG')}</td>
-                    <td className="num">{cycle.eggsLaid.toLocaleString('en-NG')}</td>
-                    <td className="num">
-                      {cycle.hatchlings !== null ? cycle.hatchlings.toLocaleString('en-NG') : '—'}
-                    </td>
-                    <td className="num">
-                      {cycle.hatchRate !== null ? `${cycle.hatchRate}%` : '—'}
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${
-                          cycle.status === 'HATCHED' ? 'badge-success' : 'badge-warning'
-                        }`}
-                      >
-                        {cycle.status.toLowerCase()}
-                      </span>
-                    </td>
+          {cycles.length === 0 ? (
+            <EmptyState
+              icon={<IconEgg size={22} />}
+              title="No breeding cycles yet"
+              body="Record a cycle when a breeder cohort lays. When the eggs hatch, record it here and the hatchlings become their own cohort."
+            />
+          ) : (
+            <div className="table-wrap">
+              <table className="data wide">
+                <thead>
+                  <tr>
+                    <th style={{ width: 120 }}>Cycle</th>
+                    <th style={{ width: 110 }}>Laid on</th>
+                    <th style={{ width: 110 }}>{title(t.group.one)}</th>
+                    <th className="right" style={{ width: 100 }}>Breeders</th>
+                    <th className="right" style={{ width: 100 }}>Eggs</th>
+                    <th className="right" style={{ width: 110 }}>Hatchlings</th>
+                    <th className="right" style={{ width: 100 }}>Hatch rate</th>
+                    <th style={{ width: 150 }}>Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {cycles.map((cycle) => (
+                    <tr key={cycle.id}>
+                      <td className="num strong" style={{ textAlign: 'left' }}>
+                        {cycle.code}
+                      </td>
+                      <td className="num" style={{ textAlign: 'left' }}>
+                        {formatDate(cycle.setOn)}
+                      </td>
+                      <td className="num" style={{ textAlign: 'left' }}>
+                        {cycle.breederGroupCode ?? '—'}
+                      </td>
+                      <td className="num">{cycle.breeders.toLocaleString('en-NG')}</td>
+                      <td className="num">{cycle.eggsLaid.toLocaleString('en-NG')}</td>
+                      <td className="num">
+                        {cycle.hatchedCount !== null ? cycle.hatchedCount.toLocaleString('en-NG') : '—'}
+                        {cycle.hatchlingGroupCode ? <div className="faint">{cycle.hatchlingGroupCode}</div> : null}
+                      </td>
+                      <td className="num">{cycle.hatchRate !== null ? `${cycle.hatchRate}%` : '—'}</td>
+                      <td>
+                        {cycle.status === 'SET' ? (
+                          <SnailHatchForm cycleId={cycle.id} code={cycle.code} eggsLaid={cycle.eggsLaid} today={today} />
+                        ) : (
+                          <>
+                            <span className={`badge ${cycle.status === 'HATCHED' ? 'badge-success' : 'badge-danger'}`}>
+                              {cycle.status.toLowerCase()}
+                            </span>
+                            {cycle.failedReason ? <div className="faint">{cycle.failedReason}</div> : null}
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       </div>
     </>
@@ -579,8 +583,7 @@ export async function BreedingSection({ module }: { module: SpeciesModule }) {
 /**
  * The real thing, for poultry: egg collection, incubation and hatching,
  * backed by `EggCollectionBatch`/`IncubationBatch`/`HatchEvent` — not the
- * fixture `BreedingSection` above still uses for snail, which has no
- * breeding model in the database at all.
+ * snail cycles above, which have their own `SnailBreedingCycle` record.
  */
 async function PoultryBreedingSection({ module }: { module: SpeciesModule }) {
   const [eggBatches, incubationBatches, layingGroups] = await Promise.all([

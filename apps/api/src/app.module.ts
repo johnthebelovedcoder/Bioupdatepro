@@ -4,6 +4,7 @@ import { CoreModule } from './core.module';
 import { WorkflowModule } from './workflow/workflow.module';
 import { TaxModule } from './tax/tax.module';
 import { BankingModule } from './banking/banking.module';
+import { SnailBreedingModule } from './snail-breeding/snail-breeding.module';
 import { MastersModule } from './masters/masters.module';
 import { JournalsModule } from './journals/journals.module';
 import { PayrollModule } from './payroll/payroll.module';
@@ -58,6 +59,7 @@ const developmentOnlyControllers =
     WorkflowModule,
     TaxModule,
     BankingModule,
+    SnailBreedingModule,
     MastersModule,
     JournalsModule,
     PayrollModule,

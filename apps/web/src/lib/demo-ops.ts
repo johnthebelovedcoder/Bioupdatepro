@@ -1,13 +1,12 @@
 /**
- * Type contracts for the operational reads, plus one fixture still in use.
+ * Type contracts for the operational reads.
  *
- * `lib/operations.ts` now reads production, feeding, health, performance,
+ * `lib/operations.ts` reads production, feeding, health, performance,
  * stage-breakdown and harvest data from the real API — this file used to
  * generate all of it. What is left is the interfaces those real functions are
- * written against (so a page and its data source cannot quietly disagree on
- * shape), and `getBreedingCycles()`, which stays a fixture because no
- * breeding/incubation model exists in the backend yet. Screens using it still
- * show the `<DemoFlag />` marker.
+ * written against, so a page and its data source cannot quietly disagree on
+ * shape. The last fixture here, snail breeding cycles, now has its own record
+ * (`lib/snail-breeding.ts`).
  *
  * Money is in KOBO as integer strings, matching the API.
  */
@@ -73,62 +72,6 @@ export interface PerformanceRow {
 }
 
 /* -------------------------------------------------------------------------- */
-
-export interface BreedingCycle {
-  id: string;
-  colonyCode: string;
-  setOn: string;
-  breeders: number;
-  eggsLaid: number;
-  hatchlings: number | null;
-  hatchRate: number | null;
-  status: 'INCUBATING' | 'HATCHED';
-}
-
-export async function getBreedingCycles(): Promise<BreedingCycle[]> {
-  return [
-    {
-      id: 'bc4',
-      colonyCode: 'S-001',
-      setOn: daysAgo(12),
-      breeders: 320,
-      eggsLaid: 468,
-      hatchlings: null,
-      hatchRate: null,
-      status: 'INCUBATING',
-    },
-    {
-      id: 'bc3',
-      colonyCode: 'S-001',
-      setOn: daysAgo(44),
-      breeders: 300,
-      eggsLaid: 450,
-      hatchlings: 381,
-      hatchRate: 84.7,
-      status: 'HATCHED',
-    },
-    {
-      id: 'bc2',
-      colonyCode: 'S-001',
-      setOn: daysAgo(78),
-      breeders: 285,
-      eggsLaid: 412,
-      hatchlings: 340,
-      hatchRate: 82.5,
-      status: 'HATCHED',
-    },
-    {
-      id: 'bc1',
-      colonyCode: 'S-001',
-      setOn: daysAgo(112),
-      breeders: 270,
-      eggsLaid: 398,
-      hatchlings: 349,
-      hatchRate: 87.7,
-      status: 'HATCHED',
-    },
-  ];
-}
 
 /* -------------------------------------------------------------------------- */
 

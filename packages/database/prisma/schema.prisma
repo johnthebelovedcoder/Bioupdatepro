@@ -6894,3 +6894,44 @@ model BankStatementLine {
   @@index([status])
   @@map("bank_statement_lines")
 }
+
+// ---------------------------------------------------------------------------
+// Snail breeding
+// ---------------------------------------------------------------------------
+
+/// One breeding cycle of a snail breeder cohort: eggs laid into the
+/// incubation medium, and what hatched from them.
+///
+/// Mirrors the poultry egg → incubation → hatch chain, in one record because
+/// snails lay straight into the medium they incubate in — there is no
+/// separate collection step to track. A hatch accounts for every egg
+/// (hatched + unhatched = laid) and places the hatchlings as their own cohort,
+/// at zero acquisition cost: they were bred, not bought.
+model SnailBreedingCycle {
+  id             String @id @default(uuid()) @db.Uuid
+  companyId      String @map("company_id") @db.Uuid
+  code           String
+  breederGroupId String @map("breeder_group_id") @db.Uuid
+
+  setOn    DateTime @map("set_on") @db.Date
+  breeders Int
+  eggsLaid Int      @map("eggs_laid")
+
+  /// SET → HATCHED, or FAILED with a reason.
+  status String @default("SET")
+
+  hatchedOn        DateTime? @map("hatched_on") @db.Date
+  hatchedCount     Int?      @map("hatched_count")
+  unhatchedCount   Int?      @map("unhatched_count")
+  hatchlingGroupId String?   @map("hatchling_group_id") @db.Uuid
+  failedReason     String?   @map("failed_reason")
+
+  notes        String?
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, code])
+  @@index([companyId, breederGroupId])
+  @@map("snail_breeding_cycles")
+}
