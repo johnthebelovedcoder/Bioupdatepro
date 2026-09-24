@@ -9,6 +9,7 @@ import {
   closeTaxPeriod,
   fileTaxPeriod,
   generateTaxPeriods,
+  setUpTax,
   type CalculationState,
   type FlowState,
 } from '@/app/(app)/ledger/tax/actions';
@@ -267,5 +268,61 @@ function Submit({ label, pending: pendingLabel }: { label: string; pending: stri
         {pending ? pendingLabel : label}
       </button>
     </div>
+  );
+}
+
+/**
+ * First-time tax setup. The statutory rates are not asked for — they are the
+ * law — only the withholding basis, which no source document settles, and the
+ * company's own tax identifiers.
+ */
+export function TaxSetupForm() {
+  const [state, formAction] = useActionState<FlowState, FormData>(setUpTax, EMPTY);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (state.message) router.refresh();
+    // Only when a fresh success message arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.message]);
+
+  return (
+    <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+      <p className="muted" style={{ fontSize: 14 }}>
+        This adds VAT at 7.5% (with zero-rated, exempt and out-of-scope codes), the withholding-tax
+        categories at their resident rates, and links each to this company&rsquo;s VAT and WHT
+        control accounts. Returns are monthly, due on the 21st of the following month.
+      </p>
+
+      {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+      {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+
+      <fieldset className="stack" style={{ gap: 'var(--sp-2)', border: 0, padding: 0, margin: 0 }}>
+        <legend style={{ marginBottom: 'var(--sp-2)' }}>Withholding tax is worked out on…</legend>
+        <label className="row" style={{ gap: 'var(--sp-2)' }}>
+          <input type="radio" name="whtBasis" value="NET_OF_VAT" required /> the amount before VAT
+        </label>
+        <label className="row" style={{ gap: 'var(--sp-2)' }}>
+          <input type="radio" name="whtBasis" value="GROSS_INCLUDING_VAT" /> the amount including VAT
+        </label>
+        <span className="faint">
+          The two give different amounts. If you are unsure, ask your tax adviser — your answer is
+          recorded against your name.
+        </span>
+      </fieldset>
+
+      <div className="row" style={{ gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+        <label className="field" style={{ flex: 1, minWidth: 180 }}>
+          TIN<span className="faint"> (optional)</span>
+          <input name="tin" />
+        </label>
+        <label className="field" style={{ flex: 1, minWidth: 180 }}>
+          VAT registration number<span className="faint"> (optional)</span>
+          <input name="vatRegistrationNumber" />
+        </label>
+      </div>
+
+      <Submit label="Set up tax" pending="Setting up…" />
+    </form>
   );
 }

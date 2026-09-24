@@ -183,3 +183,37 @@ export async function calculateTax(
     };
   }
 }
+
+/**
+ * Turn tax on for this company. The withholding basis is the one decision
+ * asked for — no source document settles it, so it is never defaulted.
+ */
+export async function setUpTax(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const whtBasis = String(formData.get('whtBasis') ?? '');
+  if (whtBasis !== 'NET_OF_VAT' && whtBasis !== 'GROSS_INCLUDING_VAT') {
+    return {
+      error: 'Choose whether withholding tax is worked out before VAT or including it.',
+      message: null,
+    };
+  }
+  const tin = String(formData.get('tin') ?? '').trim();
+  const vatRegistrationNumber = String(formData.get('vatRegistrationNumber') ?? '').trim();
+
+  try {
+    const result = await api<{ codesCreated: number; ratesCreated: number }>('/tax/setup', {
+      method: 'POST',
+      body: {
+        whtBasis,
+        ...(tin ? { tin } : {}),
+        ...(vatRegistrationNumber ? { vatRegistrationNumber } : {}),
+      },
+    });
+    revalidatePath('/ledger/tax');
+    return {
+      error: null,
+      message: `Tax is set up — ${result.codesCreated} tax codes and ${result.ratesCreated} rates added. You can now set up a year of periods.`,
+    };
+  } catch (caught) {
+    return fail(caught, 'Could not set up tax.');
+  }
+}

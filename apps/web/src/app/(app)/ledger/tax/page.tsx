@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { getTaxCodes, getTaxPeriods, type TaxPeriod } from '@/lib/tax';
+import { getTaxCodes, getTaxPeriods, getTaxSetup, type TaxPeriod } from '@/lib/tax';
 import { formatDate } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { IconClipboard } from '@/components/icons';
-import { GenerateTaxPeriodsForm, TaxCalculatorForm } from '@/components/tax-actions';
+import { GenerateTaxPeriodsForm, TaxCalculatorForm, TaxSetupForm } from '@/components/tax-actions';
 
 export const metadata = { title: 'Tax — BioAssetPro' };
 
@@ -16,7 +16,14 @@ export const metadata = { title: 'Tax — BioAssetPro' };
  * return was filed, and a return being due does not stop the books closing.
  */
 export default async function TaxPage() {
-  const [periods, taxCodes] = await Promise.all([getTaxPeriods(), getTaxCodes()]);
+  const [periods, taxCodes, setup] = await Promise.all([
+    getTaxPeriods(),
+    getTaxCodes(),
+    getTaxSetup(),
+  ]);
+  // A company signed up through onboarding starts with no tax policy and no
+  // tax codes; nothing on this page works until it has them.
+  const needsSetup = setup.ok && !setup.data.configured;
   const today = new Date().toISOString().slice(0, 10);
 
   return (
@@ -31,8 +38,22 @@ export default async function TaxPage() {
       <div className="stack">
         {!periods.ok ? (
           <div className="notice notice-error">{periods.error}</div>
+        ) : needsSetup ? (
+          <Card
+            title="Set up tax first"
+            subtitle="This company has no tax policy or tax codes yet, so nothing carrying VAT or WHT can be calculated"
+          >
+            <TaxSetupForm />
+          </Card>
         ) : (
           <>
+            {setup.ok && setup.data.whtBasis ? (
+              <p className="faint" style={{ fontSize: 13 }}>
+                Withholding tax is worked out{' '}
+                {setup.data.whtBasis === 'NET_OF_VAT' ? 'before VAT' : 'including VAT'}.{' '}
+                {setup.data.whtBasisAuthority}
+              </p>
+            ) : null}
             <div className="row" style={{ gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
               <GenerateTaxPeriodsForm defaultYear={new Date().getUTCFullYear()} />
               <TaxCalculatorForm taxCodes={taxCodes} />

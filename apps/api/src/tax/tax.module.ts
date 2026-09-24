@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { TaxEngineService } from './tax-engine.service';
+import { TaxSetupService } from './tax-setup.service';
 import { TaxRegisterService } from './tax-register.service';
 import { TaxPeriodService } from './tax-period.service';
 
@@ -13,7 +14,7 @@ import { TaxPeriodService } from './tax-period.service';
  */
 @Global()
 @Module({
-  providers: [TaxEngineService, TaxRegisterService, TaxPeriodService],
+  providers: [TaxEngineService, TaxRegisterService, TaxPeriodService, TaxSetupService],
   exports: [TaxEngineService, TaxRegisterService, TaxPeriodService],
 })
 export class TaxModule {}

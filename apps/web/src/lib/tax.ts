@@ -150,3 +150,21 @@ export function formatRate(rate: string): string {
   if (!Number.isFinite(value)) return rate;
   return `${Number((value * 100).toFixed(4))}%`;
 }
+
+export interface TaxSetupStatus {
+  configured: boolean;
+  whtBasis: 'NET_OF_VAT' | 'GROSS_INCLUDING_VAT' | null;
+  whtBasisAuthority: string | null;
+  tin: string | null;
+  vatRegistrationNumber: string | null;
+  vatFilingIntervalMonths: number | null;
+  vatFilingDueDayOfMonth: number | null;
+  effectiveFrom: string | null;
+  vatCodeCount: number;
+  whtCodeCount: number;
+  whtCodesWithoutRate: number;
+}
+
+export function getTaxSetup(): Promise<Loaded<TaxSetupStatus>> {
+  return load<TaxSetupStatus>('/tax/setup');
+}

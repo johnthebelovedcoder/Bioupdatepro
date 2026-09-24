@@ -1,8 +1,9 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { TaxType } from '@bioassetpro/database';
+import { TaxType, WhtBasis } from '@bioassetpro/database';
 import { TaxEngineService } from './tax-engine.service';
 import { TaxRegisterService } from './tax-register.service';
 import { TaxPeriodService } from './tax-period.service';
+import { TaxSetupService } from './tax-setup.service';
 import { kobo } from '../common/money';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { WorkflowActor } from '../workflow/workflow.types';
@@ -17,7 +18,34 @@ export class TaxController {
     private readonly engine: TaxEngineService,
     private readonly registers: TaxRegisterService,
     private readonly periods: TaxPeriodService,
+    private readonly setup: TaxSetupService,
   ) {}
+
+  /** Whether this company can calculate tax yet, and on what policy. */
+  @Get('setup')
+  async setupStatus(@CurrentCompany() companyId: string) {
+    return this.setup.status(companyId);
+  }
+
+  /**
+   * Turn tax on: configuration, VAT and WHT codes with their statutory rates,
+   * and the control accounts each posts to. Company and actor from the session.
+   */
+  @Post('setup')
+  async activateSetup(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: { whtBasis: WhtBasis; tin?: string | null; vatRegistrationNumber?: string | null },
+  ) {
+    return this.setup.activate({
+      companyId,
+      actorId: actor.userId,
+      whtBasis: body.whtBasis,
+      tin: body.tin,
+      vatRegistrationNumber: body.vatRegistrationNumber,
+    });
+  }
 
   @Post('vat/calculate')
   async calculateVat(
