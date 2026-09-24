@@ -287,4 +287,57 @@ export class TaxSetupService {
 
     return { ...result, status: await this.status(companyId) };
   }
+
+  /**
+   * Correct the company's TIN and VAT registration number.
+   *
+   * Edited in place rather than as a new effective-dated row: these identify
+   * the company, they do not change how any tax is calculated, and a return
+   * should carry the right number whenever it is printed. The old and new
+   * values go to the audit trail, so a change is still traceable.
+   */
+  async updateIdentifiers(params: {
+    companyId: string;
+    actorId: string;
+    tin?: string | null;
+    vatRegistrationNumber?: string | null;
+  }) {
+    const config = await this.prisma.taxConfiguration.findFirst({
+      where: { companyId: params.companyId, effectiveTo: null },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    if (!config) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §4 — Tax configuration',
+        'Tax is not set up for this company yet. Set it up first, then add its identifiers.',
+        {},
+      );
+    }
+
+    const tin = params.tin?.trim() || null;
+    const vatRegistrationNumber = params.vatRegistrationNumber?.trim() || null;
+    if (tin === config.tin && vatRegistrationNumber === config.vatRegistrationNumber) {
+      return this.status(params.companyId);
+    }
+
+    await this.prisma.taxConfiguration.update({
+      where: { id: config.id },
+      data: { tin, vatRegistrationNumber },
+    });
+
+    await this.audit.write({
+      transactionId: config.id,
+      module: 'tax',
+      entityType: 'TaxConfiguration',
+      entityId: config.id,
+      status: 'ACTIVE',
+      action: AuditAction.UPDATE,
+      userId: params.actorId,
+      comments: 'Updated the company TIN and VAT registration number.',
+      oldValue: { tin: config.tin, vatRegistrationNumber: config.vatRegistrationNumber },
+      newValue: { tin, vatRegistrationNumber },
+    });
+
+    return this.status(params.companyId);
+  }
 }

@@ -10,6 +10,7 @@ import {
   fileTaxPeriod,
   generateTaxPeriods,
   setUpTax,
+  updateTaxIdentifiers,
   type CalculationState,
   type FlowState,
 } from '@/app/(app)/ledger/tax/actions';
@@ -324,5 +325,71 @@ export function TaxSetupForm() {
 
       <Submit label="Set up tax" pending="Setting up…" />
     </form>
+  );
+}
+
+/**
+ * The company's TIN and VAT registration number, and the one place to
+ * correct them. They go on every return, so a wrong one is worth fixing
+ * before the first filing — and every change is kept in the audit trail.
+ */
+export function TaxIdentifiersForm({
+  tin,
+  vatRegistrationNumber,
+}: {
+  tin: string | null;
+  vatRegistrationNumber: string | null;
+}) {
+  const [state, formAction] = useActionState<FlowState, FormData>(updateTaxIdentifiers, EMPTY);
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (state.message) {
+      setOpen(false);
+      router.refresh();
+    }
+    // Only when a fresh success message arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.message]);
+
+  return (
+    <>
+      <div className="row" style={{ gap: 'var(--sp-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+        <span className="faint" style={{ fontSize: 13 }}>
+          TIN <strong>{tin ?? 'not set'}</strong> · VAT number{' '}
+          <strong>{vatRegistrationNumber ?? 'not set'}</strong>
+        </span>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setOpen(true)}>
+          Edit
+        </button>
+      </div>
+
+      <Sheet open={open} onClose={() => setOpen(false)} title="Tax identifiers">
+        <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <p className="faint">
+            As issued by the tax authority. Leave a box empty to clear it. The previous values
+            are kept in the audit trail.
+          </p>
+
+          {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+
+          <label className="field">
+            TIN
+            <input name="tin" defaultValue={tin ?? ''} autoComplete="off" />
+          </label>
+          <label className="field">
+            VAT registration number
+            <input
+              name="vatRegistrationNumber"
+              defaultValue={vatRegistrationNumber ?? ''}
+              autoComplete="off"
+            />
+          </label>
+
+          <Submit label="Save" pending="Saving…" />
+        </form>
+      </Sheet>
+    </>
   );
 }

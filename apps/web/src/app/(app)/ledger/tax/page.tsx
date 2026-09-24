@@ -4,7 +4,12 @@ import { formatDate } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { IconClipboard } from '@/components/icons';
-import { GenerateTaxPeriodsForm, TaxCalculatorForm, TaxSetupForm } from '@/components/tax-actions';
+import {
+  GenerateTaxPeriodsForm,
+  TaxCalculatorForm,
+  TaxIdentifiersForm,
+  TaxSetupForm,
+} from '@/components/tax-actions';
 
 export const metadata = { title: 'Tax — BioAssetPro' };
 
@@ -53,6 +58,12 @@ export default async function TaxPage() {
                 {setup.data.whtBasis === 'NET_OF_VAT' ? 'before VAT' : 'including VAT'}.{' '}
                 {setup.data.whtBasisAuthority}
               </p>
+            ) : null}
+            {setup.ok && setup.data.configured ? (
+              <TaxIdentifiersForm
+                tin={setup.data.tin}
+                vatRegistrationNumber={setup.data.vatRegistrationNumber}
+              />
             ) : null}
             <div className="row" style={{ gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
               <GenerateTaxPeriodsForm defaultYear={new Date().getUTCFullYear()} />

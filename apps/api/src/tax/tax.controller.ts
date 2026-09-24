@@ -47,6 +47,21 @@ export class TaxController {
     });
   }
 
+  /** Correct the TIN and VAT registration number without touching tax policy. */
+  @Post('setup/identifiers')
+  async updateIdentifiers(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { tin?: string | null; vatRegistrationNumber?: string | null },
+  ) {
+    return this.setup.updateIdentifiers({
+      companyId,
+      actorId: actor.userId,
+      tin: body.tin,
+      vatRegistrationNumber: body.vatRegistrationNumber,
+    });
+  }
+
   @Post('vat/calculate')
   async calculateVat(
     @CurrentCompany() companyId: string,

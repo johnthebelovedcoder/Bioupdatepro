@@ -217,3 +217,23 @@ export async function setUpTax(_previous: FlowState, formData: FormData): Promis
     return fail(caught, 'Could not set up tax.');
   }
 }
+
+/** Correct the company's TIN and VAT registration number. Blank clears one. */
+export async function updateTaxIdentifiers(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const tin = String(formData.get('tin') ?? '').trim();
+  const vatRegistrationNumber = String(formData.get('vatRegistrationNumber') ?? '').trim();
+
+  try {
+    await api('/tax/setup/identifiers', {
+      method: 'POST',
+      body: { tin: tin || null, vatRegistrationNumber: vatRegistrationNumber || null },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not save those numbers.');
+  }
+  revalidatePath('/ledger/tax');
+  return { error: null, message: 'Saved.' };
+}
