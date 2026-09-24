@@ -55,10 +55,14 @@ export default async function ControlsPage() {
       <Tabs />
 
       <div className="stack">
-        {provisioning.ok && !provisioning.data.loaded ? (
+        {!provisioning.ok || !provisioning.data.loaded ? (
           <Card
             title="Posting rules are not loaded"
-            subtitle={`${provisioning.data.rules} of ${provisioning.data.expectedRules} rules, ${provisioning.data.keys} of ${provisioning.data.expectedKeys} keys`}
+            subtitle={
+              provisioning.ok
+                ? `${provisioning.data.rules} of ${provisioning.data.expectedRules} rules, ${provisioning.data.keys} of ${provisioning.data.expectedKeys} keys`
+                : `Could not check: ${provisioning.error}`
+            }
           >
             <p style={{ fontSize: 14, marginBottom: 'var(--sp-3)' }}>
               Manual journals, stock transfers and processing orders find their accounts through
