@@ -49,13 +49,16 @@ export class RearingCostService {
 
   /** What is still sitting in WIP for this population, in kobo. */
   async remaining(groupId: string, client: Prisma.TransactionClient | PrismaService = this.prisma) {
+    // Posted and still standing: a reversed feed or treatment journal took its
+    // cost back out of WIP, so it is no longer in the population either.
+    const standing = { is: { reversedBy: { is: null } } };
     const [feed, treatments, reliefs] = await Promise.all([
       client.feedIssue.aggregate({
-        where: { dailyRecord: { groupId }, journalEntryId: { not: null } },
+        where: { dailyRecord: { groupId }, journalEntry: standing },
         _sum: { valueKobo: true },
       }),
       client.treatmentRecord.aggregate({
-        where: { groupId, journalEntryId: { not: null } },
+        where: { groupId, journalEntry: standing },
         _sum: { costKobo: true },
       }),
       client.livestockRearingRelief.groupBy({

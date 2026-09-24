@@ -5,6 +5,8 @@ import { PostingService } from '../posting/posting.service';
 import { kobo } from '../common/money';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { RearingCostService } from '../biological-assets/rearing-cost.service';
+import { StockMovementService } from '../inventory/stock-movement.service';
+import Decimal from 'decimal.js';
 
 /**
  * Where the farm's work becomes accounting.
@@ -53,6 +55,7 @@ export class OperationsPostingService {
     private readonly prisma: PrismaService,
     private readonly posting: PostingService,
     private readonly rearing: RearingCostService,
+    private readonly stockMovements: StockMovementService,
   ) {}
 
   /**
@@ -76,6 +79,7 @@ export class OperationsPostingService {
         dailyRecord: {
           include: { group: { include: { penHouse: true } } },
         },
+        item: { select: { defaultWarehouseId: true, inventoryGlAccountId: true } },
       },
     });
 
@@ -83,7 +87,9 @@ export class OperationsPostingService {
     const skipped: string[] = [];
 
     for (const issue of issues) {
-      if (issue.valueKobo <= 0n) {
+      // A stock item is valued by the store when it leaves it (below), so the
+      // value typed on the round only decides for feed that is not an item.
+      if (!issue.itemId && issue.valueKobo <= 0n) {
         // Nothing to post. Not a failure — a farm can issue feed it has no
         // cost for yet, and a zero journal would be noise in the register.
         continue;
@@ -126,40 +132,88 @@ export class OperationsPostingService {
         penHouseId: group.penHouseId,
       };
 
+      /*
+       * Feed that is a stock item leaves the store in the same transaction
+       * that posts it, at the store's average cost, and credits the item's
+       * own inventory account. Before 2026-09-24 the journal credited Raw
+       * Materials with no stock movement at all, so the ledger and the store
+       * drifted apart by every kilo fed — the Controls page's 1301 variance.
+       * No stock on hand refuses the issue; the round is kept and its cost
+       * waits, like a closed period, until the feed has been received.
+       */
+      const warehouseId = issue.itemId
+        ? (issue.item?.defaultWarehouseId ?? (await this.defaultWarehouse(params.companyId)))
+        : null;
+      if (issue.itemId && !warehouseId) {
+        skipped.push('No store is set up to issue feed from.');
+        break;
+      }
+      const creditAccount = issue.item?.inventoryGlAccountId ?? accounts.rawMaterials;
+
       try {
-        const result = await this.posting.post({
-          sourceModule: 'OPERATIONS',
-          sourceDocumentType: 'FEED_ISSUE',
-          sourceDocumentId: issue.id,
-          journalNumber: `FEED-${issue.id.slice(0, 8).toUpperCase()}`,
-          journalDate: issue.dailyRecord.recordedOn,
-          narration: `${issue.feedName} issued to ${group.code}`,
-          ...dimensions,
-          lines: [
+        const result = await this.prisma.$transaction(async (tx) => {
+          const issued = issue.itemId
+            ? await this.stockMovements.issueOut({
+                tx,
+                companyId: params.companyId,
+                branchId: group.branchId,
+                itemId: issue.itemId,
+                warehouseId: warehouseId!,
+                quantity: new Decimal(issue.quantityKg.toString()),
+                sourceModule: 'OPERATIONS',
+                sourceDocumentType: 'FEED_ISSUE',
+                sourceDocumentId: issue.id,
+                documentReference: `FEED-${issue.id.slice(0, 8).toUpperCase()}`,
+                movementDate: issue.dailyRecord.recordedOn,
+              })
+            : null;
+          const valueKobo = issued ? issued.valueKobo : issue.valueKobo;
+          if (valueKobo <= 0n) return null;
+
+          const journal = await this.posting.post(
             {
-              glAccountId: accounts.workInProgress,
-              description: `Feed to ${group.code}`,
-              debit: kobo(issue.valueKobo),
-              dimensions,
+              sourceModule: 'OPERATIONS',
+              sourceDocumentType: 'FEED_ISSUE',
+              sourceDocumentId: issue.id,
+              journalNumber: `FEED-${issue.id.slice(0, 8).toUpperCase()}`,
+              journalDate: issue.dailyRecord.recordedOn,
+              narration: `${issue.feedName} issued to ${group.code}`,
+              ...dimensions,
+              lines: [
+                {
+                  glAccountId: accounts.workInProgress,
+                  description: `Feed to ${group.code}`,
+                  debit: kobo(valueKobo),
+                  dimensions,
+                },
+                {
+                  glAccountId: creditAccount,
+                  description: `${issue.feedName} out of store`,
+                  credit: kobo(valueKobo),
+                  dimensions,
+                },
+              ],
+              // Derived from the row, so a retry of the same feed issue can never
+              // post twice however many times this runs.
+              idempotencyKey: `feed-issue:${issue.id}`,
+              actor: params.actor,
             },
-            {
-              glAccountId: accounts.rawMaterials,
-              description: `${issue.feedName} out of store`,
-              credit: kobo(issue.valueKobo),
-              dimensions,
+            tx,
+          );
+
+          // The movement is append-only, so it is not stamped with the journal
+          // afterwards; both carry this feed issue as their source document.
+          await tx.feedIssue.update({
+            where: { id: issue.id },
+            data: {
+              journalEntryId: journal.journalEntryId,
+              ...(issued ? { unitCostKobo: issued.unitCostKobo, valueKobo: issued.valueKobo } : {}),
             },
-          ],
-          // Derived from the row, so a retry of the same feed issue can never
-          // post twice however many times this runs.
-          idempotencyKey: `feed-issue:${issue.id}`,
-          actor: params.actor,
+          });
+          return journal;
         });
 
-        await this.prisma.feedIssue.update({
-          where: { id: issue.id },
-          data: { journalEntryId: result.journalEntryId },
-        });
-        posted += 1;
+        if (result) posted += 1;
       } catch (error) {
         // Recorded and moved past. The operational row survives with a null
         // journal, which is exactly what "posted later" looks like.
@@ -283,7 +337,9 @@ export class OperationsPostingService {
     const pending = await this.prisma.feedIssue.findMany({
       where: {
         journalEntryId: null,
-        valueKobo: { gt: 0 },
+        // A stock item is valued when it leaves the store, so it waits here
+        // whatever value the round carried.
+        OR: [{ valueKobo: { gt: 0 } }, { itemId: { not: null } }],
         dailyRecord: { companyId: params.companyId },
       },
       select: { dailyRecordId: true },
@@ -338,6 +394,16 @@ export class OperationsPostingService {
   /* ---------------------------------------------------------------------- */
 
   /** The two accounts these postings need, by their workbook numbers. */
+  /** The store feed leaves from when its item names none — the same fallback production orders use. */
+  private async defaultWarehouse(companyId: string): Promise<string | null> {
+    const warehouse = await this.prisma.warehouse.findFirst({
+      where: { companyId, active: true },
+      orderBy: { code: 'asc' },
+      select: { id: true },
+    });
+    return warehouse?.id ?? null;
+  }
+
   private async accounts(companyId: string) {
     const rows = await this.prisma.gLAccount.findMany({
       where: { companyId, accountNumber: { in: ['1501', '1301'] } },
