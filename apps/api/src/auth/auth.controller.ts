@@ -270,6 +270,18 @@ export class AuthController {
     });
   }
 
+  /**
+   * Renew the session of someone who is still using the site. The guard has
+   * already verified the token; the web app calls this at most every half
+   * hour, from its middleware.
+   */
+  @AnyRole('Every signed-in user keeps their own session alive.')
+  @Post('refresh')
+  async refresh(@Req() request: Request) {
+    const header = request.headers.authorization ?? '';
+    return this.auth.refresh(header.replace(/^Bearer\s+/i, ''));
+  }
+
   /** Who the current token belongs to — the frontend's session check. */
   @AnyRole('The session check. Every signed-in user asks who they are.')
   @Get('me')

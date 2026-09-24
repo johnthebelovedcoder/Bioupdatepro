@@ -26,7 +26,17 @@ export interface JwtPayload {
   email: string;
   name: string;
   roles: string[];
+  /**
+   * When the person actually signed in, in epoch seconds. Carried unchanged
+   * through every refresh, so an active session keeps renewing but never
+   * outlives MAX_SESSION_SECONDS from the password that started it.
+   */
+  authAt?: number;
+  iat?: number;
 }
+
+/** However active a session is, the password is asked for again after this. */
+export const MAX_SESSION_SECONDS = 7 * 24 * 60 * 60;
 
 @Injectable()
 export class AuthService {
@@ -74,9 +84,36 @@ export class AuthService {
       email: user.email,
       name: user.fullName,
       roles: user.roles,
+      authAt: Math.floor(Date.now() / 1000),
     };
 
     return { accessToken: await this.jwt.signAsync(payload), user: authenticated };
+  }
+
+  /**
+   * A fresh token for someone still working, so a session ends when they stop
+   * using the site rather than twelve hours after they happened to sign in —
+   * which cut people off mid-task. The token presented has already been
+   * verified by the guard; its user is re-read (roles and name are current),
+   * and its original sign-in time is kept, so no chain of refreshes can stretch
+   * a session past MAX_SESSION_SECONDS.
+   */
+  async refresh(token: string): Promise<{ accessToken: string }> {
+    const presented = this.jwt.decode<JwtPayload>(token);
+    const authAt = presented?.authAt ?? presented?.iat;
+    if (!presented?.sub || !authAt) throw new UnauthorizedException('Session is no longer valid.');
+    if (Math.floor(Date.now() / 1000) - authAt > MAX_SESSION_SECONDS) {
+      throw new UnauthorizedException('Please sign in again — a session lasts at most seven days.');
+    }
+    const user = await this.resolve(presented.sub);
+    const payload: JwtPayload = {
+      sub: user.userId,
+      email: user.email,
+      name: user.fullName,
+      roles: user.roles,
+      authAt,
+    };
+    return { accessToken: await this.jwt.signAsync(payload) };
   }
 
   /**

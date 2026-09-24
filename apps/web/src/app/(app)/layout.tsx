@@ -1,6 +1,6 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { getToken, type SessionUser } from '@/lib/session';
 import { getActiveModule } from '@/lib/active-module';
 import { getFarmConfig } from '@/lib/farm-config.server';
@@ -21,12 +21,24 @@ import { AppShell } from '@/components/app-shell';
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   if (!(await getToken())) redirect('/login');
 
-  let user: SessionUser;
-  try {
-    user = await api<SessionUser>('/auth/me', { redirectOnUnauthorised: false });
-  } catch {
-    redirect('/login?expired=1');
+  /*
+   * Only the API saying "this session is not valid" (401) ends a session.
+   * Anything else — the API restarting during a deploy, waking from sleep on
+   * the free tier, a database blip — used to be treated the same way, and
+   * signed people out mid-work for something that had nothing to do with
+   * them (seen twice on 2026-09-24). Those are retried briefly, and if the
+   * API is still unreachable the page says so, with the session left intact.
+   */
+  let user: SessionUser | null = null;
+  for (let attempt = 1; attempt <= 4 && !user; attempt += 1) {
+    try {
+      user = await api<SessionUser>('/auth/me', { redirectOnUnauthorised: false });
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 401) redirect('/login?expired=1');
+      if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+    }
   }
+  if (!user) return <ServerUnavailable />;
 
   const [activeModule, config, context, roleSectionOverrides] = await Promise.all([
     getActiveModule(),
@@ -78,5 +90,26 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     >
       {children}
     </AppShell>
+  );
+}
+
+/**
+ * Shown when the API cannot be reached for a while — not a sign-out. The
+ * session cookie is untouched, so "Try again" picks up exactly where the
+ * person was once the server is back.
+ */
+async function ServerUnavailable() {
+  const path = (await headers()).get('x-pathname') ?? '/';
+  return (
+    <main style={{ maxWidth: 480, margin: '15vh auto', padding: '0 16px', fontFamily: 'system-ui, sans-serif' }}>
+      <h1 style={{ fontSize: 22, marginBottom: 8 }}>The server is not answering</h1>
+      <p style={{ color: '#555', lineHeight: 1.5 }}>
+        BioAssetPro could not reach its server just now — it may be restarting after an update, or
+        waking up. You are still signed in, and nothing you saved is lost.
+      </p>
+      <p style={{ marginTop: 20 }}>
+        <a href={path} style={{ fontWeight: 600 }}>Try again</a>
+      </p>
+    </main>
   );
 }
