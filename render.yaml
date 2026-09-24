@@ -50,9 +50,12 @@ services:
     # machines are not on the private network, so the database's internal
     # hostname is unreachable there (P1001 / ENOTFOUND — two failed deploys
     # proved it). A pre-deploy command would be the textbook place, but it is
-    # not available on the free plan. At start the private network is there;
-    # with nothing pending, `migrate deploy` is a no-op taking a second or two,
-    # so running it on every restart is safe.
+    # not available on the free plan. Nor can a STARTING instance reach it:
+    # the database is only reachable once the service is serving. So the start
+    # command makes one short attempt and, on Render, moves on if unreachable;
+    # the API then runs the same migration itself once it is listening
+    # (migrateInBackground in apps/api/src/main.ts) and logs the outcome under
+    # [Migrations]. With nothing pending it is a no-op, so every restart is safe.
     buildCommand: npm install --include=dev && npm run db:generate && npm run build --workspace @bioassetpro/api
     startCommand: npm run db:migrate && node apps/api/dist/main.js
     healthCheckPath: /api/auth/providers

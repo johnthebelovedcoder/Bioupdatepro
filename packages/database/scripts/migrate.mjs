@@ -58,17 +58,32 @@ const run = (command, args, { allowFailure = false } = {}) => {
 };
 
 /*
- * Retried while the database cannot be reached (P1001). This runs as the API
- * starts, and a free-tier database can still be waking when it does; giving
- * up at once would crash-loop the service over a delay of a few seconds.
+ * On Render a starting instance cannot reach the database over the private
+ * network until it is serving — seen in production: two minutes of P1001
+ * from the start command while the already-running API queried the same
+ * database without trouble. So on Render this is only a first attempt: if
+ * the database is unreachable it says so and exits cleanly, and the API runs
+ * this same script again once it is listening (apps/api/src/main.ts).
+ * Everywhere else (local, CI, tests) unreachable is an error, retried a few
+ * times for a database that is still starting.
  */
+const onRender = process.env.RENDER === 'true';
+const deferIfUnreachable = onRender && process.env.MIGRATE_FROM_API !== '1';
+const attempts = deferIfUnreachable ? 2 : 6;
 let first;
 for (let attempt = 1; ; attempt += 1) {
   first = run('prisma', ['migrate', 'deploy'], { allowFailure: true });
-  if (first.ok || !first.output.includes('P1001') || attempt >= 6) break;
+  if (first.ok || !first.output.includes('P1001') || attempt >= attempts) break;
   const wait = 2000 * 2 ** (attempt - 1);
-  console.log(`Database not reachable yet — retrying in ${wait / 1000}s (attempt ${attempt + 1} of 6).`);
+  console.log(`Database not reachable yet — retrying in ${wait / 1000}s (attempt ${attempt + 1} of ${attempts}).`);
   await new Promise((r) => setTimeout(r, wait));
+}
+if (!first.ok && first.output.includes('P1001') && deferIfUnreachable) {
+  console.log(
+    '\nDatabase not reachable before the service is live — migrations will run from the ' +
+      'API once it is listening. Continuing to start.',
+  );
+  process.exit(0);
 }
 if (!first.ok) {
   if (!first.output.includes('P3005')) process.exit(1);
