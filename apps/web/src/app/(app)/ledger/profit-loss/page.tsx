@@ -4,6 +4,7 @@ import { defaultYear, getContext } from '@/lib/org';
 import { TrialBalanceFilters } from '../trial-balance/filters';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
+import { ExportLink } from '@/components/export-link';
 
 export const metadata = { title: 'Profit & loss — BioAssetPro' };
 
@@ -83,6 +84,7 @@ export default async function ProfitLossPage({
       <PageHeader
         title="Profit & loss"
         subtitle="Revenue and expense for the period, from posted journal lines only"
+        actions={<ExportLink report="profit-loss" filters={Object.fromEntries(query)} />}
       />
 
       <Tabs />

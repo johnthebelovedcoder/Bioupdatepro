@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache';
 import { api, ApiError } from '@/lib/api';
 import { getContext, defaultYear } from '@/lib/org';
-import type { SessionUser } from '@/lib/session';
 
 export interface FlowState {
   error: string | null;
@@ -73,13 +72,10 @@ export async function createManualJournal(
   const branch = context.branches[0];
   if (!branch) return { error: 'This company has no active branch.', message: null };
 
-  const me = await api<SessionUser>('/auth/me');
-
   try {
     const journal = await api<{ id: string; reference: string }>('/journal/create', {
       method: 'POST',
       body: {
-        companyId: context.company.id,
         journalTypeCode,
         reasonCode,
         reference,
@@ -90,16 +86,12 @@ export async function createManualJournal(
         financialPeriodId: period.id,
         currencyId: context.company.currency.id,
         lines,
-        actor: { userId: me.userId, roles: me.roles },
       },
     });
 
     await api('/journal/submit', {
       method: 'POST',
-      body: {
-        manualJournalId: journal.id,
-        actor: { userId: me.userId, roles: me.roles },
-      },
+      body: { manualJournalId: journal.id },
     });
 
     revalidatePath('/finance/journals');
@@ -147,7 +139,6 @@ export async function createRecurringJournal(
   if (!context.company) return { error: 'No company is set up yet.', message: null };
   const branch = context.branches[0];
   if (!branch) return { error: 'This company has no active branch.', message: null };
-  const me = await api<SessionUser>('/auth/me');
 
   try {
     await api('/journal/recurring', {
@@ -165,7 +156,6 @@ export async function createRecurringJournal(
         startDate: new Date(startDateRaw).toISOString(),
         endDate: endDateRaw ? new Date(endDateRaw).toISOString() : undefined,
         lines,
-        actorId: me.userId,
       },
     });
   } catch (caught) {
@@ -186,14 +176,10 @@ export async function createRecurringJournal(
  * into the pipeline at all until this existed.
  */
 export async function submitManualJournal(manualJournalId: string): Promise<FlowState> {
-  const me = await api<SessionUser>('/auth/me');
   try {
     await api('/journal/submit', {
       method: 'POST',
-      body: {
-        manualJournalId,
-        actor: { userId: me.userId, roles: me.roles },
-      },
+      body: { manualJournalId },
     });
   } catch (caught) {
     return fail(caught, 'Could not submit that journal.');
@@ -206,12 +192,11 @@ export async function submitManualJournal(manualJournalId: string): Promise<Flow
 export async function generateDueRecurring(): Promise<FlowState> {
   const context = await getContext();
   if (!context.company) return { error: 'No company is set up yet.', message: null };
-  const me = await api<SessionUser>('/auth/me');
 
   try {
     const result = await api<{ generated: unknown[]; skipped: unknown[] }>('/journal/recurring/generate', {
       method: 'POST',
-      body: { actorId: me.userId },
+      body: {},
     });
     revalidatePath('/finance/journals');
     return {
@@ -221,4 +206,18 @@ export async function generateDueRecurring(): Promise<FlowState> {
   } catch (caught) {
     return fail(caught, 'Could not generate due journals.');
   }
+}
+
+/** Withdraw a draft journal you raised. A submitted one is rejected; a posted one is reversed. */
+export async function cancelManualJournal(manualJournalId: string): Promise<FlowState> {
+  try {
+    await api('/journal/cancel', {
+      method: 'POST',
+      body: { manualJournalId, reason: 'Withdrawn by the person who raised it.' },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not cancel that journal.');
+  }
+  revalidatePath('/finance/journals');
+  return { error: null, message: 'Journal cancelled.' };
 }

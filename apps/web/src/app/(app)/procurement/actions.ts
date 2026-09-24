@@ -83,6 +83,54 @@ export async function rejectTransaction(
 }
 
 /**
+ * Send a document back to the person who raised it, for correction — softer
+ * than rejecting: it stays alive, and resubmitting resumes the same approval
+ * trail rather than starting a new one.
+ */
+export async function returnTransaction(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const id = String(formData.get('transactionId') ?? '');
+  const comments = String(formData.get('comments') ?? '').trim();
+  if (!id) return { error: 'No document was named.', message: null };
+  if (!comments) {
+    return { error: 'Say what needs correcting — the person who raised it will see this.', message: null };
+  }
+
+  try {
+    await api(`/workflow/${id}/return`, { method: 'POST', body: { comments } });
+  } catch (caught) {
+    return fail(caught, 'Could not send that document back.');
+  }
+
+  revalidatePath('/approvals');
+  revalidatePath('/procurement');
+  return { error: null, message: 'Sent back for correction.' };
+}
+
+/** Withdraw a document you raised, before anyone has approved any step of it. */
+export async function cancelTransaction(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const id = String(formData.get('transactionId') ?? '');
+  const comments = String(formData.get('comments') ?? '').trim();
+  if (!id) return { error: 'No document was named.', message: null };
+
+  try {
+    await api(`/workflow/${id}/cancel`, { method: 'POST', body: { comments: comments || null } });
+  } catch (caught) {
+    return fail(caught, 'Could not withdraw that document.');
+  }
+
+  revalidatePath('/approvals');
+  revalidatePath('/approvals/mine');
+  revalidatePath('/procurement');
+  return { error: null, message: 'Withdrawn.' };
+}
+
+/**
  * Record goods arriving against an order.
  *
  * One form row per order line. Blank and zero rows are dropped rather than
@@ -338,4 +386,70 @@ export async function convertRequisitionToOrder(
   revalidatePath('/procurement/requisitions');
   revalidatePath('/procurement');
   redirect('/procurement?ordered=1');
+}
+
+/**
+ * Correct a draft order's quantities and prices, then send it back for
+ * approval — the path an order takes after an approver returns it.
+ *
+ * Every line is sent back, not only the edited ones: amending replaces the
+ * order's lines, so a line left out would be deleted. Each keeps its item,
+ * wording, tax code and requisition link exactly as it was.
+ */
+export async function amendAndResubmitOrder(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const orderId = String(formData.get('orderId') ?? '');
+  if (!orderId) return { error: 'No order was named.', message: null };
+
+  let lines: Array<{
+    itemId: string;
+    description: string;
+    requisitionLineId: string | null;
+    quantity: string;
+    unitPriceKobo: string;
+    taxCode: string | null;
+  }>;
+  try {
+    lines = JSON.parse(String(formData.get('original') ?? '[]'));
+  } catch {
+    return { error: 'The order could not be read back. Reload and try again.', message: null };
+  }
+
+  for (const [index, line] of lines.entries()) {
+    const quantity = String(formData.get(`quantity:${index}`) ?? '').trim();
+    const priceKobo = String(formData.get(`priceKobo:${index}`) ?? '').trim();
+    if (!quantity || !(Number(quantity) > 0)) {
+      return { error: `Line ${index + 1}: enter a quantity above zero.`, message: null };
+    }
+    if (!/^\d+$/.test(priceKobo)) {
+      return { error: `Line ${index + 1}: enter a unit price.`, message: null };
+    }
+    line.quantity = quantity;
+    line.unitPriceKobo = priceKobo;
+  }
+
+  try {
+    await api(`/procurement/orders/${orderId}/amend`, { method: 'POST', body: { lines } });
+    await api(`/procurement/orders/${orderId}/submit`, { method: 'POST', body: {} });
+  } catch (caught) {
+    return fail(caught, 'Could not amend that order.');
+  }
+
+  revalidatePath('/procurement');
+  revalidatePath(`/procurement/orders/${orderId}`);
+  return { error: null, message: 'Amended and sent back for approval.' };
+}
+
+/** Send a draft order for approval as it stands. */
+export async function submitOrder(orderId: string): Promise<FlowState> {
+  try {
+    await api(`/procurement/orders/${orderId}/submit`, { method: 'POST', body: {} });
+  } catch (caught) {
+    return fail(caught, 'Could not send that order for approval.');
+  }
+  revalidatePath('/procurement');
+  revalidatePath(`/procurement/orders/${orderId}`);
+  return { error: null, message: 'Sent for approval.' };
 }

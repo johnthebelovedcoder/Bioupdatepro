@@ -3,6 +3,7 @@ import { RoutingResourceType } from '@bioassetpro/database';
 import { RoutingService } from './routing.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.guard';
+import { OwnedRecord } from '../auth/owned-record.guard';
 import { kobo } from '../common/money';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
@@ -12,11 +13,15 @@ import type { WorkflowActor } from '../workflow/workflow.types';
 export class RoutingController {
   constructor(private readonly routing: RoutingService) {}
 
+  // Ownership checked on every route taking an order or pool id: the service
+  // looks these up by id alone, so unguarded they answered for any company.
+  @OwnedRecord('productionOrder', 'id')
   @Post('production/orders/:id/routing/snapshot')
   async snapshot(@Param('id') id: string) {
     return this.routing.snapshotRouting(id);
   }
 
+  @OwnedRecord('productionOrder', 'id')
   @Get('production/orders/:id/routing')
   async listRoutingLines(@Param('id') id: string) {
     return this.routing.listRoutingLines(id);
@@ -27,6 +32,7 @@ export class RoutingController {
     return this.routing.listCostPools(companyId);
   }
 
+  @OwnedRecord('costPool', 'id')
   @Get('costing/cost-pools/:id/unused-capacity')
   async unusedCapacity(@Param('id') id: string, @Query('asOf') asOf?: string) {
     return this.routing.unusedCapacity(id, asOf ? new Date(asOf) : new Date());

@@ -3,6 +3,7 @@ import { formatNaira } from '@/lib/money';
 import { getContext } from '@/lib/org';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
+import { ExportLink } from '@/components/export-link';
 
 export const metadata = { title: 'Balance sheet — BioAssetPro' };
 
@@ -55,6 +56,7 @@ export default async function BalanceSheetPage() {
       <PageHeader
         title="Balance sheet"
         subtitle="What the company owns, owes, and is worth, as at today"
+        actions={<ExportLink report="balance-sheet" />}
       />
 
       <Tabs />

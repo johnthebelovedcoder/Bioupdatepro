@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { FixedAssetService } from './fixed-asset.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
+import { OwnedRecord } from '../auth/owned-record.guard';
 import { AnyRole, Roles } from '../auth/roles.guard';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
@@ -66,6 +67,7 @@ export class FixedAssetsController {
 
   /** Same maker/approver tier — a disposal moves the ledger once approved too. */
   @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @OwnedRecord('fixedAsset', 'id')
   @Post('assets/:id/dispose')
   async dispose(
     @Param('id') id: string,

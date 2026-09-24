@@ -70,3 +70,65 @@ export async function getReopenRequests(periodId: string): Promise<ReopenRequest
     return [];
   }
 }
+
+/* --- Year end ----------------------------------------------------------- */
+
+export interface YearEndValidation {
+  yearCode: string;
+  canClose: boolean;
+  findings: ValidationFinding[];
+}
+
+export interface YearBalance {
+  accountNumber: string;
+  accountName: string;
+  accountType: string;
+  totalDebitKobo: string;
+  totalCreditKobo: string;
+  balanceKobo: string;
+}
+
+export interface CloseLogEntry {
+  occurredAt: string;
+  action: string;
+  year: string;
+  period: string | null;
+  fromStatus: string | null;
+  toStatus: string | null;
+  totalDebitKobo: string;
+  totalCreditKobo: string;
+  performedBy: string;
+  reason: string | null;
+}
+
+export async function validateYearEnd(financialYearId: string): Promise<YearEndValidation | null> {
+  try {
+    return await api<YearEndValidation>('/year-end/validate', {
+      method: 'POST',
+      body: { financialYearId },
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Closing balances (`opening` false) or the opening balances carried into a year. */
+export async function getYearBalances(
+  financialYearId: string,
+  opening: boolean,
+): Promise<YearBalance[]> {
+  try {
+    return await api<YearBalance[]>(`/year-end/${financialYearId}/balances?opening=${opening}`);
+  } catch {
+    return [];
+  }
+}
+
+export async function getCloseLog(financialYearId?: string): Promise<CloseLogEntry[]> {
+  try {
+    const query = financialYearId ? `?financialYearId=${encodeURIComponent(financialYearId)}` : '';
+    return await api<CloseLogEntry[]>(`/period-close-log${query}`);
+  } catch {
+    return [];
+  }
+}

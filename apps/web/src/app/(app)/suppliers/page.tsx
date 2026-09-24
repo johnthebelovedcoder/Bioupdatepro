@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
@@ -5,6 +6,7 @@ import { SupplierForm } from '@/components/supplier-form';
 import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
 import { IconCart } from '@/components/icons';
+import { PartyStatusForm } from '@/components/master-row-actions';
 
 export const metadata = { title: 'Vendors — BioAssetPro' };
 
@@ -74,6 +76,7 @@ export default async function SuppliersPage() {
                         Credit limit
                       </th>
                       <th style={{ width: 100 }}>Status</th>
+                      <th style={{ width: 90 }} />
                     </tr>
                   </thead>
                   <tbody>
@@ -82,7 +85,9 @@ export default async function SuppliersPage() {
                         <td className="num strong" style={{ textAlign: 'left' }}>
                           {supplier.code}
                         </td>
-                        <td>{supplier.name}</td>
+                        <td>
+                          <Link href={`/suppliers/${supplier.id}/statement`}>{supplier.name}</Link>
+                        </td>
                         <td className="faint">{supplier.whtCategory ?? '—'}</td>
                         <td className="num" style={{ textAlign: 'left' }}>
                           {supplier.tin ?? '—'}
@@ -103,6 +108,14 @@ export default async function SuppliersPage() {
                           >
                             {supplier.status.toLowerCase()}
                           </span>
+                        </td>
+                        <td>
+                          <PartyStatusForm
+                            kind="suppliers"
+                            id={supplier.id}
+                            name={supplier.name}
+                            status={supplier.status}
+                          />
                         </td>
                       </tr>
                     ))}

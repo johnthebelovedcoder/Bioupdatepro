@@ -4,7 +4,8 @@ import { TaxEngineService } from './tax-engine.service';
 import { TaxRegisterService } from './tax-register.service';
 import { TaxPeriodService } from './tax-period.service';
 import { kobo } from '../common/money';
-import { CurrentCompany } from '../auth/current-user.decorator';
+import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
+import { WorkflowActor } from '../workflow/workflow.types';
 import { OwnedRecord } from '../auth/owned-record.guard';
 import { Roles } from '../auth/roles.guard';
 
@@ -162,30 +163,41 @@ export class TaxController {
     return this.periods.list(companyId, taxType);
   }
 
+  /**
+   * Company and actor come from the session, never the body. A body-supplied
+   * `actorId` let anyone record a filing — a statutory act — as somebody else.
+   */
   @Post('periods/generate')
   async generatePeriods(
-    @Body()
-    body: { companyId: string; taxType: TaxType; year: number; actorId: string },
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { taxType: TaxType; year: number },
   ) {
-    return this.periods.generateYear(body);
+    return this.periods.generateYear({
+      companyId,
+      taxType: body.taxType,
+      year: Number(body.year),
+      actorId: actor.userId,
+    });
   }
 
   @OwnedRecord('taxPeriod', 'id')
   @Post('periods/:id/close')
-  async closePeriod(@Param('id') id: string, @Body() body: { actorId: string }) {
-    return this.periods.close({ taxPeriodId: id, actorId: body.actorId });
+  async closePeriod(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
+    return this.periods.close({ taxPeriodId: id, actorId: actor.userId });
   }
 
   @OwnedRecord('taxPeriod', 'id')
   @Post('periods/:id/file')
   async filePeriod(
     @Param('id') id: string,
-    @Body() body: { actorId: string; filingReference: string },
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { filingReference: string },
   ) {
     return this.periods.markFiled({
       taxPeriodId: id,
-      actorId: body.actorId,
-      filingReference: body.filingReference,
+      actorId: actor.userId,
+      filingReference: String(body.filingReference ?? '').trim(),
     });
   }
 }

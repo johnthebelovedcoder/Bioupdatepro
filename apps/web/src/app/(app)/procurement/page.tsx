@@ -112,7 +112,7 @@ export default async function ProcurementPage() {
                   {orders.map((order) => (
                     <tr key={order.id}>
                       <td className="num strong" style={{ textAlign: 'left' }}>
-                        {order.orderNumber}
+                        <Link href={`/procurement/orders/${order.id}`}>{order.orderNumber}</Link>
                         <div className="faint">
                           {order.lineCount} line{order.lineCount === 1 ? '' : 's'}
                         </div>
@@ -136,6 +136,10 @@ export default async function ProcurementPage() {
                             className="btn btn-primary"
                           >
                             Receive goods
+                          </Link>
+                        ) : order.status === 'DRAFT' ? (
+                          <Link href={`/procurement/orders/${order.id}`} className="btn">
+                            Amend &amp; resend
                           </Link>
                         ) : (
                           <span className="faint">—</span>

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { formatNaira, toKobo } from '@/lib/money';
 import { defaultYear, getContext } from '@/lib/org';
@@ -5,6 +6,7 @@ import { TrialBalanceFilters } from './filters';
 import { PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
+import { ExportLink } from '@/components/export-link';
 
 export const metadata = { title: 'Trial balance — BioAssetPro' };
 
@@ -85,6 +87,7 @@ export default async function TrialBalancePage({
       <PageHeader
         title="Trial balance"
         subtitle="Posted journal lines only. Drafts are not accounting records."
+        actions={<ExportLink report="trial-balance" filters={Object.fromEntries(query)} />}
       />
 
       <Tabs />
@@ -150,7 +153,12 @@ export default async function TrialBalancePage({
                   {rows.map((row) => (
                     <tr key={row.glAccountId}>
                       <td className="num" style={{ textAlign: 'left' }}>
-                        {row.accountNumber}
+                        <Link
+                          href={`/ledger/trial-balance/${encodeURIComponent(row.accountNumber)}?${query.toString()}`}
+                          title="Every posted line behind this balance"
+                        >
+                          {row.accountNumber}
+                        </Link>
                       </td>
                       <td>{row.accountName}</td>
                       <td className="faint">{row.accountType.toLowerCase()}</td>

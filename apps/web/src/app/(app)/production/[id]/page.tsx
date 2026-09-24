@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getProductionOrder } from '@/lib/production';
+import { getProductionOrder, getProductionRouting } from '@/lib/production';
 import { getWarehouses, getStockItems } from '@/lib/masters';
 import { formatDate, formatNaira, formatQuantity } from '@/lib/money';
 import { Card, PageHeader } from '@/components/ui';
@@ -8,6 +8,7 @@ import {
   submitOrder,
   issueOrder,
   settleOrder,
+  snapshotRouting,
 } from '@/app/(app)/production/actions';
 import { ProductionOrderActionButton } from '@/components/production-order-action-button';
 import { ConfirmConversionForm, RecordLossForm, RecordOutputsForm } from '@/components/production-order-forms';
@@ -28,6 +29,8 @@ export default async function ProductionOrderDetailPage({
   const { id } = await params;
   const order = await getProductionOrder(id);
   if (!order) notFound();
+  const routing = await getProductionRouting(id);
+  const routingCost = routing.reduce((sum, line) => sum + BigInt(line.standardCostKobo), 0n);
 
   return (
     <>
@@ -103,6 +106,68 @@ export default async function ProductionOrderDetailPage({
               </tbody>
             </table>
           </div>
+        </Card>
+
+        <Card
+          title="Routing"
+          subtitle={
+            routing.length > 0
+              ? `Conversion at standard: ${formatNaira(routingCost)}`
+              : 'Labour and machine time this order absorbs, at the pool rates on the day it is taken on'
+          }
+          padded={false}
+        >
+          {routing.length === 0 ? (
+            <div style={{ padding: 'var(--sp-5)' }} className="stack">
+              <p className="faint">
+                Not taken onto this order yet. Taking it on fixes the hours and the rates, so a
+                later change to a pool&rsquo;s rate does not re-cost work already done.
+              </p>
+              {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' ? (
+                <ProductionOrderActionButton
+                  action={snapshotRouting}
+                  id={order.id}
+                  label="Take routing onto this order"
+                  pendingLabel="Taking on…"
+                  className="btn"
+                />
+              ) : null}
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th style={{ width: 50 }}>#</th>
+                    <th>Operation</th>
+                    <th>Cost centre · pool</th>
+                    <th className="right" style={{ width: 110 }}>Hours</th>
+                    <th className="right" style={{ width: 130 }}>Rate / hour</th>
+                    <th className="right" style={{ width: 130 }}>Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {routing.map((line) => (
+                    <tr key={line.id}>
+                      <td className="num" style={{ textAlign: 'left' }}>
+                        {line.routingOperation.sequence}
+                      </td>
+                      <td style={{ textAlign: 'left' }}>
+                        {line.routingOperation.operationName}
+                        <div className="faint">{line.routingOperation.resourceType.toLowerCase()}</div>
+                      </td>
+                      <td className="faint" style={{ textAlign: 'left' }}>
+                        {line.routingOperation.costCentre.code} · {line.routingOperation.costPool.code}
+                      </td>
+                      <td className="num">{formatQuantity(line.standardHours, 2)}</td>
+                      <td className="num">{formatNaira(line.ratePerHourKobo)}</td>
+                      <td className="num">{formatNaira(line.standardCostKobo)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
 
         {order.outputs.length > 0 ? (

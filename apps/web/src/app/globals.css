@@ -2858,3 +2858,28 @@ body:has(.offline-banner) .app-sidebar {
   text-transform: uppercase;
   color: var(--gray-400);
 }
+
+/* --- Print ----------------------------------------------------------------
+ * For documents people hand over on paper — payslips, bank schedules. The
+ * chrome around the page is navigation for a screen, not part of the
+ * document, so it goes.
+ */
+@media print {
+  .app-sidebar,
+  .app-header,
+  .drawer-backdrop,
+  .bottom-nav,
+  .no-print {
+    display: none !important;
+  }
+  .app-shell,
+  .app-body,
+  .page {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body {
+    background: #fff !important;
+  }
+}

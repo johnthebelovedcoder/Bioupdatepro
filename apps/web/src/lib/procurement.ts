@@ -12,12 +12,17 @@ import { api } from './api';
 export interface OrderLine {
   id: string;
   lineNumber: number;
+  itemId: string;
   itemCode: string;
   description: string;
   itemType: string;
   orderedQuantity: string;
   receivedQuantity: string;
   unitPriceKobo: string;
+  /** The line's own wording, which can differ from the item master's. */
+  lineDescription: string;
+  taxCode: string | null;
+  requisitionLineId: string | null;
 }
 
 export interface PurchaseOrder {

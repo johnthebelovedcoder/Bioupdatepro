@@ -6,6 +6,7 @@ import {
   approveOrder,
   approveTransaction,
   rejectTransaction,
+  returnTransaction,
   type FlowState,
 } from '@/app/(app)/procurement/actions';
 import { approveSalesOrder } from '@/app/(app)/sales/actions';
@@ -66,8 +67,21 @@ export function DecideButtons({ transactionId }: { transactionId: string }) {
     rejectTransaction,
     EMPTY,
   );
-  const [pressed, setPressed] = useState<'approve' | 'reject' | null>(null);
-  const problem = approveState.error ?? rejectState.error;
+  const [returnState, returnAction] = useActionState<FlowState, FormData>(
+    returnTransaction,
+    EMPTY,
+  );
+  const [pressed, setPressed] = useState<'approve' | 'reject' | 'return' | null>(null);
+  // Only the button last pressed speaks — an earlier refusal from another
+  // button must not linger under a later, successful action.
+  const problem =
+    pressed === 'approve'
+      ? approveState.error
+      : pressed === 'reject'
+        ? rejectState.error
+        : pressed === 'return'
+          ? returnState.error
+          : null;
 
   return (
     <form className="stack" style={{ gap: 'var(--sp-2)', minWidth: 240 }}>
@@ -94,10 +108,18 @@ export function DecideButtons({ transactionId }: { transactionId: string }) {
           onPress={() => setPressed('reject')}
           reports={pressed === 'reject'}
         />
+        <Pending
+          idle="Send back"
+          busy="Sending back…"
+          tone="btn-ghost"
+          formAction={returnAction}
+          onPress={() => setPressed('return')}
+          reports={pressed === 'return'}
+        />
       </div>
       <input
         name="comments"
-        placeholder="Reason — required to reject"
+        placeholder="Reason — required to reject or send back"
         style={{ minHeight: 0, whiteSpace: 'normal' }}
       />
       {problem ? (

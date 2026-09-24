@@ -3,6 +3,11 @@ import { getContext } from '@/lib/org';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { MasterForm } from '@/components/master-form';
 import { ActivatePayrollButton } from '@/components/activate-payroll-button';
+import {
+  EmployeePayForm,
+  type PayComponentOption,
+  type PaySnapshot,
+} from '@/components/employee-pay-form';
 import { IconUsers } from '@/components/icons';
 import { Tabs } from '@/components/tabs';
 import { createEmployee } from './actions';
@@ -50,21 +55,30 @@ interface PayrollReadiness {
  * otherwise surface with no context at all.
  */
 export default async function EmployeesPage() {
-  const [employees, costCentres, context] = await Promise.all([
+  const [employees, costCentres, context, payOptions] = await Promise.all([
     safe<Employee[]>('/masters/employees', []),
     safe<CostCentre[]>('/masters/cost-centres', []),
     getContext(),
+    safe<PayComponentOption[]>('/masters/salary-components', []),
   ]);
+  const today = new Date().toISOString().slice(0, 10);
 
-  const readiness = await Promise.all(
-    employees.map((employee) =>
-      safe<PayrollReadiness>(`/masters/employees/${employee.id}/payroll-readiness`, {
-        ready: false,
-        blockers: [],
-        warnings: [],
-      }),
+  const [readiness, pay] = await Promise.all([
+    Promise.all(
+      employees.map((employee) =>
+        safe<PayrollReadiness>(`/masters/employees/${employee.id}/payroll-readiness`, {
+          ready: false,
+          blockers: [],
+          warnings: [],
+        }),
+      ),
     ),
-  );
+    Promise.all(
+      employees.map((employee) =>
+        safe<PaySnapshot | null>(`/masters/employees/${employee.id}/salary`, null),
+      ),
+    ),
+  ]);
 
   const branchOptions = context.branches.map((branch) => ({
     value: branch.id,
@@ -145,6 +159,7 @@ export default async function EmployeesPage() {
                     <th>Name</th>
                     <th style={{ width: 110 }}>Cost centre</th>
                     <th style={{ width: 120 }}>Tax state</th>
+                    <th style={{ width: 150 }}>Pay a month</th>
                     <th style={{ width: 110 }}>Payroll</th>
                     <th>Next step</th>
                   </tr>
@@ -169,6 +184,15 @@ export default async function EmployeesPage() {
                         <td>{employee.name}</td>
                         <td className="faint">{employee.costCentre ?? '—'}</td>
                         <td className="faint">{employee.taxState ?? '—'}</td>
+                        <td>
+                          <EmployeePayForm
+                            employeeId={employee.id}
+                            employeeName={employee.name}
+                            snapshot={pay[index] ?? null}
+                            options={payOptions}
+                            today={today}
+                          />
+                        </td>
                         <td>
                           <span className={`badge ${employee.payrollActive ? 'badge-success' : ''}`}>
                             {employee.payrollActive ? 'active' : 'not active'}

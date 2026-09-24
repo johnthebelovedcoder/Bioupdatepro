@@ -111,7 +111,7 @@ Sign in with any seeded user — password `admin123@`:
 | `supervisor@bioassetpro.ng` | Production supervisor | Livestock and the daily round. No money. |
 | `farm.manager@bioassetpro.ng` | Farm manager | The farm, buying, and money. Not the ledger. |
 | `controller@bioassetpro.ng` | Financial controller | The ledger, journals, period close. |
-| `md@bioassetpro.ng` | Managing director | Everything, and approvals. |
+| `cfo@bioassetpro.ng` | CFO | Everything, including tax, payroll and year-end close, and approvals. |
 | `admin@bioassetpro.ng` | Administrator | Everything, including staff and invitations. |
 
 Or create your own farm at `/signup` — registration provisions a chart of

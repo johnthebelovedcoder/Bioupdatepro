@@ -37,6 +37,15 @@ const KPI_SOURCE: Record<string, string> = {
  * usage-tracking model this chart doesn't carry yet, so the tile says so
  * rather than showing a number nobody could stand behind.
  */
+interface KpiDefinition {
+  key: string;
+  label: string;
+  numerator: string;
+  denominator: string | null;
+  formula: string;
+  dimensions: string[];
+}
+
 export default async function KpisPage() {
   const context = await getContext();
 
@@ -55,6 +64,11 @@ export default async function KpisPage() {
   } catch (caught) {
     error = caught instanceof ApiError ? caught.message : 'Could not build the KPIs.';
   }
+  // How each figure is computed, as governed rows — so "what does DSO mean
+  // here" is answered on the screen rather than in the source code.
+  const definitions = await api<KpiDefinition[]>('/reporting/kpi-definitions').catch(
+    () => [] as KpiDefinition[],
+  );
 
   return (
     <div className="stack">
@@ -78,6 +92,42 @@ export default async function KpisPage() {
           />
         ))}
       </div>
+
+      {definitions.length > 0 ? (
+        <Card title="How each is computed" padded={false}>
+          <div className="table-wrap">
+            <table className="data wide">
+              <thead>
+                <tr>
+                  <th style={{ width: 180 }}>Measure</th>
+                  <th>Formula</th>
+                  <th style={{ width: 200 }}>Numerator ÷ denominator</th>
+                  <th style={{ width: 150 }}>Can be filtered by</th>
+                </tr>
+              </thead>
+              <tbody>
+                {definitions.map((definition) => (
+                  <tr key={definition.key}>
+                    <td style={{ textAlign: 'left' }}>{definition.label}</td>
+                    <td className="faint" style={{ textAlign: 'left', whiteSpace: 'normal' }}>
+                      {definition.formula}
+                    </td>
+                    <td className="faint" style={{ textAlign: 'left', whiteSpace: 'normal' }}>
+                      {definition.numerator}
+                      {definition.denominator ? ` ÷ ${definition.denominator}` : ''}
+                    </td>
+                    <td className="faint" style={{ textAlign: 'left' }}>
+                      {definition.dimensions.length > 0
+                        ? definition.dimensions.join(', ')
+                        : 'company-wide only'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : null}
 
       {kpis.length > 0 ? (
         <Card>

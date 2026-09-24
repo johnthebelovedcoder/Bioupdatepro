@@ -78,3 +78,30 @@ export async function runDepreciation(
     return fail(caught, 'Could not run depreciation.');
   }
 }
+
+/**
+ * Take an asset out of service. Sent for approval like the capitalisation
+ * was; the asset's cost and accumulated depreciation only leave the books
+ * once it is approved.
+ */
+export async function disposeAsset(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const assetId = String(formData.get('assetId') ?? '');
+  const disposedOn = String(formData.get('disposedOn') ?? '').trim();
+  if (!assetId) return { error: 'No asset was named.', message: null };
+  if (!disposedOn) return { error: 'Say when it left service.', message: null };
+
+  try {
+    await api(`/fixed-assets/assets/${assetId}/dispose`, {
+      method: 'POST',
+      body: { disposedOn: new Date(disposedOn).toISOString() },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not dispose of that asset.');
+  }
+
+  revalidatePath('/ledger/fixed-assets');
+  return { error: null, message: 'Disposal sent for approval.' };
+}

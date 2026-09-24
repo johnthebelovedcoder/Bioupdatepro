@@ -1,6 +1,9 @@
+import Link from 'next/link';
 import { getPendingApprovals } from '@/lib/procurement';
+import { getWorkflowDashboard } from '@/lib/workflow';
 import { formatNaira } from '@/lib/money';
-import { Card, EmptyState, PageHeader } from '@/components/ui';
+import { describeTransaction, waitedFor } from '@/lib/workflow-labels';
+import { Card, EmptyState, PageHeader, Stat } from '@/components/ui';
 import { DecideButtons } from '@/components/approve-button';
 import { EscalationSweepButton } from '@/components/escalation-sweep-button';
 import { IconCheckCircle } from '@/components/icons';
@@ -21,7 +24,10 @@ export const metadata = { title: 'Approvals — BioAssetPro' };
  * satisfy.
  */
 export default async function ApprovalsPage() {
-  const pending = await getPendingApprovals();
+  const [pending, dashboard] = await Promise.all([
+    getPendingApprovals(),
+    getWorkflowDashboard(),
+  ]);
 
   return (
     <>
@@ -32,6 +38,26 @@ export default async function ApprovalsPage() {
       />
 
       <div className="stack">
+        {dashboard ? (
+          <div className="stat-grid">
+            <Stat label="Waiting company-wide" value={String(dashboard.open.count)} />
+            <Stat
+              label="Escalated"
+              value={String(dashboard.open.escalated)}
+              goodWhen="down"
+            />
+            <Stat
+              label="Oldest waiting"
+              value={
+                dashboard.open.oldestHours >= 48
+                  ? `${Math.floor(dashboard.open.oldestHours / 24)} days`
+                  : `${dashboard.open.oldestHours} hours`
+              }
+              goodWhen="down"
+            />
+          </div>
+        ) : null}
+
         <Card title={`${pending.length} waiting`} padded={false}>
           {pending.length === 0 ? (
             <EmptyState
@@ -57,7 +83,9 @@ export default async function ApprovalsPage() {
                   {pending.map((item) => (
                     <tr key={item.transactionId}>
                       <td className="num strong" style={{ textAlign: 'left' }}>
-                        {item.documentReference}
+                        <Link href={`/approvals/history/${item.transactionId}`} title="Approval trail">
+                          {item.documentReference}
+                        </Link>
                         {item.escalated ? (
                           <div>
                             <span className="badge badge-danger">escalated</span>
@@ -65,7 +93,7 @@ export default async function ApprovalsPage() {
                         ) : null}
                       </td>
                       <td>
-                        {describe(item.transactionType)}
+                        {describeTransaction(item.transactionType)}
                         <div className="faint">{item.route}</div>
                       </td>
                       <td className="num">{formatNaira(item.amountKobo)}</td>
@@ -94,42 +122,4 @@ export default async function ApprovalsPage() {
       </div>
     </>
   );
-}
-
-/**
- * Plain English for a transaction type.
- *
- * Not decoration: somebody approving a GOODS_RECEIPT is authorising stock and a
- * liability onto the books, and "GOODS RECEIPT" in capitals does not say that.
- * Anything unmapped falls back to the code rather than to a guess.
- */
-function describe(type: string): string {
-  const known: Record<string, string> = {
-    PURCHASE_REQUISITION: 'A request to buy something',
-    PURCHASE_ORDER: 'An order to a supplier',
-    GOODS_RECEIPT: 'Goods arriving — posts stock and GRNI',
-    SUPPLIER_INVOICE: "A supplier's bill — clears GRNI, adds VAT",
-    SUPPLIER_INVOICE_EXCEPTION: "A supplier's bill that did not match",
-    SUPPLIER_PAYMENT: 'Paying a supplier',
-    SALES_QUOTATION: 'A quote to a customer',
-    SALES_ORDER: 'A customer order',
-    SALES_ORDER_CREDIT_OVERRIDE: 'A customer order over their credit limit',
-    GOODS_ISSUE: 'Goods leaving — posts cost of sales',
-    SALES_INVOICE: 'Billing a customer',
-    CUSTOMER_RECEIPT: 'Money received from a customer',
-    CREDIT_NOTE: 'Crediting a customer',
-    MANUAL_JOURNAL: 'A journal entry',
-    PAYROLL_RUN: 'A payroll run',
-    PERIOD_CLOSE: 'Closing an accounting period',
-    PERIOD_REOPEN: 'Reopening a closed period',
-  };
-  return known[type] ?? type.replace(/_/g, ' ').toLowerCase();
-}
-
-function waitedFor(since: string): string {
-  const hours = Math.floor((Date.now() - new Date(since).getTime()) / 3_600_000);
-  if (!Number.isFinite(hours) || hours < 1) return 'just now';
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'}`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? '' : 's'}`;
 }

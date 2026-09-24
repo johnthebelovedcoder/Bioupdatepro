@@ -62,7 +62,7 @@ const PHASES = [
     owner: 'Core + Species Teams',
     exitEvidence: 'WIP and separate recovery GLs close',
     dependencyCodes: ['DEV-04', 'DEV-05', 'DEV-06'], evidenceSheet: 'Lifecycle_Transactions',
-    webPath: null, // Production orders are API/script-only in this app — no dedicated screen exists.
+    webPath: '/production',
   },
   {
     code: 'DEV-08', sequence: 8, name: 'Implement sales/receivables',
@@ -103,7 +103,7 @@ const PHASES = [
     owner: 'All business owners',
     exitEvidence: 'All critical acceptance criteria PASS',
     dependencyCodes: ['DEV-01', 'DEV-09', 'DEV-11'], evidenceSheet: 'Developer_Build_Order',
-    webPath: null, // POST /reporting/release-sign-off (US-897-037) has no dedicated screen yet.
+    webPath: '/ledger/controls',
   },
 ] as const;
 
@@ -112,7 +112,9 @@ export async function seedImplementationPhases(prisma: PrismaClient, companyId: 
   for (const phase of PHASES) {
     await prisma.implementationPhase.upsert({
       where: { companyId_code: { companyId, code: phase.code } },
-      update: {},
+      // webPath is where this app's own screen lives — code-owned, so it is
+      // refreshed on every seed rather than frozen at whatever it first was.
+      update: { webPath: phase.webPath },
       create: {
         companyId,
         code: phase.code,

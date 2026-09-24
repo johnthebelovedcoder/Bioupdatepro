@@ -4,6 +4,7 @@ import { getContext } from '@/lib/org';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { CashFlowFilters } from './filters';
+import { ExportLink } from '@/components/export-link';
 
 export const metadata = { title: 'Cash flow — BioAssetPro' };
 
@@ -80,7 +81,11 @@ export default async function CashFlowPage({
 
   return (
     <div className="stack">
-      <PageHeader title="Cash flow" subtitle="Where the cash moved, for one period, indirect method" />
+      <PageHeader
+        title="Cash flow"
+        subtitle="Where the cash moved, for one period, indirect method"
+        actions={<ExportLink report="cash-flow" filters={Object.fromEntries(query)} />}
+      />
 
       <Tabs />
 

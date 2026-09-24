@@ -1,11 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { ManualJournalStatus, RecurrenceFrequency, RecurringJournalBasis } from '@bioassetpro/database';
 import { ManualJournalService } from './manual-journal.service';
 import { RecurringJournalService } from './recurring-journal.service';
 import { PartyLedgerService } from './party-ledger.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { kobo } from '../common/money';
-import { CurrentCompany } from '../auth/current-user.decorator';
+import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
+import { PrismaService } from '../prisma/prisma.service';
 import { Roles } from '../auth/roles.guard';
 
 /**
@@ -27,13 +28,36 @@ export class JournalsController {
     private readonly journals: ManualJournalService,
     private readonly recurring: RecurringJournalService,
     private readonly ledgers: PartyLedgerService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  /*
+   * Who is acting, and for which company, comes from the verified session —
+   * never the body. These routes used to accept a whole `actor` object, roles
+   * and all, from the request: anyone who could reach them could raise,
+   * submit, reverse or cancel a journal as somebody else, which is the one
+   * thing maker-checker exists to stop. An `actor` or `companyId` still sent
+   * by an older client is ignored rather than refused.
+   */
+
+  /** A journal named in the body must be this company's. 404, as the ownership guard does. */
+  private async assertOwnJournal(companyId: string, manualJournalId: string) {
+    const journal =
+      typeof manualJournalId === 'string' && manualJournalId
+        ? await this.prisma.manualJournal
+            .findFirst({ where: { id: manualJournalId, companyId }, select: { id: true } })
+            .catch(() => null)
+        : null;
+    if (!journal) throw new NotFoundException('No such journal.');
+  }
 
   @Post('create')
   async create(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
     @Body()
     body: {
-      companyId: string;
+      companyId?: string;
       journalTypeCode: string;
       reasonCode?: string;
       reference: string;
@@ -47,11 +71,13 @@ export class JournalsController {
       customerId?: string;
       supplierId?: string;
       lines: Array<Record<string, unknown>>;
-      actor: WorkflowActor;
+      actor?: unknown;
     },
   ) {
     const journal = await this.journals.create({
       ...body,
+      companyId,
+      actor,
       journalDate: new Date(body.journalDate),
       lines: body.lines.map((line) => ({
         glAccountId: String(line.glAccountId),
@@ -86,24 +112,36 @@ export class JournalsController {
 
   @Post('submit')
   async submit(
-    @Body() body: { manualJournalId: string; actor: WorkflowActor; comments?: string },
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { manualJournalId: string; comments?: string },
   ) {
-    return this.journals.submit(body);
+    await this.assertOwnJournal(companyId, body.manualJournalId);
+    return this.journals.submit({
+      manualJournalId: body.manualJournalId,
+      comments: body.comments,
+      actor,
+    });
   }
 
   @Post('reverse')
   async reverse(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
     @Body()
     body: {
       manualJournalId: string;
       reference: string;
       journalDate: string;
       reasonCode?: string;
-      actor: WorkflowActor;
     },
   ) {
+    await this.assertOwnJournal(companyId, body.manualJournalId);
     const reversal = await this.journals.createReversal({
-      ...body,
+      manualJournalId: body.manualJournalId,
+      reference: body.reference,
+      reasonCode: body.reasonCode,
+      actor,
       journalDate: new Date(body.journalDate),
     });
     return {
@@ -116,9 +154,16 @@ export class JournalsController {
 
   @Post('cancel')
   async cancel(
-    @Body() body: { manualJournalId: string; actor: WorkflowActor; reason: string },
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { manualJournalId: string; reason: string },
   ) {
-    return this.journals.cancel(body);
+    await this.assertOwnJournal(companyId, body.manualJournalId);
+    return this.journals.cancel({
+      manualJournalId: body.manualJournalId,
+      reason: body.reason,
+      actor,
+    });
   }
 
   /** Active reason codes this company has configured — the create-journal form's picker needs them. */
@@ -155,6 +200,7 @@ export class JournalsController {
   @Post('recurring')
   async createRecurring(
     @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
     @Body()
     body: {
       journalTypeCode: string;
@@ -169,12 +215,13 @@ export class JournalsController {
       startDate: string;
       endDate?: string;
       lines: Array<Record<string, unknown>>;
-      actorId: string;
+      actorId?: string;
     },
   ) {
     return this.recurring.create({
       ...body,
       companyId,
+      actorId: actor.userId,
       startDate: new Date(body.startDate),
       endDate: body.endDate ? new Date(body.endDate) : null,
       lines: body.lines.map((line) => ({
@@ -192,23 +239,34 @@ export class JournalsController {
   @Post('recurring/generate')
   async generateRecurring(
     @CurrentCompany() companyId: string,
-    @Body() body: { actorId: string; now?: string },
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { now?: string },
   ) {
     return this.recurring.generateDue({
       companyId,
-      actorId: body.actorId,
+      actorId: actor.userId,
       now: body.now ? new Date(body.now) : new Date(),
     });
   }
 
   // --- Party ledgers (§3, §6) ---------------------------------------------
 
+  /*
+   * The party is named in the query, where the ownership guard cannot see it,
+   * so it is checked here: unchecked, these returned any company's customer
+   * or supplier statement to anyone who had its id.
+   */
   @Get('customer-adjustments')
   async customerStatement(
+    @CurrentCompany() companyId: string,
     @Query('customerId') customerId: string,
     @Query('from') from: string,
     @Query('to') to: string,
   ) {
+    const customer = await this.prisma.customer
+      .findFirst({ where: { id: customerId, companyId }, select: { id: true } })
+      .catch(() => null);
+    if (!customer) throw new NotFoundException('No such customer.');
     return this.ledgers.customerStatement({
       customerId,
       from: new Date(from),
@@ -218,10 +276,15 @@ export class JournalsController {
 
   @Get('supplier-adjustments')
   async supplierStatement(
+    @CurrentCompany() companyId: string,
     @Query('supplierId') supplierId: string,
     @Query('from') from: string,
     @Query('to') to: string,
   ) {
+    const supplier = await this.prisma.supplier
+      .findFirst({ where: { id: supplierId, companyId }, select: { id: true } })
+      .catch(() => null);
+    if (!supplier) throw new NotFoundException('No such supplier.');
     return this.ledgers.supplierStatement({
       supplierId,
       from: new Date(from),

@@ -77,7 +77,7 @@ export default async function PayrollRunsPage() {
                   {runs.map((run) => (
                     <tr key={run.id}>
                       <td className="num strong" style={{ textAlign: 'left' }}>
-                        {run.reference}
+                        <Link href={`/finance/payroll/runs/${run.id}`}>{run.reference}</Link>
                       </td>
                       <td>
                         {MONTH_NAMES[run.month - 1]} {run.year}

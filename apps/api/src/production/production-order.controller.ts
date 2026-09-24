@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProductionOrderService } from './production-order.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { AnyRole, Roles } from '../auth/roles.guard';
+import { OwnedRecord } from '../auth/owned-record.guard';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import type { AllocationOutput, CostAllocationMethod } from './cost-allocation.service';
 
@@ -61,6 +62,13 @@ export class ProductionOrderController {
   }
 
   @AnyRole('One processing order in full.')
+  /*
+   * Every route addressed by an order id checks that the order is this
+   * company's. The service looks orders up by id alone, so without this any
+   * production lead could read, issue against or settle another company's
+   * order by naming its id.
+   */
+  @OwnedRecord('productionOrder', 'id')
   @Get(':id')
   async get(@Param('id') id: string) {
     await this.orders.syncOrderStatus(id);
@@ -112,18 +120,21 @@ export class ProductionOrderController {
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_MANAGER', 'FARM_ACCOUNTANT')
+  @OwnedRecord('productionOrder', 'id')
   @Post(':id/submit')
   async submit(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
     return this.orders.submit({ productionOrderId: id, actor });
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
+  @OwnedRecord('productionOrder', 'id')
   @Post(':id/issue')
   async issue(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
     return this.orders.issueMaterials({ productionOrderId: id, actor });
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
+  @OwnedRecord('productionOrder', 'id')
   @Post(':id/confirm-conversion')
   async confirmConversion(
     @Param('id') id: string,
@@ -141,6 +152,7 @@ export class ProductionOrderController {
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
+  @OwnedRecord('productionOrder', 'id')
   @Post(':id/loss')
   async recordLoss(
     @Param('id') id: string,
@@ -157,6 +169,7 @@ export class ProductionOrderController {
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
+  @OwnedRecord('productionOrder', 'id')
   @Post(':id/outputs')
   async recordOutputs(
     @Param('id') id: string,
@@ -194,6 +207,7 @@ export class ProductionOrderController {
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
+  @OwnedRecord('productionOrder', 'id')
   @Post(':id/settle')
   async settle(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
     return this.orders.settle({ productionOrderId: id, actor });

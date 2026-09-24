@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
@@ -7,6 +8,7 @@ import { IconTag } from '@/components/icons';
 
 import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
+import { CreditCheckForm, PartyStatusForm } from '@/components/master-row-actions';
 
 export const metadata = { title: 'Customers — BioAssetPro' };
 
@@ -84,6 +86,7 @@ export default async function CustomersPage() {
                         Credit limit
                       </th>
                       <th style={{ width: 100 }}>Status</th>
+                      <th style={{ width: 190 }} />
                     </tr>
                   </thead>
                   <tbody>
@@ -92,7 +95,9 @@ export default async function CustomersPage() {
                         <td className="num strong" style={{ textAlign: 'left' }}>
                           {customer.code}
                         </td>
-                        <td>{customer.name}</td>
+                        <td>
+                          <Link href={`/customers/${customer.id}/statement`}>{customer.name}</Link>
+                        </td>
                         <td className="num" style={{ textAlign: 'left' }}>
                           {customer.tin ?? '—'}
                         </td>
@@ -107,6 +112,17 @@ export default async function CustomersPage() {
                           >
                             {customer.status.toLowerCase()}
                           </span>
+                        </td>
+                        <td>
+                          <div className="row" style={{ gap: 'var(--sp-1)' }}>
+                            <CreditCheckForm id={customer.id} name={customer.name} />
+                            <PartyStatusForm
+                              kind="customers"
+                              id={customer.id}
+                              name={customer.name}
+                              status={customer.status}
+                            />
+                          </div>
                         </td>
                       </tr>
                     ))}

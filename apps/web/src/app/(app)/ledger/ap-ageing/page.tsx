@@ -5,6 +5,7 @@ import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
 import { IconCart } from '@/components/icons';
+import { ExportLink } from '@/components/export-link';
 
 export const metadata = { title: 'AP ageing — BioAssetPro' };
 
@@ -49,7 +50,11 @@ export default async function ApAgeingPage() {
 
   return (
     <div className="stack">
-      <PageHeader title="AP ageing" subtitle="Who the company owes, and how overdue" />
+      <PageHeader
+        title="AP ageing"
+        subtitle="Who the company owes, and how overdue"
+        actions={<ExportLink report="ap-ageing" />}
+      />
 
       <Tabs />
 

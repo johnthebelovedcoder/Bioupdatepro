@@ -6,6 +6,7 @@ import { getCostCentres } from '@/lib/masters';
 import { Card, PageHeader } from '@/components/ui';
 import { AddRecipeComponentButton } from '@/components/add-recipe-component-button';
 import { ActivateRecipeVersionButton } from '@/components/activate-recipe-version-button';
+import { ExplodeRecipeForm } from '@/components/explode-recipe-form';
 import { AddRoutingOperationButton } from '@/components/add-routing-operation-button';
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -74,13 +75,18 @@ export default async function RecipeDetailPage({
               subtitle={`Batch size ${version.batchSize} · effective ${version.effectiveFrom.slice(0, 10)}${version.effectiveTo ? ` to ${version.effectiveTo.slice(0, 10)}` : ''}`}
               padded={false}
               action={
-                version.status === 'ACTIVE' ? (
-                  <span className="badge badge-success">active</span>
-                ) : version.status === 'SUPERSEDED' ? (
-                  <span className="badge">superseded</span>
-                ) : (
-                  <span className="badge badge-warning">draft</span>
-                )
+                <div className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center' }}>
+                  {version.components.length > 0 ? (
+                    <ExplodeRecipeForm recipeVersionId={version.id} batchSize={version.batchSize} />
+                  ) : null}
+                  {version.status === 'ACTIVE' ? (
+                    <span className="badge badge-success">active</span>
+                  ) : version.status === 'SUPERSEDED' ? (
+                    <span className="badge">superseded</span>
+                  ) : (
+                    <span className="badge badge-warning">draft</span>
+                  )}
+                </div>
               }
             >
               {version.components.length === 0 ? (

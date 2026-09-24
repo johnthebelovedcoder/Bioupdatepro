@@ -1,8 +1,11 @@
 import { getPayrollSetupStatus } from '@/lib/payroll';
-import { formatDate } from '@/lib/money';
+import { getPayeBands } from '@/lib/payroll-runs';
+import { api } from '@/lib/api';
+import { formatDate, formatNaira } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { ActivatePayrollForm } from '@/components/activate-payroll-form';
+import { SalaryCostCalculator } from '@/components/salary-cost-calculator';
 
 export const metadata = { title: 'Payroll setup — BioAssetPro' };
 
@@ -16,11 +19,19 @@ export const metadata = { title: 'Payroll setup — BioAssetPro' };
  * through the actual onboarding flow had no path to it at all.
  */
 export default async function PayrollSetupPage() {
-  const status = await getPayrollSetupStatus();
+  const [status, bands, employees] = await Promise.all([
+    getPayrollSetupStatus(),
+    getPayeBands(),
+    api<unknown[]>('/masters/employees').catch(() => []),
+  ]);
 
   return (
     <>
-      <PageHeader title="Payroll setup" subtitle="Turn on the statutory rates payroll runs against" />
+      <PageHeader
+        title="Payroll setup"
+        subtitle="Turn on the statutory rates payroll runs against"
+        actions={status.active ? <SalaryCostCalculator employeeCount={employees.length} /> : null}
+      />
 
       <Tabs />
 
@@ -58,6 +69,46 @@ export default async function PayrollSetupPage() {
         ) : (
           <ActivatePayrollForm />
         )}
+
+        {bands.length > 0 ? (
+          <Card
+            title="PAYE bands in force"
+            subtitle="Annual chargeable income, taxed band by band"
+            padded={false}
+          >
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th style={{ width: 60 }}>#</th>
+                    <th className="right">From</th>
+                    <th className="right">To</th>
+                    <th className="right" style={{ width: 90 }}>Rate</th>
+                    <th>Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bands.map((band) => (
+                    <tr key={band.bandOrder}>
+                      <td className="num" style={{ textAlign: 'left' }}>
+                        {band.bandOrder}
+                      </td>
+                      <td className="num">{formatNaira(band.lowerLimitKobo)}</td>
+                      <td className="num">
+                        {band.upperLimitKobo ? formatNaira(band.upperLimitKobo) : 'and above'}
+                      </td>
+                      <td className="num">{Number((Number(band.rate) * 100).toFixed(4))}%</td>
+                      <td className="faint" style={{ textAlign: 'left' }}>
+                        {band.sourceReference ?? '—'}
+                        <div>from {formatDate(band.effectiveFrom)}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        ) : null}
       </div>
     </>
   );

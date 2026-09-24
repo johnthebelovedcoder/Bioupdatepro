@@ -195,8 +195,10 @@ export class TaxRegisterService {
    * return is filed, not after.
    */
   async reconcile(companyId: string, taxPeriodId: string): Promise<TaxReconciliation> {
-    const period = await this.prisma.taxPeriod.findUniqueOrThrow({
-      where: { id: taxPeriodId },
+    // Scoped to the company: unscoped, this answered any id with another
+    // tenant's period name.
+    const period = await this.prisma.taxPeriod.findFirstOrThrow({
+      where: { id: taxPeriodId, companyId },
     });
 
     const lines: TaxReconciliation['lines'] = [];

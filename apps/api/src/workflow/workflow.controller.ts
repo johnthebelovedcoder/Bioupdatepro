@@ -128,8 +128,15 @@ export class WorkflowController {
     });
   }
 
+  /*
+   * Any role, because the rule is about the person, not the role: only the
+   * maker may withdraw their own document, and `WorkflowService.cancel()`
+   * refuses everyone else. Gating this to approver roles meant a procurement
+   * officer or storekeeper — the people who actually raise documents — could
+   * never withdraw one.
+   */
   @OwnedRecord('workflowTransaction', 'transactionId')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @AnyRole('Only the maker may cancel their own document; the service enforces it.')
   @Post(':transactionId/cancel')
   async cancel(
     @Param('transactionId') transactionId: string,
@@ -230,6 +237,43 @@ export class WorkflowController {
         status: s.status,
         ceilingKobo: s.maxAmountKobo?.toString() ?? null,
       })),
+    }));
+  }
+
+  /**
+   * What the caller has raised and is still in flight — submitted, under
+   * review, or returned to them for correction. The maker's side of the
+   * queue: without it, the one person allowed to withdraw a document had
+   * nowhere to find it.
+   */
+  @AnyRole('Your own documents. Scoped to the caller as maker.')
+  @Get('mine')
+  async mine(@CurrentUser() actor: WorkflowActor, @CurrentCompany() companyId: string) {
+    const rows = await this.prisma.workflowTransaction.findMany({
+      where: {
+        companyId,
+        makerId: actor.userId,
+        status: { in: ['SUBMITTED', 'UNDER_REVIEW', 'RETURNED'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+      include: {
+        steps: { select: { status: true } },
+        definition: { select: { name: true } },
+      },
+    });
+    return rows.map((t) => ({
+      transactionId: t.id,
+      documentReference: t.documentReference,
+      transactionType: t.transactionType,
+      status: t.status,
+      amountKobo: t.amountKobo.toString(),
+      submittedAt: t.submittedAt,
+      route: t.definition.name,
+      // Withdrawable only while awaiting action and before anyone has
+      // approved a step of it — the service's own rule, surfaced so the
+      // button is not offered in vain.
+      canCancel: t.status !== 'RETURNED' && !t.steps.some((s) => s.status === 'APPROVED'),
     }));
   }
 

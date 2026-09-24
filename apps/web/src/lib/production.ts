@@ -220,3 +220,48 @@ export async function getRoutingOperations(recipeVersionId: string): Promise<Rou
     return [];
   }
 }
+
+/* --- Routing on an order, and idle capacity ----------------------------- */
+
+export interface ProductionRoutingLine {
+  id: string;
+  standardHours: string;
+  ratePerHourKobo: string;
+  standardCostKobo: string;
+  routingOperation: {
+    sequence: number;
+    operationName: string;
+    resourceType: string;
+    costCentre: { code: string; name: string };
+    costPool: { code: string; name: string };
+  };
+}
+
+/** The routing an order was costed against — snapshotted from its recipe. */
+export async function getProductionRouting(orderId: string): Promise<ProductionRoutingLine[]> {
+  try {
+    return await api<ProductionRoutingLine[]>(`/production/orders/${orderId}/routing`);
+  } catch {
+    return [];
+  }
+}
+
+export type UnusedCapacity =
+  | { hasRate: false }
+  | {
+      hasRate: true;
+      poolCostKobo: string;
+      practicalCapacity: string;
+      ratePerUnitKobo: string;
+      consumedHours: string;
+      unusedCapacity: string;
+      unusedCapacityCostKobo: string;
+    };
+
+export async function getUnusedCapacity(poolId: string): Promise<UnusedCapacity | null> {
+  try {
+    return await api<UnusedCapacity>(`/costing/cost-pools/${poolId}/unused-capacity`);
+  } catch {
+    return null;
+  }
+}

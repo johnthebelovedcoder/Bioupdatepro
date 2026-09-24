@@ -245,6 +245,14 @@ const ROUTES: Array<{ prefix: string; section: Section }> = [
   // both — a payroll run and a goods receipt sit in the same queue — and the
   // roles that may approve are not the roles that may read the ledger.
   { prefix: '/approvals', section: 'approvals' },
+  /*
+   * A maker's own documents belong to whoever raised them, not to the
+   * approvers' section. A storekeeper who submitted a goods receipt must be
+   * able to see it came back and withdraw it, without being shown anybody
+   * else's queue. The API scopes both to the caller.
+   */
+  { prefix: '/approvals/mine', section: 'dashboard' },
+  { prefix: '/approvals/history', section: 'dashboard' },
   { prefix: '/finance', section: 'money' },
   { prefix: '/sales', section: 'trade' },
   { prefix: '/procurement', section: 'trade' },

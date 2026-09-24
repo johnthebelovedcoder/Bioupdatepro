@@ -98,8 +98,11 @@ export class PayrollPaymentService {
     financialPeriodId: string;
     actor: WorkflowActor;
   }) {
-    const run = await this.prisma.payrollRun.findUniqueOrThrow({
-      where: { id: input.payrollRunId },
+    // Scoped to the caller's company. The run id arrives in the body, where
+    // the ownership guard cannot see it, and unscoped this let one company
+    // raise a payment that settles another company's payroll.
+    const run = await this.prisma.payrollRun.findFirstOrThrow({
+      where: { id: input.payrollRunId, companyId: input.companyId },
     });
 
     if (run.status !== PayrollRunStatus.POSTED) {

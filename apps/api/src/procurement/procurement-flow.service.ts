@@ -47,7 +47,10 @@ export class ProcurementFlowService {
         supplier: { select: { name: true } },
         lines: {
           orderBy: { lineNumber: 'asc' },
-          include: { item: { select: { code: true, description: true, itemType: true } } },
+          include: {
+            item: { select: { code: true, description: true, itemType: true } },
+            taxCode: { select: { code: true } },
+          },
         },
       },
     });
@@ -92,6 +95,15 @@ export class ProcurementFlowService {
         orderedQuantity: line.quantity.toString(),
         receivedQuantity: line.receivedQuantity?.toString() ?? '0',
         unitPriceKobo: line.unitPriceKobo.toString(),
+        /*
+         * Carried so an amendment can send each line back exactly as it was
+         * apart from what the user changed. Amending replaces the lines, and a
+         * line resent without these would silently lose its VAT and its link
+         * to the requisition it came from.
+         */
+        lineDescription: line.description,
+        taxCode: line.taxCode?.code ?? null,
+        requisitionLineId: line.requisitionLineId,
       })),
     }));
   }

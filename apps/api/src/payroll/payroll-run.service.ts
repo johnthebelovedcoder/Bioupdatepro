@@ -678,6 +678,9 @@ export class PayrollRunService {
     });
 
     return lines.map((line) => ({
+      // The key a payslip is fetched by — the schedule is the list of whom
+      // this run paid, so it is where each payslip is reached from.
+      employeeId: line.employeeId,
       employeeNumber: line.employee.employeeNumber,
       name: `${line.employee.firstName} ${line.employee.surname}`,
       bankName: line.employee.bankName,

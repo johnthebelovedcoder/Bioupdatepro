@@ -1,4 +1,4 @@
-import { getCostPools } from '@/lib/production';
+import { getCostPools, getUnusedCapacity } from '@/lib/production';
 import { formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
@@ -18,6 +18,9 @@ export const metadata = { title: 'Cost pools — BioAssetPro' };
  */
 export default async function CostPoolsPage() {
   const pools = await getCostPools();
+  // Capacity paid for but not absorbed by any order — the cost ABC exists to
+  // make visible, since it would otherwise sit silently inside the rate.
+  const idle = await Promise.all(pools.map((pool) => getUnusedCapacity(pool.id)));
 
   return (
     <>
@@ -57,11 +60,14 @@ export default async function CostPoolsPage() {
                     <th className="right" style={{ width: 130 }}>
                       Rate
                     </th>
+                    <th className="right" style={{ width: 150 }}>
+                      Idle capacity
+                    </th>
                     <th style={{ width: 110 }} />
                   </tr>
                 </thead>
                 <tbody>
-                  {pools.map((pool) => (
+                  {pools.map((pool, index) => (
                     <tr key={pool.id}>
                       <td className="num strong" style={{ textAlign: 'left' }}>
                         {pool.code}
@@ -74,6 +80,20 @@ export default async function CostPoolsPage() {
                       <td className="num">{pool.practicalCapacity ?? '—'}</td>
                       <td className="num">
                         {pool.ratePerUnitKobo ? `${formatNaira(pool.ratePerUnitKobo)}/unit` : '—'}
+                      </td>
+                      <td className="num">
+                        {(() => {
+                          const unused = idle[index];
+                          if (!unused || !unused.hasRate) return '—';
+                          return (
+                            <>
+                              {formatNaira(unused.unusedCapacityCostKobo)}
+                              <div className="faint">
+                                {unused.unusedCapacity} of {unused.practicalCapacity} unused
+                              </div>
+                            </>
+                          );
+                        })()}
                       </td>
                       <td>
                         <SetCostPoolRateButton poolId={pool.id} poolName={pool.name} />

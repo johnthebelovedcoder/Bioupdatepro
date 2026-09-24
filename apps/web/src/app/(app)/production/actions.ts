@@ -259,3 +259,70 @@ export async function settleOrder(id: string): Promise<FlowState> {
   revalidatePath('/production');
   return { error: null, message: 'Settled.' };
 }
+
+export interface ExplosionState {
+  error: string | null;
+  result: {
+    requestedQuantity: string;
+    batches: string;
+    totalMaterialCostKobo: string;
+    unitMaterialCostKobo: string;
+    components: Array<{
+      lineNumber: number;
+      itemCode: string;
+      description: string;
+      unitOfMeasure: string;
+      netQuantity: string;
+      grossQuantity: string;
+      extendedCostKobo: string;
+      optional: boolean;
+    }>;
+  } | null;
+}
+
+/**
+ * "What would it take to make this much?" — every component, with wastage,
+ * at today's standard cost. Reserves and posts nothing.
+ */
+export async function explodeRecipe(
+  _previous: ExplosionState,
+  formData: FormData,
+): Promise<ExplosionState> {
+  const versionId = String(formData.get('recipeVersionId') ?? '');
+  const quantity = String(formData.get('quantity') ?? '').trim();
+  if (!quantity || !(Number(quantity) > 0)) {
+    return { error: 'Enter how much output to plan for.', result: null };
+  }
+  try {
+    const result = await api<NonNullable<ExplosionState['result']>>(
+      `/masters/recipes/versions/${versionId}/explode?quantity=${encodeURIComponent(quantity)}`,
+    );
+    return { error: null, result };
+  } catch (caught) {
+    return {
+      error: caught instanceof ApiError ? caught.message : 'Could not work that out.',
+      result: null,
+    };
+  }
+}
+
+/**
+ * Copy the recipe's routing onto an order at today's pool rates, so the order
+ * absorbs overhead at the rates in force when it ran — not whatever they are
+ * changed to later.
+ */
+export async function snapshotRouting(id: string): Promise<FlowState> {
+  let result: { snapshotted: boolean; reason?: string };
+  try {
+    result = await api(`/production/orders/${id}/routing/snapshot`, { method: 'POST', body: {} });
+  } catch (caught) {
+    return fail(caught, 'Could not take the routing onto this order.');
+  }
+  // "Nothing to snapshot" comes back as an answer, not an error — a recipe
+  // with no routing, or an order that already has one. Say which.
+  if (!result.snapshotted) {
+    return { error: result.reason ?? 'Nothing was taken onto the order.', message: null };
+  }
+  revalidatePath(`/production/${id}`);
+  return { error: null, message: 'Routing taken onto the order.' };
+}

@@ -109,13 +109,24 @@ export class MasterDataController {
     }));
   }
 
+  /*
+   * The actor comes from the session. It used to be read from the body, which
+   * let anyone record a supplier as blocked — a decision that stops the farm
+   * paying them — in somebody else's name.
+   */
   @OwnedRecord('supplier', 'id')
   @Post('suppliers/:id/status')
   async setSupplierStatus(
     @Param('id') id: string,
-    @Body() body: { status: PartyStatus; reason?: string; actorId: string },
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { status: PartyStatus; reason?: string },
   ) {
-    return this.parties.setSupplierStatus({ supplierId: id, ...body });
+    return this.parties.setSupplierStatus({
+      supplierId: id,
+      status: body.status,
+      reason: body.reason,
+      actorId: actor.userId,
+    });
   }
 
   // --- Customers ----------------------------------------------------------
@@ -158,13 +169,20 @@ export class MasterDataController {
     }));
   }
 
+  /** Actor from the session, for the same reason as a supplier's status. */
   @OwnedRecord('customer', 'id')
   @Post('customers/:id/status')
   async setCustomerStatus(
     @Param('id') id: string,
-    @Body() body: { status: PartyStatus; reason?: string; actorId: string },
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { status: PartyStatus; reason?: string },
   ) {
-    return this.parties.setCustomerStatus({ customerId: id, ...body });
+    return this.parties.setCustomerStatus({
+      customerId: id,
+      status: body.status,
+      reason: body.reason,
+      actorId: actor.userId,
+    });
   }
 
   @OwnedRecord('customer', 'id')
@@ -292,16 +310,17 @@ export class MasterDataController {
     }));
   }
 
+  /** Actor from the session: a standard cost values stock, so who set it matters. */
   @OwnedRecord('item', 'id')
   @Post('items/:id/standard-cost')
   async setStandardCost(
     @Param('id') id: string,
+    @CurrentUser() actor: WorkflowActor,
     @Body()
     body: {
       costKobo: string | number;
       effectiveFrom: string;
       sourceReference?: string;
-      actorId: string;
     },
   ) {
     return this.items.setStandardCost({
@@ -309,7 +328,7 @@ export class MasterDataController {
       cost: kobo(BigInt(body.costKobo)),
       effectiveFrom: new Date(body.effectiveFrom),
       sourceReference: body.sourceReference ?? null,
-      actorId: body.actorId,
+      actorId: actor.userId,
     });
   }
 
@@ -346,6 +365,12 @@ export class MasterDataController {
       costCentre: e.costCentre?.code ?? null,
       taxState: e.taxState,
     }));
+  }
+
+  /** What an employee's pay can be made of — the picker behind "Set pay". */
+  @Get('salary-components')
+  async listSalaryComponents(@CurrentCompany() companyId: string) {
+    return this.employees.listEarningComponents(companyId);
   }
 
   @OwnedRecord('employee', 'id')

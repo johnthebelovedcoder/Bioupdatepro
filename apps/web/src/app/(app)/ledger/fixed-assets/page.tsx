@@ -8,6 +8,7 @@ import { Tabs } from '@/components/tabs';
 import { IconBox } from '@/components/icons';
 import { CapitaliseAssetForm } from '@/components/capitalise-asset-form';
 import { RunDepreciationForm } from '@/components/run-depreciation-form';
+import { DisposeAssetForm } from '@/components/dispose-asset-form';
 import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Fixed assets — BioAssetPro' };
@@ -46,7 +47,7 @@ export default async function FixedAssetsPage() {
 
       {awaiting.length > 0 ? (
         <div className="notice notice-warning">
-          {awaiting.length} capitalisation{awaiting.length === 1 ? '' : 's'} waiting for approval.
+          {awaiting.length} asset{awaiting.length === 1 ? '' : 's'} waiting for approval — a capitalisation or a disposal.
           Nothing has posted for {awaiting.length === 1 ? 'it' : 'them'} yet —{' '}
           <Link href="/approvals">the approvals queue</Link> is where that happens.
         </div>
@@ -86,6 +87,7 @@ export default async function FixedAssetsPage() {
                       Net book value
                     </th>
                     <th style={{ width: 120 }}>Status</th>
+                    <th style={{ width: 90 }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -119,6 +121,17 @@ export default async function FixedAssetsPage() {
                         ) : (
                           <span className="badge">{asset.status.toLowerCase()}</span>
                         )}
+                      </td>
+                      <td>
+                        {asset.status === 'POSTED' && !asset.disposedOn && !asset.pendingTransactionId ? (
+                          <DisposeAssetForm
+                            assetId={asset.id}
+                            assetNumber={asset.assetNumber}
+                            name={asset.name}
+                            netBookValueKobo={asset.netBookValueKobo}
+                            today={today}
+                          />
+                        ) : null}
                       </td>
                     </tr>
                   ))}

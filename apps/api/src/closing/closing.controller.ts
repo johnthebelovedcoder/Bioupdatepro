@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { ChecklistItemStatus } from '@bioassetpro/database';
 import { PeriodCloseService } from './period-close.service';
 import { YearEndService } from './year-end.service';
@@ -151,12 +151,17 @@ export class ClosingController {
   // --- Year end -------------------------------------------------------------
 
   @Post('year-end/validate')
-  async validateYear(@Body() body: { financialYearId: string }) {
+  async validateYear(
+    @CurrentCompany() companyId: string,
+    @Body() body: { financialYearId: string },
+  ) {
+    await this.assertOwnYear(companyId, body.financialYearId);
     return this.yearEnd.validate(body.financialYearId);
   }
 
   @Post('year-end/close')
   async closeYear(
+    @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
     @Body()
     body: {
@@ -166,7 +171,31 @@ export class ClosingController {
       nextYearCode?: string;
     },
   ) {
+    await this.assertOwnYear(companyId, body.financialYearId);
+    if (body.retainedEarningsGlAccountId) {
+      const account = await this.prisma.gLAccount.findFirst({
+        where: { id: body.retainedEarningsGlAccountId, companyId },
+        select: { id: true },
+      });
+      if (!account) throw new NotFoundException('No such account.');
+    }
     return this.yearEnd.close({ ...body, actor });
+  }
+
+  /**
+   * The year id arrives in the body, where `@OwnedRecord` cannot see it.
+   * Without this, any finance user could validate — or close — another
+   * company's financial year by naming its id. 404 rather than 403, for the
+   * same reason the ownership guard uses it: a 403 confirms the id exists.
+   */
+  private async assertOwnYear(companyId: string, financialYearId: string) {
+    const year =
+      typeof financialYearId === 'string' && financialYearId
+        ? await this.prisma.financialYear
+            .findFirst({ where: { id: financialYearId, companyId }, select: { id: true } })
+            .catch(() => null)
+        : null;
+    if (!year) throw new NotFoundException('No such financial year.');
   }
 
   @OwnedRecord('financialYear', 'id')

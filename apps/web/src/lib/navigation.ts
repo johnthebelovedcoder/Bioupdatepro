@@ -444,6 +444,30 @@ export const SECTIONS: NavSection[] = [
         hint: 'Checklist, validation and close, one period at a time',
         keywords: ['period close', 'close', 'checklist', 'soft close', 'reopen', 'month end'],
       },
+      {
+        href: '/ledger/controls',
+        label: 'Controls',
+        hint: 'Control-account reconciliation, posting checks and release sign-off',
+        keywords: ['control', 'reconciliation', 'subledger', 'sign off', 'release', 'uat', 'build order'],
+      },
+      {
+        href: '/ledger/posting-rules',
+        label: 'Posting rules',
+        hint: 'Every business event, and the debit and credit it makes',
+        keywords: ['posting rule', 'posting key', 'double entry', 'account determination', 'gl mapping'],
+      },
+      {
+        href: '/ledger/year-end',
+        label: 'Year-end close',
+        hint: 'Sweep the result to retained earnings and open the next year',
+        keywords: ['year end', 'year-end', 'retained earnings', 'roll forward', 'opening balances', 'closing balances'],
+      },
+      {
+        href: '/ledger/tax',
+        label: 'Tax',
+        hint: 'VAT and WHT returns — registers, reconciliation, close and filing',
+        keywords: ['tax', 'vat', 'wht', 'withholding', 'return', 'firs', 'filing', 'register', 'tin'],
+      },
     ],
   },
 
@@ -459,6 +483,19 @@ export const SECTIONS: NavSection[] = [
         label: 'Waiting on you',
         hint: 'Documents you can approve or send back',
         keywords: ['approve', 'reject', 'authorise', 'sign off', 'queue'],
+      },
+      {
+        href: '/approvals/mine',
+        label: 'Sent by me',
+        hint: 'What you raised that is still waiting, or came back to you',
+        keywords: ['my documents', 'submitted', 'returned', 'withdraw', 'cancel', 'sent back'],
+      },
+      {
+        href: '/approvals/history',
+        label: 'Approval trail',
+        hint: 'Who did what to one document',
+        keywords: ['history', 'trail', 'audit'],
+        hidden: true,
       },
       {
         href: '/approvals/inbox',
@@ -501,6 +538,12 @@ export const SECTIONS: NavSection[] = [
         label: 'Cost centres',
         hint: 'What a cost is attributed to',
         keywords: ['cost centre', 'cost center', 'department', 'dimension'],
+      },
+      {
+        href: '/admin/breeds',
+        label: 'Breeds',
+        hint: 'Each breed, and the age in days each stage begins',
+        keywords: ['breed', 'strain', 'species', 'stage', 'age', 'ross', 'cobb', 'achatina'],
       },
       {
         href: '/admin/accounts',
@@ -587,19 +630,7 @@ export const HOME: NavSection = {
  * has one somewhere.
  */
 export const NOT_BUILT_YET: Array<{ label: string; belongsUnder: string; why: string }> = [
-  {
-    label: 'Payroll runs',
-    belongsUnder: 'People',
-    why: 'Raising a monthly run, payslips and approval — activating the statutory rates is now under People → Payroll setup',
-  },
-  { label: 'Banking', belongsUnder: 'Money', why: 'Accounts and reconciliation' },
-  { label: 'Fixed assets', belongsUnder: 'Money', why: 'Register and depreciation' },
-  {
-    label: 'Year-end close',
-    belongsUnder: 'Books',
-    why: 'Rolling one financial year into the next — the monthly checklist, validation and close/reopen are built, under Period close',
-  },
-  { label: 'Chart of accounts', belongsUnder: 'Setup', why: 'The accounts everything posts to' },
+  { label: 'Banking', belongsUnder: 'Money', why: 'Bank accounts, statement import and reconciliation' },
 ];
 
 /* --- Derived views ------------------------------------------------------ */

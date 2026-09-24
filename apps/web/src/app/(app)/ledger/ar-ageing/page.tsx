@@ -5,6 +5,7 @@ import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
 import { IconTag } from '@/components/icons';
+import { ExportLink } from '@/components/export-link';
 
 export const metadata = { title: 'AR ageing — BioAssetPro' };
 
@@ -48,7 +49,11 @@ export default async function ArAgeingPage() {
 
   return (
     <div className="stack">
-      <PageHeader title="AR ageing" subtitle="Who owes the company, and how overdue" />
+      <PageHeader
+        title="AR ageing"
+        subtitle="Who owes the company, and how overdue"
+        actions={<ExportLink report="ar-ageing" />}
+      />
 
       <Tabs />
 

@@ -40,6 +40,20 @@ export interface SalarySnapshot {
   nhfBaseKobo: string;
 }
 
+/** The earning components a company gets on first use of payroll. */
+const DEFAULT_EARNINGS = [
+  { code: 'BASIC', name: 'Basic salary', taxable: true, pensionable: true, nhfBase: true },
+  { code: 'HOUSING', name: 'Housing allowance', taxable: true, pensionable: true, nhfBase: false },
+  { code: 'TRANSPORT', name: 'Transport', taxable: true, pensionable: true, nhfBase: false },
+  { code: 'UTILITY', name: 'Utility', taxable: true, pensionable: false, nhfBase: false },
+  { code: 'MEAL', name: 'Meal', taxable: true, pensionable: false, nhfBase: false },
+  { code: 'RESPONSIBILITY', name: 'Responsibility', taxable: true, pensionable: false, nhfBase: false },
+  { code: 'LEAVE', name: 'Leave allowance', taxable: true, pensionable: false, nhfBase: false },
+  { code: 'BONUS', name: 'Bonus', taxable: true, pensionable: false, nhfBase: false },
+  { code: 'OVERTIME', name: 'Overtime', taxable: true, pensionable: false, nhfBase: false },
+  { code: 'COMMISSION', name: 'Commission', taxable: true, pensionable: false, nhfBase: false },
+] as const;
+
 /**
  * Employee master (§7).
  *
@@ -49,6 +63,39 @@ export interface SalarySnapshot {
  */
 @Injectable()
 export class EmployeeService {
+  /**
+   * The earning components pay can be set against.
+   *
+   * A company that has never set anybody's pay has no rows yet —
+   * `setSalaryComponent` creates the default set on first use — so the
+   * defaults are listed in that case rather than an empty picker that makes
+   * it look as though pay cannot be set at all. Reading never writes.
+   */
+  async listEarningComponents(companyId: string) {
+    const rows = await this.prisma.salaryComponent.findMany({
+      where: { companyId, type: SalaryComponentType.EARNING },
+      orderBy: { code: 'asc' },
+      select: {
+        code: true,
+        name: true,
+        basis: true,
+        isTaxable: true,
+        isPensionable: true,
+        isNhfBase: true,
+      },
+    });
+    if (rows.length > 0) return rows;
+
+    return DEFAULT_EARNINGS.map((spec) => ({
+      code: spec.code,
+      name: spec.name,
+      basis: SalaryComponentBasis.FIXED,
+      isTaxable: spec.taxable,
+      isPensionable: spec.pensionable,
+      isNhfBase: spec.nhfBase,
+    }));
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -265,18 +312,7 @@ export class EmployeeService {
     });
     const byNumber = new Map(accounts.map((a) => [a.accountNumber, a.id]));
 
-    const earnings = [
-      { code: 'BASIC', name: 'Basic salary', taxable: true, pensionable: true, nhfBase: true },
-      { code: 'HOUSING', name: 'Housing allowance', taxable: true, pensionable: true, nhfBase: false },
-      { code: 'TRANSPORT', name: 'Transport', taxable: true, pensionable: true, nhfBase: false },
-      { code: 'UTILITY', name: 'Utility', taxable: true, pensionable: false, nhfBase: false },
-      { code: 'MEAL', name: 'Meal', taxable: true, pensionable: false, nhfBase: false },
-      { code: 'RESPONSIBILITY', name: 'Responsibility', taxable: true, pensionable: false, nhfBase: false },
-      { code: 'LEAVE', name: 'Leave allowance', taxable: true, pensionable: false, nhfBase: false },
-      { code: 'BONUS', name: 'Bonus', taxable: true, pensionable: false, nhfBase: false },
-      { code: 'OVERTIME', name: 'Overtime', taxable: true, pensionable: false, nhfBase: false },
-      { code: 'COMMISSION', name: 'Commission', taxable: true, pensionable: false, nhfBase: false },
-    ] as const;
+    const earnings = DEFAULT_EARNINGS;
 
     const rows: Prisma.SalaryComponentCreateManyInput[] = earnings.map((spec) => ({
       companyId,

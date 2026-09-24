@@ -7,6 +7,7 @@ import { IconBox } from '@/components/icons';
 
 import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
+import { StandardCostForm } from '@/components/master-row-actions';
 
 export const metadata = { title: 'Items — BioAssetPro' };
 
@@ -218,7 +219,12 @@ export default async function ItemsPage() {
                         <td className="faint">{item.unitOfMeasure}</td>
                         <td className="faint">{item.vatCode ?? '—'}</td>
                         <td className="num">
-                          {item.standardCostKobo ? formatNaira(item.standardCostKobo) : '—'}
+                          <StandardCostForm
+                            id={item.id}
+                            name={item.description}
+                            currentKobo={item.standardCostKobo}
+                            today={new Date().toISOString().slice(0, 10)}
+                          />
                         </td>
                         <td className="num">
                           {item.weightedAverageCostKobo

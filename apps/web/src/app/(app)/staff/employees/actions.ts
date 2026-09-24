@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { api, ApiError } from '@/lib/api';
+import { parseNairaToKobo } from '@/lib/money';
 import type { MasterState } from '../../admin/actions';
 
 function fail(caught: unknown, fallback: string, values: Record<string, string>): MasterState {
@@ -172,4 +173,48 @@ export async function activateEmployeePayroll(
 
   revalidatePath('/staff/employees');
   return { error: null, message: 'Activated for payroll.' };
+}
+
+/**
+ * Set one pay component — a new amount for basic, a housing allowance, a
+ * rise — from a date. The API closes the previous amount the day before, so
+ * history is kept and a past payroll run still reproduces exactly.
+ */
+export async function setEmployeePay(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const employeeId = String(formData.get('employeeId') ?? '');
+  const componentCode = String(formData.get('componentCode') ?? '');
+  const basis = String(formData.get('basis') ?? 'FIXED');
+  const effectiveFrom = String(formData.get('effectiveFrom') ?? '').trim();
+  if (!employeeId || !componentCode) return { error: 'Choose what is being set.', message: null };
+  if (!effectiveFrom) return { error: 'Say when it takes effect.', message: null };
+
+  let body: Record<string, string>;
+  if (basis === 'FIXED') {
+    const amount = parseNairaToKobo(String(formData.get('amount') ?? ''));
+    if (amount === null || amount < 0n) {
+      return { error: 'Enter a monthly amount in naira.', message: null };
+    }
+    body = { componentCode, amountKobo: amount.toString(), effectiveFrom };
+  } else {
+    const percent = Number(String(formData.get('rate') ?? '').trim());
+    if (!Number.isFinite(percent) || percent < 0) {
+      return { error: 'Enter a percentage.', message: null };
+    }
+    body = { componentCode, rate: String(percent / 100), effectiveFrom };
+  }
+
+  try {
+    await api(`/masters/employees/${employeeId}/salary-component`, { method: 'POST', body });
+  } catch (caught) {
+    return {
+      error: caught instanceof ApiError ? caught.message : 'Could not set that pay component.',
+      message: null,
+    };
+  }
+
+  revalidatePath('/staff/employees');
+  return { error: null, message: `${componentCode} set from ${effectiveFrom}.` };
 }
