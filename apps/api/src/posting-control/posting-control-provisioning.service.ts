@@ -75,6 +75,16 @@ const DYNAMIC_RESOLUTION: Record<string, string> = {
   'PCR-058-CR': 'ProductionOrderService — SnailPro settlement variance credit, the recovery clearing account (219810) standard absorption already credited',
   'PCR-080-CR': 'ProductionOrderService — PoultryPro settlement variance credit, the recovery clearing account (219820) standard absorption already credited',
   'PCR-083-DR': 'ManualJournalService — the accrual’s preparer names the expense/asset account at entry time; not a fact code should decide',
+
+  // Farm-to-ledger postings built 2026-09-24 (OperationsPostingService,
+  // RearingCostService). Each "A or B per policy" key is resolved by the
+  // policy the farm chose: rearing cost is capitalised into the population's
+  // Work in Progress (1501) and relieved at weighted average.
+  'PCR-042-CR': 'OperationsPostingService.postFeedIssues() — the issued item’s own inventory account (Item.inventoryGlAccountId, else 1301), taken out of the store at WAC',
+  'PCR-062-DR': 'OperationsPostingService.postFeedIssues() — capitalised into the flock’s Work in Progress (1501), relieved at weighted average',
+  'PCR-063-DR': 'OperationsPostingService.postTreatment() — capitalised into the flock’s Work in Progress (1501)',
+  'PCR-063-CR': 'OperationsPostingService.postTreatment() — Raw Material Inventory (1301), the store the medication came from',
+  'PCR-073-CR': 'RearingCostService.relieve(DISPOSAL) — the sold birds’ weighted-average share out of Work in Progress (1501) to Cost of Sales (5001)',
 };
 
 @Injectable()

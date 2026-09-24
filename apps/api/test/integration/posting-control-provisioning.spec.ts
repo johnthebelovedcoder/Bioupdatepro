@@ -48,6 +48,13 @@ describe('PostingControlProvisioningService', () => {
     const run = await checks.run(fixture.companyId);
     const failing = run.rows.filter((row) => ['PCC-01', 'PCC-02', 'PCC-03', 'PCC-04', 'PCC-05'].includes(row.id) && row.state !== 'PASS');
     expect(failing).toEqual([]);
+
+    // Feed, treatments and live sales resolve through the farm postings; what
+    // stays blocked is labour/overhead/depreciation allocation and egg
+    // valuation — modules not built, and policies the farm has not chosen.
+    const rules = run.rows.find((row) => row.id === 'PCC-09')!;
+    expect(rules.found).toBe('58 through this table, 23 by dedicated code, 5 blocked');
+    expect(rules.next).toContain('PCR-028, PCR-031, PCR-043, PCR-064, PCR-067.');
   });
 
   it('adds accounts without touching the ones a company already has', async () => {
