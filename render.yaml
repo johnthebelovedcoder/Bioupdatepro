@@ -17,7 +17,16 @@ services:
     plan: free
     region: frankfurt
     branch: main
-    # The schema is pushed as part of the build.
+    # The schema is migrated as part of the build.
+    #
+    # Since 2026-09-24 this is `prisma migrate deploy` over the reviewed files in
+    # packages/database/prisma/migrations, not `db push --accept-data-loss`. The
+    # first deploy finds a database built by db push with no migration history,
+    # marks the baseline as already applied (it IS the baseline), and applies
+    # only what came after. See packages/database/scripts/migrate.mjs. The notes
+    # below about db push are kept for the history of why this changed.
+    #
+    # (Previously: the schema is pushed as part of the build.)
     #
     # `prisma db push` is idempotent and the SQL constraint files re-apply
     # cleanly, so a redeploy is safe. This is the right shape while the schema
@@ -36,7 +45,7 @@ services:
     # packages/database/scripts/push.mjs for why) — a schema-moving push
     # periodically adds a constraint db push can't prove safe without it, and
     # refused outright rather than guess, which is what broke this deploy.
-    buildCommand: npm install --include=dev && npm run db:generate && npm run db:push && npm run build --workspace @bioassetpro/api
+    buildCommand: npm install --include=dev && npm run db:generate && npm run db:migrate && npm run build --workspace @bioassetpro/api
     startCommand: node apps/api/dist/main.js
     healthCheckPath: /api/auth/providers
     envVars:

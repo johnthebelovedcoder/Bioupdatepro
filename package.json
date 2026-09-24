@@ -15,6 +15,7 @@
     "test": "turbo run test",
     "db:generate": "npm run generate -w @bioassetpro/database",
     "db:push": "npm run push -w @bioassetpro/database",
+    "db:migrate": "npm run migrate:deploy -w @bioassetpro/database",
     "db:seed": "npm run seed -w @bioassetpro/database",
     "db:start": "node scripts/pg-dev-server.mjs",
     "db:seed:users": "tsx --env-file=.env apps/api/src/auth/seed-users.ts",

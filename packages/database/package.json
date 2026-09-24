@@ -7,6 +7,7 @@
   "scripts": {
     "generate": "prisma generate",
     "push": "node ./scripts/push.mjs",
+    "migrate:deploy": "node ./scripts/migrate.mjs",
     "constraints": "node ./scripts/apply-constraints.mjs",
     "migrate": "prisma migrate dev",
     "seed": "tsx ./src/seed.ts",

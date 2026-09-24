@@ -90,7 +90,7 @@ Bring up the database and load it:
 
 ```bash
 npm run db:start        # PostgreSQL on :5433
-npm run db:push         # schema + SQL constraints and triggers
+npm run db:migrate      # migrations + SQL constraints and triggers
 npm run db:seed         # chart of accounts, tax codes, calendar
 npm run db:seed:users   # one user per rung of the approval ladder
 npm run db:seed:ops     # illustrative livestock and 30 days of history
@@ -118,11 +118,19 @@ Or create your own farm at `/signup` — registration provisions a chart of
 accounts, cost centres and twelve open periods in one transaction, so a new
 farm can record a round on its first morning.
 
+## Deploying schema changes
+
+Change `schema.prisma`, then create a migration with
+`npx prisma migrate dev --name <what-changed>` in `packages/database` against a
+local database, review the SQL it wrote, and commit it. Deploys run
+`npm run db:migrate`, which applies pending migrations in order. `db:push` is
+for throwaway local databases only.
+
 ## Testing
 
 ```bash
 npm run typecheck
-npm test                  # 312 integration tests against a real PostgreSQL
+npm test                  # 343 integration and 31 unit tests against a real PostgreSQL
 ```
 
 The integration suite starts its own ephemeral database. It exercises the
@@ -133,19 +141,25 @@ maker-checker, tax reconciliation, year-end close.
 
 Stated here rather than discovered later.
 
-- **Tax rates, approval limits and payroll bands are not provisioned** for a new
-  farm. They carry statutory consequences and belong to the farm's own
-  accountant. Operations work from day one; a VAT invoice needs these first.
+- **Tax and payroll start switched off** for a new farm. Each is turned on from
+  its own screen (Books → Tax, Money → Payroll setup), which loads the current
+  Nigerian statutory rates and asks only for the decisions that belong to the
+  farm — whether withholding is computed before or after VAT, NHF
+  participation. Those answers are recorded against whoever gave them and
+  should be confirmed with the farm's own adviser.
 - **Sales and purchases stop at a submitted document.** They are translated into
   O2C and P2P orders and sent for approval — deliberately, so there is one
   posting path and one set of tax rules — but nothing reaches the ledger until
   somebody approves it.
-- **Harvest and mortality are not valued.** Both need a costing policy
-  (weighted average, FIFO, standard) that is the farm's decision.
+- **Only weighted-average costing is built.** Feed and treatments absorbed by a
+  population leave it with each death, sale or harvest at weighted average,
+  the policy chosen on 2026-09-24. FIFO or standard costing would need their
+  own implementation. Relief is exact from that date; feed eaten by animals
+  that left before it stays spread over the survivors.
 - **Google and Facebook sign-in are seams, not features.** The flow is ready;
   the credentials must come from your own developer accounts.
-- **Stock levels, staff and the activity feed still read from fixtures.**
-  Livestock, health, harvests, feeding and the money figures are real.
+- **Bank statements are imported, not fed.** A CSV export from the bank is
+  reconciled against the ledger; there is no live bank connection.
 - **Interface translations need a native speaker.** The Hausa, Yorùbá and Igbo
   wording was not written by one, and a wrong word on a mortality form produces
   wrong records.

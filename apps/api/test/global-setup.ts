@@ -58,10 +58,12 @@ export async function setup(): Promise<void> {
     console.log(`\n[test] PostgreSQL started on 127.0.0.1:${port}`);
   }
 
-  // Push the schema, then apply the SQL invariants on top.
+  // Migrate the schema, then apply the SQL invariants on top.
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
   await new Promise<void>((resolvePush, rejectPush) => {
-    const child = spawn('npm', ['run', 'push', '-w', '@bioassetpro/database'], {
+    // Migrations, not db push: every test run proves the migration files
+    // build exactly the schema the code expects.
+    const child = spawn('npm', ['run', 'migrate:deploy', '-w', '@bioassetpro/database'], {
       stdio: 'inherit',
       env: { ...process.env },
       cwd: repoRoot,
@@ -71,7 +73,7 @@ export async function setup(): Promise<void> {
     child.on('exit', (code) =>
       code === 0
         ? resolvePush()
-        : rejectPush(new Error(`Schema push failed with exit code ${code}`)),
+        : rejectPush(new Error(`Schema migration failed with exit code ${code}`)),
     );
   });
 }
