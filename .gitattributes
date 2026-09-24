@@ -1,0 +1,4 @@
+# Prisma checksums migration files; their bytes must be identical on every
+# machine, so they are never converted to CRLF on checkout.
+packages/database/prisma/migrations/**/*.sql text eol=lf
+packages/database/prisma/migrations/migration_lock.toml text eol=lf
