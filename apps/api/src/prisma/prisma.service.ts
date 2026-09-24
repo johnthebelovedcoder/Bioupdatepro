@@ -41,6 +41,13 @@ export class PrismaService
    * taking down every route, not just database ones, until someone noticed
    * and restarted it by hand. Retrying with backoff absorbs that cold start
    * instead of going down for it.
+   *
+   * And even then it must never be fatal. On Render a starting instance
+   * cannot reach the database over the private network until it is serving
+   * (seen in production, 2026-09-24: five failed attempts, then the process
+   * exited before `app.listen()` and the deploy never went live). Prisma
+   * connects lazily on the first query, so giving up here only means the
+   * connection is made a little later, once the network is there.
    */
   async onModuleInit(): Promise<void> {
     const maxAttempts = 5;
@@ -50,10 +57,15 @@ export class PrismaService
         this.logger.log('Database connected');
         return;
       } catch (error) {
-        if (attempt === maxAttempts) throw error;
+        if (attempt === maxAttempts) {
+          this.logger.warn(
+            `Database not reachable at startup (${(error as Error).message.split('\n').find((l) => l.trim()) ?? 'unknown error'}). Starting anyway — the first query will connect.`,
+          );
+          return;
+        }
         const delayMs = Math.min(1000 * 2 ** (attempt - 1), 8000);
         this.logger.warn(
-          `Database connection attempt ${attempt}/${maxAttempts} failed — retrying in ${delayMs}ms (Neon's compute may still be waking up).`,
+          `Database connection attempt ${attempt}/${maxAttempts} failed — retrying in ${delayMs}ms.`,
         );
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
