@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProvisioningService } from './provisioning.service';
+import { PostingControlProvisioningService } from '../posting-control/posting-control-provisioning.service';
 import { hashPassword } from './password';
 import { AuthService, type AuthenticatedUser } from './auth.service';
 
@@ -24,6 +25,7 @@ export class RegistrationService {
     private readonly prisma: PrismaService,
     private readonly provisioning: ProvisioningService,
     private readonly auth: AuthService,
+    private readonly postingControl: PostingControlProvisioningService,
   ) {}
 
   async register(input: {
@@ -85,6 +87,17 @@ export class RegistrationService {
       // default 5s is not enough on a cold pool.
       { timeout: 30_000 },
     );
+
+    /*
+     * The posting rules and the specification chart, after the company has
+     * committed rather than inside its transaction: several hundred upserts
+     * would push signup past its time budget, and a failure here must not
+     * lose the farm. If it fails, Books → Controls offers the same load.
+     */
+    const created = await this.prisma.user.findUnique({ where: { email }, select: { companyId: true } });
+    if (created?.companyId) {
+      await this.postingControl.provision(created.companyId, null).catch(() => undefined);
+    }
 
     // Sign them straight in. Making somebody type the password they just chose
     // is friction with no security benefit whatsoever.

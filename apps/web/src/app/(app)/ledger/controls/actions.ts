@@ -79,3 +79,27 @@ export async function postOperationsBacklog(
     };
   }
 }
+
+/**
+ * Load the client's posting rules, keys and six-digit chart into this company.
+ * Adds accounts; changes none. Audited against whoever pressed it.
+ */
+export async function loadPostingRules(): Promise<FlowState> {
+  try {
+    const result = await api<{ rules: number; keys: number; linked: number; accountsCreated: number }>(
+      '/posting-control/provision',
+      { method: 'POST', body: {} },
+    );
+    revalidatePath('/ledger/controls');
+    revalidatePath('/ledger/posting-rules');
+    return {
+      error: null,
+      message: `Loaded ${result.rules} rules and ${result.keys} keys; ${result.accountsCreated} accounts added to the chart.`,
+    };
+  } catch (caught) {
+    return {
+      error: caught instanceof ApiError ? caught.message : 'Could not load the posting rules.',
+      message: null,
+    };
+  }
+}

@@ -3,6 +3,7 @@ import {
   getBuildOrder,
   getControlReconciliation,
   getPostingChecks,
+  getPostingControlStatus,
   getReleaseSignOffs,
 } from '@/lib/controls';
 import { formatDateTime, formatNaira } from '@/lib/money';
@@ -10,6 +11,7 @@ import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { ReleaseSignOffForm } from '@/components/release-sign-off-form';
 import { PostBacklogButton } from '@/components/post-backlog-button';
+import { LoadPostingRulesButton } from '@/components/load-posting-rules-button';
 
 export const metadata = { title: 'Controls — BioAssetPro' };
 
@@ -27,11 +29,12 @@ const STATE_TONE: Record<string, string> = {
  * subledger it summarises, and who signed off a release knowing what.
  */
 export default async function ControlsPage() {
-  const [checks, reconciliation, signOffs, buildOrder] = await Promise.all([
+  const [checks, reconciliation, signOffs, buildOrder, provisioning] = await Promise.all([
     getPostingChecks(),
     getControlReconciliation(),
     getReleaseSignOffs(),
     getBuildOrder(),
+    getPostingControlStatus(),
   ]);
 
   const failingChecks = checks.ok ? checks.data.rows.filter((row) => row.state !== 'PASS').length : 0;
@@ -52,6 +55,21 @@ export default async function ControlsPage() {
       <Tabs />
 
       <div className="stack">
+        {provisioning.ok && !provisioning.data.loaded ? (
+          <Card
+            title="Posting rules are not loaded"
+            subtitle={`${provisioning.data.rules} of ${provisioning.data.expectedRules} rules, ${provisioning.data.keys} of ${provisioning.data.expectedKeys} keys`}
+          >
+            <p style={{ fontSize: 14, marginBottom: 'var(--sp-3)' }}>
+              Manual journals, stock transfers and processing orders find their accounts through
+              these rules, so none of them can post until they are loaded. Loading adds the
+              client’s posting rules and the six-digit accounts they post to; it changes no
+              account you already have.
+            </p>
+            <LoadPostingRulesButton />
+          </Card>
+        ) : null}
+
         <Card
           title="Control accounts"
           subtitle={

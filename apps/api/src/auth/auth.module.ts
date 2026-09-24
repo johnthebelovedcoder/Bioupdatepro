@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule, minutes } from '@nestjs/throttler';
 import { CoreModule } from '../core.module';
+import { PostingControlModule } from '../posting-control/posting-control.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { RegistrationService } from './registration.service';
@@ -22,6 +23,7 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
 @Module({
   imports: [
     CoreModule,
+    PostingControlModule,
     PassportModule,
     JwtModule.registerAsync({
       useFactory: () => ({

@@ -1,7 +1,10 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingControlService } from './posting-control.service';
 import { PostingControlChecksService } from './posting-control-checks.service';
+import { PostingControlProvisioningService } from './posting-control-provisioning.service';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { WorkflowActor } from '../workflow/workflow.types';
 import { CurrentCompany } from '../auth/current-user.decorator';
 import { AnyRole, Roles } from '../auth/roles.guard';
 
@@ -26,7 +29,25 @@ export class PostingControlController {
     private readonly prisma: PrismaService,
     private readonly control: PostingControlService,
     private readonly checks: PostingControlChecksService,
+    private readonly provisioning: PostingControlProvisioningService,
   ) {}
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Get('provisioning')
+  async provisioningStatus(@CurrentCompany() companyId: string) {
+    return this.provisioning.status(companyId);
+  }
+
+  /**
+   * Load the client's posting rules, keys and six-digit chart into this
+   * company — what a farm that signed up before sign-up did this never got.
+   * Adds accounts, changes none, and is audited against whoever asked.
+   */
+  @Roles('FINANCE_CONTROLLER', 'CFO')
+  @Post('provision')
+  async provision(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor) {
+    return this.provisioning.provision(companyId, actor.userId);
+  }
 
   @AnyRole('The posting rules are how the system explains itself.')
   @Get('rules')

@@ -110,3 +110,14 @@ export const getPostingRules = (cycle?: string) =>
   load<PostingRule[]>(`/posting-control/rules${cycle ? `?cycle=${encodeURIComponent(cycle)}` : ''}`);
 export const resolvePostingRule = (ruleId: string) =>
   load<ResolvedRule>(`/posting-control/rules/${encodeURIComponent(ruleId)}`);
+
+export interface PostingControlStatus {
+  loaded: boolean;
+  rules: number;
+  keys: number;
+  expectedRules: number;
+  expectedKeys: number;
+}
+
+export const getPostingControlStatus = () =>
+  load<PostingControlStatus>('/posting-control/provisioning');
