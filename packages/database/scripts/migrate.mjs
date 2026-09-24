@@ -13,10 +13,9 @@
 // executed, and deploy runs again. A brand-new database gets the baseline run
 // like any other migration.
 //
-// Everything here goes through Prisma, deliberately: the first version of this
-// script checked for migration history with its own `pg` connection first,
-// and on Render's build machine that lookup of the database's internal
-// hostname failed (ENOTFOUND) where Prisma's own connection succeeds.
+// On Render this runs from the API's start command, not its build: build
+// machines are not on the private network, and the database's internal
+// hostname cannot be reached from them at all (see render.yaml).
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -58,7 +57,19 @@ const run = (command, args, { allowFailure = false } = {}) => {
   return { ok: result.status === 0, output };
 };
 
-const first = run('prisma', ['migrate', 'deploy'], { allowFailure: true });
+/*
+ * Retried while the database cannot be reached (P1001). This runs as the API
+ * starts, and a free-tier database can still be waking when it does; giving
+ * up at once would crash-loop the service over a delay of a few seconds.
+ */
+let first;
+for (let attempt = 1; ; attempt += 1) {
+  first = run('prisma', ['migrate', 'deploy'], { allowFailure: true });
+  if (first.ok || !first.output.includes('P1001') || attempt >= 6) break;
+  const wait = 2000 * 2 ** (attempt - 1);
+  console.log(`Database not reachable yet — retrying in ${wait / 1000}s (attempt ${attempt + 1} of 6).`);
+  await new Promise((r) => setTimeout(r, wait));
+}
 if (!first.ok) {
   if (!first.output.includes('P3005')) process.exit(1);
   console.log(`\nExisting schema with no migration history — marking ${BASELINE} as already applied.`);

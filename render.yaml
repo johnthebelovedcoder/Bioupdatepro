@@ -45,8 +45,16 @@ services:
     # packages/database/scripts/push.mjs for why) — a schema-moving push
     # periodically adds a constraint db push can't prove safe without it, and
     # refused outright rather than guess, which is what broke this deploy.
-    buildCommand: npm install --include=dev && npm run db:generate && npm run db:migrate && npm run build --workspace @bioassetpro/api
-    startCommand: node apps/api/dist/main.js
+    #
+    # Migrations run at START, not in the build (2026-09-24). Render's build
+    # machines are not on the private network, so the database's internal
+    # hostname is unreachable there (P1001 / ENOTFOUND — two failed deploys
+    # proved it). A pre-deploy command would be the textbook place, but it is
+    # not available on the free plan. At start the private network is there;
+    # with nothing pending, `migrate deploy` is a no-op taking a second or two,
+    # so running it on every restart is safe.
+    buildCommand: npm install --include=dev && npm run db:generate && npm run build --workspace @bioassetpro/api
+    startCommand: npm run db:migrate && node apps/api/dist/main.js
     healthCheckPath: /api/auth/providers
     envVars:
       - key: NODE_ENV
