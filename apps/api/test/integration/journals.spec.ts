@@ -308,7 +308,7 @@ describe('Accounting Adjustment Centre (§3)', () => {
           transactionId: submitted.transactionId,
           actor: { userId: selfApprover.id, roles: selfApprover.roles },
         }),
-      ).rejects.toThrow(/cannot approve it/i);
+      ).rejects.toThrow(/cannot also approve it/i);
       expect(await prisma.journalEntry.count()).toBe(0);
     });
 

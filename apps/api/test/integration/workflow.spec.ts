@@ -294,7 +294,7 @@ describe('Workflow & Approval Engine (§2)', () => {
           transactionId: submitted.transactionId,
           actor: { userId: selfApprover.id, roles: selfApprover.roles },
         }),
-      ).rejects.toThrow(/cannot approve it/i);
+      ).rejects.toThrow(/cannot also approve it/i);
     });
 
     it('refuses the maker even when they hold ADMINISTRATOR', async () => {
@@ -311,7 +311,7 @@ describe('Workflow & Approval Engine (§2)', () => {
           transactionId: submitted.transactionId,
           actor: { userId: adminMaker.id, roles: adminMaker.roles },
         }),
-      ).rejects.toThrow(/cannot approve it/i);
+      ).rejects.toThrow(/cannot also approve it/i);
     });
 
     it('blocks a maker approval written straight to the database', async () => {
@@ -626,7 +626,7 @@ describe('Workflow & Approval Engine (§2)', () => {
           transactionId: submitted.transactionId,
           actor: { userId: users.maker.id, roles: users.maker.roles },
         }),
-      ).rejects.toThrow(/cannot approve it/i);
+      ).rejects.toThrow(/cannot also approve it/i);
     });
 
     it('ignores a delegation outside its window', async () => {

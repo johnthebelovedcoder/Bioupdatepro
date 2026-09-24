@@ -67,6 +67,8 @@ export interface ProductionOrderDetail extends ProductionOrderRow {
   branchId: string;
   farmId: string;
   biologicalInputValueKobo: string;
+  /** The harvested population's feed and treatments, at weighted average. */
+  rearingCostKobo: string;
   packagingCostKobo: string;
   standardConversionCostKobo: string;
   actualLabourCostKobo: string;

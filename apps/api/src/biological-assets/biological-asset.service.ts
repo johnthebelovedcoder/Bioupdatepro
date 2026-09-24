@@ -14,6 +14,7 @@ import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
 import type { WorkflowActor } from '../workflow/workflow.types';
+import { RearingCostService } from './rearing-cost.service';
 
 /**
  * The biological-asset ledger — Consolidated Reference §43, §61, §67.
@@ -130,6 +131,8 @@ export class BiologicalAssetService {
     private readonly posting: PostingService,
     private readonly workflow: WorkflowService,
     private readonly audit: AuditService,
+    /** Weighted-average rearing cost; exposed for the callers that remove animals. */
+    readonly rearing: RearingCostService,
   ) {}
 
   /* ------------------------------------------------------------------ */
@@ -463,6 +466,24 @@ export class BiologicalAssetService {
     if (mortality.journalEntryId) return { posted: false, reason: 'Already posted.' };
 
     const group = mortality.dailyRecord.group;
+
+    /*
+     * The rearing cost the dead animals had absorbed leaves with them, at
+     * weighted average — whatever happens to their carrying value below, and
+     * whether or not the population was ever valued. Called after the round
+     * committed, so the population has already fallen by this count.
+     * Idempotent, so a retry of this posting never relieves twice.
+     */
+    await this.rearing.relieve({
+      companyId: group.companyId,
+      groupId: group.id,
+      event: 'MORTALITY',
+      sourceId: mortality.id,
+      count: mortality.quantity,
+      populationBefore: group.population + mortality.quantity,
+      occurredOn: mortality.dailyRecord.recordedOn,
+      actor: params.actor,
+    });
     if (group.currentFvlctsPerUnitKobo === null) {
       return { posted: false, reason: 'No carrying value yet — acquisition has not posted.' };
     }

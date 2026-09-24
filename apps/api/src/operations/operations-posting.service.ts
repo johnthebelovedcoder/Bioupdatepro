@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { kobo } from '../common/money';
 import type { WorkflowActor } from '../workflow/workflow.types';
+import { RearingCostService } from '../biological-assets/rearing-cost.service';
 
 /**
  * Where the farm's work becomes accounting.
@@ -51,6 +52,7 @@ export class OperationsPostingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly posting: PostingService,
+    private readonly rearing: RearingCostService,
   ) {}
 
   /**
@@ -271,6 +273,7 @@ export class OperationsPostingService {
   }): Promise<{
     feedIssues: { posted: number; failed: number };
     treatments: { posted: number; failed: number };
+    rearingReliefs: { posted: number; failed: number };
     reasons: string[];
   }> {
     const limit = Math.min(params.limit ?? 500, 2000);
@@ -320,7 +323,16 @@ export class OperationsPostingService {
       }
     }
 
-    return { feedIssues: feed, treatments, reasons: [...reasons] };
+    // Rearing cost that died or was sold while its period was closed.
+    const rearing = await this.rearing.postPending(params.companyId, params.actor);
+    for (const reason of rearing.reasons) reasons.add(reason);
+
+    return {
+      feedIssues: feed,
+      treatments,
+      rearingReliefs: { posted: rearing.posted, failed: rearing.failed },
+      reasons: [...reasons],
+    };
   }
 
   /* ---------------------------------------------------------------------- */

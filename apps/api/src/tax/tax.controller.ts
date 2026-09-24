@@ -47,6 +47,71 @@ export class TaxController {
     });
   }
 
+  /** Every tax code, its current rate and its full rate history. */
+  @Get('codes')
+  async codes(@CurrentCompany() companyId: string) {
+    return this.setup.listCodes(companyId);
+  }
+
+  @Post('codes')
+  async createCode(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: {
+      taxType: 'VAT' | 'WHT';
+      code: string;
+      name: string;
+      treatment?: 'STANDARD' | 'ZERO_RATED' | 'EXEMPT' | 'OUT_OF_SCOPE';
+      whtCategory?: string | null;
+      ratePercent: string;
+      effectiveFrom: string;
+      sourceReference: string;
+    },
+  ) {
+    return this.setup.createCode({
+      companyId,
+      actorId: actor.userId,
+      taxType: body.taxType,
+      code: body.code,
+      name: body.name,
+      treatment: body.treatment,
+      whtCategory: body.whtCategory,
+      rate: body.ratePercent,
+      effectiveFrom: body.effectiveFrom,
+      sourceReference: body.sourceReference,
+    });
+  }
+
+  @OwnedRecord('taxCode', 'id')
+  @Post('codes/:id/rates')
+  async setRate(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { ratePercent: string; effectiveFrom: string; sourceReference: string },
+  ) {
+    return this.setup.setRate({
+      companyId,
+      actorId: actor.userId,
+      taxCodeId: id,
+      rate: body.ratePercent,
+      effectiveFrom: body.effectiveFrom,
+      sourceReference: body.sourceReference,
+    });
+  }
+
+  @OwnedRecord('taxCode', 'id')
+  @Post('codes/:id/active')
+  async setActive(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { active: boolean },
+  ) {
+    return this.setup.setActive({ companyId, actorId: actor.userId, taxCodeId: id, active: body.active });
+  }
+
   /** Correct the TIN and VAT registration number without touching tax policy. */
   @Post('setup/identifiers')
   async updateIdentifiers(

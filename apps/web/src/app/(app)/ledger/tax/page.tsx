@@ -68,6 +68,9 @@ export default async function TaxPage() {
             <div className="row" style={{ gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
               <GenerateTaxPeriodsForm defaultYear={new Date().getUTCFullYear()} />
               <TaxCalculatorForm taxCodes={taxCodes} />
+              <Link href="/ledger/tax/codes" className="btn btn-ghost">
+                Codes and rates
+              </Link>
             </div>
 
             {periods.data.length === 0 ? (

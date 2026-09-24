@@ -67,7 +67,9 @@ describe('fromMajorUnits', () => {
 
 describe('formatKobo', () => {
   it('renders naira and kobo', () => {
-    expect(formatKobo(kobo(257_656_20))).toBe('₦257656.20');
+    // Grouped since 645554b — a ledger figure without separators is misread.
+    expect(formatKobo(kobo(257_656_20))).toBe('₦257,656.20');
+    expect(formatKobo(kobo(-1_234_567_89))).toBe('-₦1,234,567.89');
   });
 });
 

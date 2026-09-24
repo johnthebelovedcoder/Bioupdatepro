@@ -169,6 +169,14 @@ export class ProductionOrderService {
     }
 
     const biologicalInputValueKobo = BigInt(harvest.count) * harvest.group.currentFvlctsPerUnitKobo;
+    // The feed and treatments these animals ate, at weighted average, taken
+    // out of the population when they were harvested (RearingCostService).
+    const rearingRelief = await this.prisma.livestockRearingRelief.findUnique({
+      where: {
+        groupId_eventType_sourceId: { groupId: harvest.groupId, eventType: 'HARVEST', sourceId: harvest.id },
+      },
+    });
+    const rearingCostKobo = rearingRelief?.amountKobo ?? 0n;
     const processingCycle = this.cycleForSpecies(harvest.group.speciesKey);
 
     const explosion = await this.recipes.explode({
@@ -190,6 +198,7 @@ export class ProductionOrderService {
           processingCycle,
           plannedOutputQuantity: new Prisma.Decimal(new Decimal(params.plannedOutputQuantity).toFixed(6)),
           biologicalInputValueKobo,
+          rearingCostKobo,
           createdById: params.actor.userId,
           components: {
             create: explosion.components.map((component) => ({
@@ -317,7 +326,7 @@ export class ProductionOrderService {
       documentType: 'ProductionOrder',
       documentId: order.id,
       documentReference: order.orderNumber,
-      amount: kobo(order.biologicalInputValueKobo + plannedPackagingKobo),
+      amount: kobo(order.biologicalInputValueKobo + order.rearingCostKobo + plannedPackagingKobo),
       currencyId: (await this.baseCurrencyId(order.companyId)),
       branchId: order.branchId,
       farmId: order.farmId,
@@ -457,6 +466,45 @@ export class ProductionOrderService {
           ]
         : [];
 
+    /*
+     * The harvested animals' rearing cost — feed and treatments absorbed in
+     * the population's WIP (1501) — follows them into processing, so the
+     * finished goods carry the feed that produced them. Debited to the same
+     * processing WIP as the biological input; credited out of rearing WIP.
+     */
+    const rearingWip =
+      order.rearingCostKobo > 0n
+        ? await this.prisma.gLAccount.findFirst({
+            where: { companyId: order.companyId, accountNumber: '1501', active: true },
+            select: { id: true },
+          })
+        : null;
+    if (order.rearingCostKobo > 0n && (!issueRule || !rules.issueRuleId || !rearingWip)) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §9 — Production order',
+        `${order.orderNumber} carries rearing cost but there is no processing WIP rule or no active ` +
+          'Work in Progress (1501) account to move it with.',
+        { orderNumber: order.orderNumber },
+      );
+    }
+    const rearingLines =
+      order.rearingCostKobo > 0n && issueRule && rules.issueRuleId && rearingWip
+        ? [
+            {
+              glAccountId: this.requireSide(issueRule.debit, rules.issueRuleId, 'debit').glAccountId,
+              description: `Rearing cost of the harvested population, into processing (${order.orderNumber})`,
+              debit: kobo(order.rearingCostKobo),
+              dimensions,
+            },
+            {
+              glAccountId: rearingWip.id,
+              description: `Rearing cost out of the population's WIP (${order.orderNumber})`,
+              credit: kobo(order.rearingCostKobo),
+              dimensions,
+            },
+          ]
+        : [];
+
     return this.prisma.$transaction(async (tx) => {
       let packagingTotal = 0n;
       const packagingLines: typeof lines = [];
@@ -514,10 +562,22 @@ export class ProductionOrderService {
           ...dimensions,
           idempotencyKey: `production-order:${order.id}:issue`,
           actor: params.actor,
-          lines: [...lines, ...packagingLines],
+          lines: [...lines, ...rearingLines, ...packagingLines],
         },
         tx,
       );
+
+      if (rearingLines.length > 0 && order.harvestRecordId && order.sourceGroupId) {
+        await tx.livestockRearingRelief.updateMany({
+          where: {
+            groupId: order.sourceGroupId,
+            eventType: 'HARVEST',
+            sourceId: order.harvestRecordId,
+            journalEntryId: null,
+          },
+          data: { journalEntryId: result.journalEntryId },
+        });
+      }
 
       await tx.productionOrder.update({
         where: { id: order.id },
@@ -762,7 +822,11 @@ export class ProductionOrderService {
     }
     const rules = this.cycleRules(order.processingCycle);
 
-    const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
+    const wipDebits =
+      order.biologicalInputValueKobo +
+      order.rearingCostKobo +
+      order.packagingCostKobo +
+      order.standardConversionCostKobo;
 
     /*
      * Classification is decided here, against the recipe's own approved
@@ -1015,7 +1079,11 @@ export class ProductionOrderService {
 
     const rules = this.cycleRules(order.processingCycle);
 
-    const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
+    const wipDebits =
+      order.biologicalInputValueKobo +
+      order.rearingCostKobo +
+      order.packagingCostKobo +
+      order.standardConversionCostKobo;
     const totalToAllocate = wipDebits - order.abnormalLossCostKobo;
     if (totalToAllocate <= 0n) {
       throw new AccountingRuleViolation(
@@ -1153,7 +1221,11 @@ export class ProductionOrderService {
     }
     const rules = this.cycleRules(order.processingCycle);
 
-    const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
+    const wipDebits =
+      order.biologicalInputValueKobo +
+      order.rearingCostKobo +
+      order.packagingCostKobo +
+      order.standardConversionCostKobo;
     if (wipDebits !== order.finishedGoodsCostKobo + order.abnormalLossCostKobo) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §9/Rule 7 — WIP identity',

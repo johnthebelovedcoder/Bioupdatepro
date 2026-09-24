@@ -11,8 +11,12 @@ export function PostBacklogButton() {
     result: null,
   });
   const result = state.result;
-  const posted = result ? result.feedIssues.posted + result.treatments.posted : 0;
-  const failed = result ? result.feedIssues.failed + result.treatments.failed : 0;
+  const posted = result
+    ? result.feedIssues.posted + result.treatments.posted + (result.rearingReliefs?.posted ?? 0)
+    : 0;
+  const failed = result
+    ? result.feedIssues.failed + result.treatments.failed + (result.rearingReliefs?.failed ?? 0)
+    : 0;
 
   return (
     <form action={formAction} className="stack" style={{ gap: 'var(--sp-3)' }}>

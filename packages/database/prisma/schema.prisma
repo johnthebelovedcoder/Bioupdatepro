@@ -2707,6 +2707,12 @@ model ProductionOrder {
   /// moving and Rule 7's identity needs this order's own frozen figure.
   biologicalInputValueKobo BigInt @default(0) @map("biological_input_value_kobo")
 
+  /// MONEY. The source population's share of its rearing cost — the feed and
+  /// treatments it absorbed in WIP (1501) — at weighted average when it was
+  /// harvested. Issued alongside the biological input (Dr processing WIP /
+  /// Cr 1501), so finished goods carry the feed that produced them.
+  rearingCostKobo BigInt @default(0) @map("rearing_cost_kobo")
+
   /// MONEY. Packaging issued via the recipe explosion (PCR-052/075).
   packagingCostKobo BigInt @default(0) @map("packaging_cost_kobo")
 
@@ -5543,11 +5549,57 @@ model LivestockGroup {
   productionOrders ProductionOrder[]
   eggBatches   EggCollectionBatch[]       @relation("EggSourceGroup")
   hatchedFrom  HatchEvent[]               @relation("HatchChickGroup")
+  rearingReliefs LivestockRearingRelief[]
 
   @@unique([companyId, code])
   @@index([companyId, speciesKey, status])
   @@index([penHouseId])
   @@map("livestock_groups")
+}
+
+/// A population's rearing cost leaving it — the weighted-average costing
+/// policy the farm chose on 2026-09-24.
+///
+/// Feed and treatments post Dr Work in Progress (1501) per population, and
+/// until this existed nothing ever relieved it: animals died, were sold or
+/// were harvested, and the feed they ate stayed in WIP forever. Each event
+/// that removes animals takes `remaining × count ÷ populationBefore`; the last
+/// animal out takes whatever is left, so WIP for a finished population clears
+/// to exactly zero.
+///
+///   MORTALITY     Dr Production Loss Expense (5305) / Cr WIP
+///   DISPOSAL      Dr Cost of Sales (5001) / Cr WIP
+///   HARVEST       no journal here — the share rides on the processing order
+///                 raised from the harvest, and posts at issue
+///   TRANSFER_OUT  animals moved into another population take their share
+///   TRANSFER_IN   … and it is added there; same account, so no journal
+model LivestockRearingRelief {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  groupId   String @map("group_id") @db.Uuid
+
+  eventType String @map("event_type")
+  /// The record that caused it: a MortalityRecord or HarvestRecord id, or one
+  /// generated per sale line (a sale can take from several populations).
+  sourceId  String @map("source_id") @db.Uuid
+
+  count            Int
+  populationBefore Int    @map("population_before")
+  /// MONEY. Always positive; the event type says which way it moves.
+  amountKobo       BigInt @map("amount_kobo")
+
+  /// Null until posted — a closed period leaves it visibly unposted, and the
+  /// Controls backlog button posts it later. Never set for TRANSFER rows.
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  occurredOn DateTime @map("occurred_on") @db.Date
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  group LivestockGroup @relation(fields: [groupId], references: [id])
+
+  @@unique([groupId, eventType, sourceId])
+  @@index([groupId])
+  @@map("livestock_rearing_reliefs")
 }
 
 /// A population leaving live — §61.3 formula 6, PCR-050/073.

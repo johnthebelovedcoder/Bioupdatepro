@@ -61,6 +61,7 @@ export default async function ProductionOrderDetailPage({
         <Card title="Cost so far">
           <div className="stat-grid">
             <MoneyStat label="Biological input" value={order.biologicalInputValueKobo} />
+            <MoneyStat label="Rearing cost" value={order.rearingCostKobo} />
             <MoneyStat label="Packaging" value={order.packagingCostKobo} />
             <MoneyStat label="Standard conversion" value={order.standardConversionCostKobo} />
             <MoneyStat label="Actual labour" value={order.actualLabourCostKobo} />

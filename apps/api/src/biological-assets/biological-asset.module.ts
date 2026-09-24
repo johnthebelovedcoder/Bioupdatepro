@@ -1,5 +1,6 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { BiologicalAssetService } from './biological-asset.service';
+import { RearingCostService } from './rearing-cost.service';
 import {
   BiologicalAssetValuationPostingHandler,
   BiologicalAssetAbnormalMortalityPostingHandler,
@@ -10,10 +11,11 @@ import { WorkflowService } from '../workflow/workflow.service';
 @Module({
   providers: [
     BiologicalAssetService,
+    RearingCostService,
     BiologicalAssetValuationPostingHandler,
     BiologicalAssetAbnormalMortalityPostingHandler,
   ],
-  exports: [BiologicalAssetService],
+  exports: [BiologicalAssetService, RearingCostService],
 })
 export class BiologicalAssetModule implements OnModuleInit {
   constructor(

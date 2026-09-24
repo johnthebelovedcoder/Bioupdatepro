@@ -2,10 +2,11 @@ import 'reflect-metadata';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Logger, ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
+import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { BigIntSerialiserInterceptor } from './common/bigint.interceptor';
+import { PrismaExceptionFilter } from './common/prisma-exception.filter';
 
 /**
  * Load the repo-root .env before anything reads process.env.
@@ -49,6 +50,9 @@ async function bootstrap(): Promise<void> {
   app.enableCors({ origin: origins, credentials: true });
 
   app.useGlobalInterceptors(new BigIntSerialiserInterceptor());
+
+  // "No such record" is a 404, not a 500 — see the filter for which codes map.
+  app.useGlobalFilters(new PrismaExceptionFilter(app.get(HttpAdapterHost).httpAdapter));
 
   app.useGlobalPipes(
     new ValidationPipe({

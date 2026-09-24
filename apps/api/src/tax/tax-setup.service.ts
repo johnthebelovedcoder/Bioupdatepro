@@ -340,4 +340,307 @@ export class TaxSetupService {
 
     return this.status(params.companyId);
   }
+
+  // -------------------------------------------------------------------------
+  // Codes and rates
+  // -------------------------------------------------------------------------
+
+  /** Every tax code with its full rate history, newest rate first. */
+  async listCodes(companyId: string) {
+    const codes = await this.prisma.taxCode.findMany({
+      where: { companyId },
+      orderBy: [{ taxType: 'asc' }, { code: 'asc' }],
+      include: { rates: { orderBy: { effectiveFrom: 'desc' } } },
+    });
+    const today = startOfDay(new Date());
+    return codes.map((code) => {
+      const current = code.rates.find(
+        (r) => r.effectiveFrom <= today && (r.effectiveTo === null || r.effectiveTo >= today),
+      );
+      return {
+        id: code.id,
+        code: code.code,
+        name: code.name,
+        taxType: code.taxType,
+        treatment: code.treatment,
+        recoverable: code.recoverable,
+        whtCategory: code.whtCategory,
+        active: code.active,
+        currentRate: current?.rate.toString() ?? null,
+        rates: code.rates.map((r) => ({
+          id: r.id,
+          rate: r.rate.toString(),
+          effectiveFrom: r.effectiveFrom.toISOString().slice(0, 10),
+          effectiveTo: r.effectiveTo?.toISOString().slice(0, 10) ?? null,
+          sourceReference: r.sourceReference,
+        })),
+      };
+    });
+  }
+
+  /**
+   * Add a tax code — a VAT treatment or WHT category the defaults lack. It
+   * posts to the same control accounts as every other code of its type.
+   */
+  async createCode(params: {
+    companyId: string;
+    actorId: string;
+    taxType: 'VAT' | 'WHT';
+    code: string;
+    name: string;
+    treatment?: 'STANDARD' | 'ZERO_RATED' | 'EXEMPT' | 'OUT_OF_SCOPE';
+    whtCategory?: string | null;
+    rate: string;
+    effectiveFrom: string;
+    sourceReference: string;
+  }) {
+    const code = String(params.code ?? '').trim().toUpperCase();
+    const name = String(params.name ?? '').trim();
+    const sourceReference = String(params.sourceReference ?? '').trim();
+    if (params.taxType !== 'VAT' && params.taxType !== 'WHT') {
+      throw new AccountingRuleViolation('Consolidated Reference §4 — Tax codes', 'A code is either VAT or WHT.', {});
+    }
+    if (!code || !name) {
+      throw new AccountingRuleViolation('Consolidated Reference §4 — Tax codes', 'Give the code a code and a name.', {});
+    }
+    if (!sourceReference) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §4 — Tax rates',
+        'Say where the rate comes from — the Act, a circular, the adviser. A rate with no source is a guess.',
+        {},
+      );
+    }
+    const rate = parseRate(params.rate);
+    const from = parseDay(params.effectiveFrom);
+    const treatment = params.taxType === 'VAT' ? (params.treatment ?? 'STANDARD') : 'STANDARD';
+    const whtCategory = params.taxType === 'WHT' ? params.whtCategory?.trim() || name : null;
+
+    const clash = await this.prisma.taxCode.findUnique({
+      where: { companyId_code: { companyId: params.companyId, code } },
+    });
+    if (clash) {
+      throw new AccountingRuleViolation('Consolidated Reference §4 — Tax codes', `${code} already exists.`, { code });
+    }
+
+    const pair =
+      params.taxType === 'VAT'
+        ? [
+            { direction: 'INPUT', number: ACCOUNTS.inputVat },
+            { direction: 'OUTPUT', number: ACCOUNTS.outputVat },
+          ]
+        : [
+            { direction: 'RECEIVABLE', number: ACCOUNTS.whtReceivable },
+            { direction: 'PAYABLE', number: ACCOUNTS.whtPayable },
+          ];
+    const accounts = await this.prisma.gLAccount.findMany({
+      where: {
+        companyId: params.companyId,
+        accountNumber: { in: pair.map((p) => p.number) },
+        active: true,
+      },
+      select: { id: true, accountNumber: true },
+    });
+    const byNumber = new Map(accounts.map((a) => [a.accountNumber, a.id]));
+    const missing = pair.filter((p) => !byNumber.has(p.number)).map((p) => p.number);
+    if (missing.length > 0) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §4 — Tax GL mapping',
+        `This chart of accounts has no active ${missing.join(', ')} for ${params.taxType} to post to.`,
+        { missing },
+      );
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const taxCode = await tx.taxCode.create({
+        data: {
+          companyId: params.companyId,
+          code,
+          name,
+          taxType: params.taxType,
+          treatment,
+          priceBasis: 'EXCLUSIVE',
+          // Exempt and out-of-scope carry no recoverable input tax — that is
+          // the whole difference between them and zero-rated.
+          recoverable: treatment === 'STANDARD' || treatment === 'ZERO_RATED',
+          whtCategory,
+        },
+      });
+      await tx.taxRate.create({
+        data: { taxCodeId: taxCode.id, rate, effectiveFrom: from, sourceReference },
+      });
+      await tx.taxGLMapping.createMany({
+        data: pair.map((p) => ({
+          companyId: params.companyId,
+          taxCodeId: taxCode.id,
+          direction: p.direction,
+          glAccountId: byNumber.get(p.number)!,
+          effectiveFrom: from,
+        })),
+      });
+      return taxCode;
+    });
+
+    await this.audit.write({
+      transactionId: created.id,
+      module: 'tax',
+      entityType: 'TaxCode',
+      entityId: created.id,
+      status: 'ACTIVE',
+      action: AuditAction.CREATE,
+      userId: params.actorId,
+      comments: `Added ${params.taxType} code ${code} at ${rate}, from ${params.effectiveFrom}.`,
+      newValue: { code, name, treatment, whtCategory, rate, effectiveFrom: params.effectiveFrom, sourceReference },
+    });
+    return { id: created.id, code: created.code };
+  }
+
+  /**
+   * A new rate for an existing code, from a date. The rate in force until
+   * then is closed the day before, so every past calculation still
+   * reproduces. Refused where it would reach back into a tax period already
+   * closed or filed — that return was made on the old rate.
+   */
+  async setRate(params: {
+    companyId: string;
+    actorId: string;
+    taxCodeId: string;
+    rate: string;
+    effectiveFrom: string;
+    sourceReference: string;
+  }) {
+    const sourceReference = String(params.sourceReference ?? '').trim();
+    if (!sourceReference) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §4 — Tax rates',
+        'Say where the new rate comes from — the Act, a circular, the adviser.',
+        {},
+      );
+    }
+    const rate = parseRate(params.rate);
+    const from = parseDay(params.effectiveFrom);
+
+    const code = await this.prisma.taxCode.findFirstOrThrow({
+      where: { id: params.taxCodeId, companyId: params.companyId },
+      include: { rates: { orderBy: { effectiveFrom: 'desc' } } },
+    });
+
+    const latest = code.rates[0];
+    if (latest && from <= latest.effectiveFrom) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §4 — Tax rates',
+        `${code.code} already has a rate from ${latest.effectiveFrom.toISOString().slice(0, 10)}. ` +
+          'A new rate has to start after it — rate history is added to, never rewritten.',
+        { latestFrom: latest.effectiveFrom.toISOString().slice(0, 10) },
+      );
+    }
+
+    const lockedPeriod = await this.prisma.taxPeriod.findFirst({
+      where: {
+        companyId: params.companyId,
+        taxType: code.taxType,
+        status: { in: ['CLOSED', 'FILED'] },
+        endDate: { gte: from },
+      },
+      orderBy: { endDate: 'desc' },
+    });
+    if (lockedPeriod) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §4 — Tax periods',
+        `${lockedPeriod.name} is ${lockedPeriod.status.toLowerCase()} for ${code.taxType}, and a rate ` +
+          `from ${params.effectiveFrom} would change figures inside it. Start the new rate after ` +
+          `${lockedPeriod.endDate.toISOString().slice(0, 10)}.`,
+        { taxPeriodId: lockedPeriod.id },
+      );
+    }
+
+    const dayBefore = new Date(from);
+    dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.taxRate.updateMany({
+        where: { taxCodeId: code.id, effectiveTo: null },
+        data: { effectiveTo: dayBefore },
+      });
+      await tx.taxRate.create({
+        data: { taxCodeId: code.id, rate, effectiveFrom: from, sourceReference },
+      });
+    });
+
+    await this.audit.write({
+      transactionId: code.id,
+      module: 'tax',
+      entityType: 'TaxRate',
+      entityId: code.id,
+      status: 'ACTIVE',
+      action: AuditAction.UPDATE,
+      userId: params.actorId,
+      comments: `${code.code} rate set to ${rate} from ${params.effectiveFrom}.`,
+      oldValue: latest
+        ? { rate: latest.rate.toString(), effectiveFrom: latest.effectiveFrom.toISOString().slice(0, 10) }
+        : null,
+      newValue: { rate, effectiveFrom: params.effectiveFrom, sourceReference },
+    });
+
+    return { code: code.code, rate, effectiveFrom: params.effectiveFrom };
+  }
+
+  /** Stop offering a code on new documents, or bring one back. History is untouched. */
+  async setActive(params: {
+    companyId: string;
+    actorId: string;
+    taxCodeId: string;
+    active: boolean;
+  }) {
+    const code = await this.prisma.taxCode.findFirstOrThrow({
+      where: { id: params.taxCodeId, companyId: params.companyId },
+    });
+    const active = params.active === true;
+    if (code.active === active) return { code: code.code, active };
+
+    await this.prisma.taxCode.update({ where: { id: code.id }, data: { active } });
+    await this.audit.write({
+      transactionId: code.id,
+      module: 'tax',
+      entityType: 'TaxCode',
+      entityId: code.id,
+      status: active ? 'ACTIVE' : 'INACTIVE',
+      action: AuditAction.UPDATE,
+      userId: params.actorId,
+      comments: `${code.code} ${active ? 'reactivated' : 'deactivated'}.`,
+    });
+    return { code: code.code, active };
+  }
+}
+
+/** A rate as a fraction ("0.07500000"), from a percentage typed by a person ("7.5"). */
+function parseRate(input: string): string {
+  const text = String(input ?? '').trim();
+  const percent = Number(text);
+  if (text === '' || !Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new AccountingRuleViolation(
+      'Consolidated Reference §4 — Tax rates',
+      'Enter the rate as a percentage between 0 and 100, e.g. 7.5.',
+      {},
+    );
+  }
+  return (percent / 100).toFixed(8);
+}
+
+function parseDay(input: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(input ?? '').trim());
+  const day = match
+    ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+    : null;
+  if (!day || Number.isNaN(day.getTime())) {
+    throw new AccountingRuleViolation(
+      'Consolidated Reference §4 — Tax rates',
+      'Give the date as YYYY-MM-DD.',
+      {},
+    );
+  }
+  return day;
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }

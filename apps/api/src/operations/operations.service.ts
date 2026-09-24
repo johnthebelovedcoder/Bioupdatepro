@@ -570,10 +570,10 @@ export class OperationsService {
   }) {
     const { companyId, actor, idempotencyKey, payload } = input;
 
-    return this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.$transaction(async (tx) => {
       const scope = 'operations.harvest';
       const reserved = await this.idempotency.reserve(scope, idempotencyKey, payload, tx);
-      if (reserved.replayed) return { id: reserved.resultRef!, replayed: true };
+      if (reserved.replayed) return { id: reserved.resultRef!, replayed: true, relief: null };
 
       const group = await this.resolveGroup(tx, companyId, payload.groupCode);
 
@@ -645,12 +645,56 @@ export class OperationsService {
         tx,
       );
 
-      return { id: record.id, replayed: false };
+      return {
+        id: record.id,
+        replayed: false,
+        relief: {
+          groupId: group.id,
+          movedToGroupId: movedTo?.id ?? null,
+          count: payload.count,
+          populationBefore: group.population,
+          occurredOn: record.harvestedOn,
+        },
+      };
       // Group resolve, eligibility check, harvest write, two population
       // updates, idempotency commit, and an audit write — enough round
       // trips under Neon latency to blow the default 5s interactive-
       // transaction budget, same fix applied everywhere else this session.
     }, { timeout: 15000 });
+
+    /*
+     * The harvested animals' share of the population's rearing cost, at
+     * weighted average, after the harvest committed. Animals kept back as
+     * breeding stock carry theirs into the population they joined; the rest
+     * ride on the processing order raised from this harvest, which posts it.
+     */
+    if (outcome.relief) {
+      const relief = outcome.relief;
+      if (relief.movedToGroupId) {
+        await this.biologicalAssets.rearing.transfer({
+          companyId,
+          fromGroupId: relief.groupId,
+          toGroupId: relief.movedToGroupId,
+          sourceId: outcome.id,
+          count: relief.count,
+          populationBefore: relief.populationBefore,
+          occurredOn: relief.occurredOn,
+        });
+      } else {
+        await this.biologicalAssets.rearing.relieve({
+          companyId,
+          groupId: relief.groupId,
+          event: 'HARVEST',
+          sourceId: outcome.id,
+          count: relief.count,
+          populationBefore: relief.populationBefore,
+          occurredOn: relief.occurredOn,
+          actor,
+        });
+      }
+    }
+
+    return { id: outcome.id, replayed: outcome.replayed };
   }
 
   /* ------------------------------------------------------------------ */

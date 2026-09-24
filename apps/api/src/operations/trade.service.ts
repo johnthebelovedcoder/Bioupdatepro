@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { PurchaseOrderStatus, SalesOrderStatus } from '@bioassetpro/database';
@@ -175,6 +176,20 @@ export class TradeService {
             data: { population: { decrement: line.animalsRemoved! } },
           });
           reduced.push(group.code);
+
+          // Their share of the population's rearing cost goes to cost of
+          // sales, at weighted average over the population before the sale.
+          // One id per sale line: an order can take from several populations.
+          await this.biologicalAssets.rearing.relieve({
+            companyId,
+            groupId: group.id,
+            event: 'DISPOSAL',
+            sourceId: randomUUID(),
+            count: line.animalsRemoved!,
+            populationBefore: group.population,
+            occurredOn: new Date(payload.date),
+            actor,
+          });
 
           // Dr COGS / Cr carrying value, after the population actually moved
           // — §61.3 formula 6. Tolerant of failure like every other posting

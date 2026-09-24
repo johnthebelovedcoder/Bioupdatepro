@@ -986,9 +986,20 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       ).rejects.toThrow(/fail validation/i);
     });
 
-    it('refuses a second run for the same month', async () => {
-      await newRun();
+    it('refuses a second run for the same month once one has been calculated', async () => {
+      await makeEmployee({
+        number: 'EMP001', firstName: 'A', surname: 'One',
+        basic: 180_000_00n, housing: 72_000_00n, transport: 45_000_00n, other: 0n,
+      });
+      const first = await newRun();
+      await payroll.calculate({ payrollRunId: first.id, actorId: fixture.makerId });
       await expect(newRun()).rejects.toThrow(/already exists/i);
+    });
+
+    it('hands back the same draft rather than refusing, so a failed calculation cannot block the month', async () => {
+      const first = await newRun();
+      const second = await newRun();
+      expect(second.id).toBe(first.id);
     });
 
     it('stores a reproducible calculation snapshot (§7.1)', async () => {
