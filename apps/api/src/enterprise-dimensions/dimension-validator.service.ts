@@ -70,6 +70,7 @@ export class DimensionValidatorService {
       where: { id: { in: accountIds } },
       select: {
         id: true,
+        companyId: true,
         accountNumber: true,
         name: true,
         active: true,
@@ -88,6 +89,16 @@ export class DimensionValidatorService {
         throw new MissingDimensionError(
           'GL Account',
           `account ${target.glAccountId} does not exist`,
+          target.lineNumber,
+        );
+      }
+      // The same rule every other dimension gets below. Until 2026-09-25 an
+      // account was only checked to exist, so a journal could name another
+      // company's account by id and post to it.
+      if (account.companyId !== target.dimensions.companyId) {
+        throw new MissingDimensionError(
+          'GL Account',
+          `account ${target.glAccountId} belongs to another company`,
           target.lineNumber,
         );
       }

@@ -18,6 +18,8 @@ import type { WorkflowService } from '../../src/workflow/workflow.service';
 import { PoultryEggController } from '../../src/poultry-egg/poultry-egg.controller';
 import { FarmCostAllocationController } from '../../src/cost-allocation/farm-cost-allocation.controller';
 import { FixedAssetsController } from '../../src/fixed-assets/fixed-assets.controller';
+import { BatchCloseService } from '../../src/operations/batch-close.service';
+import { BiologicalAssetService } from '../../src/biological-assets/biological-asset.service';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
 import { ControlAccountReconciliationService } from '../../src/reporting/control-account-reconciliation.service';
 import { kobo } from '../../src/common/money';
@@ -564,5 +566,70 @@ describe('Machine depreciation split by machine hours (PCR-031)', () => {
     await expect(
       assets.setMachineHours({ companyId: fixture.companyId, assetId: mixer.id, financialPeriodId: fixture.periodIds[JANUARY]!, hours: {}, actor }),
     ).rejects.toThrow(/already posted/);
+  });
+});
+
+describe('Closing a batch', () => {
+  let closer: BatchCloseService;
+
+  beforeAll(() => {
+    const audit = new AuditService(prisma);
+    closer = new BatchCloseService(prisma, new BiologicalAssetService(prisma, posting, {} as WorkflowService, audit, rearing), audit);
+  });
+
+  /** ₦6,000 of feed posted into a population's Work in Progress. */
+  async function fedPopulation(code: string, animals: number) {
+    const group = await population(code, 'poultry', animals);
+    const record = await prisma.dailyRecord.create({
+      data: { companyId: fixture.companyId, groupId: group.id, recordedOn: new Date('2026-01-05'), recordedById: fixture.makerId },
+    });
+    const issue = await prisma.feedIssue.create({ data: { dailyRecordId: record.id, feedName: 'Mash', quantityKg: '10', valueKobo: 600_000n } });
+    const journal = await posting.post({
+      sourceModule: 'TEST', sourceDocumentType: 'FEED_ISSUE', sourceDocumentId: issue.id, journalNumber: `FEED-${code}`,
+      journalDate: new Date('2026-01-05'), narration: 'Feed', companyId: fixture.companyId, branchId: fixture.branchId,
+      financialYearId: fixture.financialYearId, financialPeriodId: fixture.periodIds[JANUARY]!, currencyId: fixture.currencyId,
+      exchangeRate: '1', idempotencyKey: `feed-${code}`, actor,
+      lines: [
+        { glAccountId: fixture.accounts['1501']!, description: 'Feed', debit: kobo(600_000n), dimensions: dims(fixture, JANUARY, { costCentreId: fixture.costCentreId, farmId: fixture.farmId }) },
+        { glAccountId: fixture.accounts['1301']!, description: 'Feed', credit: kobo(600_000n), dimensions: dims(fixture, JANUARY, { farmId: fixture.farmId }) },
+      ],
+    });
+    await prisma.feedIssue.update({ where: { id: issue.id }, data: { journalEntryId: journal.journalEntryId } });
+    return group;
+  }
+
+  it('refuses to close a batch that still has animals, unless they are written off', async () => {
+    await fedPopulation('L-OPEN', 40);
+    await expect(
+      closer.close({ companyId: fixture.companyId, groupCode: 'L-OPEN', closedOn: new Date('2026-01-20'), reason: 'Trial batch', writeOffRemaining: false, actor }),
+    ).rejects.toThrow(/still has 40 animals/);
+  });
+
+  it('writes off what is left as a loss, empties its WIP, and closes it', async () => {
+    const group = await fedPopulation('L-TEST', 40);
+    const result = await closer.close({
+      companyId: fixture.companyId, groupCode: 'L-TEST', closedOn: new Date('2026-01-20'), reason: 'Trial batch, not real stock', writeOffRemaining: true, actor,
+    });
+    expect(result).toMatchObject({ code: 'L-TEST', writtenOff: 40 });
+
+    const closed = await prisma.livestockGroup.findUniqueOrThrow({ where: { id: group.id } });
+    expect(closed).toMatchObject({ status: 'CLOSED', population: 0 });
+    expect(closed.closedOn?.toISOString().slice(0, 10)).toBe('2026-01-20');
+    // Its feed cost left Work in Progress for Production Loss with the animals.
+    expect(await rearing.remaining(group.id)).toBe(0n);
+    const loss = await prisma.journalLine.aggregate({ where: { glAccountId: fixture.accounts['5305'] }, _sum: { debitKobo: true } });
+    expect(loss._sum.debitKobo).toBe(600_000n);
+
+    await expect(
+      closer.close({ companyId: fixture.companyId, groupCode: 'L-TEST', closedOn: new Date('2026-01-21'), reason: 'again', writeOffRemaining: true, actor }),
+    ).rejects.toThrow(/already closed/);
+  });
+
+  it('never closes another company’s batch', async () => {
+    await fedPopulation('L-MINE', 10);
+    const other = await prisma.company.create({ data: { code: 'OTHER', name: 'Other', baseCurrencyId: fixture.currencyId } });
+    await expect(
+      closer.close({ companyId: other.id, groupCode: 'L-MINE', closedOn: new Date('2026-01-20'), reason: 'x', writeOffRemaining: true, actor }),
+    ).rejects.toThrow(/No such batch/);
   });
 });

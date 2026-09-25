@@ -80,8 +80,9 @@ export class SalesPricingService {
 
     const client = params.tx ?? this.prisma;
     const itemIds = [...new Set(params.lines.map((l) => l.itemId))];
+    // This company's items only: another company's item id is "does not exist".
     const items = await client.item.findMany({
-      where: { id: { in: itemIds } },
+      where: { companyId: params.companyId, id: { in: itemIds } },
       include: { vatTaxCode: { select: { code: true } } },
     });
     const itemById = new Map(items.map((i) => [i.id, i]));

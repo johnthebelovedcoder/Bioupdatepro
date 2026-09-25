@@ -14,6 +14,7 @@ import { OperationsReadService } from './operations-read.service';
 import { TradeService } from './trade.service';
 import { OperationsPostingService } from './operations-posting.service';
 import { EggPostingService } from '../poultry-egg/egg-posting.service';
+import { BatchCloseService } from './batch-close.service';
 import { Roles, AnyRole } from '../auth/roles.guard';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -39,6 +40,7 @@ export class OperationsController {
     private readonly trade: TradeService,
     private readonly postings: OperationsPostingService,
     private readonly eggPostings: EggPostingService,
+    private readonly batches: BatchCloseService,
   ) {}
 
   /* --- Reads ------------------------------------------------------------ */
@@ -213,6 +215,32 @@ export class OperationsController {
    * and is answerable for, and the actor on every resulting journal is the
    * person who called this.
    */
+  /**
+   * Close a batch. With animals still recorded, `writeOffRemaining` records
+   * them as a final loss through the ordinary death posting first. Closing a
+   * cycle is the farm manager's call; the finance roles can do it too.
+   */
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('groups/:code/close')
+  async closeGroup(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('code') code: string,
+    @Body() body: { closedOn: string; reason: string; writeOffRemaining?: boolean },
+  ) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body?.closedOn ?? '')) {
+      throw new BadRequestException('closedOn must be a date, YYYY-MM-DD.');
+    }
+    return this.batches.close({
+      companyId,
+      groupCode: code,
+      closedOn: new Date(`${body.closedOn}T00:00:00.000Z`),
+      reason: String(body.reason ?? ''),
+      writeOffRemaining: body.writeOffRemaining === true,
+      actor,
+    });
+  }
+
   // FARM_ACCOUNTANT (ROL-012) reconciles BA/inventory/WIP/journals day to
   // day — clearing the posting backlog is part of that, even though they
   // cannot approve the manual journals it might surface.

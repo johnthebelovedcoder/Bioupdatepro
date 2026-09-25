@@ -317,7 +317,22 @@ describe('Workflow & Approval Engine (§2)', () => {
       ).rejects.toThrow(/cannot also approve it/i);
     });
 
+    it('refuses the sole approver’s own document while self-approval is off, the default', async () => {
+      await prisma.user.updateMany({
+        where: { companyId: fixture.companyId, id: { not: users.maker.id } },
+        data: { active: false },
+      });
+      await prisma.user.update({ where: { id: users.maker.id }, data: { roles: ['FARM_MANAGER'] } });
+      const maker = { userId: users.maker.id, roles: ['FARM_MANAGER'] };
+      const submitted = await workflow.submit(submitRequest({ actor: maker }));
+
+      expect(await workflow.pendingFor(users.maker.id, fixture.companyId)).toEqual([]);
+      await expect(workflow.approve({ transactionId: submitted.transactionId, actor: maker })).rejects.toThrow(/cannot also approve it/i);
+      expect(await workflow.approvalSettings(fixture.companyId)).toEqual({ allowSelfApproval: false, waitingOnlyTheMakerCanApprove: 1 });
+    });
+
     it('lets the maker approve when nobody else in the farm can, and says so everywhere', async () => {
+      await workflow.setSelfApproval({ companyId: fixture.companyId, allow: true, actor: { userId: users.admin.id, roles: ['ADMINISTRATOR'] } });
       // Approval is what is under test here, not posting.
       await prisma.workflowDefinition.updateMany({ where: { companyId: fixture.companyId }, data: { autoPostOnApproval: false } });
       const submitted = await workflow.submit(submitRequest());
@@ -359,6 +374,7 @@ describe('Workflow & Approval Engine (§2)', () => {
     });
 
     it('tells the maker when they are the only one who can approve', async () => {
+      await prisma.company.update({ where: { id: fixture.companyId }, data: { allowSelfApproval: true } });
       await prisma.user.updateMany({
         where: { companyId: fixture.companyId, id: { not: users.maker.id } },
         data: { active: false },

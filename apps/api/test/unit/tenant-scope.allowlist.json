@@ -1,0 +1,298 @@
+[
+  {
+    "key": "audit/audit.service.ts auditRecord.findMany { transactionId }",
+    "reason": "Only called from routes whose OwnedRecord guard has already checked the record belongs to the caller's company (e.g. masters.controller journals/:id/audit)."
+  },
+  {
+    "key": "audit/audit.service.ts auditRecord.findMany { module, entityType, entityId }",
+    "reason": "Only called from routes whose OwnedRecord guard has already checked the record belongs to the caller's company (e.g. masters.controller journals/:id/audit)."
+  },
+  {
+    "key": "banking/banking.service.ts gLAccount.findMany { id: { in: accounts.map((a) => a.glAccountId) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "banking/banking.service.ts journalLine.findMany { id: { in: matchedIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "biological-assets/biological-asset.service.ts journalEntry.findMany { id: { in: mortalityJournals.map((m) => m.journalEntryId!) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "closing/closing.controller.ts periodReopenRequest.findMany { financialPeriodId: periodId }",
+    "reason": "The route's OwnedRecord('financialPeriod') guard checks the period belongs to the caller's company first."
+  },
+  {
+    "key": "cost-allocation/farm-cost-allocation.service.ts gLAccount.findMany { id: { in: [...new Set(rows.map((r) => r.glAccountId))] } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "cost-allocation/farm-cost-allocation.service.ts costCentre.findMany { id: { in: rows.map((r) => r.costCentreId).filter((id): id is string => !!id) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "cost-allocation/farm-cost-allocation.service.ts livestockGroup.findMany { id: { in: missing } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "cost-allocation/farm-cost-allocation.service.ts livestockGroup.findMany { id: { in: shares.map((s) => s.groupId) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "cost-allocation/farm-cost-allocation.service.ts livestockGroup.findMany { id: { in: rows.flatMap((r) => r.lines.map((l) => l.groupId)) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "cost-allocation/timesheet.service.ts employee.findMany { id: { in: [...new Set(entries.map((e) => e.employeeId))] } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "cost-allocation/timesheet.service.ts livestockGroup.findMany { id: { in: [...new Set(entries.map((e) => e.groupId))] } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "demo/demo.controller.ts journalEntry.findMany <no where>",
+    "reason": "Developer demo panel: DemoController is only registered when NODE_ENV is not production (app.module.ts)."
+  },
+  {
+    "key": "demo/demo.controller.ts auditRecord.findMany <no where>",
+    "reason": "Developer demo panel: DemoController is only registered when NODE_ENV is not production (app.module.ts)."
+  },
+  {
+    "key": "enterprise-dimensions/dimension-validator.service.ts gLAccount.findMany { id: { in: accountIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "enterprise-dimensions/dimension-validator.service.ts branch.findMany { id: { in: branchIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "enterprise-dimensions/dimension-validator.service.ts department.findMany { id: { in: departmentIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "enterprise-dimensions/dimension-validator.service.ts costCentre.findMany { id: { in: costCentreIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "enterprise-dimensions/dimension-validator.service.ts farm.findMany { id: { in: farmIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "enterprise-dimensions/dimension-validator.service.ts project.findMany { id: { in: projectIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "journals/party-ledger.service.ts journalLine.aggregate { ...params.where, journalEntry: { status: 'POSTED', journalDate: { lt: params.from } }, }",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "journals/party-ledger.service.ts journalLine.findMany { ...params.where, journalEntry: { status: 'POSTED', journalDate: { gte: params.from, lte: params.to }, }, }",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "poultry-egg/egg-posting.service.ts item.findMany { id: { in: policies.map((p) => p.itemId) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "procurement/procurement-flow.service.ts workflowTransaction.findMany { id: { in: submitted.map((order) => order.workflowTransactionId!) }, // RETURNED included: that's what puts an order back in DRAFT so // `amendOrder` (US-897-006) can actually be reached from a real // approval outcome, not just the moment before first submission. status: { in: ['APPROVED', 'POSTED', 'REJECTED', 'CANCELLED', 'RETURNED'] }, }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "procurement/procurement-flow.service.ts journalEntry.findMany { id: { in: journalIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "procurement/procurement-flow.service.ts workflowTransaction.findMany { id: { in: submitted.map((requisition) => requisition.workflowTransactionId!) }, status: { in: ['APPROVED', 'POSTED', 'REJECTED', 'CANCELLED'] }, }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "production/production-order.service.ts item.findMany { id: { in: order.components.map((c) => c.componentItemId) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "reporting/control-account-reconciliation.service.ts gLAccount.findMany { id: { in: [...itemsByAccount.keys()] } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "reporting/kpi.service.ts livestockGroup.aggregate groupFilter",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "reporting/kpi.service.ts livestockGroup.aggregate groupFilter",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "reporting/kpi.service.ts productionOrder.findMany { ...orderFilter, status: 'COMPLETED' }",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "reporting/kpi.service.ts productionOrder.findMany { ...orderFilter, settledAt: { not: null } }",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "reporting/reporting.controller.ts journalEntry.count where",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "reporting/reporting.controller.ts journalEntry.findMany where",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "reporting/reporting.controller.ts auditRecord.count where",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "reporting/reporting.controller.ts auditRecord.findMany where",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "reporting/reporting.controller.ts gLAccount.findMany { id: { in: rows.map((row) => row.glAccountId) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "reporting/trial-balance.service.ts gLAccount.findMany { id: { in: grouped.map((g) => g.glAccountId) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "reporting/trial-balance.service.ts journalLine.count where",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "reporting/trial-balance.service.ts journalLine.findMany where",
+    "reason": "The filter is built above in the same method and includes companyId; the scanner cannot see through the variable."
+  },
+  {
+    "key": "sales/sales-flow.service.ts workflowTransaction.findMany { id: { in: submitted.map((order) => order.workflowTransactionId!) }, status: { in: ['APPROVED', 'POSTED', 'REJECTED', 'CANCELLED'] }, }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "sales/sales-flow.service.ts journalEntry.findMany { id: { in: journalIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "snail-breeding/snail-breeding.service.ts livestockGroup.findMany { id: { in: groupIds } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "workflow/delegation.service.ts user.findMany { id: { in: delegators }, active: true, roles: { has: params.roleCode } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "workflow/workflow.service.ts user.findMany { id: { in: delegations.map((d) => d.delegatorId) } }",
+    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
+  },
+  {
+    "key": "auth/invitation.service.ts invitation.updateMany { id: invitation.id, acceptedAt: null }",
+    "reason": "The invitation was found by its secret token just above; this only marks that one row accepted."
+  },
+  {
+    "key": "banking/banking.service.ts bankStatement.findFirst { bankAccountId: account.id }",
+    "reason": "bankAccountId / glAccountId come from a bank account already loaded with this company in the same method."
+  },
+  {
+    "key": "banking/banking.service.ts bankStatement.findFirst { bankAccountId: account.id }",
+    "reason": "bankAccountId / glAccountId come from a bank account already loaded with this company in the same method."
+  },
+  {
+    "key": "banking/banking.service.ts journalLine.findMany { glAccountId, journalEntry: { status: 'POSTED' } }",
+    "reason": "bankAccountId / glAccountId come from a bank account already loaded with this company in the same method."
+  },
+  {
+    "key": "banking/banking.service.ts journalLine.aggregate { glAccountId, journalEntry: { status: 'POSTED', ...(asOf ? { journalDate: { lte: asOf } } : {}) }, }",
+    "reason": "bankAccountId / glAccountId come from a bank account already loaded with this company in the same method."
+  },
+  {
+    "key": "biological-assets/biological-asset.service.ts biologicalAssetValuation.findMany { groupId, status: WorkflowStatus.POSTED }",
+    "reason": "groupId is a population already loaded and checked to be this company’s in the same method."
+  },
+  {
+    "key": "biological-assets/rearing-cost.service.ts treatmentRecord.aggregate { groupId, journalEntry: standing }",
+    "reason": "groupId is a population the caller has already loaded for this company; rearing cost is always asked for one known population."
+  },
+  {
+    "key": "biological-assets/rearing-cost.service.ts livestockRearingRelief.groupBy { groupId }",
+    "reason": "groupId is a population the caller has already loaded for this company; rearing cost is always asked for one known population."
+  },
+  {
+    "key": "biological-assets/rearing-cost.service.ts livestockRearingRelief.updateMany { groupId, eventType: 'HARVEST', sourceId: harvestRecordId, journalEntryId: null }",
+    "reason": "groupId is a population the caller has already loaded for this company; rearing cost is always asked for one known population."
+  },
+  {
+    "key": "closing/period-close.service.ts vatRegisterEntry.aggregate { taxPeriodId }",
+    "reason": "taxPeriodId belongs to the period being closed, which is already scoped to this company."
+  },
+  {
+    "key": "closing/period-close.service.ts whtRegisterEntry.aggregate { taxPeriodId }",
+    "reason": "taxPeriodId belongs to the period being closed, which is already scoped to this company."
+  },
+  {
+    "key": "closing/year-end.service.ts accountBalance.count { financialYearId, isOpening: false }",
+    "reason": "financialYearId is checked to be this company’s by the controller (assertOwnYear) before these run."
+  },
+  {
+    "key": "closing/year-end.service.ts accountBalance.findMany { financialYearId, isOpening }",
+    "reason": "financialYearId is checked to be this company’s by the controller (assertOwnYear) before these run."
+  },
+  {
+    "key": "cost-allocation/farm-cost-allocation.service.ts harvestRecord.findMany { groupId: { in: ids }, harvestedOn: { gt: start } }",
+    "reason": "ids are this company’s populations, loaded with companyId just above."
+  },
+  {
+    "key": "cost-allocation/farm-cost-allocation.service.ts harvestRecord.findMany { movedToGroupId: { in: ids }, harvestedOn: { gt: start } }",
+    "reason": "ids are this company’s populations, loaded with companyId just above."
+  },
+  {
+    "key": "cost-allocation/farm-cost-allocation.service.ts livestockRearingRelief.findMany { groupId: { in: ids }, eventType: 'DISPOSAL', occurredOn: { gt: start } }",
+    "reason": "ids are this company’s populations, loaded with companyId just above."
+  },
+  {
+    "key": "cost-allocation/timesheet.service.ts timesheetEntry.findMany { employeeId: params.employeeId, workDate: params.workDate, groupId: { not: params.groupId } }",
+    "reason": "The employee and population were both checked to be this company’s at the top of the same method."
+  },
+  {
+    "key": "fixed-assets/fixed-asset.service.ts machineHours.findMany { assetId: { in: run.entries.map((e) => e.assetId) }, financialPeriodId: run.financialPeriodId }",
+    "reason": "assetId / financialPeriodId come from an asset or depreciation run already loaded with this company."
+  },
+  {
+    "key": "fixed-assets/fixed-asset.service.ts machineHours.deleteMany { assetId: asset.id, financialPeriodId: period.id }",
+    "reason": "assetId / financialPeriodId come from an asset or depreciation run already loaded with this company."
+  },
+  {
+    "key": "journals/manual-journal.service.ts manualJournal.findFirst { reversalOfId: original.id }",
+    "reason": "original is a journal already loaded and checked to be this company’s in the same method."
+  },
+  {
+    "key": "journals/party-ledger.service.ts journalLine.findMany { customerId: customer.id, journalEntry: { status: 'POSTED', journalDate: { lte: params.asAt } }, }",
+    "reason": "customerId comes from this company’s customer list (ageing) or is checked by the controller first (statements); customerOutstanding has no callers."
+  },
+  {
+    "key": "journals/party-ledger.service.ts journalLine.aggregate { customerId, journalEntry: { status: 'POSTED', ...(asAt ? { journalDate: { lte: asAt } } : {}), }, }",
+    "reason": "customerId comes from this company’s customer list (ageing) or is checked by the controller first (statements); customerOutstanding has no callers."
+  },
+  {
+    "key": "poultry-egg/egg-posting.service.ts incubationBatch.findMany { eggBatchId: source.id, journalEntryId: { not: null }, id: { not: incubationId } }",
+    "reason": "source is the egg collection of an incubation batch already loaded for this company."
+  },
+  {
+    "key": "procurement/supplier-invoice.service.ts supplierInvoice.findMany { supplierId, status: { in: [SupplierInvoiceStatus.POSTED, SupplierInvoiceStatus.PART_PAID], }, }",
+    "reason": "openInvoices has no callers; if one is added it must scope supplierId to the company first."
+  },
+  {
+    "key": "production/production-order.service.ts livestockRearingRelief.updateMany { groupId: order.sourceGroupId, eventType: 'HARVEST', sourceId: order.harvestRecordId, journalEntryId: null, }",
+    "reason": "order is a production order already loaded and checked to be this company’s."
+  },
+  {
+    "key": "routing/routing.service.ts routingOperation.findFirst { recipeVersionId: params.recipeVersionId }",
+    "reason": "The recipe version is checked to belong to this company (findFirstOrThrow with recipe.companyId) just above."
+  },
+  {
+    "key": "sales/sales-invoice.service.ts salesInvoice.findMany { customerId, status: { in: [SalesInvoiceStatus.POSTED, SalesInvoiceStatus.PART_PAID], }, }",
+    "reason": "openInvoices has no callers; if one is added it must scope customerId to the company first."
+  },
+  {
+    "key": "tax/tax-register.service.ts journalLine.aggregate { glAccountId, journalEntry: { status: 'POSTED', journalDate: { gte: period.startDate, lte: period.endDate }, }, }",
+    "reason": "glAccountId comes from this company’s tax GL mapping, loaded with companyId."
+  }
+]

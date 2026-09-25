@@ -149,8 +149,12 @@ API at it. `pg_restore` must be version 18 or newer, like the server.
 
 ```bash
 npm run typecheck
-npm test                  # 376 integration and 31 unit tests against a real PostgreSQL
+npm test                  # 380 integration and 34 unit tests against a real PostgreSQL
 ```
+
+The same checks run on every push (`.github/workflows/ci.yml`), including a
+scan that fails if any query over a company-owned table does not name its
+company (`apps/api/test/unit/tenant-scope.spec.ts`).
 
 The integration suite starts its own ephemeral database. It exercises the
 accounting rules directly — balanced postings, immutability triggers,
@@ -168,9 +172,10 @@ Stated here rather than discovered later.
   should be confirmed with the farm's own adviser.
 - **Sales and purchases go through approval.** They are translated into O2C
   and P2P orders and sent for approval — deliberately, so there is one posting
-  path and one set of tax rules. Where nobody else in the farm could approve a
-  document, its maker may, and it is recorded as self-approved on the step, in
-  the history and in the audit trail.
+  path and one set of tax rules. Self-approval — a maker approving their own
+  document when nobody else in the farm could — is a setting (Setup → Approval
+  rules), OFF by default because the client's integrity matrix forbids it; a
+  one-person farm's CFO can turn it on, and each use is recorded.
 - **Only weighted-average costing is built.** Feed and treatments absorbed by a
   population leave it with each death, sale or harvest at weighted average,
   the policy chosen on 2026-09-24. FIFO or standard costing would need their

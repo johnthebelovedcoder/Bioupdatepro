@@ -564,6 +564,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['breed', 'strain', 'species', 'stage', 'age', 'ross', 'cobb', 'achatina'],
       },
       {
+        href: '/admin/approvals',
+        label: 'Approval rules',
+        hint: 'Whether anyone may approve their own work',
+        keywords: ['approval', 'self-approval', 'maker checker', 'segregation', 'one person'],
+      },
+      {
         href: '/admin/accounts',
         label: 'GL accounts',
         hint: 'Where each account sits on the balance sheet or P&L',

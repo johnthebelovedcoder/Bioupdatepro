@@ -223,6 +223,11 @@ model Company {
   freeTradeZone  Boolean  @default(false) @map("free_trade_zone")
   baseCurrencyId String   @map("base_currency_id") @db.Uuid
   active         Boolean  @default(true)
+  /// Whether a maker may approve their own document (or timesheet hours) when
+  /// nobody else in the company could. OFF by default: the client's
+  /// SYSTEM_INTEGRITY_MATRIX says a self-approval must never happen, so only a
+  /// one-person farm that accepts the risk turns it on (CFO or administrator).
+  allowSelfApproval Boolean @default(false) @map("allow_self_approval")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 

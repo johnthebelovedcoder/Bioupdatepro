@@ -74,8 +74,9 @@ export class PurchaseOrderService {
       );
     }
 
+    // This company's items only: another company's item id is "does not exist".
     const items = await this.prisma.item.findMany({
-      where: { id: { in: input.lines.map((l) => l.itemId) } },
+      where: { companyId: input.companyId, id: { in: input.lines.map((l) => l.itemId) } },
       include: {
         standardCosts: {
           where: { effectiveTo: null },
@@ -518,7 +519,7 @@ export class PurchaseOrderService {
     vat: bigint;
   }> {
     const items = await this.prisma.item.findMany({
-      where: { id: { in: params.lines.map((l) => l.itemId) } },
+      where: { companyId: params.companyId, id: { in: params.lines.map((l) => l.itemId) } },
       include: { vatTaxCode: { select: { code: true } } },
     });
     const itemById = new Map(items.map((i) => [i.id, i]));

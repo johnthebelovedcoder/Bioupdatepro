@@ -1,0 +1,64 @@
+name: Checks
+
+# Runs on every push and pull request, so a change that breaks the rules the
+# books depend on is caught here — before Render deploys it to farms.
+#
+#   typecheck    the API (including its tests) and the web app
+#   unit         pure logic, plus the tenant-isolation scan: every query over
+#                a company-owned table must name its company, or be on the
+#                reviewed list in apps/api/test/unit/tenant-scope.allowlist.json
+#   integration  the ~380 accounting tests against a real PostgreSQL, which the
+#                suite starts itself (embedded-postgres) and builds from the
+#                same migrations production runs
+#   web build    the production build Render will run
+#
+# Render deploys main on every push regardless; this does not block a deploy,
+# it tells you — on the commit, in red — when one should not have happened.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --include=dev
+
+      - name: Generate the database client
+        run: npm run db:generate
+
+      - name: Typecheck
+        run: |
+          npm run typecheck --workspace @bioassetpro/api
+          npm run typecheck --workspace @bioassetpro/web
+
+      - name: Unit tests (including tenant isolation)
+        working-directory: apps/api
+        run: npx vitest run --config vitest.unit.config.ts
+
+      - name: Integration tests (real PostgreSQL)
+        working-directory: apps/api
+        run: npx vitest run --config vitest.config.ts
+
+      - name: Web production build
+        run: npm run build --workspace @bioassetpro/web
+        env:
+          NEXT_PUBLIC_API_URL: https://example.invalid/api

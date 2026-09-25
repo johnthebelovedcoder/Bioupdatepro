@@ -127,7 +127,12 @@ export class TimesheetService {
           roles: { hasSome: APPROVER_ROLES },
         },
       });
-      alone = others === 0;
+      // Self-approval is a company setting, off by default (Company.allowSelfApproval).
+      const company = await this.prisma.company.findUnique({
+        where: { id: params.companyId },
+        select: { allowSelfApproval: true },
+      });
+      alone = others === 0 && company?.allowSelfApproval === true;
       if (!alone) {
         throw new BadRequestException(
           `You logged ${own.length === 1 ? 'one of these entries' : `${own.length} of these entries`} yourself, so someone else approves ${own.length === 1 ? 'it' : 'them'}.`,

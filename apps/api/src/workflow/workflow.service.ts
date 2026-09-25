@@ -720,6 +720,51 @@ export class WorkflowService {
     return waiting;
   }
 
+  /**
+   * The self-approval setting, and how many waiting documents nobody but
+   * their maker could approve — the ones that stay stuck while it is off.
+   */
+  async approvalSettings(companyId: string) {
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: companyId },
+      select: { allowSelfApproval: true },
+    });
+    const waiting = await this.prisma.workflowTransaction.findMany({
+      where: { companyId, status: { in: [WorkflowStatus.SUBMITTED, WorkflowStatus.UNDER_REVIEW] } },
+      include: { steps: true },
+    });
+    const now = new Date();
+    let onlyTheMaker = 0;
+    for (const t of waiting) {
+      const step = t.steps.find((s) => s.level === t.currentLevel);
+      if (step && (await this.noOtherApprover(this.prisma, t, step.roleCode, t.makerId, now, { ignoreSetting: true }))) {
+        onlyTheMaker += 1;
+      }
+    }
+    return { allowSelfApproval: company.allowSelfApproval, waitingOnlyTheMakerCanApprove: onlyTheMaker };
+  }
+
+  /** Turn self-approval on or off. A control decision: audited, CFO or administrator only (the controller enforces). */
+  async setSelfApproval(params: { companyId: string; allow: boolean; actor: WorkflowActor }) {
+    const before = await this.prisma.company.findUniqueOrThrow({
+      where: { id: params.companyId },
+      select: { allowSelfApproval: true },
+    });
+    await this.prisma.company.update({ where: { id: params.companyId }, data: { allowSelfApproval: params.allow } });
+    await this.audit.write({
+      transactionId: params.companyId,
+      module: 'workflow',
+      entityType: 'Company',
+      entityId: params.companyId,
+      status: params.allow ? 'SELF_APPROVAL_ON' : 'SELF_APPROVAL_OFF',
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      oldValue: { allowSelfApproval: before.allowSelfApproval },
+      newValue: { allowSelfApproval: params.allow },
+    });
+    return this.approvalSettings(params.companyId);
+  }
+
   async history(transactionId: string) {
     return this.prisma.workflowHistory.findMany({
       where: { transactionId },
@@ -819,10 +864,12 @@ export class WorkflowService {
    * not only in the database — because this is the layer every module shares.
    */
   /**
-   * True when no active user in the company other than `makerId` holds the
-   * authority for this level — by role, by being an administrator, or by a
-   * delegation in force. The farms this exists for have one or two people;
-   * the check asks the same question approve() asks of whoever acts.
+   * True when the maker may approve their own document: the company has
+   * turned self-approval ON (Company.allowSelfApproval — off by default,
+   * because the client's integrity matrix says it must never happen), AND no
+   * active user in the company other than `makerId` holds the authority for
+   * this level — by role, by being an administrator, or by a delegation in
+   * force. The check asks the same question approve() asks of whoever acts.
    */
   private async noOtherApprover(
     tx: Prisma.TransactionClient,
@@ -830,7 +877,15 @@ export class WorkflowService {
     roleCode: string,
     makerId: string,
     on: Date,
+    options: { ignoreSetting?: boolean } = {},
   ): Promise<boolean> {
+    if (!options.ignoreSetting) {
+      const company = await tx.company.findUnique({
+        where: { id: transaction.companyId },
+        select: { allowSelfApproval: true },
+      });
+      if (!company?.allowSelfApproval) return false;
+    }
     const others = await tx.user.findMany({
       where: { companyId: transaction.companyId, active: true, id: { not: makerId } },
       select: { id: true, roles: true },
@@ -956,7 +1011,8 @@ export class WorkflowService {
     // self-approval case), so they are the one to tell — otherwise a
     // one-person farm's documents wait unannounced, as six did for 12 days.
     if (recipients.length === 0 && options.excludeUserId && everyone.includes(options.excludeUserId)) {
-      recipients = [options.excludeUserId];
+      const company = await tx.company.findUnique({ where: { id: options.companyId }, select: { allowSelfApproval: true } });
+      if (company?.allowSelfApproval) recipients = [options.excludeUserId];
     }
 
     await this.notifications.queue(

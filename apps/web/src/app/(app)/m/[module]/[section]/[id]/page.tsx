@@ -6,6 +6,7 @@ import { getSpeciesBreeds } from '@/lib/trade';
 import { getPens } from '@/lib/masters';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
+import { CloseBatchForm } from '@/components/close-batch-form';
 import { HelpTerm } from '@/components/help';
 import { NewGroupForm } from '@/components/new-group-form';
 import { StageChange } from '@/components/record-stage-change';
@@ -113,6 +114,14 @@ export default async function GroupDetailPage({
             <span className={`badge ${group.status === 'ACTIVE' ? 'badge-success' : ''}`}>
               {group.status.toLowerCase()}
             </span>
+            {group.status === 'ACTIVE' ? (
+              <CloseBatchForm
+                code={group.code}
+                population={group.population}
+                startedOn={group.startedOn}
+                today={new Date().toISOString().slice(0, 10)}
+              />
+            ) : null}
           </>
         }
       />

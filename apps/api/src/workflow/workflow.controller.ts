@@ -215,6 +215,28 @@ export class WorkflowController {
    * finance director, its amounts and its documents. An approval inbox is a
    * personal surface; there is no legitimate reason to ask for someone else's.
    */
+  /** Whether makers may approve their own work when nobody else can. Readable by the finance roles that live with it. */
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Get('settings')
+  async settings(@CurrentCompany() companyId: string) {
+    return this.workflow.approvalSettings(companyId);
+  }
+
+  /**
+   * Turning self-approval on relaxes a control the client's integrity matrix
+   * says must never be relaxed, so only the CFO or an administrator decides
+   * (ADMINISTRATOR passes every @Roles check), and it is audited.
+   */
+  @Roles('CFO')
+  @Post('settings/self-approval')
+  async setSelfApproval(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { allow: boolean },
+  ) {
+    return this.workflow.setSelfApproval({ companyId, allow: body?.allow === true, actor });
+  }
+
   @AnyRole('Your own queue. The service scopes it to the caller.')
   @Get('pending')
   async pending(@CurrentUser() actor: WorkflowActor, @CurrentCompany() companyId: string) {
