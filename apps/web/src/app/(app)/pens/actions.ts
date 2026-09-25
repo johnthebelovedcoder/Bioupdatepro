@@ -27,7 +27,12 @@ export async function createPen(
   const code = String(formData.get('code') ?? '').trim().toUpperCase();
   const name = String(formData.get('name') ?? '').trim();
   const farmId = String(formData.get('farmId') ?? '').trim();
-  const kept = { code, name, farmId };
+  const capacityText = String(formData.get('capacity') ?? '').trim();
+  const kept = { code, name, farmId, capacity: capacityText };
+  const capacity = capacityText ? Number(capacityText) : null;
+  if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1)) {
+    return { error: 'Capacity is a whole number of animals, or blank for no limit.', created: null, values: kept };
+  }
 
   if (!code) return { error: 'Give it a short code.', created: null, values: kept };
   if (!name) return { error: 'Give it a name.', created: null, values: kept };
@@ -35,7 +40,7 @@ export async function createPen(
   try {
     await api('/masters/pens', {
       method: 'POST',
-      body: { code, name, farmId: farmId || null },
+      body: { code, name, farmId: farmId || null, capacity },
     });
   } catch (caught) {
     return { error: message(caught, 'Could not save that.'), created: null, values: kept };
@@ -65,4 +70,15 @@ export async function createFarm(
 
   revalidatePath('/pens');
   return { error: null, created: name };
+}
+
+/** Set or clear how many animals a pen holds. */
+export async function setPenCapacity(penId: string, capacity: number | null): Promise<{ error: string | null }> {
+  try {
+    await api(`/masters/pens/${encodeURIComponent(penId)}/capacity`, { method: 'POST', body: { capacity } });
+  } catch (caught) {
+    return { error: message(caught, 'Could not change the capacity.') };
+  }
+  revalidatePath('/pens');
+  return { error: null };
 }

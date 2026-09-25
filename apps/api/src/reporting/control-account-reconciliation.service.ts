@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { SalesInvoiceStatus, SupplierInvoiceStatus, StockDirection } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
+import { chartVersionOf, numberFor } from '../chart/chart';
 
 export interface ControlReconciliationRow {
   accountNumber: string;
@@ -54,25 +55,27 @@ export class ControlAccountReconciliationService {
     const balanceOf = (accountNumber: string): bigint =>
       tb.rows.find((r) => r.accountNumber === accountNumber)?.netKobo ?? 0n;
 
+    // AR and AP on the company's own chart: 1201/2201 until it moves, 120100/210100 after.
+    const version = await chartVersionOf(this.prisma, companyId);
     const [ar, ap, inventory, wip] = await Promise.all([
-      this.receivables(companyId, balanceOf),
-      this.payables(companyId, balanceOf),
+      this.receivables(companyId, balanceOf, numberFor(version, 'receivables')),
+      this.payables(companyId, balanceOf, numberFor(version, 'tradePayables')),
       this.inventoryByGlAccount(companyId, balanceOf),
       this.wipByCycle(companyId, balanceOf),
     ]);
     return [ar, ap, ...inventory, ...wip];
   }
 
-  private async receivables(companyId: string, balanceOf: (accountNumber: string) => bigint): Promise<ControlReconciliationRow> {
+  private async receivables(companyId: string, balanceOf: (accountNumber: string) => bigint, account: string): Promise<ControlReconciliationRow> {
     const invoices = await this.prisma.salesInvoice.findMany({
       where: { companyId, status: { in: [SalesInvoiceStatus.POSTED, SalesInvoiceStatus.PART_PAID] } },
       select: { grossAmountKobo: true, settledAmountKobo: true },
     });
     const subledgerKobo = invoices.reduce((s, i) => s + (i.grossAmountKobo - i.settledAmountKobo), 0n);
-    return this.row('120100', 'Trade Receivables', balanceOf('120100'), subledgerKobo, `${invoices.length} open sales invoices`);
+    return this.row(account, 'Trade Receivables', balanceOf(account), subledgerKobo, `${invoices.length} open sales invoices`);
   }
 
-  private async payables(companyId: string, balanceOf: (accountNumber: string) => bigint): Promise<ControlReconciliationRow> {
+  private async payables(companyId: string, balanceOf: (accountNumber: string) => bigint, account: string): Promise<ControlReconciliationRow> {
     const invoices = await this.prisma.supplierInvoice.findMany({
       where: { companyId, status: { in: [SupplierInvoiceStatus.POSTED, SupplierInvoiceStatus.PART_PAID] } },
       select: { grossAmountKobo: true, settledAmountKobo: true },
@@ -82,7 +85,7 @@ export class ControlAccountReconciliationService {
     // The subledger sum below is naturally positive (an amount owed), so it
     // is negated here to compare like with like, not the other way round.
     const subledgerKobo = -invoices.reduce((s, i) => s + (i.grossAmountKobo - i.settledAmountKobo), 0n);
-    return this.row('210100', 'Trade Payables', balanceOf('210100'), subledgerKobo, `${invoices.length} open supplier invoices`);
+    return this.row(account, 'Trade Payables', balanceOf(account), subledgerKobo, `${invoices.length} open supplier invoices`);
   }
 
   private async inventoryByGlAccount(companyId: string, balanceOf: (accountNumber: string) => bigint): Promise<ControlReconciliationRow[]> {
@@ -137,7 +140,9 @@ export class ControlAccountReconciliationService {
       select: {
         processingCycle: true,
         biologicalInputValueKobo: true,
+        rearingCostKobo: true,
         packagingCostKobo: true,
+        settledAt: true,
         standardConversionCostKobo: true,
         finishedGoodsCostKobo: true,
         abnormalLossCostKobo: true,
@@ -146,7 +151,8 @@ export class ControlAccountReconciliationService {
 
     const byCycle = new Map<string, { subledgerKobo: bigint; count: number }>();
     for (const order of orders) {
-      const wipDebits = order.biologicalInputValueKobo + order.packagingCostKobo + order.standardConversionCostKobo;
+      // The same WIP debits settle() checks: biological input, its rearing cost, packaging, standard conversion.
+      const wipDebits = order.biologicalInputValueKobo + order.rearingCostKobo + order.packagingCostKobo + order.standardConversionCostKobo;
       const closingWip = wipDebits - order.finishedGoodsCostKobo - order.abnormalLossCostKobo;
       const entry = byCycle.get(order.processingCycle) ?? { subledgerKobo: 0n, count: 0 };
       entry.subledgerKobo += closingWip;
@@ -159,6 +165,25 @@ export class ControlAccountReconciliationService {
       const entry = byCycle.get(cycle);
       if (!entry) continue; // No orders raised for this cycle — nothing to reconcile.
       rows.push(this.row(meta.accountNumber, meta.name, balanceOf(meta.accountNumber), entry.subledgerKobo, `${entry.count} production orders`));
+    }
+
+    /*
+     * The processing recovery accounts (PCR-053/076 credit them with the
+     * standard absorbed; PCR-058/080 clear them at settlement). Their balance
+     * is the standard absorbed by orders not yet settled, as a credit — and
+     * nothing once every order is settled. A residual is conversion cost
+     * counted twice (orders settled before 2026-09-25 cleared only the variance).
+     */
+    const RECOVERY: Record<string, { accountNumber: string; name: string }> = {
+      SNAILPRO: { accountNumber: '219810', name: 'S_Recovery_GL' },
+      POULTRYPRO: { accountNumber: '219820', name: 'P_Recovery_GL' },
+    };
+    for (const [cycle, meta] of Object.entries(RECOVERY)) {
+      const cycleOrders = orders.filter((o) => o.processingCycle === cycle);
+      if (cycleOrders.length === 0) continue;
+      const open = cycleOrders.filter((o) => o.settledAt === null);
+      const expected = -open.reduce((n, o) => n + o.standardConversionCostKobo, 0n);
+      rows.push(this.row(meta.accountNumber, meta.name, balanceOf(meta.accountNumber), expected, `${open.length} unsettled of ${cycleOrders.length} production orders`));
     }
     return rows;
   }

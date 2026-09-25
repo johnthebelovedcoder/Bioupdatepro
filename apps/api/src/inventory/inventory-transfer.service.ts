@@ -91,6 +91,7 @@ export class InventoryTransferService {
         sourceDocumentId: transferNumber,
         documentReference: transferNumber,
         movementDate: new Date(),
+        perStore: true,
       });
 
       const result = await this.posting.post(
@@ -297,6 +298,7 @@ export class InventoryTransferService {
         sourceDocumentId: writeOffId,
         documentReference: params.reason,
         movementDate: new Date(),
+        perStore: true,
       });
 
       const result = await this.posting.post(

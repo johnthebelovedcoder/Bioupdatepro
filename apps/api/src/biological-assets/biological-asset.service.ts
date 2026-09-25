@@ -1099,6 +1099,35 @@ export class BiologicalAssetService {
         {},
       );
     }
+    // UAT-014: nothing disposed of is valued, and every value has its evidence.
+    if (group.status !== 'ACTIVE' || group.population <= 0) {
+      throw new AccountingRuleViolation(
+        'UAT-014 — Value only what is held',
+        `${group.code} has no animals left to value (${group.population} live, ${group.status.toLowerCase()}). Sold, harvested or dead animals are not revalued.`,
+        { groupCode: group.code, population: group.population, status: group.status },
+      );
+    }
+    if (!params.evidenceReference?.trim()) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §61.6 — Valuation evidence',
+        'Name the market evidence for this price — a quotation, market survey or recent sale.',
+        {},
+      );
+    }
+    if (params.costsToSellPerUnitKobo < 0n || params.costsToSellPerUnitKobo >= params.marketPricePerUnitKobo) {
+      throw new AccountingRuleViolation(
+        'IAS 41 — Fair value less costs to sell',
+        `Costs to sell (${params.costsToSellPerUnitKobo} kobo) must be zero or more and less than the market price (${params.marketPricePerUnitKobo} kobo).`,
+        {},
+      );
+    }
+    if (params.valuationDate < group.startedOn || (group.closedOn && params.valuationDate > group.closedOn)) {
+      throw new AccountingRuleViolation(
+        'UAT-014 — Value only what is held',
+        `${group.code} was held from ${group.startedOn.toISOString().slice(0, 10)}${group.closedOn ? ` to ${group.closedOn.toISOString().slice(0, 10)}` : ''}; it cannot be valued on ${params.valuationDate.toISOString().slice(0, 10)}.`,
+        {},
+      );
+    }
 
     const priorFvlcts = group.currentFvlctsPerUnitKobo ?? 0n;
     const currentFvlcts = params.marketPricePerUnitKobo - params.costsToSellPerUnitKobo;

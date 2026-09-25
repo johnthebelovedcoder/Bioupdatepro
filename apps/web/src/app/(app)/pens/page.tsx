@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { FarmForm, PenForm } from '@/components/pen-form';
+import { PenCapacityButton } from '@/components/pen-capacity-button';
 import { IconFarm } from '@/components/icons';
 import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
@@ -23,6 +24,8 @@ interface Pen {
   farmId: string;
   farmName: string;
   populations: number;
+  capacity: number | null;
+  occupancy: number;
 }
 
 /**
@@ -87,6 +90,9 @@ export default async function PensPage() {
                       <th className="right" style={{ width: 140 }}>
                         Populations
                       </th>
+                      <th className="right" style={{ width: 170 }}>
+                        Animals / capacity
+                      </th>
                       <th style={{ width: 100 }}>Status</th>
                     </tr>
                   </thead>
@@ -104,6 +110,10 @@ export default async function PensPage() {
                           ) : (
                             <span className="faint">empty</span>
                           )}
+                        </td>
+                        <td className="num">
+                          {pen.occupancy.toLocaleString('en-NG')} / {pen.capacity ? pen.capacity.toLocaleString('en-NG') : <span className="faint">no limit</span>}{' '}
+                          <PenCapacityButton penId={pen.id} name={pen.name} capacity={pen.capacity} />
                         </td>
                         <td>
                           <span className={`badge ${pen.active ? 'badge-success' : ''}`}>

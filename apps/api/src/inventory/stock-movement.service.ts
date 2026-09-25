@@ -225,6 +225,45 @@ export class StockMovementService {
    * into the incubator at that price rather than the blended average. Same
    * refusal as issueOut() to take the balance negative.
    */
+  /**
+   * What one store holds of an item, and a refusal when it is less than is
+   * asked of it. The average cost is company-wide; stock on hand is not — a
+   * store with none cannot give any, whatever another store holds.
+   */
+  async storeQuantity(tx: Prisma.TransactionClient, companyId: string, itemId: string, warehouseId: string): Promise<Decimal> {
+    const rows = await tx.stockMovement.groupBy({
+      by: ['direction'],
+      where: { companyId, itemId, warehouseId },
+      _sum: { quantity: true },
+    });
+    let held = new Decimal(0);
+    for (const row of rows) {
+      const q = new Decimal((row._sum.quantity ?? 0).toString());
+      held = row.direction === StockDirection.IN ? held.plus(q) : held.minus(q);
+    }
+    return held;
+  }
+
+  private async assertStoreHolds(params: {
+    tx: Prisma.TransactionClient;
+    companyId: string;
+    itemId: string;
+    warehouseId: string;
+    quantity: Decimal;
+    documentReference: string;
+  }) {
+    const held = await this.storeQuantity(params.tx, params.companyId, params.itemId, params.warehouseId);
+    if (held.lessThan(params.quantity)) {
+      const store = await params.tx.warehouse.findFirst({ where: { id: params.warehouseId, companyId: params.companyId }, select: { name: true } });
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §14 — Inventory issue',
+        `${params.documentReference} would take ${store?.name ?? 'that store'} negative — ${held.toFixed(3)} on hand there, ` +
+          `${params.quantity.toString()} requested. Issue ${held.toFixed(3)} or less, or from the store that holds it.`,
+        { itemId: params.itemId, warehouseId: params.warehouseId, onHand: held.toFixed(6), requested: params.quantity.toString() },
+      );
+    }
+  }
+
   async issueOutAtValue(params: {
     tx: Prisma.TransactionClient;
     companyId: string;
@@ -239,8 +278,11 @@ export class StockMovementService {
     sourceDocumentId: string;
     documentReference: string;
     movementDate: Date;
+    /** Also refuse when the named store itself holds too little (UAT-006). */
+    perStore?: boolean;
   }): Promise<{ stockMovementId: string; unitCostKobo: bigint; valueKobo: bigint }> {
     const before = await this.currentPosition(params.tx, params.companyId, params.itemId);
+    if (params.perStore) await this.assertStoreHolds(params);
     if (before.quantity.lessThan(params.quantity) || before.valueKobo < params.valueKobo) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §14 — Inventory issue',
@@ -293,8 +335,11 @@ export class StockMovementService {
     documentReference: string;
     movementDate: Date;
     journalEntryId?: string | null;
+    /** Also refuse when the named store itself holds too little (UAT-006). */
+    perStore?: boolean;
   }): Promise<{ stockMovementId: string; unitCostKobo: bigint; valueKobo: bigint }> {
     const before = await this.currentPosition(params.tx, params.companyId, params.itemId);
+    if (params.perStore) await this.assertStoreHolds(params);
 
     if (before.wacKobo === null) {
       throw new AccountingRuleViolation(

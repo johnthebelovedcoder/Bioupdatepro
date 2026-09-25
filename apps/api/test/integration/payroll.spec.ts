@@ -970,6 +970,23 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       expect(new Set(salaryLines.map((l) => l.costCentreId)).size).toBe(2);
     });
 
+    it('never pays a terminated employee (UAT-008)', async () => {
+      await makeEmployee({
+        number: 'EMP001', firstName: 'A', surname: 'One',
+        basic: 180_000_00n, housing: 72_000_00n, transport: 45_000_00n, other: 0n,
+      });
+      const gone = await makeEmployee({
+        number: 'EMP002', firstName: 'B', surname: 'Two',
+        basic: 220_000_00n, housing: 88_000_00n, transport: 55_000_00n, other: 0n,
+      });
+      await prisma.employee.update({ where: { id: gone.id }, data: { employmentStatus: 'TERMINATED' } });
+
+      const run = await newRun();
+      const calculated = await payroll.calculate({ payrollRunId: run.id, actorId: fixture.makerId });
+      expect(calculated.employeeCount).toBe(1);
+      expect(await prisma.payrollRunLine.count({ where: { payrollRunId: run.id, employeeId: gone.id } })).toBe(0);
+    });
+
     it('refuses to calculate while an employee fails validation', async () => {
       const employee = await makeEmployee({
         number: 'EMP001', firstName: 'A', surname: 'One',

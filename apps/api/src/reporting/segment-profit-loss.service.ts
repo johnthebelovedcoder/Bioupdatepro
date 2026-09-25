@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { assertReportFilter } from './report-filter';
 import { AccountType, NormalBalance, ProductionOrderCycle } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Species } from '../chart/chart';
@@ -161,6 +162,7 @@ export class SegmentProfitLossService {
   ) {}
 
   async build(filter: TrialBalanceFilter): Promise<SegmentReport> {
+    await assertReportFilter(this.prisma, filter);
     const grids: Record<Owner, Grid> = { snail: emptyGrid(), poultry: emptyGrid(), shared: emptyGrid() };
 
     // --- The ledger, line by line ------------------------------------------

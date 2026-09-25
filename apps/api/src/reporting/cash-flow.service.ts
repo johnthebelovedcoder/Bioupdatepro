@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { assertReportFilter } from './report-filter';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProfitLossService } from './profit-loss.service';
 
@@ -104,6 +105,7 @@ export class CashFlowService {
   ) {}
 
   async build(params: { companyId: string; financialPeriodId: string }): Promise<CashFlow> {
+    await assertReportFilter(this.prisma, params);
     const period = await this.prisma.financialPeriod.findUniqueOrThrow({
       where: { id: params.financialPeriodId },
       select: { financialYearId: true, startDate: true },

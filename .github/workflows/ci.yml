@@ -11,6 +11,9 @@ name: Checks
 #                suite starts itself (embedded-postgres) and builds from the
 #                same migrations production runs
 #   web build    the production build Render will run
+#   UAT evidence the 26 tests of the client's UAT_CONTROL_REGISTER, each scored
+#                against the automated tests that evidence it (apps/api/test/uat);
+#                the report is on the run's summary and as an artifact
 #
 # Render deploys main on every push regardless; this does not block a deploy,
 # it tells you — on the commit, in red — when one should not have happened.
@@ -52,11 +55,31 @@ jobs:
 
       - name: Unit tests (including tenant isolation)
         working-directory: apps/api
-        run: npx vitest run --config vitest.unit.config.ts
+        run: npx vitest run --config vitest.unit.config.ts --reporter=default --reporter=json --outputFile.json=test/uat/results-unit.json
 
       - name: Integration tests (real PostgreSQL)
         working-directory: apps/api
-        run: npx vitest run --config vitest.config.ts
+        run: npx vitest run --config vitest.config.ts --reporter=default --reporter=json --outputFile.json=test/uat/results-integration.json
+
+      # Non-blocking until the 500-snail case replay lands: UAT-022 is honestly
+      # MISSING until then, and the run says so rather than failing every push.
+      - name: UAT evidence (UAT_CONTROL_REGISTER)
+        if: always()
+        continue-on-error: true
+        working-directory: apps/api
+        run: |
+          status=0
+          node test/uat/run-uat.mjs --score || status=$?
+          cat test/uat/uat-report.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Keep the UAT report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-report
+          path: apps/api/test/uat/uat-report.*
+          retention-days: 90
 
       - name: Web production build
         run: npm run build --workspace @bioassetpro/web

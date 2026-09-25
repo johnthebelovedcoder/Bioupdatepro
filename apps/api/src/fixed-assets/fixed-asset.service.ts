@@ -271,8 +271,15 @@ export class FixedAssetService {
       );
     }
 
+    const period = await this.prisma.financialPeriod.findFirstOrThrow({
+      where: { id: params.financialPeriodId, financialYear: { companyId: params.companyId } },
+      select: { financialYearId: true, startDate: true, endDate: true },
+    });
+
+    // UAT-007: an asset is depreciated only once it is in service — acquired
+    // by the end of the period — never for a month before it existed.
     const assets = await this.prisma.fixedAsset.findMany({
-      where: { companyId: params.companyId, status: WorkflowStatus.POSTED, disposedOn: null },
+      where: { companyId: params.companyId, status: WorkflowStatus.POSTED, disposedOn: null, acquisitionDate: { lte: period.endDate } },
     });
 
     const lines = assets
@@ -302,11 +309,6 @@ export class FixedAssetService {
         createdById: params.actor.userId,
         entries: { create: lines.map((line) => ({ assetId: line.assetId, amountKobo: line.amountKobo })) },
       },
-    });
-
-    const period = await this.prisma.financialPeriod.findUniqueOrThrow({
-      where: { id: params.financialPeriodId },
-      select: { financialYearId: true, startDate: true },
     });
 
     const context = await this.prisma.company.findUniqueOrThrow({

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { assertReportFilter } from './report-filter';
 import { AccountType, NormalBalance } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { EnterpriseDimensions } from '../enterprise-dimensions/dimensions.types';
@@ -59,6 +60,7 @@ export class TrialBalanceService {
   constructor(private readonly prisma: PrismaService) {}
 
   async build(filter: TrialBalanceFilter): Promise<TrialBalance> {
+    await assertReportFilter(this.prisma, filter);
     // A single financialPeriodId used to mean "only this period's movement,"
     // for every account. That is right for revenue/expense — a P&L account
     // resets each period by convention — but wrong for a balance-sheet

@@ -11,7 +11,9 @@
     "test": "vitest run --config vitest.unit.config.ts && vitest run --config vitest.config.ts",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:integration": "vitest run --config vitest.config.ts",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "uat": "node test/uat/run-uat.mjs",
+    "uat:score": "node test/uat/run-uat.mjs --score"
   },
   "dependencies": {
     "@bioassetpro/database": "*",

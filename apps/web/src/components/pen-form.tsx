@@ -73,6 +73,11 @@ export function PenForm({ farms }: { farms: FarmOption[] }) {
               <input name="name" defaultValue={state.values?.name} required />
               <span className="faint">What people call it out loud.</span>
             </label>
+            <label className="field">
+              Capacity
+              <input name="capacity" type="number" min={1} step={1} defaultValue={state.values?.capacity} />
+              <span className="faint">How many animals it holds. Blank for no limit.</span>
+            </label>
           </div>
 
           <Submit label="Add house or pen" pendingLabel="Adding…" />

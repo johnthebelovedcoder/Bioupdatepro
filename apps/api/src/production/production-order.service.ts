@@ -1272,7 +1272,20 @@ export class ProductionOrderService {
     // it to zero for this order; negative means the reverse.
     const actualIncurred = order.actualLabourCostKobo + order.actualOverheadCostKobo;
     const variance = actualIncurred - order.standardConversionCostKobo;
-    if (variance === 0n) {
+    /*
+     * PCR-058 / PCR-080: settlement clears the recovery account AND the
+     * actual expense pools the order charged (621100/621200, 622100) —
+     * "actual-standard variance and recovery clear". Dr recovery with the
+     * standard absorbed, Cr each pool with what it was charged, and the
+     * variance takes the difference. Until 2026-09-25 only the variance was
+     * posted, so the recovery kept the standard as a credit and the pools kept
+     * the actual as expense: conversion cost counted twice, once in expense
+     * and once in the finished goods. Feed-mill orders post no actual pools
+     * of their own (their resource costs arrive through PCR-031 and payroll),
+     * so they settle the variance against recovery as before.
+     */
+    const clearsPools = rules.actualLabourRuleId !== null || rules.actualConversionRuleId !== null;
+    if (clearsPools ? order.standardConversionCostKobo === 0n && actualIncurred === 0n : variance === 0n) {
       await this.prisma.productionOrder.update({ where: { id: order.id }, data: { settledAt: new Date() } });
       return { journalEntryId: null, variance: '0' };
     }
@@ -1292,7 +1305,17 @@ export class ProductionOrderService {
       this.resolvePostingKeyAccount(order.companyId, rules.settleDebitKey),
       this.recoveryAccount(order.companyId, rules.recoveryAccountNumber),
     ]);
+    // The pools the order's own conversion step charged, and how much to each.
+    const pools: Array<{ account: string; amount: bigint }> = !clearsPools
+      ? []
+      : rules.actualConversionRuleId
+        ? [{ account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`), amount: actualIncurred }]
+        : [
+            { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualLabourRuleId}-DR`), amount: order.actualLabourCostKobo },
+            { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualOverheadRuleId}-DR`), amount: order.actualOverheadCostKobo },
+          ];
 
+    const rule = rules.settleDebitKey.replace('-DR', '');
     return this.prisma.$transaction(async (tx) => {
       const favourable = variance < 0n;
       const magnitude = favourable ? -variance : variance;
@@ -1304,24 +1327,51 @@ export class ProductionOrderService {
           sourceDocumentId: order.id,
           journalNumber: `${order.orderNumber}-SETTLE`,
           journalDate: new Date(),
-          narration: `Settle conversion variance on processing order ${order.orderNumber}`,
+          narration: `Settle processing order ${order.orderNumber}: recovery and actual pools cleared, variance ${variance} kobo`,
           ...dimensions,
           idempotencyKey: `production-order:${order.id}:settle`,
           actor: params.actor,
-          lines: [
-            {
-              glAccountId: favourable ? recoveryAccount : varianceAccount,
-              description: `${rules.settleDebitKey.replace('-DR', '')} — conversion variance settled (${order.orderNumber})`,
-              debit: kobo(magnitude),
-              dimensions,
-            },
-            {
-              glAccountId: favourable ? varianceAccount : recoveryAccount,
-              description: `${rules.settleDebitKey.replace('-DR', '')} — conversion variance settled (${order.orderNumber})`,
-              credit: kobo(magnitude),
-              dimensions,
-            },
-          ],
+          lines: clearsPools
+            ? [
+                ...(order.standardConversionCostKobo > 0n
+                  ? [{
+                      glAccountId: recoveryAccount,
+                      description: `${rule} — recovery cleared (${order.orderNumber})`,
+                      debit: kobo(order.standardConversionCostKobo),
+                      dimensions,
+                    }]
+                  : []),
+                ...(magnitude > 0n
+                  ? [{
+                      glAccountId: varianceAccount,
+                      description: `${rule} — conversion variance (${order.orderNumber})`,
+                      ...(favourable ? { credit: kobo(magnitude) } : { debit: kobo(magnitude) }),
+                      dimensions,
+                    }]
+                  : []),
+                ...pools
+                  .filter((pool) => pool.amount > 0n)
+                  .map((pool) => ({
+                    glAccountId: pool.account,
+                    description: `${rule} — actual pool cleared (${order.orderNumber})`,
+                    credit: kobo(pool.amount),
+                    dimensions,
+                  })),
+              ]
+            : [
+                {
+                  glAccountId: favourable ? recoveryAccount : varianceAccount,
+                  description: `${rule} — conversion variance settled (${order.orderNumber})`,
+                  debit: kobo(magnitude),
+                  dimensions,
+                },
+                {
+                  glAccountId: favourable ? varianceAccount : recoveryAccount,
+                  description: `${rule} — conversion variance settled (${order.orderNumber})`,
+                  credit: kobo(magnitude),
+                  dimensions,
+                },
+              ],
         },
         tx,
       );

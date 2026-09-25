@@ -1,4 +1,5 @@
 import {
+  Optional,
   CanActivate,
   ExecutionContext,
   ForbiddenException,
@@ -6,6 +7,8 @@ import {
   SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { AuditAction } from '@bioassetpro/database';
+import { AuditService } from '../audit/audit.service';
 import type { Request } from 'express';
 import { IS_PUBLIC_KEY } from './current-user.decorator';
 import type { AuthenticatedUser } from './auth.service';
@@ -72,7 +75,10 @@ const UNIVERSAL = new Set(['ADMINISTRATOR']);
  */
 @Injectable()
 export class RolesGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    @Optional() private readonly audit?: AuditService,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
@@ -125,6 +131,8 @@ export class RolesGuard implements CanActivate {
     if (held.some((role) => UNIVERSAL.has(role))) return true;
     if (held.some((role) => needed.includes(role))) return true;
 
+    this.recordRefusal(request, needed);
+
     /*
      * Says what is needed, not what the caller has.
      *
@@ -135,6 +143,32 @@ export class RolesGuard implements CanActivate {
     throw new ForbiddenException(
       `This needs one of: ${needed.map(humanRole).join(', ')}. Ask an administrator.`,
     );
+  }
+
+  /**
+   * UAT-001: a signed-in user reaching for a screen or action their roles do
+   * not allow is refused AND logged — who, what, and which roles it needed —
+   * so an auditor can see attempts, not just successes. Written without
+   * waiting: a refusal must never wait on, or fail because of, its own log.
+   */
+  private recordRefusal(request: Request & { user?: AuthenticatedUser }, needed: string[]): void {
+    const user = request.user;
+    if (!this.audit || !user?.userId) return;
+    const route = `${request.method} ${request.route?.path ?? request.path ?? request.url}`;
+    void this.audit
+      .write({
+        transactionId: `access:${route}`,
+        module: 'auth',
+        entityType: 'Route',
+        entityId: route,
+        status: 'ACCESS_DENIED',
+        action: AuditAction.REJECT,
+        userId: user.userId,
+        ipAddress: request.ip ?? null,
+        comments: `Refused ${route}: needs one of ${needed.join(', ')}.`,
+        metadata: { route, needed, held: user.roles },
+      })
+      .catch(() => undefined);
   }
 }
 

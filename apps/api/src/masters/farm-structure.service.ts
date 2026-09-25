@@ -49,8 +49,10 @@ export class FarmStructureService {
         code: true,
         name: true,
         active: true,
+        capacity: true,
         farm: { select: { id: true, code: true, name: true } },
         _count: { select: { livestockGroups: true } },
+        livestockGroups: { where: { status: 'ACTIVE' }, select: { population: true } },
       },
     });
 
@@ -64,7 +66,37 @@ export class FarmStructureService {
       // What is living in it right now — the one figure that makes this list
       // worth reading rather than a directory of names.
       populations: pen._count.livestockGroups,
+      capacity: pen.capacity,
+      occupancy: pen.livestockGroups.reduce((n, g) => n + g.population, 0),
     }));
+  }
+
+  /** Set or clear how many animals a pen holds. It cannot be set below what is in it. */
+  async setPenCapacity(params: { companyId: string; penId: string; capacity: number | null; actor: WorkflowActor }) {
+    const pen = await this.prisma.penHouse.findFirst({
+      where: { id: params.penId, farm: { companyId: params.companyId } },
+      include: { livestockGroups: { where: { status: 'ACTIVE' }, select: { population: true } } },
+    });
+    if (!pen) throw new NotFoundException('No such pen.');
+    const capacity = capacityOf(params.capacity);
+    const inside = pen.livestockGroups.reduce((n, g) => n + g.population, 0);
+    if (capacity !== null && capacity < inside) {
+      throw new BadRequestException(`${pen.name} has ${inside} animals in it now; its capacity cannot be less than that.`);
+    }
+    const updated = await this.prisma.penHouse.update({ where: { id: pen.id }, data: { capacity } });
+    await this.audit.write({
+      transactionId: pen.id,
+      module: 'MASTERS',
+      entityType: 'PenHouse',
+      entityId: pen.id,
+      status: pen.active ? 'ACTIVE' : 'INACTIVE',
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      comments: `${pen.code} capacity ${capacity === null ? 'cleared' : `set to ${capacity}`}.`,
+      oldValue: { capacity: pen.capacity },
+      newValue: { capacity },
+    });
+    return updated;
   }
 
   async createFarm(params: {
@@ -116,10 +148,12 @@ export class FarmStructureService {
     farmId?: string | null;
     code: string;
     name: string;
+    capacity?: number | null;
   }) {
     const code = params.code.trim().toUpperCase();
     const name = params.name.trim();
     if (!code || !name) throw new BadRequestException('A pen needs a code and a name.');
+    const capacity = capacityOf(params.capacity);
 
     /*
      * The farm is verified to belong to the caller's company rather than
@@ -150,7 +184,7 @@ export class FarmStructureService {
     }
 
     const pen = await this.prisma.penHouse.create({
-      data: { farmId: farm.id, code, name },
+      data: { farmId: farm.id, code, name, capacity },
     });
 
     await this.audit.write({
@@ -537,4 +571,12 @@ export class FarmStructureService {
 
     return created;
   }
+}
+
+/** A capacity is a whole number of animals above zero, or none. */
+function capacityOf(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || (value as unknown) === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw new BadRequestException('Capacity is a whole number of animals, or blank for no limit.');
+  return n;
 }

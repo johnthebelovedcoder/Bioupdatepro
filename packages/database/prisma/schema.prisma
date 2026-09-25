@@ -722,6 +722,9 @@ model PenHouse {
   farmId    String   @map("farm_id") @db.Uuid
   code      String
   name      String
+  /// How many animals the house or pen holds (UAT-010/016: a placement or
+  /// transfer beyond it is refused). Blank where no limit is set.
+  capacity  Int?
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

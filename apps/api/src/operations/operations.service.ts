@@ -6,6 +6,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { BatchProfileService, CARCASS_DISPOSALS } from './batch-profile.service';
+import { assertPenRoom } from './pen-capacity';
 import { AuditAction, Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
@@ -90,6 +91,16 @@ export class OperationsService {
       if (reserved.replayed) return { id: reserved.resultRef!, replayed: true };
 
       const penHouse = await this.resolvePenHouse(tx, companyId, payload.house);
+
+      // UAT-010/016: a batch code is used once, and a house is not overfilled.
+      const code = payload.code.trim();
+      const duplicate = await tx.livestockGroup.findUnique({ where: { companyId_code: { companyId, code } } });
+      if (duplicate) {
+        throw new BadRequestException(
+          `There is already a batch called ${code}, placed on ${duplicate.startedOn.toISOString().slice(0, 10)}. Give this one another code.`,
+        );
+      }
+      await assertPenRoom(tx, companyId, penHouse, payload.openingPopulation);
 
       const group = await tx.livestockGroup.create({
         data: {
@@ -768,6 +779,10 @@ export class OperationsService {
         throw new BadRequestException(
           `${group.code} only has ${group.population} on hand — cannot claim ${mortalityCount} died in transit.`,
         );
+      }
+      // Moving to another house must fit in it (UAT-016).
+      if (toPen.id !== group.penHouseId) {
+        await assertPenRoom(tx, companyId, toPen, group.population - mortalityCount, group.id);
       }
 
       await this.biologicalAssets.assertStageAgeEligible({

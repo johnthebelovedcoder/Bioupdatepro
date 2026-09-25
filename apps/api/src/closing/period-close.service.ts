@@ -8,6 +8,7 @@ import {
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { ControlAccountReconciliationService } from '../reporting/control-account-reconciliation.service';
 import { TrialBalanceService } from '../reporting/trial-balance.service';
 import { WorkflowService } from '../workflow/workflow.service';
 import { WorkflowActor } from '../workflow/workflow.types';
@@ -433,6 +434,24 @@ export class PeriodCloseService {
           ? 'No goods received awaiting an invoice.'
           : `${grniOutstanding} kobo of goods received in this period is still ` +
             `uninvoiced. Legitimate, but check the invoices are not simply missing.`,
+    });
+
+    // --- Every control account agrees with its subledger (UAT-021) ----------
+    // Monthly_GL_Close: a period does not close over an unresolved difference
+    // between a control account and the detail it summarises.
+    const reconciliation = await new ControlAccountReconciliationService(this.prisma, this.trialBalance).reconcile(period.financialYear.companyId);
+    const differences = reconciliation.filter((row) => !row.reconciled);
+    findings.push({
+      code: 'CONTROL_ACCOUNTS_RECONCILED',
+      name: 'Control accounts agree with their subledgers',
+      blocking: true,
+      passed: differences.length === 0,
+      detail:
+        differences.length === 0
+          ? `All ${reconciliation.length} control accounts agree with their subledgers.`
+          : differences
+              .map((row) => `${row.accountNumber} ${row.accountName}: ledger ${row.glBalanceKobo}, subledger ${row.subledgerKobo} kobo (${row.source})`)
+              .join('; ') + '. Resolve these before closing.',
     });
 
     // --- The checklist ------------------------------------------------------

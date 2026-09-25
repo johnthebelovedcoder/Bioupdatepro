@@ -1,0 +1,269 @@
+[
+  {
+    "id": "UAT-001",
+    "title": "User/role setup — only assigned actions; restricted access blocked and logged",
+    "positive": ["Role access (UAT-001) > lets a role through to what it is assigned"],
+    "negative": [
+      "Role access (UAT-001) > blocks a restricted action and logs the attempt",
+      "Role access (UAT-001) > refuses a route nobody has said who may use",
+      "maker-checker (Rule 4) > refuses an approval by the maker, even holding the required role"
+    ]
+  },
+  {
+    "id": "UAT-002",
+    "title": "Master data and dimensions — valid combination posts; inactive or missing dimension blocked",
+    "positive": ["PostingService — Enterprise Dimensions (§1.1)", "keeps the trial balance balanced after every posting"],
+    "negative": [
+      "rejects a posting missing a mandatory dimension",
+      "rejects a line that contradicts the header on a mandatory dimension",
+      "rejects an inactive cost centre",
+      "rejects posting to an inactive account"
+    ]
+  },
+  {
+    "id": "UAT-003",
+    "title": "Approval workflow — history retained; only approved items post; self-approval blocked and retained",
+    "positive": ["walks every level in order and posts at the end", "records every transition in both history and the audit log"],
+    "negative": [
+      "refuses an approval by the maker, even holding the required role",
+      "refuses the sole approver’s own document while self-approval is off, the default",
+      "blocks a maker approval written straight to the database"
+    ]
+  },
+  {
+    "id": "UAT-004",
+    "title": "Audit trail and numbering — unique sequence, reversal chain; deletion and duplicates prevented",
+    "positive": [
+      "nextReference > builds TYPE-ENTITY-SITE-YYYY-SEQ",
+      "Journal vouchers > gives every posted journal a controlled voucher number",
+      "reverses a posted journal with a mirror-image document",
+      "writes an audit record in the same transaction as the posting"
+    ],
+    "negative": [
+      "never hands the same number to two people at once",
+      "refuses a prefix that is not approved, and a sequence can never go back",
+      "refuses to delete a posted journal, at the database",
+      "returns the original result on replay instead of posting twice",
+      "refuses to reverse the same journal twice"
+    ]
+  },
+  {
+    "id": "UAT-005",
+    "title": "P2P requisition to payment — posts once, GRNI clears; mismatched invoice/payment blocked",
+    "positive": [
+      "draws down the requisition when a purchase order is raised from it",
+      "receipt debits inventory and credits GRNI",
+      "invoice clears GRNI to exactly zero, without touching inventory again",
+      "posts Dr Payables / Cr Bank and settles the invoice",
+      "drops a fully paid invoice out of the ageing"
+    ],
+    "negative": [
+      "refuses to bill more than arrived, rather than driving GRNI negative",
+      "flags an over-receipt beyond tolerance rather than refusing it, and routes to the exception ladder",
+      "refuses the same supplier invoice number twice",
+      "refuses to pay a blocked supplier"
+    ]
+  },
+  {
+    "id": "UAT-006",
+    "title": "Inventory control — receive, transfer, count; subledger agrees with GL; negative stock blocked",
+    "positive": ["Inventory control (UAT-006) > issues to another store, receives it there, count-adjusts"],
+    "negative": ["Inventory control (UAT-006) > refuses to take stock below zero"]
+  },
+  {
+    "id": "UAT-007",
+    "title": "Fixed assets — capitalise, depreciate, dispose; register ties to GL; invalid depreciation blocked",
+    "positive": ["Fixed assets (UAT-007) > capitalises, depreciates and disposes through approval"],
+    "negative": ["Fixed assets (UAT-007) > never depreciates an asset before it is in service, nor the same month twice"]
+  },
+  {
+    "id": "UAT-008",
+    "title": "Payroll and statutory liabilities — run, approve, pay; inactive employee or unposted run blocked",
+    "positive": [
+      "calculates EMP001 exactly as both workbooks do",
+      "posts the §7 accrual and leaves the trial balance balanced",
+      "clears the salary payable and moves cash, dollar for dollar"
+    ],
+    "negative": [
+      "never pays a terminated employee (UAT-008)",
+      "refuses a payment against a run that has not posted",
+      "refuses to pay more than a bucket has outstanding"
+    ]
+  },
+  {
+    "id": "UAT-009",
+    "title": "O2C invoice to receipt — revenue, COGS, AR, cash; credit limit held per policy",
+    "positive": [
+      "leaves the trial balance balanced across the whole cycle",
+      "posts Dr Bank / Cr Receivable and settles the invoice",
+      "drops a fully settled invoice out of the ageing"
+    ],
+    "negative": [
+      "routes a failing order to the credit override ladder, not to a refusal",
+      "fails an order over the limit",
+      "refuses any sales document for a blocked customer"
+    ]
+  },
+  {
+    "id": "UAT-010",
+    "title": "500-snail acquisition and cohort setup — duplicate cohort or capacity breach blocked",
+    "positive": ["Placement (UAT-010 / UAT-016) > places a batch into a house with room"],
+    "negative": ["Placement (UAT-010 / UAT-016) > refuses a duplicate batch code, and a house over capacity"]
+  },
+  {
+    "id": "UAT-011",
+    "title": "Snail egg to hatchling lifecycle — hatch exceeding eggs blocked",
+    "positive": ["records a cycle, then places its hatchlings as their own cohort at no cost"],
+    "negative": [
+      "refuses a hatch that does not account for every egg",
+      "refuses more breeders than the cohort has, and a second hatch of the same cycle"
+    ]
+  },
+  {
+    "id": "UAT-012",
+    "title": "Age/stage transfer — stage by age; impossible stage blocked",
+    "positive": [
+      "Stage by age (UAT-012) > moves a batch to a stage its age has reached",
+      "Age and stage > counts age from placement, then from an exact or estimated hatch date"
+    ],
+    "negative": ["Stage by age (UAT-012) > refuses a stage the batch is too young for"]
+  },
+  {
+    "id": "UAT-013",
+    "title": "Snail feed, mortality and cost capture — feed from stock; deaths above live blocked; abnormal loss needs approval",
+    "positive": [
+      "takes the feed out of the store at average cost and posts exactly that",
+      "capitalises poultry feed into Biological Assets and expenses snail feed"
+    ],
+    "negative": [
+      "keeps the round but posts nothing when the store has never received the feed",
+      "Deaths and abnormal loss (UAT-013 / UAT-017) > refuses more deaths than there are live birds",
+      "Deaths and abnormal loss (UAT-013 / UAT-017) > posts a normal loss straight away, and sends an abnormal one for approval"
+    ]
+  },
+  {
+    "id": "UAT-014",
+    "title": "IAS 41 valuation — approved before posting; disposed units or missing evidence blocked",
+    "positive": [
+      "Valuation (UAT-014) > raises a valuation for approval",
+      "measures a revaluation against fair value plus capitalised rearing cost, and absorbs it"
+    ],
+    "negative": ["Valuation (UAT-014) > refuses to value animals that are gone"]
+  },
+  {
+    "id": "UAT-015",
+    "title": "Snail processing and standard costing — WIP and recovery clear; close with WIP blocked",
+    "positive": ["Processing and production-order close (UAT-015 / UAT-024) > runs issue → conversion → output → settle"],
+    "negative": [
+      "Processing and production-order close (UAT-015 / UAT-024) > refuses to close an order while anything is still in WIP",
+      "Processing and production-order close (UAT-015 / UAT-024) > refuses a second order against the same harvest"
+    ]
+  },
+  {
+    "id": "UAT-016",
+    "title": "500-bird acquisition and flock setup — duplicate flock or house capacity breach blocked",
+    "positive": ["Placement (UAT-010 / UAT-016) > places a batch into a house with room"],
+    "negative": [
+      "Placement (UAT-010 / UAT-016) > refuses a duplicate batch code, and a house over capacity",
+      "Placement (UAT-010 / UAT-016) > refuses to move a batch into a house it will not fit"
+    ]
+  },
+  {
+    "id": "UAT-017",
+    "title": "Flock age/stage and mortality — deaths above live blocked; abnormal event needs approval",
+    "positive": ["Age and stage > counts age from placement", "writes the rearing cost of deaths to Production Loss, out of WIP"],
+    "negative": [
+      "Deaths and abnormal loss (UAT-013 / UAT-017) > refuses more deaths than there are live birds",
+      "Deaths and abnormal loss (UAT-013 / UAT-017) > posts a normal loss straight away, and sends an abnormal one for approval"
+    ]
+  },
+  {
+    "id": "UAT-018",
+    "title": "Feed and FCR — feed cost to the flock; weight sample; FCR; unavailable feed blocked",
+    "positive": [
+      "Flock KPIs > works out FCR (KPI-11)",
+      "The round > records a weight sample taken on the round as a pending weighing",
+      "takes the feed out of the store at average cost and posts exactly that"
+    ],
+    "negative": [
+      "keeps the round but posts nothing when the store has never received the feed",
+      "Weight history > refuses a weighing that cannot be right"
+    ]
+  },
+  {
+    "id": "UAT-019",
+    "title": "Egg production and hen-day — grades, destination, hen-day; duplicate shift blocked",
+    "positive": [
+      "Flock KPIs > works out hen-day % (KPI-13)",
+      "collects, sets and hatches, carrying the value through to the chicks",
+      "values table and hatching eggs apart, and sets hatching eggs at theirs"
+    ],
+    "negative": ["One round per batch per day (UAT-019) > refuses a second round for the same batch on the same day"]
+  },
+  {
+    "id": "UAT-020",
+    "title": "Poultry processing and standard costing — WIP and recovery clear; close with WIP blocked",
+    "positive": ["Poultry processing and close (UAT-020) > runs issue → conversion → output → settle"],
+    "negative": ["Poultry processing and close (UAT-020) > refuses to close an order while anything is still in WIP"]
+  },
+  {
+    "id": "UAT-021",
+    "title": "GL and subledger reconciliation — control accounts equal subledgers; close with difference blocked",
+    "positive": [
+      "open-item ageing agrees with the receivable control account",
+      "supplier ageing agrees with the payables control account",
+      "Inventory control (UAT-006) > issues to another store, receives it there, count-adjusts",
+      "auto-matches what is unambiguous and reconciles to the kobo"
+    ],
+    "negative": ["refuses to close while a control account disagrees with its subledger (UAT-021)"]
+  },
+  {
+    "id": "UAT-022",
+    "title": "Financial statements — TB, P&L, BS, CF balance and tie; drafts excluded; case-study results reproduced",
+    "positive": [
+      "Financial statements (UAT-022) > balances: TB debits equal credits",
+      "Financial statements (UAT-022) > reports each farm on its own",
+      "SegmentProfitLossService > passes its release checks",
+      "500-snail case replay"
+    ],
+    "negative": ["excludes draft journals from the trial balance"]
+  },
+  {
+    "id": "UAT-023",
+    "title": "Reports and KPI lineage — formulas reproduce; invalid dates or another company's farm refused",
+    "positive": ["Flock KPIs > works out FCR (KPI-11)", "Flock KPIs > works out hen-day % (KPI-13)", "SegmentProfitLossService > shows each product by farm, feed mill and processing"],
+    "negative": ["Report access (UAT-023) > refuses a report about another company’s farm", "Report access (UAT-023) > refuses a period outside the year named"]
+  },
+  {
+    "id": "UAT-024",
+    "title": "Production-order close — WIP=0, recovery=0, variance classified; close with WIP blocked",
+    "positive": [
+      "Processing and production-order close (UAT-015 / UAT-024) > runs issue → conversion → output → settle",
+      "Poultry processing and close (UAT-020) > runs issue → conversion → output → settle"
+    ],
+    "negative": ["Processing and production-order close (UAT-015 / UAT-024) > refuses to close an order while anything is still in WIP"]
+  },
+  {
+    "id": "UAT-025",
+    "title": "Month/year close and lock — checklist, lock; posting in a locked period refused unless reopened",
+    "positive": ["closes a clean period", "sweeps revenue and expense to zero and carries assets forward", "blocks a close until every blocking step is settled"],
+    "negative": [
+      "rejects a posting into a closed period",
+      "refuses to reopen without an approved request",
+      "refuses the requester approving their own reopen (Rule 4)"
+    ]
+  },
+  {
+    "id": "UAT-026",
+    "title": "Daily entry and next-step guidance — journals derived; plain-language refusals",
+    "positive": [
+      "The round > records a weight sample taken on the round as a pending weighing, and what was done with the dead",
+      "takes the feed out of the store at average cost and posts exactly that"
+    ],
+    "negative": [
+      "Weight history > refuses a weighing that cannot be right, saying what was entered and what is allowed",
+      "Deaths and abnormal loss (UAT-013 / UAT-017) > refuses more deaths than there are live birds"
+    ],
+    "manual": "UX_ACCEPTANCE requires an observed test with a farm worker, supervisor and finance user; the workbook itself marks it OPEN until done."
+  }
+]

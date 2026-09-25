@@ -564,9 +564,20 @@ export class MasterDataController {
   async createPen(
     @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
-    @Body() body: { farmId?: string | null; code: string; name: string },
+    @Body() body: { farmId?: string | null; code: string; name: string; capacity?: number | null },
   ) {
     return this.structure.createPen({ companyId, actor, ...body });
+  }
+
+  @Roles('FARM_MANAGER', 'CFO')
+  @Post('pens/:id/capacity')
+  async setPenCapacity(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: { capacity: number | null },
+  ) {
+    return this.structure.setPenCapacity({ companyId, penId: id, capacity: body?.capacity ?? null, actor });
   }
 
   @AnyRole('Stores are named on every stock movement.')

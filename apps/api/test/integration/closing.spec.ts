@@ -231,6 +231,35 @@ describe('Period-End & Year-End Closing (§8)', () => {
       expect(closed.status).toBe(PeriodStatus.CLOSED);
     });
 
+    it('refuses to close while a control account disagrees with its subledger (UAT-021)', async () => {
+      await tradeInPeriod(0, 1_000_000_00n, 0n, 'JAN');
+      // A receivable in the ledger with no invoice behind it: the AR control
+      // account no longer equals the open-invoice subledger.
+      const receivables =
+        (await prisma.gLAccount.findFirst({ where: { companyId: fixture.companyId, accountNumber: '1201' } })) ??
+        (await prisma.gLAccount.create({
+          data: { companyId: fixture.companyId, accountNumber: '1201', name: 'Trade Receivables', accountType: 'ASSET', normalBalance: 'DEBIT' },
+        }));
+      const d = dims(0);
+      await posting.post({
+        sourceModule: 'test', sourceDocumentType: 'Trade', journalNumber: 'AR-NO-INVOICE', journalDate: new Date(Date.UTC(2026, 0, 20)),
+        narration: 'Receivable with no invoice', ...d, idempotencyKey: 'ar-no-invoice', actor: maker,
+        lines: [
+          { glAccountId: receivables.id, description: 'AR', debit: kobo(50_000_00n), dimensions: d },
+          { glAccountId: fixture.accounts['4101']!, description: 'Revenue', credit: kobo(50_000_00n), dimensions: d },
+        ],
+      });
+
+      const validation = await periods.validate(fixture.periodIds[0]!);
+      expect(validation.canClose).toBe(false);
+      const finding = validation.findings.find((f) => f.code === 'CONTROL_ACCOUNTS_RECONCILED')!;
+      expect(finding).toMatchObject({ blocking: true, passed: false });
+      expect(finding.detail).toMatch(/1201 Trade Receivables: ledger 5000000, subledger 0/);
+      await expect(
+        periods.close({ financialPeriodId: fixture.periodIds[0]!, actor: approver, reason: 'January close' }),
+      ).rejects.toThrow(/Control accounts agree/);
+    });
+
     it('refuses to close over a document still awaiting approval', async () => {
       await tradeInPeriod(0, 1_000_000_00n, 0n, 'JAN');
 
