@@ -122,6 +122,8 @@ export interface PendingApproval {
   amountKobo: string;
   waitingSince: string;
   escalated: boolean;
+  /** Your own document, shown because nobody else in the farm can approve it. */
+  selfApproval?: boolean;
   route: string;
 }
 

@@ -347,6 +347,12 @@ export const SECTIONS: NavSection[] = [
         hint: 'Calculate, approve and post one month’s payroll',
         keywords: ['payroll', 'run', 'salary', 'gross', 'net pay', 'approve'],
       },
+      {
+        href: '/finance/timesheets',
+        label: 'Timesheets',
+        hint: 'Hours people worked on each batch, for sharing wages by hours',
+        keywords: ['timesheet', 'hours', 'labour', 'time', 'attendance', 'wages'],
+      },
       /*
        * Same role boundary as payroll runs above — JournalsController only
        * ever admits Finance Controller, Finance Manager, Farm Accountant and

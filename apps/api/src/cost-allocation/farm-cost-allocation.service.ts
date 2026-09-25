@@ -7,6 +7,7 @@ import { PostingService } from '../posting/posting.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
+import { TimesheetService } from './timesheet.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
 /**
@@ -48,11 +49,22 @@ export interface AllocationSourceInput {
   amountKobo: bigint;
 }
 
+/**
+ * What a population's share is weighted by. ANIMAL_DAYS needs nothing
+ * recorded; HOURS is the workbook's "approved hours × actual payroll rate",
+ * from timesheets (TimesheetService.weights).
+ */
+export type AllocationBasis = 'ANIMAL_DAYS' | 'HOURS';
+
 export interface PopulationShare {
   groupId: string;
   code: string;
   speciesKey: string;
   animalDays: Decimal;
+  /** Timesheet hours in the period; null on the ANIMAL_DAYS basis. */
+  hours: Decimal | null;
+  /** What the share was split by: animal-days, or hours × pay rate. */
+  weight: Decimal;
   amountKobo: bigint;
 }
 
@@ -62,6 +74,7 @@ export class FarmCostAllocationService {
     private readonly prisma: PrismaService,
     private readonly posting: PostingService,
     private readonly audit: AuditService,
+    private readonly timesheets: TimesheetService,
   ) {}
 
   /** Expense accounts with cost in the period that can be allocated, and how much of each. */
@@ -110,14 +123,38 @@ export class FarmCostAllocationService {
   }
 
   /**
-   * Each live population's animal-days in the period, and its share of
-   * `totalKobo`. Shares are whole kobo by largest remainder, so they always
-   * add up to the total exactly.
+   * Each population's weight in the period — animal-days, or timesheet hours
+   * × pay rate — and its share of `totalKobo`. Shares are whole kobo by
+   * largest remainder, so they always add up to the total exactly.
    */
-  async preview(companyId: string, financialPeriodId: string, totalKobo: bigint): Promise<PopulationShare[]> {
+  async preview(
+    companyId: string,
+    financialPeriodId: string,
+    totalKobo: bigint,
+    basis: AllocationBasis = 'ANIMAL_DAYS',
+  ): Promise<PopulationShare[]> {
     const period = await this.period(companyId, financialPeriodId);
     const days = await this.animalDays(companyId, period.startDate, period.endDate);
-    return split(days, totalKobo);
+    if (basis === 'ANIMAL_DAYS') {
+      return split(days.map((d) => ({ ...d, hours: null, weight: d.animalDays })), totalKobo);
+    }
+
+    const byHours = await this.timesheets.weights(companyId, period.startDate, period.endDate, period.id);
+    const known = new Map(days.map((d) => [d.groupId, d]));
+    // A population with hours but no animals that month (emptied, being
+    // cleaned out) still carries the labour spent on it.
+    const missing = [...byHours.keys()].filter((id) => !known.has(id));
+    if (missing.length > 0) {
+      const groups = await this.prisma.livestockGroup.findMany({
+        where: { id: { in: missing } },
+        select: { id: true, code: true, speciesKey: true },
+      });
+      for (const g of groups) known.set(g.id, { groupId: g.id, code: g.code, speciesKey: g.speciesKey, animalDays: new Decimal(0) });
+    }
+    const rows = [...known.values()]
+      .filter((d) => byHours.has(d.groupId))
+      .map((d) => ({ ...d, hours: byHours.get(d.groupId)!.hours, weight: byHours.get(d.groupId)!.weight }));
+    return split(rows, totalKobo);
   }
 
   /** Post an allocation: Dr each population's share / Cr each source. */
@@ -125,8 +162,10 @@ export class FarmCostAllocationService {
     companyId: string;
     financialPeriodId: string;
     sources: AllocationSourceInput[];
+    basis?: AllocationBasis;
     actor: WorkflowActor;
   }) {
+    const basis: AllocationBasis = params.basis ?? 'ANIMAL_DAYS';
     const period = await this.period(params.companyId, params.financialPeriodId);
     if (period.status !== 'OPEN') {
       throw new AccountingRuleViolation('§9 — Financial period', `${period.name} is not open.`, { periodId: period.id });
@@ -152,7 +191,14 @@ export class FarmCostAllocationService {
     }
 
     const total = sources.reduce((sum, s) => sum + s.amountKobo, 0n);
-    const shares = (await this.preview(params.companyId, period.id, total)).filter((s) => s.amountKobo > 0n);
+    const shares = (await this.preview(params.companyId, period.id, total, basis)).filter((s) => s.amountKobo > 0n);
+    if (shares.length === 0 && basis === 'HOURS') {
+      throw new AccountingRuleViolation(
+        'PCR-028 — Approved timesheet required',
+        `No timesheet hours are logged against any batch in ${period.name}, so there is nothing to share wages by. Log hours under Farm costing → Timesheets, or share by animal-days.`,
+        { periodId: period.id },
+      );
+    }
     if (shares.length === 0) {
       throw new AccountingRuleViolation(
         'PCR-043/064 — Active cost object required',
@@ -191,7 +237,7 @@ export class FarmCostAllocationService {
         share,
         line: {
           glAccountId,
-          description: `${share.speciesKey === 'poultry' ? 'PCR-064' : 'PCR-043'} — farm labour/overhead to ${group.code} (${share.animalDays.toFixed(0)} animal-days)`,
+          description: `${share.speciesKey === 'poultry' ? 'PCR-064' : 'PCR-043'} — farm labour/overhead to ${group.code} (${share.hours ? `${share.hours.toFixed(2)} hours` : `${share.animalDays.toFixed(0)} animal-days`})`,
           debit: kobo(share.amountKobo),
           dimensions: {
             ...header,
@@ -234,6 +280,7 @@ export class FarmCostAllocationService {
           companyId: params.companyId,
           financialPeriodId: period.id,
           reference,
+          basis,
           totalKobo: total,
           journalEntryId: journal.journalEntryId,
           createdById: params.actor.userId,
@@ -245,6 +292,7 @@ export class FarmCostAllocationService {
               groupId: share.groupId,
               speciesKey: share.speciesKey,
               animalDays: share.animalDays.toFixed(6),
+              hours: share.hours ? share.hours.toFixed(6) : null,
               glAccountId: line.glAccountId,
               amountKobo: share.amountKobo,
             })),
@@ -276,7 +324,7 @@ export class FarmCostAllocationService {
       orderBy: { createdAt: 'desc' },
       include: {
         journalEntry: { select: { journalNumber: true, reversedBy: { select: { journalNumber: true } } } },
-        lines: { select: { groupId: true, speciesKey: true, animalDays: true, amountKobo: true } },
+        lines: { select: { groupId: true, speciesKey: true, animalDays: true, hours: true, amountKobo: true } },
       },
     });
     const groups = await this.prisma.livestockGroup.findMany({
@@ -292,6 +340,7 @@ export class FarmCostAllocationService {
     return rows.map((row) => ({
       id: row.id,
       reference: row.reference,
+      basis: row.basis,
       period: periodName.get(row.financialPeriodId) ?? '',
       totalKobo: row.totalKobo,
       createdAt: row.createdAt,
@@ -301,6 +350,7 @@ export class FarmCostAllocationService {
         group: code.get(l.groupId) ?? l.groupId,
         speciesKey: l.speciesKey,
         animalDays: l.animalDays.toString(),
+        hours: l.hours?.toString() ?? null,
         amountKobo: l.amountKobo,
       })),
     }));
@@ -408,15 +458,15 @@ export class FarmCostAllocationService {
   }
 }
 
-/** Largest-remainder split of `total` by animal-days, in whole kobo. */
+/** Largest-remainder split of `total` by each row's weight, in whole kobo. */
 export function split(
-  rows: Array<{ groupId: string; code: string; speciesKey: string; animalDays: Decimal }>,
+  rows: Array<{ groupId: string; code: string; speciesKey: string; animalDays: Decimal; hours: Decimal | null; weight: Decimal }>,
   total: bigint,
 ): PopulationShare[] {
-  const weight = rows.reduce((sum, r) => sum.plus(r.animalDays), new Decimal(0));
+  const weight = rows.reduce((sum, r) => sum.plus(r.weight), new Decimal(0));
   if (weight.isZero()) return rows.map((r) => ({ ...r, amountKobo: 0n }));
 
-  const exact = rows.map((r) => new Decimal(total.toString()).mul(r.animalDays).div(weight));
+  const exact = rows.map((r) => new Decimal(total.toString()).mul(r.weight).div(weight));
   const floors = exact.map((e) => BigInt(e.floor().toFixed(0)));
   let left = total - floors.reduce((s, f) => s + f, 0n);
   const order = exact

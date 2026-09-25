@@ -10,6 +10,7 @@ import { PostingService } from '../../src/posting/posting.service';
 import { RearingCostService } from '../../src/biological-assets/rearing-cost.service';
 import { StockMovementService } from '../../src/inventory/stock-movement.service';
 import { FarmCostAllocationService, split } from '../../src/cost-allocation/farm-cost-allocation.service';
+import { TimesheetService } from '../../src/cost-allocation/timesheet.service';
 import { PoultryEggService } from '../../src/poultry-egg/poultry-egg.service';
 import { EggPostingService } from '../../src/poultry-egg/egg-posting.service';
 import { FixedAssetService } from '../../src/fixed-assets/fixed-asset.service';
@@ -34,6 +35,7 @@ let prisma: PrismaService;
 let posting: PostingService;
 let rearing: RearingCostService;
 let allocation: FarmCostAllocationService;
+let timesheets: TimesheetService;
 let eggs: PoultryEggService;
 let eggPostings: EggPostingService;
 let assets: FixedAssetService;
@@ -49,7 +51,8 @@ beforeAll(() => {
   const audit = new AuditService(prisma);
   posting = new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma));
   rearing = new RearingCostService(prisma, posting);
-  allocation = new FarmCostAllocationService(prisma, posting, audit);
+  timesheets = new TimesheetService(prisma);
+  allocation = new FarmCostAllocationService(prisma, posting, audit, timesheets);
   eggs = new PoultryEggService(prisma, new IdempotencyService(prisma));
   eggPostings = new EggPostingService(prisma, posting, new StockMovementService(prisma), audit);
   assets = new FixedAssetService(prisma, audit, posting, {} as WorkflowService);
@@ -187,7 +190,7 @@ describe('Farm labour and overhead by animal-days (PCR-028/043/064)', () => {
   });
 
   it('splits whole kobo so the shares always add up', () => {
-    const rows = ['A', 'B', 'C'].map((code) => ({ groupId: code, code, speciesKey: 'poultry', animalDays: new Decimal(1) }));
+    const rows = ['A', 'B', 'C'].map((code) => ({ groupId: code, code, speciesKey: 'poultry', animalDays: new Decimal(1), hours: null, weight: new Decimal(1) }));
     expect(split(rows, 100n).map((r) => r.amountKobo)).toEqual([34n, 33n, 33n]);
   });
 });
@@ -309,7 +312,7 @@ describe('The endpoints the forms call', () => {
   it('posts an allocation from the form’s string amounts', async () => {
     await population('L-A', 'poultry', 100);
     await salaries(40_000n);
-    const controller = new FarmCostAllocationController(allocation);
+    const controller = new FarmCostAllocationController(allocation, timesheets, prisma);
 
     expect(await controller.sources(company(), fixture.periodIds[JANUARY]!)).toHaveLength(1);
     const result = await controller.post(company(), actor, {
@@ -367,5 +370,174 @@ describe('Machine depreciation to its processing line (PCR-031)', () => {
     expect(lines.find((l) => l.glAccountId === account['622100'])?.debitKobo).toBe(100_000n);
     expect(lines.find((l) => l.glAccountId === account['5501'])?.debitKobo).toBe(100_000n);
     expect(lines.filter((l) => l.glAccountId === account['1702']).reduce((s, l) => s + l.creditKobo, 0n)).toBe(200_000n);
+  });
+});
+
+describe('Wages shared by timesheet hours × pay rate (PCR-028)', () => {
+  async function employee(number: string) {
+    return prisma.employee.create({
+      data: { companyId: fixture.companyId, employeeNumber: number, firstName: number, surname: 'Test', employmentDate: new Date('2025-01-01') },
+    });
+  }
+
+  /** A posted January payroll paying each employee the given gross. */
+  async function paid(gross: Array<[string, bigint]>) {
+    const run = await prisma.payrollRun.create({
+      data: {
+        companyId: fixture.companyId, year: 2026, month: 1, reference: 'PAY-2026-01', payrollDate: new Date('2026-01-31'),
+        branchId: fixture.branchId, financialYearId: fixture.financialYearId, financialPeriodId: fixture.periodIds[JANUARY]!,
+        currencyId: fixture.currencyId, createdById: fixture.makerId,
+      },
+    });
+    const zero = {
+      taxableGrossKobo: 0n, pensionableEmolumentsKobo: 0n, annualGrossKobo: 0n, annualPensionReliefKobo: 0n, annualNhfReliefKobo: 0n,
+      annualNhisReliefKobo: 0n, annualLifeAssuranceKobo: 0n, annualMortgageInterestKobo: 0n, rentReliefKobo: 0n, totalReliefsKobo: 0n,
+      chargeableIncomeKobo: 0n, annualPayeKobo: 0n, monthlyPayeKobo: 0n, employeePensionKobo: 0n, employerPensionKobo: 0n,
+      nhfKobo: 0n, nsitfKobo: 0n, itfKobo: 0n, netPayKobo: 0n, calculationSnapshot: {},
+    };
+    for (const [employeeId, monthlyGrossKobo] of gross) {
+      await prisma.payrollRunLine.create({ data: { payrollRunId: run.id, employeeId, monthlyGrossKobo, ...zero } });
+    }
+    // Posted once its lines are in — a posted run's lines are frozen.
+    await prisma.payrollRun.update({ where: { id: run.id }, data: { status: 'POSTED' } });
+  }
+
+  const log = (employeeId: string, groupId: string, day: string, hours: string) =>
+    timesheets.record({ companyId: fixture.companyId, employeeId, groupId, workDate: new Date(day), hours: new Decimal(hours), actor });
+
+  it('weights each person’s hours by their pay for the month', async () => {
+    const flockA = await population('L-A', 'poultry', 100);
+    const flockB = await population('L-B', 'poultry', 5000); // far more animals — irrelevant on this basis
+    const senior = await employee('E-1');
+    const junior = await employee('E-2');
+    // Senior earns ₦300,000 over 30 logged hours (₦10,000/h), all on L-A.
+    // Junior earns ₦100,000 over 50 logged hours (₦2,000/h), all on L-B.
+    await paid([[senior.id, 30_000_000n], [junior.id, 10_000_000n]]);
+    await log(senior.id, flockA.id, '2026-01-05', '10');
+    await log(senior.id, flockA.id, '2026-01-06', '20');
+    for (const day of ['05', '06', '07', '08', '09']) await log(junior.id, flockB.id, `2026-01-${day}`, '10');
+
+    const shares = await allocation.preview(fixture.companyId, fixture.periodIds[JANUARY]!, 400_000n, 'HOURS');
+    const byCode = Object.fromEntries(shares.map((s) => [s.code, s]));
+    // Weighted: 30h × ₦10,000 = ₦300,000 vs 50h × ₦2,000 = ₦100,000, so 3 : 1.
+    expect(byCode['L-A']!.amountKobo).toBe(300_000n);
+    expect(byCode['L-B']!.amountKobo).toBe(100_000n);
+    expect(byCode['L-A']!.hours!.toNumber()).toBe(30);
+  });
+
+  it('posts on the hours basis and records it', async () => {
+    const flock = await population('L-A', 'poultry', 100);
+    const worker = await employee('E-1');
+    await salaries(50_000n);
+    await log(worker.id, flock.id, '2026-01-07', '8');
+
+    const result = await allocation.post({
+      companyId: fixture.companyId, financialPeriodId: fixture.periodIds[JANUARY]!, basis: 'HOURS',
+      sources: [{ glAccountId: account['5101']!, amountKobo: 50_000n }], actor,
+    });
+    const saved = await prisma.farmCostAllocation.findUniqueOrThrow({ where: { id: result.id }, include: { lines: true } });
+    expect(saved.basis).toBe('HOURS');
+    expect(saved.lines[0]!.hours?.toString()).toBe('8');
+  });
+
+  it('refuses the hours basis with no hours logged, and more than 24 hours in a day', async () => {
+    const flockA = await population('L-A', 'poultry', 100);
+    const flockB = await population('L-B', 'poultry', 100);
+    await salaries(50_000n);
+    await expect(
+      allocation.post({
+        companyId: fixture.companyId, financialPeriodId: fixture.periodIds[JANUARY]!, basis: 'HOURS',
+        sources: [{ glAccountId: account['5101']!, amountKobo: 50_000n }], actor,
+      }),
+    ).rejects.toThrow(/No timesheet hours/);
+
+    const worker = await employee('E-1');
+    await log(worker.id, flockA.id, '2026-01-08', '16');
+    await expect(log(worker.id, flockB.id, '2026-01-08', '9')).rejects.toThrow(/25 hours on one day/);
+    // Logging the same day on the same batch again corrects it.
+    await log(worker.id, flockA.id, '2026-01-08', '12');
+    const logged = await timesheets.list(fixture.companyId, new Date('2026-01-01'), new Date('2026-01-31'));
+    expect(logged.map((e) => e.hours)).toEqual(['12']);
+  });
+});
+
+describe('Hatching eggs at their own price', () => {
+  it('values table and hatching eggs apart, and sets hatching eggs at theirs', async () => {
+    const crate = await prisma.unitOfMeasure.create({ data: { companyId: fixture.companyId, code: 'CRATE', name: 'Crate' } });
+    const store = await prisma.warehouse.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'FG-WH', name: 'Produce' } });
+    const item = await prisma.item.create({
+      data: { companyId: fixture.companyId, code: 'EGGS', description: 'Eggs', unitOfMeasureId: crate.id, defaultWarehouseId: store.id },
+    });
+    const layers = await population('L-EGG', 'poultry', 500);
+    // Table ₦4,500 a crate; hatching ₦9,000 a crate (₦300 an egg).
+    await eggPostings.setPolicy({
+      companyId: fixture.companyId, itemId: item.id, eggsPerUnit: 30, valuePerUnitKobo: 450_000n,
+      hatchingValuePerUnitKobo: 900_000n, effectiveFrom: new Date('2026-01-01'), actor,
+    });
+
+    const batch = await eggs.recordCollection({
+      companyId: fixture.companyId, sourceGroupId: layers.id, code: 'E-H', collectedOn: new Date('2026-01-10'),
+      hatchingCount: 30, tableCount: 60, rejectCount: 0, recordedById: fixture.makerId, idempotencyKey: 'col-h',
+    });
+    await eggPostings.postCollection(batch.id, actor);
+    const valued = await prisma.eggCollectionBatch.findUniqueOrThrow({ where: { id: batch.id } });
+    expect(valued.valueKobo).toBe(900_000n + 900_000n); // 2 crates of table + 1 crate of hatching
+    expect(valued.hatchingValueKobo).toBe(900_000n);
+
+    // Set 20 of the 30 hatching eggs, then the other 10: ₦6,000, then the ₦3,000 left.
+    const set = (code: string, n: number) =>
+      eggs.setIncubation({
+        companyId: fixture.companyId, eggBatchId: batch.id, code, setOn: new Date('2026-01-11'), setQuantity: n,
+        recordedById: fixture.makerId, idempotencyKey: code,
+      });
+    const first = await set('INC-A', 20);
+    await eggPostings.postIncubation(first.id, actor);
+    const second = await set('INC-B', 10);
+    await eggPostings.postIncubation(second.id, actor);
+    expect((await prisma.incubationBatch.findUniqueOrThrow({ where: { id: first.id } })).valueKobo).toBe(600_000n);
+    expect((await prisma.incubationBatch.findUniqueOrThrow({ where: { id: second.id } })).valueKobo).toBe(300_000n);
+
+    // What is left in stock is exactly the table eggs, at the table price.
+    const eggsRow = (await reconciliation.reconcile(fixture.companyId)).find((r) => r.accountNumber === '130215')!;
+    expect(eggsRow.reconciled).toBe(true);
+    expect(eggsRow.glBalanceKobo).toBe('900000');
+  });
+});
+
+describe('Machine depreciation split by machine hours (PCR-031)', () => {
+  it('splits a machine’s depreciation across lines by its hours on each', async () => {
+    const feedMill = (
+      await prisma.gLAccount.create({
+        data: { companyId: fixture.companyId, accountNumber: '623100', name: 'Feed Mill Overhead Expense', accountType: 'EXPENSE', normalBalance: 'DEBIT' },
+      })
+    ).id;
+    const mixer = await prisma.fixedAsset.create({
+      data: {
+        companyId: fixture.companyId, assetNumber: 'FA-MIX', name: 'Mixer', assetClass: 'Plant', acquisitionDate: new Date('2025-12-01'),
+        costKobo: 1_200_000n, usefulLifeMonths: 12, status: 'POSTED', createdById: fixture.makerId,
+      },
+    });
+    // 30 hours on poultry processing, 10 in the feed mill: 3 : 1.
+    await new FixedAssetsController(assets).setMachineHours(mixer.id, fixture.companyId, actor, {
+      financialPeriodId: fixture.periodIds[JANUARY]!,
+      hours: { POULTRYPRO: '30', FEED_MILL: '10' },
+    });
+
+    const run = await prisma.depreciationRun.create({
+      data: {
+        companyId: fixture.companyId, financialPeriodId: fixture.periodIds[JANUARY]!, totalAmountKobo: 100_000n, createdById: fixture.makerId,
+        entries: { create: [{ assetId: mixer.id, amountKobo: 100_000n }] },
+      },
+    });
+    const { journalEntryId } = await prisma.$transaction((tx) => assets.postApprovedDepreciation({ runId: run.id, actor, tx }));
+    const lines = await prisma.journalLine.findMany({ where: { journalEntryId } });
+    expect(lines.find((l) => l.glAccountId === account['622100'])?.debitKobo).toBe(75_000n);
+    expect(lines.find((l) => l.glAccountId === feedMill)?.debitKobo).toBe(25_000n);
+
+    // Once posted, the hours behind it cannot change.
+    await prisma.depreciationRun.update({ where: { id: run.id }, data: { status: 'POSTED' } }).catch(() => undefined);
+    await expect(
+      assets.setMachineHours({ companyId: fixture.companyId, assetId: mixer.id, financialPeriodId: fixture.periodIds[JANUARY]!, hours: {}, actor }),
+    ).rejects.toThrow(/already posted/);
   });
 });

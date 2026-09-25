@@ -41,16 +41,22 @@ export class PoultryEggController {
   async setValuePolicy(
     @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
-    @Body() body: { itemId: string; eggsPerUnit: number; valuePerUnitKobo: string; effectiveFrom: string },
+    @Body()
+    body: { itemId: string; eggsPerUnit: number; valuePerUnitKobo: string; hatchingValuePerUnitKobo?: string | null; effectiveFrom: string },
   ) {
     if (!body?.itemId || !/^\d+$/.test(String(body.valuePerUnitKobo ?? '')) || !/^\d{4}-\d{2}-\d{2}$/.test(body.effectiveFrom ?? '')) {
       throw new BadRequestException('itemId, a whole-kobo valuePerUnitKobo and an effectiveFrom date are required.');
+    }
+    const hatching = body.hatchingValuePerUnitKobo ? String(body.hatchingValuePerUnitKobo) : null;
+    if (hatching !== null && !/^\d+$/.test(hatching)) {
+      throw new BadRequestException('hatchingValuePerUnitKobo must be a whole number of kobo, or left out.');
     }
     return this.postings.setPolicy({
       companyId,
       itemId: body.itemId,
       eggsPerUnit: Number(body.eggsPerUnit),
       valuePerUnitKobo: BigInt(body.valuePerUnitKobo),
+      hatchingValuePerUnitKobo: hatching === null ? null : BigInt(hatching),
       effectiveFrom: new Date(`${body.effectiveFrom}T00:00:00.000Z`),
       actor,
     });

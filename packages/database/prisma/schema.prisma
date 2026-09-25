@@ -1274,6 +1274,10 @@ model WorkflowTransactionStep {
   actedById         String?   @map("acted_by_id") @db.Uuid
   actedAt           DateTime? @map("acted_at")
   comments          String?
+  /// The maker approved their own document because nobody else in the farm
+  /// could (2026-09-25). The maker-checker trigger allows the maker only on
+  /// a step flagged so.
+  selfApproved      Boolean   @default(false) @map("self_approved")
   /// Set when the acting user came through a delegation rather than the role.
   actedOnBehalfOfId String?   @map("acted_on_behalf_of_id") @db.Uuid
 
@@ -5971,6 +5975,9 @@ model EggCollectionBatch {
   itemId      String? @map("item_id") @db.Uuid
   eggsPerUnit Int?    @map("eggs_per_unit")
   valueKobo   BigInt  @default(0) @map("value_kobo")
+  /// MONEY. The part of `valueKobo` that is hatching eggs — what settings
+  /// from this collection take out of stock, instead of the blended average.
+  hatchingValueKobo BigInt @default(0) @map("hatching_value_kobo")
 
   notes String?
 
@@ -6969,8 +6976,11 @@ model EggValuePolicy {
   itemId           String   @map("item_id") @db.Uuid
   /// Eggs in one unit of that item: 30 for a crate, 1 for single eggs.
   eggsPerUnit      Int      @map("eggs_per_unit")
-  /// MONEY. Value of one unit (one crate), in kobo.
+  /// MONEY. Value of one unit (one crate) of table eggs, in kobo.
   valuePerUnitKobo BigInt   @map("value_per_unit_kobo")
+  /// MONEY. Value of one unit of hatching eggs, when the farm prices them
+  /// apart (2026-09-25). Null means hatching eggs are worth the table price.
+  hatchingValuePerUnitKobo BigInt? @map("hatching_value_per_unit_kobo")
   effectiveFrom    DateTime @map("effective_from") @db.Date
   createdById      String   @map("created_by_id") @db.Uuid
   createdAt        DateTime @default(now()) @map("created_at")
@@ -6991,6 +7001,8 @@ model FarmCostAllocation {
   companyId         String   @map("company_id") @db.Uuid
   financialPeriodId String   @map("financial_period_id") @db.Uuid
   reference         String
+  /// ANIMAL_DAYS or HOURS — what each population's share was weighted by.
+  basis             String   @default("ANIMAL_DAYS")
   /// MONEY. Sum of the sources, equal to the sum of the lines.
   totalKobo         BigInt   @map("total_kobo")
   journalEntryId    String?  @map("journal_entry_id") @db.Uuid
@@ -7026,6 +7038,8 @@ model FarmCostAllocationLine {
   speciesKey   String  @map("species_key")
   /// QUANTITY. Animals × days alive in the period.
   animalDays   Decimal @map("animal_days") @db.Decimal(18, 6)
+  /// QUANTITY. Timesheet hours logged against it in the period (HOURS basis).
+  hours        Decimal? @db.Decimal(18, 6)
   /// Where the share was charged: 1501 for poultry, 612000 for snails.
   glAccountId  String  @map("gl_account_id") @db.Uuid
   amountKobo   BigInt  @map("amount_kobo")
@@ -7035,4 +7049,48 @@ model FarmCostAllocationLine {
   @@index([allocationId])
   @@index([groupId])
   @@map("farm_cost_allocation_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Timesheets — hours a person worked on a population on a day. The HOURS
+// basis of a farm cost allocation (PCR-028, "approved hours × actual payroll
+// rate") shares a month's wages by these, each person's hours weighted by
+// their pay for the month.
+// ---------------------------------------------------------------------------
+model TimesheetEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  groupId     String   @map("group_id") @db.Uuid
+  workDate    DateTime @map("work_date") @db.Date
+  /// QUANTITY. Hours, to the quarter or finer.
+  hours       Decimal  @db.Decimal(6, 2)
+  notes       String?
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([employeeId, groupId, workDate])
+  @@index([companyId, workDate])
+  @@map("timesheet_entries")
+}
+
+// ---------------------------------------------------------------------------
+// PCR-031 by machine hours — a machine that serves more than one processing
+// line logs its hours per line per period, and that period's depreciation is
+// split by them. With none logged, the asset's own processingCycle decides.
+// ---------------------------------------------------------------------------
+model MachineHours {
+  id                String               @id @default(uuid()) @db.Uuid
+  companyId         String               @map("company_id") @db.Uuid
+  assetId           String               @map("asset_id") @db.Uuid
+  financialPeriodId String               @map("financial_period_id") @db.Uuid
+  processingCycle   ProductionOrderCycle @map("processing_cycle")
+  /// QUANTITY.
+  hours             Decimal              @db.Decimal(10, 2)
+  createdById       String               @map("created_by_id") @db.Uuid
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+
+  @@unique([assetId, financialPeriodId, processingCycle])
+  @@index([companyId, financialPeriodId])
+  @@map("machine_hours")
 }

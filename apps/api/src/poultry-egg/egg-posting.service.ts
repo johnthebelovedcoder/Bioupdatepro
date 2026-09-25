@@ -73,6 +73,7 @@ export class EggPostingService {
       effectiveFrom: p.effectiveFrom,
       eggsPerUnit: p.eggsPerUnit,
       valuePerUnitKobo: p.valuePerUnitKobo,
+      hatchingValuePerUnitKobo: p.hatchingValuePerUnitKobo,
       item: item.get(p.itemId) ?? null,
     }));
   }
@@ -86,6 +87,8 @@ export class EggPostingService {
     itemId: string;
     eggsPerUnit: number;
     valuePerUnitKobo: bigint;
+    /** Hatching eggs' own value per unit; null or absent = the table price. */
+    hatchingValuePerUnitKobo?: bigint | null;
     effectiveFrom: Date;
     actor: WorkflowActor;
   }) {
@@ -93,6 +96,8 @@ export class EggPostingService {
       throw new BadRequestException('Eggs per unit must be a whole number, at least 1.');
     }
     if (params.valuePerUnitKobo <= 0n) throw new BadRequestException('The value must be more than zero.');
+    const hatching = params.hatchingValuePerUnitKobo ?? null;
+    if (hatching !== null && hatching <= 0n) throw new BadRequestException('The hatching value must be more than zero.');
 
     const item = await this.prisma.item.findFirst({ where: { id: params.itemId, companyId: params.companyId, active: true } });
     if (!item) throw new NotFoundException('No such active item in this company.');
@@ -107,12 +112,13 @@ export class EggPostingService {
 
     const policy = await this.prisma.eggValuePolicy.upsert({
       where: { companyId_effectiveFrom: { companyId: params.companyId, effectiveFrom: params.effectiveFrom } },
-      update: { itemId: item.id, eggsPerUnit: params.eggsPerUnit, valuePerUnitKobo: params.valuePerUnitKobo, createdById: params.actor.userId },
+      update: { itemId: item.id, eggsPerUnit: params.eggsPerUnit, valuePerUnitKobo: params.valuePerUnitKobo, hatchingValuePerUnitKobo: hatching, createdById: params.actor.userId },
       create: {
         companyId: params.companyId,
         itemId: item.id,
         eggsPerUnit: params.eggsPerUnit,
         valuePerUnitKobo: params.valuePerUnitKobo,
+        hatchingValuePerUnitKobo: hatching,
         effectiveFrom: params.effectiveFrom,
         createdById: params.actor.userId,
       },
@@ -130,6 +136,7 @@ export class EggPostingService {
         item: item.code,
         eggsPerUnit: params.eggsPerUnit,
         valuePerUnitKobo: params.valuePerUnitKobo.toString(),
+        hatchingValuePerUnitKobo: hatching?.toString() ?? null,
         effectiveFrom: params.effectiveFrom.toISOString().slice(0, 10),
       },
     });
@@ -164,9 +171,13 @@ export class EggPostingService {
     return this.attempt(`Egg collection ${batch.code}`, async () => {
       const item = await this.prisma.item.findUniqueOrThrow({ where: { id: policy.itemId } });
       const quantity = new Decimal(eggs).div(policy.eggsPerUnit).toDecimalPlaces(6, Decimal.ROUND_HALF_UP);
-      const valueKobo = BigInt(
-        new Decimal(eggs).mul(policy.valuePerUnitKobo.toString()).div(policy.eggsPerUnit).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0),
-      );
+      // Table and hatching eggs each at their own price (hatching defaults to
+      // the table price); rounded once each, to whole kobo.
+      const valueOf = (count: number, perUnit: bigint) =>
+        BigInt(new Decimal(count).mul(perUnit.toString()).div(policy.eggsPerUnit).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+      const tableValueKobo = valueOf(batch.tableCount, policy.valuePerUnitKobo);
+      const hatchingValueKobo = valueOf(batch.hatchingCount, policy.hatchingValuePerUnitKobo ?? policy.valuePerUnitKobo);
+      const valueKobo = tableValueKobo + hatchingValueKobo;
 
       await this.prisma.$transaction(async (tx) => {
         const [context, gain, warehouseId] = await Promise.all([
@@ -215,7 +226,7 @@ export class EggPostingService {
 
         await tx.eggCollectionBatch.update({
           where: { id: batch.id },
-          data: { journalEntryId: journal.journalEntryId, itemId: item.id, eggsPerUnit: policy.eggsPerUnit, valueKobo },
+          data: { journalEntryId: journal.journalEntryId, itemId: item.id, eggsPerUnit: policy.eggsPerUnit, valueKobo, hatchingValueKobo },
         });
       });
     });
@@ -244,7 +255,7 @@ export class EggPostingService {
         const inventory = item.inventoryGlAccountId ?? (await this.account(incubation.companyId, ACCOUNT.eggs, tx));
         const dims = { ...context, branchId: source.branchId, farmId: source.farmId, penHouseId: source.penHouseId };
 
-        const issued = await this.stock.issueOut({
+        const movement = {
           tx,
           companyId: incubation.companyId,
           branchId: source.branchId,
@@ -257,7 +268,17 @@ export class EggPostingService {
           sourceDocumentId: incubation.id,
           documentReference: `INC-${incubation.code}`,
           movementDate: incubation.setOn,
-        });
+        };
+        // Hatching eggs leave at their collection's hatching value — their
+        // own price, not the average of everything in stock. The last setting
+        // from a collection takes what is left, so rounding never strands a
+        // kobo in Eggs. A collection posted before hatching eggs were priced
+        // apart (hatchingValueKobo 0) leaves at the average, as it always did.
+        const settingValue = await this.settingValue(tx, incubation.id, source);
+        const issued =
+          settingValue === null
+            ? await this.stock.issueOut(movement)
+            : await this.stock.issueOutAtValue({ ...movement, valueKobo: settingValue });
         if (issued.valueKobo <= 0n) return;
 
         const journal = await this.posting.post(
@@ -285,6 +306,34 @@ export class EggPostingService {
         });
       });
     });
+  }
+
+  /**
+   * What a setting of hatching eggs is worth: its share of the collection's
+   * hatching value by count, with the last setting taking the remainder.
+   * Null when the collection carries no separate hatching value.
+   */
+  private async settingValue(
+    tx: Prisma.TransactionClient,
+    incubationId: string,
+    source: { id: string; hatchingCount: number; hatchingValueKobo: bigint },
+  ): Promise<bigint | null> {
+    if (source.hatchingValueKobo <= 0n || source.hatchingCount <= 0) return null;
+    const incubation = await tx.incubationBatch.findUniqueOrThrow({ where: { id: incubationId } });
+    const earlier = await tx.incubationBatch.findMany({
+      where: { eggBatchId: source.id, journalEntryId: { not: null }, id: { not: incubationId } },
+      select: { setQuantity: true, valueKobo: true },
+    });
+    const setBefore = earlier.reduce((n, e) => n + e.setQuantity, 0);
+    const valuedBefore = earlier.reduce((v, e) => v + e.valueKobo, 0n);
+    if (setBefore + incubation.setQuantity >= source.hatchingCount) return source.hatchingValueKobo - valuedBefore;
+    return BigInt(
+      new Decimal(source.hatchingValueKobo.toString())
+        .mul(incubation.setQuantity)
+        .div(source.hatchingCount)
+        .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
+        .toFixed(0),
+    );
   }
 
   /** PCR-069 — the set value goes to the chicks that hatched. */

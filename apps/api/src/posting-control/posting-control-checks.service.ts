@@ -70,11 +70,11 @@ export class PostingControlChecksService {
 
     const rows: CheckRow[] = [
       row('PCC-01', 'Posting rules loaded', '86', String(rules), rules === 86,
-        'Re-run the posting-control seed against the approved workbook.'),
+        'Press "Load posting rules" at the top of this page to load them.'),
       row('PCC-02', 'Rules approved and postable', '86', String(approved), approved === 86,
         'A draft or retired rule cannot post. Approve it, or accept that its event is blocked.'),
       row('PCC-03', 'Posting keys loaded', '172', String(keys), keys === 172,
-        'Re-run the posting-control seed against the approved workbook.'),
+        'Press "Load posting rules" at the top of this page to load them.'),
       row('PCC-04', 'Keys active', '172', String(active), active === 172,
         'Draft keys cannot post (§66.4).'),
       row('PCC-05', 'Every key carries a Ledger Flag', '172', String(flagged), flagged === 172,

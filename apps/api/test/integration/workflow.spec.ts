@@ -107,8 +107,10 @@ describe('Workflow & Approval Engine (§2)', () => {
   });
 
   async function mkUser(email: string, fullName: string, roles: string[]) {
+    // In the fixture's company, like every real user: whether anyone else
+    // could approve (the self-approval exception) is asked within a company.
     const user = await prisma.user.create({
-      data: { email, fullName, passwordHash: 'x', roles },
+      data: { email, fullName, passwordHash: 'x', roles, companyId: fixture.companyId },
     });
     return { id: user.id, roles: user.roles };
   }
@@ -311,6 +313,42 @@ describe('Workflow & Approval Engine (§2)', () => {
           transactionId: submitted.transactionId,
           actor: { userId: adminMaker.id, roles: adminMaker.roles },
         }),
+      ).rejects.toThrow(/cannot also approve it/i);
+    });
+
+    it('lets the maker approve when nobody else in the farm can, and says so everywhere', async () => {
+      // Approval is what is under test here, not posting.
+      await prisma.workflowDefinition.updateMany({ where: { companyId: fixture.companyId }, data: { autoPostOnApproval: false } });
+      const submitted = await workflow.submit(submitRequest());
+      // Everyone else who could approve level 1 leaves the farm.
+      await prisma.user.updateMany({
+        where: { companyId: fixture.companyId, id: { not: users.maker.id } },
+        data: { active: false },
+      });
+      await prisma.user.update({ where: { id: users.maker.id }, data: { roles: ['FARM_MANAGER'] } });
+      const maker = { userId: users.maker.id, roles: ['FARM_MANAGER'] };
+
+      const queue = await workflow.pendingFor(users.maker.id, fixture.companyId);
+      expect(queue.map((t) => [t.id, t.selfApproval])).toEqual([[submitted.transactionId, true]]);
+
+      await workflow.approve({ transactionId: submitted.transactionId, actor: maker });
+
+      const step = await prisma.workflowTransactionStep.findFirstOrThrow({
+        where: { transactionId: submitted.transactionId, level: 1 },
+      });
+      expect(step.actedById).toBe(users.maker.id);
+      expect(step.selfApproved).toBe(true);
+      expect(step.comments).toMatch(/Self-approved/);
+      const history = await workflow.history(submitted.transactionId);
+      expect(history.some((h) => (h.comments ?? '').includes('Self-approved'))).toBe(true);
+    });
+
+    it('still refuses the maker while someone else in the farm could approve', async () => {
+      const submitted = await workflow.submit(submitRequest());
+      await prisma.user.update({ where: { id: users.maker.id }, data: { roles: ['FARM_MANAGER'] } });
+      expect(await workflow.pendingFor(users.maker.id, fixture.companyId)).toEqual([]);
+      await expect(
+        workflow.approve({ transactionId: submitted.transactionId, actor: { userId: users.maker.id, roles: ['FARM_MANAGER'] } }),
       ).rejects.toThrow(/cannot also approve it/i);
     });
 

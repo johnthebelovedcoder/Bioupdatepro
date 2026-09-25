@@ -130,7 +130,7 @@ for throwaway local databases only.
 
 ```bash
 npm run typecheck
-npm test                  # 357 integration and 31 unit tests against a real PostgreSQL
+npm test                  # 372 integration and 31 unit tests against a real PostgreSQL
 ```
 
 The integration suite starts its own ephemeral database. It exercises the
@@ -147,24 +147,25 @@ Stated here rather than discovered later.
   farm — whether withholding is computed before or after VAT, NHF
   participation. Those answers are recorded against whoever gave them and
   should be confirmed with the farm's own adviser.
-- **Sales and purchases stop at a submitted document.** They are translated into
-  O2C and P2P orders and sent for approval — deliberately, so there is one
-  posting path and one set of tax rules — but nothing reaches the ledger until
-  somebody approves it.
+- **Sales and purchases go through approval.** They are translated into O2C
+  and P2P orders and sent for approval — deliberately, so there is one posting
+  path and one set of tax rules. Where nobody else in the farm could approve a
+  document, its maker may, and it is recorded as self-approved on the step, in
+  the history and in the audit trail.
 - **Only weighted-average costing is built.** Feed and treatments absorbed by a
   population leave it with each death, sale or harvest at weighted average,
   the policy chosen on 2026-09-24. FIFO or standard costing would need their
   own implementation. Relief is exact from that date; feed eaten by animals
   that left before it stays spread over the survivors.
-- **Farm labour and overhead are shared by animal-days only** (Books → Farm
-  costing): a month's chosen expense amounts are split across the flocks and
-  snail cohorts alive that month, flocks into Work in Progress, snails to
-  612000. Timesheet hours are not captured, so the workbook's hours × rate
-  basis is not available. A month before 2026-09-24 can understate a
-  population that later sold live animals, whose counts were not dated then.
-- **A machine depreciates to one processing line**, not split by machine
-  hours. Egg value is one dated price per crate for table and hatching eggs;
-  rejects carry none.
+- **Farm labour and overhead** (Books → Farm costing) are shared by
+  animal-days or by timesheet hours × each person's pay for the month (Money →
+  Timesheets); flocks take theirs into Work in Progress, snails to 612000. On
+  animal-days, a month before 2026-09-24 can understate a population that later
+  sold live animals, whose counts were not dated then. Hours are logged per
+  person, batch and day, not approved separately.
+- **Machine depreciation** goes to the machine's processing line, or is split
+  by the hours logged on each line that month. Egg value is a dated price per
+  crate, with an optional separate price for hatching eggs; rejects carry none.
 - **Google and Facebook sign-in are seams, not features.** The flow is ready;
   the credentials must come from your own developer accounts.
 - **Bank statements are imported, not fed.** A CSV export from the bank is

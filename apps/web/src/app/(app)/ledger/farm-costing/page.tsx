@@ -39,9 +39,13 @@ export default async function FarmCostingPage({
   const started = periods.filter((p) => p.status === 'OPEN' && p.startDate.slice(0, 10) <= today);
   const period = periods.find((p) => p.id === params.period) ?? started[started.length - 1] ?? periods[0] ?? null;
 
-  const [sources, shares] = period
-    ? await Promise.all([getAllocationSources(period.id).catch(() => []), getPopulationShares(period.id).catch(() => [])])
-    : [[], []];
+  const [sources, shares, hourShares] = period
+    ? await Promise.all([
+        getAllocationSources(period.id).catch(() => []),
+        getPopulationShares(period.id).catch(() => []),
+        getPopulationShares(period.id, 'HOURS').catch(() => []),
+      ])
+    : [[], [], []];
   const current = policies[0] ?? null;
 
   return (
@@ -75,7 +79,8 @@ export default async function FarmCostingPage({
                 <tr>
                   <th>From</th>
                   <th>Stocked as</th>
-                  <th className="right">Value</th>
+                  <th className="right">Table eggs</th>
+                  <th className="right">Hatching eggs</th>
                   <th className="right">Per egg</th>
                 </tr>
               </thead>
@@ -90,7 +95,17 @@ export default async function FarmCostingPage({
                     <td className="num">
                       {formatNaira(p.valuePerUnitKobo)} <span className="faint">per {p.eggsPerUnit === 30 ? 'crate of 30' : `${p.eggsPerUnit} eggs`}</span>
                     </td>
-                    <td className="num">{formatNaira((BigInt(p.valuePerUnitKobo) / BigInt(p.eggsPerUnit)).toString())}</td>
+                    <td className="num">
+                      {p.hatchingValuePerUnitKobo ? formatNaira(p.hatchingValuePerUnitKobo) : <span className="faint">same</span>}
+                    </td>
+                    <td className="num">
+                      {formatNaira((BigInt(p.valuePerUnitKobo) / BigInt(p.eggsPerUnit)).toString())}
+                      {p.hatchingValuePerUnitKobo ? (
+                        <div className="faint">
+                          hatching {formatNaira((BigInt(p.hatchingValuePerUnitKobo) / BigInt(p.eggsPerUnit)).toString())}
+                        </div>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -105,7 +120,12 @@ export default async function FarmCostingPage({
 
       <Card
         title="Wages and overheads to populations"
-        subtitle="Shared by animal-days — animals × days alive in the month. Flocks take theirs into Work in Progress; snail cohorts to 612000."
+        subtitle="Shared by animal-days, or by timesheet hours × pay rate. Flocks take theirs into Work in Progress; snail cohorts to 612000."
+        action={
+          <Link href="/finance/timesheets" className="btn btn-sm btn-ghost">
+            Timesheets
+          </Link>
+        }
       >
         {!period ? (
           <EmptyState icon={<IconClipboard size={22} />} title="No financial year" body="Set up a financial year first." />
@@ -127,7 +147,14 @@ export default async function FarmCostingPage({
             {period.status !== 'OPEN' ? (
               <div className="notice notice-warning">{period.name} is closed — nothing can be allocated into it.</div>
             ) : (
-              <AllocationForm key={period.id} periodId={period.id} periodName={period.name} sources={sources} shares={shares} />
+              <AllocationForm
+                key={period.id}
+                periodId={period.id}
+                periodName={period.name}
+                sources={sources}
+                shares={shares}
+                hourShares={hourShares}
+              />
             )}
           </div>
         )}
@@ -152,7 +179,10 @@ export default async function FarmCostingPage({
                 {allocations.map((a) => (
                   <tr key={a.id}>
                     <td className="strong">{a.reference}</td>
-                    <td>{a.period}</td>
+                    <td>
+                      {a.period}
+                      <div className="faint">{a.basis === 'HOURS' ? 'by hours worked' : 'by animal-days'}</div>
+                    </td>
                     <td className="faint">
                       {a.lines.map((l) => `${l.group} ${formatNaira(l.amountKobo)}`).join(' · ')}
                     </td>

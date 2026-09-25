@@ -229,6 +229,8 @@ export class WorkflowController {
       amountKobo: t.amountKobo.toString(),
       waitingSince: t.levelEnteredAt,
       escalated: t.escalatedAt !== null,
+      // Nobody else in the farm can approve this, so its maker may.
+      selfApproval: t.selfApproval,
       route: t.definition.name,
       steps: t.steps.map((s) => ({
         level: s.level,

@@ -18,6 +18,10 @@ export async function setEggValue(_previous: FlowState, formData: FormData): Pro
   const eggsPerUnit = Number(formData.get('eggsPerUnit') ?? 0);
   const valuePerUnitKobo = String(formData.get('valuePerUnitKobo') ?? '').trim();
   const effectiveFrom = String(formData.get('effectiveFrom') ?? '').trim();
+  const hatchingValuePerUnitKobo = String(formData.get('hatchingValuePerUnitKobo') ?? '').trim();
+  if (hatchingValuePerUnitKobo && (!/^[0-9]+$/.test(hatchingValuePerUnitKobo) || hatchingValuePerUnitKobo === '0')) {
+    return { error: 'Enter what a unit of hatching eggs is worth, or leave it empty to use the table price.', message: null };
+  }
   if (!itemId) return { error: 'Choose the eggs stock item.', message: null };
   if (!Number.isInteger(eggsPerUnit) || eggsPerUnit < 1) return { error: 'Eggs per unit must be a whole number.', message: null };
   if (!/^\d+$/.test(valuePerUnitKobo) || valuePerUnitKobo === '0') return { error: 'Enter what one unit is worth.', message: null };
@@ -26,7 +30,7 @@ export async function setEggValue(_previous: FlowState, formData: FormData): Pro
   try {
     await api('/poultry/eggs/value-policies', {
       method: 'POST',
-      body: { itemId, eggsPerUnit, valuePerUnitKobo, effectiveFrom },
+      body: { itemId, eggsPerUnit, valuePerUnitKobo, hatchingValuePerUnitKobo: hatchingValuePerUnitKobo || null, effectiveFrom },
     });
   } catch (caught) {
     return fail(caught, 'Could not set the egg value.');
@@ -38,6 +42,7 @@ export async function setEggValue(_previous: FlowState, formData: FormData): Pro
 /** Share chosen expense amounts across the populations by animal-days (PCR-028/043/064). */
 export async function postAllocation(_previous: FlowState, formData: FormData): Promise<FlowState> {
   const financialPeriodId = String(formData.get('financialPeriodId') ?? '');
+  const basis = String(formData.get('basis') ?? 'ANIMAL_DAYS') === 'HOURS' ? 'HOURS' : 'ANIMAL_DAYS';
   let sources: Array<{ glAccountId: string; costCentreId: string | null; amountKobo: string }> = [];
   try {
     sources = JSON.parse(String(formData.get('sources') ?? '[]'));
@@ -51,7 +56,7 @@ export async function postAllocation(_previous: FlowState, formData: FormData): 
   try {
     const result = await api<{ reference: string; journalNumber: string; populations: number }>('/cost-allocation', {
       method: 'POST',
-      body: { financialPeriodId, sources },
+      body: { financialPeriodId, basis, sources },
     });
     revalidatePath('/ledger/farm-costing');
     return {

@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import type { ProductionOrderCycle } from '@bioassetpro/database';
 import { FixedAssetService } from './fixed-asset.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
@@ -80,6 +81,42 @@ export class FixedAssetsController {
       actor,
       disposedOn: new Date(body.disposedOn),
     });
+  }
+
+  /** PCR-031 — machine hours logged per line for a period (all assets, or one). */
+  @AnyRole('Hours behind a depreciation split are part of the register anyone reconciling PPE reads.')
+  @Get('machine-hours')
+  async machineHoursList(@CurrentCompany() companyId: string, @Query('periodId') periodId: string) {
+    if (!periodId) throw new BadRequestException('periodId is required.');
+    return this.assets.machineHours(companyId, periodId);
+  }
+
+  /**
+   * PCR-031 by machine hours — a machine's hours on each line for a period.
+   * Its depreciation that period is split by them when the run posts.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'PRODUCTION_LEAD')
+  @OwnedRecord('fixedAsset', 'id')
+  @Post('assets/:id/machine-hours')
+  async setMachineHours(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { financialPeriodId: string; hours: Partial<Record<'SNAILPRO' | 'POULTRYPRO' | 'FEED_MILL', string | number>> },
+  ) {
+    if (!body?.financialPeriodId || typeof body.hours !== 'object' || body.hours === null) {
+      throw new BadRequestException('financialPeriodId and hours are required.');
+    }
+    const hours: Partial<Record<ProductionOrderCycle, Decimal>> = {};
+    for (const [cycle, value] of Object.entries(body.hours)) {
+      if (!['SNAILPRO', 'POULTRYPRO', 'FEED_MILL'].includes(cycle)) {
+        throw new BadRequestException(`${cycle} is not a processing line.`);
+      }
+      const text = String(value ?? '').trim() || '0';
+      if (!/^\d+(\.\d{1,2})?$/.test(text)) throw new BadRequestException(`Hours for ${cycle} must be a number such as 42.5.`);
+      hours[cycle as ProductionOrderCycle] = new Decimal(text);
+    }
+    return this.assets.setMachineHours({ companyId, assetId: id, financialPeriodId: body.financialPeriodId, hours, actor });
   }
 
   /**

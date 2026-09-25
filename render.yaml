@@ -46,17 +46,15 @@ services:
     # periodically adds a constraint db push can't prove safe without it, and
     # refused outright rather than guess, which is what broke this deploy.
     #
-    # Migrations run at START, not in the build (2026-09-24), because a
-    # pre-deploy command is not available on the free plan. The start command
-    # makes one short attempt and, on Render, moves on if the database is
-    # unreachable; the API then runs the same migration itself once it is
-    # listening (migrateInBackground in apps/api/src/main.ts) and logs the
-    # outcome under [Migrations]. With nothing pending it is a no-op, so every
-    # restart is safe. (The P1001s that led here were DATABASE_URL pointing at
-    # an unused Render Postgres — see below — not a network restriction.)
+    # Migrations run at START, not in the build, because a pre-deploy command
+    # is not available on the free plan. A database that is still waking is
+    # retried for about a minute; anything else fails the start, so the deploy
+    # fails and the previous version keeps serving on the schema it was built
+    # for. With nothing pending it is a no-op, so every restart is safe.
     buildCommand: npm install --include=dev && npm run db:generate && npm run build --workspace @bioassetpro/api
     startCommand: npm run db:migrate && node apps/api/dist/main.js
-    healthCheckPath: /api/auth/providers
+    # Says whether the API and its database are each up (see HealthController).
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production

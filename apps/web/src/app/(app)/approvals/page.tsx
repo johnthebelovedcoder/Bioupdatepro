@@ -91,6 +91,12 @@ export default async function ApprovalsPage() {
                             <span className="badge badge-danger">escalated</span>
                           </div>
                         ) : null}
+                        {item.selfApproval ? (
+                          <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
+                            <span className="badge badge-warning">your own</span> Nobody else here can
+                            approve it, so you may — it is recorded as self-approved.
+                          </div>
+                        ) : null}
                       </td>
                       <td>
                         {describeTransaction(item.transactionType)}

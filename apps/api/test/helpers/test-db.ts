@@ -280,6 +280,8 @@ export async function seedFixture(prisma: PrismaClient): Promise<TestFixture> {
       fullName: 'Maker User',
       passwordHash: 'x',
       roles: ['PRODUCTION_SUPERVISOR'],
+      // Every real user belongs to a company; approval rules ask within it.
+      companyId: company.id,
     },
   });
   const checker = await prisma.user.create({
@@ -288,6 +290,8 @@ export async function seedFixture(prisma: PrismaClient): Promise<TestFixture> {
       fullName: 'Checker User',
       passwordHash: 'x',
       roles: ['FARM_MANAGER'],
+      // Every real user belongs to a company; approval rules ask within it.
+      companyId: company.id,
     },
   });
   const financeUser = await prisma.user.create({
@@ -296,6 +300,8 @@ export async function seedFixture(prisma: PrismaClient): Promise<TestFixture> {
       fullName: 'Finance Manager',
       passwordHash: 'x',
       roles: ['FINANCE_MANAGER'],
+      // Every real user belongs to a company; approval rules ask within it.
+      companyId: company.id,
     },
   });
 

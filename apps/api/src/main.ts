@@ -1,5 +1,4 @@
 import 'reflect-metadata';
-import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Logger, ValidationPipe } from '@nestjs/common';
@@ -77,46 +76,6 @@ async function bootstrap(): Promise<void> {
   const port = Number(process.env.PORT ?? 3001);
   await app.listen(port, '0.0.0.0');
   new Logger('Bootstrap').log(`BioAssetPro API listening on :${port}`);
-
-  if (process.env.RENDER === 'true') migrateInBackground();
-}
-
-/**
- * Apply pending database migrations once the API is live.
- *
- * On Render a starting instance cannot reach the database over the private
- * network until it is serving — the start command's own attempt (see
- * render.yaml) gets P1001 for minutes while the running service queries the
- * same database without trouble. So the migration runs here, after the port
- * is open, as a child process running the same script.
- *
- * Never fatal: the API keeps serving whatever happens, and the outcome is
- * logged in plain words so a failure is visible in the service log rather
- * than surfacing later as a missing table. Idempotent — with nothing
- * pending it is a no-op.
- */
-function migrateInBackground(): void {
-  const logger = new Logger('Migrations');
-  const repoRoot = join(__dirname, '..', '..', '..');
-  const child = spawn('npm', ['run', 'migrate:deploy', '-w', '@bioassetpro/database'], {
-    cwd: repoRoot,
-    env: { ...process.env, MIGRATE_FROM_API: '1' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    // npm is npm.cmd on Windows, which only a shell can run. Render is Linux.
-    shell: process.platform === 'win32',
-  });
-  const relay = (chunk: Buffer) => {
-    for (const line of chunk.toString().split('\n')) {
-      if (line.trim()) logger.log(line.trimEnd());
-    }
-  };
-  child.stdout.on('data', relay);
-  child.stderr.on('data', relay);
-  child.on('error', (error) => logger.error(`Could not start the migration: ${error.message}`));
-  child.on('exit', (code) => {
-    if (code === 0) logger.log('Database is up to date.');
-    else logger.error(`Migration FAILED (exit ${code}). The API is running on the previous schema.`);
-  });
 }
 
 void bootstrap();

@@ -9,7 +9,8 @@
 -- ---------------------------------------------------------------------------
 -- 1. Maker-checker (Rule 4), at the row level.
 --    A step may never record an approval by the transaction's maker — not by
---    role, not through a delegation, not by direct UPDATE.
+--    role, not through a delegation, not by direct UPDATE — unless the step is
+--    flagged self_approved (a one-person farm; see WorkflowService.approve).
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION bap_enforce_maker_checker()
@@ -27,7 +28,10 @@ BEGIN
     FROM workflow_transactions
    WHERE id = NEW.transaction_id;
 
-  IF NEW.acted_by_id = v_maker_id THEN
+  -- The one exception: a self-approval, which the service allows only when
+  -- nobody else in the company holds the authority, and which stays visible
+  -- on the step for ever. Added 2026-09-25.
+  IF NEW.acted_by_id = v_maker_id AND NOT COALESCE(NEW.self_approved, false) THEN
     RAISE EXCEPTION
       'Maker-checker violation: user % created % and cannot approve it.',
       NEW.acted_by_id, v_reference

@@ -293,6 +293,7 @@ describe('Accounting Adjustment Centre (§3)', () => {
           fullName: 'Self',
           passwordHash: 'x',
           roles: ['FARM_MANAGER'],
+          companyId: fixture.companyId,
         },
       });
       const journal = await makeJournal({

@@ -27,3 +27,18 @@ export async function getFixedAssets(): Promise<FixedAssetRow[]> {
     return [];
   }
 }
+
+export interface MachineHoursRow {
+  assetId: string;
+  processingCycle: 'SNAILPRO' | 'POULTRYPRO' | 'FEED_MILL';
+  hours: string;
+}
+
+/** PCR-031 — hours each machine ran on each processing line in a period. */
+export async function getMachineHours(periodId: string): Promise<MachineHoursRow[]> {
+  try {
+    return await api<MachineHoursRow[]>(`/fixed-assets/machine-hours?periodId=${encodeURIComponent(periodId)}`);
+  } catch {
+    return [];
+  }
+}

@@ -1,3 +1,4 @@
+import { HealthController } from './common/health.controller';
 import { Module } from '@nestjs/common';
 import { AuthModule } from './auth/auth.module';
 import { CoreModule } from './core.module';
@@ -81,6 +82,7 @@ const developmentOnlyControllers =
   ],
   providers: [KpiService],
   controllers: [
+    HealthController,
     MastersController,
     MasterDataController,
     WorkflowController,

@@ -38,6 +38,9 @@ import {
  * and an AuditRecord (the system-wide one, Rule 9), in the same database
  * transaction as the transition itself.
  */
+/** Written into the step, the history and the audit trail of every self-approval. */
+const SELF_APPROVAL_NOTE = 'Self-approved: nobody else in this farm can approve this level';
+
 @Injectable()
 export class WorkflowService {
   private readonly logger = new Logger(WorkflowService.name);
@@ -269,7 +272,24 @@ export class WorkflowService {
       const transaction = await this.loadActionable(tx, request.transactionId);
       const step = await this.currentStep(tx, transaction);
 
-      this.assertNotMaker(transaction.makerId, request.actor, transaction.documentReference);
+      /*
+       * Maker-checker, with one exception the farm chose on 2026-09-25: a
+       * maker may approve their own document when nobody else in the farm
+       * could — otherwise a one-person farm could never post anything. It is
+       * recorded as self-approved on the step, in the history and in the
+       * audit trail, and the database trigger allows it only on a step so
+       * flagged. With a second possible approver, the rule is as before.
+       */
+      let selfApproved = false;
+      if (transaction.makerId === request.actor.userId) {
+        if (!(await this.noOtherApprover(tx, transaction, step.roleCode, request.actor.userId, now))) {
+          this.assertNotMaker(transaction.makerId, request.actor, transaction.documentReference);
+        }
+        selfApproved = true;
+      }
+      const comments = selfApproved
+        ? [SELF_APPROVAL_NOTE, request.comments].filter(Boolean).join(' — ')
+        : request.comments;
 
       const authority = await this.delegations.authorityFor({
         companyId: transaction.companyId,
@@ -296,7 +316,8 @@ export class WorkflowService {
           actedById: request.actor.userId,
           actedOnBehalfOfId: authority.onBehalfOfId ?? null,
           actedAt: now,
-          comments: request.comments ?? null,
+          comments: comments ?? null,
+          selfApproved,
         },
       });
 
@@ -325,7 +346,7 @@ export class WorkflowService {
           level: step.level,
           actor: request.actor,
           onBehalfOfId: authority.onBehalfOfId,
-          comments: request.comments,
+          comments,
           reference: transaction.documentReference,
           module: transaction.module,
           auditAction: AuditAction.APPROVE,
@@ -400,7 +421,7 @@ export class WorkflowService {
         level: step.level,
         actor: request.actor,
         onBehalfOfId: authority.onBehalfOfId,
-        comments: request.comments,
+        comments,
         reference: transaction.documentReference,
         module: transaction.module,
         auditAction: AuditAction.APPROVE,
@@ -640,7 +661,8 @@ export class WorkflowService {
    * What is waiting on this user — by their own roles or by delegation, and
    * never including documents they made themselves (Rule 4 again: showing a
    * maker their own document in an approval queue is an invitation to a control
-   * failure).
+   * failure) — unless nobody else in the farm could approve it, when it is
+   * shown flagged `selfApproval` so the screen can say so plainly.
    */
   async pendingFor(userId: string, companyId?: string) {
     const now = new Date();
@@ -675,7 +697,6 @@ export class WorkflowService {
       where: {
         ...(companyId ? { companyId } : {}),
         status: { in: [WorkflowStatus.SUBMITTED, WorkflowStatus.UNDER_REVIEW] },
-        makerId: { not: userId },
       },
       include: {
         steps: { orderBy: { level: 'asc' } },
@@ -686,11 +707,17 @@ export class WorkflowService {
 
     const isAdministrator = user.roles.includes('ADMINISTRATOR');
 
-    return transactions.filter((t) => {
+    const waiting = [];
+    for (const t of transactions) {
       const step = t.steps.find((s) => s.level === t.currentLevel);
-      if (!step) return false;
-      return isAdministrator || roles.includes(step.roleCode);
-    });
+      if (!step || !(isAdministrator || roles.includes(step.roleCode))) continue;
+      if (t.makerId !== userId) {
+        waiting.push({ ...t, selfApproval: false });
+      } else if (await this.noOtherApprover(this.prisma, t, step.roleCode, userId, now)) {
+        waiting.push({ ...t, selfApproval: true });
+      }
+    }
+    return waiting;
   }
 
   async history(transactionId: string) {
@@ -791,6 +818,38 @@ export class WorkflowService {
    * Rule 4, first clause. Checked here in the service — not only in the UI and
    * not only in the database — because this is the layer every module shares.
    */
+  /**
+   * True when no active user in the company other than `makerId` holds the
+   * authority for this level — by role, by being an administrator, or by a
+   * delegation in force. The farms this exists for have one or two people;
+   * the check asks the same question approve() asks of whoever acts.
+   */
+  private async noOtherApprover(
+    tx: Prisma.TransactionClient,
+    transaction: { companyId: string; transactionType: string },
+    roleCode: string,
+    makerId: string,
+    on: Date,
+  ): Promise<boolean> {
+    const others = await tx.user.findMany({
+      where: { companyId: transaction.companyId, active: true, id: { not: makerId } },
+      select: { id: true, roles: true },
+    });
+    for (const other of others) {
+      const authority = await this.delegations.authorityFor({
+        companyId: transaction.companyId,
+        transactionType: transaction.transactionType,
+        roleCode,
+        userId: other.id,
+        userRoles: other.roles,
+        on,
+        tx,
+      });
+      if (authority.permitted) return false;
+    }
+    return true;
+  }
+
   private assertNotMaker(
     makerId: string,
     actor: WorkflowActor,

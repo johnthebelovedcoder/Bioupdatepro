@@ -10,6 +10,7 @@ import { CapitaliseAssetForm } from '@/components/capitalise-asset-form';
 import { RunDepreciationForm } from '@/components/run-depreciation-form';
 import { DisposeAssetForm } from '@/components/dispose-asset-form';
 import { PROCESSING_LINES, ProcessingLineForm } from '@/components/processing-line-form';
+import { MachineHoursForm } from '@/components/machine-hours-form';
 import { TableSearch } from '@/components/table-search';
 
 export const metadata = { title: 'Fixed assets — BioAssetPro' };
@@ -88,7 +89,7 @@ export default async function FixedAssetsPage() {
                       Net book value
                     </th>
                     <th style={{ width: 120 }}>Status</th>
-                    <th style={{ width: 150 }} />
+                    <th style={{ width: 200 }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -128,7 +129,10 @@ export default async function FixedAssetsPage() {
                       </td>
                       <td>
                         {asset.status === 'POSTED' && !asset.disposedOn ? (
-                          <ProcessingLineForm assetId={asset.id} assetNumber={asset.assetNumber} current={asset.processingCycle} />
+                          <>
+                            <ProcessingLineForm assetId={asset.id} assetNumber={asset.assetNumber} current={asset.processingCycle} />
+                            <MachineHoursForm assetId={asset.id} assetNumber={asset.assetNumber} periods={year?.periods ?? []} />
+                          </>
                         ) : null}
                         {asset.status === 'POSTED' && !asset.disposedOn && !asset.pendingTransactionId ? (
                           <DisposeAssetForm

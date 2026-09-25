@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import { AuditAction, Prisma, ProductionOrderCycle, WorkflowStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -382,27 +383,47 @@ export class FixedAssetService {
     };
 
     // PCR-031: a machine that serves a processing line or the feed mill is
-    // that line's overhead, not general depreciation expense.
-    const lineAccounts = await this.processingOverheadAccounts(
-      run.companyId,
-      params.tx,
-      run.entries.map((entry) => entry.asset.processingCycle),
-    );
-
-    const lines = run.entries.flatMap((entry) => [
-      {
-        glAccountId: entry.asset.processingCycle ? lineAccounts[entry.asset.processingCycle]! : accounts.depreciationExpense,
-        description: `Depreciation — ${entry.asset.assetNumber}`,
-        debit: kobo(entry.amountKobo),
-        dimensions: { ...dimensions, costCentreId: entry.asset.costCentreId },
-      },
-      {
-        glAccountId: accounts.accumulatedDepreciation,
-        description: `Depreciation — ${entry.asset.assetNumber}`,
-        credit: kobo(entry.amountKobo),
-        dimensions: { ...dimensions, costCentreId: entry.asset.costCentreId },
-      },
+    // that line's overhead, not general depreciation expense. With machine
+    // hours logged for this period it is split across the lines by them;
+    // otherwise its one line (or general depreciation) takes it all.
+    const hours = await params.tx.machineHours.findMany({
+      where: { assetId: { in: run.entries.map((e) => e.assetId) }, financialPeriodId: run.financialPeriodId },
+    });
+    const lineAccounts = await this.processingOverheadAccounts(run.companyId, params.tx, [
+      ...run.entries.map((entry) => entry.asset.processingCycle),
+      ...hours.filter((h) => new Decimal(h.hours.toString()).greaterThan(0)).map((h) => h.processingCycle),
     ]);
+
+    const lines = run.entries.flatMap((entry) => {
+      const logged = hours.filter((h) => h.assetId === entry.assetId && new Decimal(h.hours.toString()).greaterThan(0));
+      const debits = logged.length > 0
+        ? splitByHours(entry.amountKobo, logged).map(({ cycle, amountKobo, hours: h }) => ({
+            glAccountId: lineAccounts[cycle]!,
+            description: `Depreciation — ${entry.asset.assetNumber} (${h} machine hours)`,
+            amountKobo,
+          }))
+        : [{
+            glAccountId: entry.asset.processingCycle ? lineAccounts[entry.asset.processingCycle]! : accounts.depreciationExpense,
+            description: `Depreciation — ${entry.asset.assetNumber}`,
+            amountKobo: entry.amountKobo,
+          }];
+      return [
+        ...debits
+          .filter((d) => d.amountKobo > 0n)
+          .map((d) => ({
+            glAccountId: d.glAccountId,
+            description: d.description,
+            debit: kobo(d.amountKobo),
+            dimensions: { ...dimensions, costCentreId: entry.asset.costCentreId },
+          })),
+        {
+          glAccountId: accounts.accumulatedDepreciation,
+          description: `Depreciation — ${entry.asset.assetNumber}`,
+          credit: kobo(entry.amountKobo),
+          dimensions: { ...dimensions, costCentreId: entry.asset.costCentreId },
+        },
+      ];
+    });
 
     const result = await this.posting.post(
       {
@@ -688,6 +709,73 @@ export class FixedAssetService {
     return { id: asset.id, processingCycle: params.processingCycle };
   }
 
+  /**
+   * PCR-031 by machine hours — a machine's hours on each line for a period,
+   * replacing whatever was logged for it there before. A line left at zero is
+   * removed. Posted depreciation is never re-split.
+   */
+  async setMachineHours(params: {
+    companyId: string;
+    assetId: string;
+    financialPeriodId: string;
+    hours: Partial<Record<ProductionOrderCycle, Decimal>>;
+    actor: WorkflowActor;
+  }) {
+    const asset = await this.prisma.fixedAsset.findFirst({ where: { id: params.assetId, companyId: params.companyId } });
+    if (!asset) throw new NotFoundException('No such asset in this company.');
+    const period = await this.prisma.financialPeriod.findFirst({
+      where: { id: params.financialPeriodId, financialYear: { companyId: params.companyId } },
+    });
+    if (!period) throw new NotFoundException('No such period in this company.');
+    const posted = await this.prisma.depreciationEntry.findFirst({
+      where: { assetId: asset.id, run: { financialPeriodId: period.id, status: WorkflowStatus.POSTED } },
+    });
+    if (posted) {
+      throw new AccountingRuleViolation(
+        'PCR-031 — Manufacturing depreciation',
+        `Depreciation for ${asset.assetNumber} in ${period.name} is already posted; its hours can no longer change how it was split.`,
+        { assetId: asset.id, periodId: period.id },
+      );
+    }
+    const used = Object.entries(params.hours).filter(([, h]) => h && h.greaterThan(0)) as Array<[ProductionOrderCycle, Decimal]>;
+    await this.processingOverheadAccounts(params.companyId, this.prisma, used.map(([cycle]) => cycle));
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.machineHours.deleteMany({ where: { assetId: asset.id, financialPeriodId: period.id } });
+      if (used.length > 0) {
+        await tx.machineHours.createMany({
+          data: used.map(([cycle, h]) => ({
+            companyId: params.companyId,
+            assetId: asset.id,
+            financialPeriodId: period.id,
+            processingCycle: cycle,
+            hours: new Prisma.Decimal(h.toFixed(2)),
+            createdById: params.actor.userId,
+          })),
+        });
+      }
+    });
+    await this.audit.write({
+      transactionId: asset.id,
+      module: 'fixed-assets',
+      entityType: 'MachineHours',
+      entityId: asset.id,
+      status: asset.status,
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      newValue: { period: period.name, hours: Object.fromEntries(used.map(([c, h]) => [c, h.toString()])) },
+    });
+    return this.machineHours(params.companyId, period.id, asset.id);
+  }
+
+  async machineHours(companyId: string, financialPeriodId: string, assetId?: string) {
+    const rows = await this.prisma.machineHours.findMany({
+      where: { companyId, financialPeriodId, ...(assetId ? { assetId } : {}) },
+      select: { assetId: true, processingCycle: true, hours: true },
+    });
+    return rows.map((r) => ({ assetId: r.assetId, processingCycle: r.processingCycle, hours: r.hours.toString() }));
+  }
+
   /** Each processing line's overhead pool — PCR-055-DR, PCR-077-DR, and the feed mill's own. */
   private async processingOverheadAccounts(
     companyId: string,
@@ -759,3 +847,23 @@ const PROCESSING_OVERHEAD: Record<ProductionOrderCycle, { number: string; name: 
   POULTRYPRO: { number: '622100', name: 'Poultry Processing Conversion Expense' },
   FEED_MILL: { number: '623100', name: 'Feed Mill Overhead Expense' },
 };
+
+/** Largest-remainder split of a depreciation amount across lines by machine hours. */
+function splitByHours(
+  amountKobo: bigint,
+  rows: Array<{ processingCycle: ProductionOrderCycle; hours: Prisma.Decimal }>,
+): Array<{ cycle: ProductionOrderCycle; hours: string; amountKobo: bigint }> {
+  const total = rows.reduce((sum, r) => sum.plus(r.hours.toString()), new Decimal(0));
+  const exact = rows.map((r) => new Decimal(amountKobo.toString()).mul(r.hours.toString()).div(total));
+  const shares = exact.map((e) => BigInt(e.floor().toFixed(0)));
+  let left = amountKobo - shares.reduce((sum, x) => sum + x, 0n);
+  const order = exact
+    .map((e, i) => ({ i, frac: e.minus(e.floor()) }))
+    .sort((a, b) => b.frac.comparedTo(a.frac) || a.i - b.i);
+  for (const { i } of order) {
+    if (left <= 0n) break;
+    shares[i] = shares[i]! + 1n;
+    left -= 1n;
+  }
+  return rows.map((r, i) => ({ cycle: r.processingCycle, hours: r.hours.toString(), amountKobo: shares[i]! }));
+}

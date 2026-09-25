@@ -219,6 +219,61 @@ export class StockMovementService {
   }
 
   /**
+   * Issue stock OUT at a value the caller already knows — goods that were
+   * received as their own priced lot and leave as that lot. Hatching eggs are
+   * the case: received at the hatching price alongside table eggs, and set
+   * into the incubator at that price rather than the blended average. Same
+   * refusal as issueOut() to take the balance negative.
+   */
+  async issueOutAtValue(params: {
+    tx: Prisma.TransactionClient;
+    companyId: string;
+    branchId: string;
+    itemId: string;
+    warehouseId: string;
+    quantity: Decimal;
+    valueKobo: bigint;
+    batchReference?: string | null;
+    sourceModule: string;
+    sourceDocumentType: string;
+    sourceDocumentId: string;
+    documentReference: string;
+    movementDate: Date;
+  }): Promise<{ stockMovementId: string; unitCostKobo: bigint; valueKobo: bigint }> {
+    const before = await this.currentPosition(params.tx, params.companyId, params.itemId);
+    if (before.quantity.lessThan(params.quantity) || before.valueKobo < params.valueKobo) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §14 — Inventory issue',
+        `${params.documentReference} would take stock negative — ${before.quantity.toFixed(6)} ` +
+          `on hand, ${params.quantity.toString()} requested.`,
+        { itemId: params.itemId, onHand: before.quantity.toFixed(6), requested: params.quantity.toString() },
+      );
+    }
+    const unitCostKobo = BigInt(
+      new Decimal(params.valueKobo.toString()).div(params.quantity).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0),
+    );
+    const movement = await params.tx.stockMovement.create({
+      data: {
+        companyId: params.companyId,
+        branchId: params.branchId,
+        itemId: params.itemId,
+        warehouseId: params.warehouseId,
+        direction: StockDirection.OUT,
+        quantity: new Prisma.Decimal(params.quantity.toFixed(6)),
+        unitCostKobo,
+        valueKobo: params.valueKobo,
+        batchReference: params.batchReference ?? null,
+        sourceModule: params.sourceModule,
+        sourceDocumentType: params.sourceDocumentType,
+        sourceDocumentId: params.sourceDocumentId,
+        documentReference: params.documentReference,
+        movementDate: params.movementDate,
+      },
+    });
+    return { stockMovementId: movement.id, unitCostKobo, valueKobo: params.valueKobo };
+  }
+
+  /**
    * Issue stock OUT at its current WAC, refusing anything that would take the
    * balance negative (US-897-008). An OUT does not change the average — it
    * removes quantity and value in the same proportion — so `Item` is not

@@ -185,15 +185,18 @@ export class FarmStructureService {
    * signup, so it also reaches every company that already existed.
    */
   private async ensureDefaultUnits(companyId: string): Promise<void> {
-    const existing = await this.prisma.unitOfMeasure.count({ where: { companyId } });
-    if (existing > 0) return;
-
+    // Each default is added if missing, so a unit introduced later (Crate,
+    // 2026-09-25) reaches companies that already had the first three.
     await this.prisma.unitOfMeasure.createMany({
       data: [
         { companyId, code: 'Unit', name: 'Unit', precision: 0 },
         { companyId, code: 'L', name: 'Litre', precision: 3 },
         { companyId, code: 'Kg', name: 'Kilogramme', precision: 3 },
+        // Eggs are bought, sold and valued by the crate of 30. Fractional so a
+        // collection of 45 eggs is 1.5 crates, not a rounding error.
+        { companyId, code: 'Crate', name: 'Crate (30 eggs)', precision: 3 },
       ],
+      skipDuplicates: true,
     });
   }
 

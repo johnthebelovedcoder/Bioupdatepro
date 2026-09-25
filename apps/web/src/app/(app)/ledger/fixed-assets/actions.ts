@@ -132,3 +132,26 @@ export async function setProcessingLine(
       : 'Saved. From the next depreciation run, this machine goes to general depreciation.',
   };
 }
+
+/** PCR-031 — a machine's hours on each processing line for one period. */
+export async function setMachineHours(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const assetId = String(formData.get('assetId') ?? '');
+  const financialPeriodId = String(formData.get('financialPeriodId') ?? '');
+  if (!assetId || !financialPeriodId) return { error: 'Choose the period.', message: null };
+  const hours: Record<string, string> = {};
+  for (const line of ['SNAILPRO', 'POULTRYPRO', 'FEED_MILL']) {
+    const value = String(formData.get(line) ?? '').trim();
+    if (value && !/^[0-9]+([.][0-9]{1,2})?$/.test(value)) return { error: 'Hours must be numbers such as 42.5.', message: null };
+    hours[line] = value || '0';
+  }
+  try {
+    await api(`/fixed-assets/assets/${assetId}/machine-hours`, { method: 'POST', body: { financialPeriodId, hours } });
+  } catch (caught) {
+    return fail(caught, 'Could not save the machine hours.');
+  }
+  revalidatePath('/ledger/fixed-assets');
+  return { error: null, message: 'Saved. That period’s depreciation for this machine is split by these hours when the run posts.' };
+}

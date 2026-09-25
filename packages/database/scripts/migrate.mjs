@@ -13,9 +13,7 @@
 // executed, and deploy runs again. A brand-new database gets the baseline run
 // like any other migration.
 //
-// On Render this runs from the API's start command, not its build: build
-// machines are not on the private network, and the database's internal
-// hostname cannot be reached from them at all (see render.yaml).
+// On Render this runs from the API's start command (see render.yaml).
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -72,20 +70,21 @@ const run = (command, args, { allowFailure = false } = {}) => {
 };
 
 /*
- * On Render a starting instance cannot reach the database over the private
- * network until it is serving — seen in production: two minutes of P1001
- * from the start command while the already-running API queried the same
- * database without trouble. So on Render this is only a first attempt: if
- * the database is unreachable it says so and exits cleanly, and the API runs
- * this same script again once it is listening (apps/api/src/main.ts).
- * Everywhere else (local, CI, tests) unreachable is an error, retried a few
- * times for a database that is still starting.
+ * A database that is still waking (Neon suspends when idle) or another
+ * instance holding the migration lock is worth waiting for: retried with
+ * backoff for about a minute. Anything else, or still unreachable after
+ * that, fails the run — on Render that fails the deploy, and the previous
+ * version keeps serving on the schema it was built for, which is the point.
+ *
+ * (Until 2026-09-25 a failure here on Render was waved through and retried
+ * from inside the running API, on the theory that a starting Render
+ * instance could not reach the database. The real cause was DATABASE_URL
+ * pointing at an unused Render Postgres; with the database on Neon that
+ * workaround only meant new code could start on an old schema.)
  */
 /** Unreachable (P1001) or reached but timed out, e.g. on the migration lock (P1002). */
 const transient = (output) => output.includes('P1001') || output.includes('P1002');
-const onRender = process.env.RENDER === 'true';
-const deferIfUnreachable = onRender && process.env.MIGRATE_FROM_API !== '1';
-const attempts = deferIfUnreachable ? 2 : 6;
+const attempts = 6;
 let first;
 for (let attempt = 1; ; attempt += 1) {
   first = run('prisma', ['migrate', 'deploy'], { allowFailure: true });
@@ -93,13 +92,6 @@ for (let attempt = 1; ; attempt += 1) {
   const wait = 2000 * 2 ** (attempt - 1);
   console.log(`Database not reachable yet — retrying in ${wait / 1000}s (attempt ${attempt + 1} of ${attempts}).`);
   await new Promise((r) => setTimeout(r, wait));
-}
-if (!first.ok && transient(first.output) && deferIfUnreachable) {
-  console.log(
-    '\nDatabase not reachable before the service is live — migrations will run from the ' +
-      'API once it is listening. Continuing to start.',
-  );
-  process.exit(0);
 }
 if (!first.ok) {
   if (!first.output.includes('P3005')) process.exit(1);

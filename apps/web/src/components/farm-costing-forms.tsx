@@ -21,6 +21,7 @@ export function EggValueForm({
   const [state, formAction] = useActionState<FlowState, FormData>(setEggValue, initial);
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState('');
+  const [hatching, setHatching] = useState('');
   const [eggsPerUnit, setEggsPerUnit] = useState(String(current?.eggsPerUnit ?? 30));
 
   return (
@@ -77,6 +78,22 @@ export function EggValueForm({
             <input type="hidden" name="valuePerUnitKobo" value={(parseNairaToKobo(value) ?? 0n).toString()} />
           </label>
           <label className="field">
+            Hatching eggs, if priced apart<span className="faint"> (optional)</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={hatching}
+              onChange={(e) => setHatching(e.target.value)}
+              placeholder="Leave empty to use the table price"
+            />
+            <input
+              type="hidden"
+              name="hatchingValuePerUnitKobo"
+              value={hatching.trim() ? (parseNairaToKobo(hatching) ?? 0n).toString() : ''}
+            />
+            <span className="faint">Per {eggsPerUnit === '30' ? 'crate' : 'unit'}. Eggs set in the incubator carry this value to the chicks.</span>
+          </label>
+          <label className="field">
             From
             <input name="effectiveFrom" type="date" defaultValue={today} required />
           </label>
@@ -95,13 +112,17 @@ export function AllocationForm({
   periodId,
   periodName,
   sources,
-  shares,
+  shares: dayShares,
+  hourShares,
 }: {
   periodId: string;
   periodName: string;
   sources: Array<{ glAccountId: string; accountNumber: string; accountName: string; costCentreId: string | null; costCentre: string | null; availableKobo: string }>;
-  shares: Array<{ code: string; speciesKey: string; animalDays: string }>;
+  shares: Array<{ code: string; speciesKey: string; animalDays: string; weight: string }>;
+  /** The same populations weighted by timesheet hours × pay rate. */
+  hourShares: Array<{ code: string; speciesKey: string; animalDays: string; hours: string | null; weight: string }>;
 }) {
+  const [basis, setBasis] = useState<'ANIMAL_DAYS' | 'HOURS'>('ANIMAL_DAYS');
   const [state, formAction] = useActionState<FlowState, FormData>(postAllocation, initial);
   const key = (s: { glAccountId: string; costCentreId: string | null }) => `${s.glAccountId}:${s.costCentreId ?? ''}`;
   const [picked, setPicked] = useState<Record<string, boolean>>({});
@@ -113,7 +134,8 @@ export function AllocationForm({
     .filter((s) => picked[key(s)])
     .map((s) => ({ glAccountId: s.glAccountId, costCentreId: s.costCentreId, amountKobo: (parseNairaToKobo(amounts[key(s)] ?? '') ?? 0n).toString() }));
   const total = chosen.reduce((sum, s) => sum + BigInt(s.amountKobo), 0n);
-  const weight = useMemo(() => shares.reduce((sum, s) => sum + Number(s.animalDays), 0), [shares]);
+  const shares = basis === 'HOURS' ? hourShares : dayShares;
+  const weight = useMemo(() => shares.reduce((sum, s) => sum + Number(s.weight), 0), [shares]);
 
   if (sources.length === 0) {
     return <p className="muted">No expense in {periodName} is left to share. Post the month&rsquo;s payroll and overheads first.</p>;
@@ -123,6 +145,19 @@ export function AllocationForm({
     <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
       <input type="hidden" name="financialPeriodId" value={periodId} />
       <input type="hidden" name="sources" value={JSON.stringify(chosen)} />
+      <input type="hidden" name="basis" value={basis} />
+
+      <fieldset className="row" style={{ gap: 'var(--sp-4)', border: 0, padding: 0, flexWrap: 'wrap' }}>
+        <legend className="strong" style={{ marginBottom: 'var(--sp-2)' }}>Share by</legend>
+        <label className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center' }}>
+          <input type="radio" checked={basis === 'ANIMAL_DAYS'} onChange={() => setBasis('ANIMAL_DAYS')} />
+          Animal-days <span className="faint">(animals &times; days alive)</span>
+        </label>
+        <label className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center' }}>
+          <input type="radio" checked={basis === 'HOURS'} onChange={() => setBasis('HOURS')} />
+          Hours worked <span className="faint">(timesheets &times; each person&rsquo;s pay rate)</span>
+        </label>
+      </fieldset>
       {state.error ? <div className="notice notice-error">{state.error}</div> : null}
       {state.message ? <div className="notice notice-success">{state.message}</div> : null}
 
@@ -171,7 +206,11 @@ export function AllocationForm({
       <div>
         <strong>How {formatNaira(total.toString())} would be shared</strong>
         {shares.length === 0 || weight === 0 ? (
-          <p className="muted">No poultry or snail population was alive in {periodName}.</p>
+          <p className="muted">
+            {basis === 'HOURS'
+              ? `No timesheet hours are logged against a batch in ${periodName}. Log them under Money → Timesheets.`
+              : `No poultry or snail population was alive in ${periodName}.`}
+          </p>
         ) : (
           <div className="table-wrap">
             <table className="data">
@@ -179,20 +218,22 @@ export function AllocationForm({
                 <tr>
                   <th>Population</th>
                   <th>Goes to</th>
-                  <th className="right">Animal-days</th>
+                  <th className="right">{basis === 'HOURS' ? 'Hours' : 'Animal-days'}</th>
                   <th className="right">Share</th>
                 </tr>
               </thead>
               <tbody>
                 {shares.map((s) => {
-                  const part = Number(s.animalDays) / weight;
+                  const part = Number(s.weight) / weight;
                   return (
                     <tr key={s.code}>
                       <td className="strong">{s.code}</td>
                       <td className="faint">
                         {s.speciesKey === 'poultry' ? 'Work in Progress (1501), flock cost' : 'Snailery Labour and Facility (612000)'}
                       </td>
-                      <td className="num">{Number(s.animalDays).toLocaleString('en-NG')}</td>
+                      <td className="num">
+                        {Number(basis === 'HOURS' ? ('hours' in s ? s.hours ?? 0 : 0) : s.animalDays).toLocaleString('en-NG')}
+                      </td>
                       <td className="num">
                         {formatNaira((BigInt(Math.floor(Number(total) * part))).toString())}{' '}
                         <span className="faint">({(part * 100).toFixed(1)}%)</span>
