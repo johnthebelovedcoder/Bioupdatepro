@@ -20,7 +20,14 @@ function Submit({ label, pendingLabel }: { label: string; pendingLabel: string }
 }
 
 /** RELEASED → IN_PRODUCTION: post standard absorption plus the actual labour/overhead cost. */
-export function ConfirmConversionForm({ orderId }: { orderId: string }) {
+export function ConfirmConversionForm({
+  orderId,
+  operations = [],
+}: {
+  orderId: string;
+  /** The order's routing: with one, the standard is actual hours × approved rates (PCR-053). */
+  operations?: Array<{ name: string; standardHours: string; ratePerHourKobo: string }>;
+}) {
   const [state, formAction] = useActionState<FlowState, FormData>(confirmConversion, {
     error: null,
     message: null,
@@ -32,10 +39,27 @@ export function ConfirmConversionForm({ orderId }: { orderId: string }) {
       {state.error ? <div className="notice notice-error">{state.error}</div> : null}
       {state.message ? <div className="notice notice-success">{state.message}</div> : null}
 
-      <label className="field">
-        Standard conversion cost (₦)
-        <input name="standardConversionCost" type="number" step="0.01" min="0" required />
-      </label>
+      {operations.length > 0 ? (
+        <>
+          <p className="faint" style={{ fontSize: 13 }}>
+            The standard is worked out from the routing: the hours each operation actually took, at its cost pool&rsquo;s
+            approved rate. Leave an operation blank to use its standard hours.
+          </p>
+          {operations.map((op) => (
+            <label key={op.name} className="field">
+              {op.name} — hours (standard {Number(op.standardHours).toLocaleString('en-NG')}, ₦
+              {(Number(op.ratePerHourKobo) / 100).toLocaleString('en-NG')}/h)
+              <input name={`hours:${op.name}`} type="number" step="0.01" min="0" placeholder={op.standardHours} />
+            </label>
+          ))}
+        </>
+      ) : (
+        <label className="field">
+          Standard conversion cost (₦)
+          <input name="standardConversionCost" type="number" step="0.01" min="0" required />
+          <span className="faint">This recipe has no routing. Set one up (Production → Recipes) and this is worked out for you.</span>
+        </label>
+      )}
       <label className="field">
         Actual labour cost (₦)
         <input name="actualLabourCost" type="number" step="0.01" min="0" defaultValue="0" />
@@ -99,7 +123,6 @@ export function RecordOutputsForm({
     error: null,
     message: null,
   });
-  const [method, setMethod] = useState<'NRV' | 'WEIGHT'>('NRV');
   const [byProductCount, setByProductCount] = useState(0);
 
   return (
@@ -109,17 +132,12 @@ export function RecordOutputsForm({
       {state.error ? <div className="notice notice-error">{state.error}</div> : null}
       {state.message ? <div className="notice notice-success">{state.message}</div> : null}
 
-      <label className="field">
-        Allocation method
-        <select
-          name="method"
-          value={method}
-          onChange={(e) => setMethod(e.target.value as 'NRV' | 'WEIGHT')}
-        >
-          <option value="NRV">Net realisable value (sale price less cost to sell)</option>
-          <option value="WEIGHT">Relative weight</option>
-        </select>
-      </label>
+      <p className="faint" style={{ fontSize: 13 }}>
+        The order&rsquo;s cost is shared between its outputs by the company&rsquo;s one released method — relative
+        sales value at split-off — using the approved selling prices under{' '}
+        <a href="/production/joint-cost">Joint-cost prices</a>. Weigh everything in kilograms: what came out, and what was
+        lost along the way, must add up to what went in.
+      </p>
 
       <label className="field">
         Receiving store
@@ -135,88 +153,45 @@ export function RecordOutputsForm({
         </select>
       </label>
 
-      <fieldset style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 'var(--sp-3)' }}>
-        <legend className="faint">Main output — {mainItemLabel}</legend>
-        <div className="stack" style={{ gap: 'var(--sp-3)' }}>
-          <label className="field">
-            Quantity
-            <input name="mainQuantity" type="number" step="0.001" min="0.001" required />
-          </label>
-          {method === 'NRV' ? (
-            <>
-              <label className="field">
-                Sale price per unit (₦)
-                <input name="mainSalePrice" type="number" step="0.01" min="0" required />
-              </label>
-              <label className="field">
-                Cost to sell per unit (₦)
-                <input name="mainCostsToSell" type="number" step="0.01" min="0" defaultValue="0" />
-              </label>
-            </>
-          ) : (
-            <label className="field">
-              Weight
-              <input name="mainWeight" type="number" step="0.001" min="0.001" required />
-            </label>
-          )}
-        </div>
-      </fieldset>
+      <label className="field">
+        {mainItemLabel} (kg)
+        <input name="mainQuantity" type="number" step="0.001" min="0.001" required />
+      </label>
 
       {[...Array(byProductCount)].map((_, index) => {
         const n = index + 1;
         return (
-          <fieldset
-            key={n}
-            style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 'var(--sp-3)' }}
-          >
-            <legend className="faint">By-product {n}</legend>
-            <div className="stack" style={{ gap: 'var(--sp-3)' }}>
-              <label className="field">
-                Item
-                <select name={`byProductItemId${n}`} defaultValue="">
-                  <option value="">— none —</option>
-                  {byProductItems.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.code} — {i.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                Quantity
-                <input name={`byProductQuantity${n}`} type="number" step="0.001" min="0" />
-              </label>
-              {method === 'NRV' ? (
-                <>
-                  <label className="field">
-                    Sale price per unit (₦)
-                    <input name={`byProductSalePrice${n}`} type="number" step="0.01" min="0" />
-                  </label>
-                  <label className="field">
-                    Cost to sell per unit (₦)
-                    <input name={`byProductCostsToSell${n}`} type="number" step="0.01" min="0" defaultValue="0" />
-                  </label>
-                </>
-              ) : (
-                <label className="field">
-                  Weight
-                  <input name={`byProductWeight${n}`} type="number" step="0.001" min="0" />
-                </label>
-              )}
-            </div>
-          </fieldset>
+          <div key={n} className="grid-auto">
+            <label className="field">
+              By-product {n}
+              <select name={`byProductItemId${n}`} defaultValue="">
+                <option value="">— none —</option>
+                {byProductItems.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.code} — {i.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              Kilograms
+              <input name={`byProductQuantity${n}`} type="number" step="0.001" min="0" />
+            </label>
+          </div>
         );
       })}
 
       {byProductCount < 2 ? (
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={() => setByProductCount((c) => c + 1)}
-        >
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setByProductCount((c) => c + 1)}>
           + Add a by-product
         </button>
       ) : null}
+
+      <label className="field">
+        Normal process loss (kg)
+        <input name="normalLossQuantity" type="number" step="0.001" min="0" />
+        <span className="faint">Blood, water, trimmings — the ordinary loss. Leave blank and the order tells you what it should be.</span>
+      </label>
 
       <Submit label="Record outputs" pendingLabel="Recording…" />
     </form>

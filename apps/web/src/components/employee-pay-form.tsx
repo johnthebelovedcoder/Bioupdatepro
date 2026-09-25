@@ -147,7 +147,7 @@ function Submit() {
   return (
     <div>
       <button type="submit" className="btn btn-primary" disabled={pending}>
-        {pending ? 'Saving…' : 'Set pay'}
+        {pending ? 'Saving…' : 'Send for approval'}
       </button>
     </div>
   );

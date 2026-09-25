@@ -33,6 +33,7 @@ import { CashFlowService } from '../../src/reporting/cash-flow.service';
 import { ControlAccountReconciliationService } from '../../src/reporting/control-account-reconciliation.service';
 import { IncomeTaxService } from '../../src/closing/income-tax.service';
 import { kobo } from '../../src/common/money';
+import { JointCostService } from '../../src/production/joint-cost.service';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
@@ -296,18 +297,30 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
       data: { recipeId: recipe.id, version: 1, batchSize: meatKg.toFixed(3), effectiveFrom: new Date('2026-01-01'), components: { create: [{ lineNumber: 1, componentItemId: pack.id, quantityPerBatch: '480', unitOfMeasureId: uom.id }] } },
     });
     await prisma.productRecipeVersion.update({ where: { id: version.id }, data: { status: 'ACTIVE' } });
+    // JOINT_COST_ALLOCATION: NRV at split-off, from approved prices — meat ₦18,000/kg, shell ₦2,500/kg.
+    const joint = new JointCostService(prisma, new AuditService(prisma));
+    for (const [itemId, price] of [[meat.id, N(18_000)], [shell.id, N(2_500)]] as const) {
+      const proposed = await joint.proposePrice({ companyId: fixture.companyId, itemId, sellingPricePerUnitKobo: price, furtherCostPerUnitKobo: 0n, effectiveFrom: new Date('2026-01-01'), evidenceReference: '500_Assumptions', actor: actor() });
+      await joint.decide({ companyId: fixture.companyId, priceId: proposed.id, approve: true, actor: { userId: fixture.financeUserId, roles: ['FINANCE_CONTROLLER'] } });
+    }
     const { id: orderId } = await orders.createFromHarvest({ harvestRecordId: harvest.id, recipeVersionId: version.id, warehouseId: cold.id, plannedOutputQuantity: meatKg.toFixed(3), actor: actor() });
     const submitted = await orders.submit({ productionOrderId: orderId, actor: actor() });
     await workflow.approve({ transactionId: submitted.transactionId, actor: approver() });
     await orders.issueMaterials({ productionOrderId: orderId, actor: actor() });
     await orders.confirmConversion({ productionOrderId: orderId, standardConversionCostKobo: N(550_000 + 850_000), actualLabourCostKobo: N(600_000), actualOverheadCostKobo: N(900_000), actor: actor() });
     await orders.recordOutputs({
-      productionOrderId: orderId, method: 'WEIGHT', warehouseId: cold.id, actor: actor(),
+      productionOrderId: orderId, warehouseId: cold.id, actor: actor(),
+      normalLossQuantity: liveKg.minus(meatKg).minus(shellKg).toFixed(3), // 1,047.6 kg in, 597.132 kg out
       outputs: [
         { itemId: meat.id, outputType: 'MAIN', quantity: meatKg.toFixed(3), weight: meatKg.toFixed(3) },
         { itemId: shell.id, outputType: 'BY_PRODUCT', quantity: shellKg.toFixed(3), weight: shellKg.toFixed(3) },
       ],
     });
+    // Handbook §62.4: NRV allocates 94.4262% of the ₦19,148,000 pool to meat — ₦18,080,734.43 — and the rest to shell.
+    const allocatedTo = async (itemId: string) =>
+      (await prisma.productionOrderOutput.findFirstOrThrow({ where: { productionOrderId: orderId, itemId } })).allocatedCostKobo;
+    expect(Math.abs(Number((await allocatedTo(meat.id)) - N('18080734.43')))).toBeLessThanOrEqual(1);
+    expect(Math.abs(Number(N('1067265.57') - (await allocatedTo(shell.id))))).toBeLessThanOrEqual(1);
     await orders.settle({ productionOrderId: orderId, actor: actor() });
 
     // --- Processed sale: meat at ₦18,000/kg, shell at ₦2,500/kg (INV-PROC, DEL-PROC) ---

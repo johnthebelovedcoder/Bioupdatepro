@@ -107,17 +107,24 @@ export async function issueOrder(id: string): Promise<FlowState> {
 /** Post standard absorption and the actual labour/overhead conversion cost. */
 export async function confirmConversion(_previous: FlowState, formData: FormData): Promise<FlowState> {
   const id = String(formData.get('productionOrderId') ?? '');
-  const standard = parseNairaToKobo(String(formData.get('standardConversionCost') ?? ''));
+  const standardText = formData.get('standardConversionCost');
+  const standard = standardText === null ? null : parseNairaToKobo(String(standardText));
   const labour = parseNairaToKobo(String(formData.get('actualLabourCost') ?? '')) ?? 0n;
   const overhead = parseNairaToKobo(String(formData.get('actualOverheadCost') ?? '')) ?? 0n;
+  // Actual hours per routing operation, where the order has a routing.
+  const actualHours: Record<string, string> = {};
+  for (const [key, value] of formData.entries()) {
+    if (key.startsWith('hours:') && String(value).trim() !== '') actualHours[key.slice(6)] = String(value).trim();
+  }
 
-  if (standard === null) return { error: 'Enter the standard conversion cost.', message: null };
+  if (standardText !== null && standard === null) return { error: 'Enter the standard conversion cost.', message: null };
 
   try {
     await api(`/production-orders/${id}/confirm-conversion`, {
       method: 'POST',
       body: {
-        standardConversionCostKobo: standard.toString(),
+        ...(standard !== null ? { standardConversionCostKobo: standard.toString() } : {}),
+        ...(Object.keys(actualHours).length > 0 ? { actualHours } : {}),
         actualLabourCostKobo: labour.toString(),
         actualOverheadCostKobo: overhead.toString(),
       },
@@ -158,84 +165,34 @@ interface OutputLine {
   itemId: string;
   outputType: 'MAIN' | 'BY_PRODUCT';
   quantity: string;
-  salePricePerUnitKobo?: string;
-  costsToSellPerUnitKobo?: string;
-  weight?: string;
 }
 
-/** Receive the order's finished output(s), splitting its residual WIP cost across them. */
+/**
+ * Receive the order's finished output(s). The API costs them by the
+ * company's released method from approved prices, and checks the mass
+ * balance — what came out plus what was lost must equal what went in.
+ */
 export async function recordOutputs(_previous: FlowState, formData: FormData): Promise<FlowState> {
   const id = String(formData.get('productionOrderId') ?? '');
-  const method = String(formData.get('method') ?? '');
   const warehouseId = String(formData.get('warehouseId') ?? '');
   const mainItemId = String(formData.get('mainItemId') ?? '');
   const mainQuantity = String(formData.get('mainQuantity') ?? '').trim();
+  const normalLossQuantity = String(formData.get('normalLossQuantity') ?? '').trim();
 
-  if (method !== 'NRV' && method !== 'WEIGHT') {
-    return { error: 'Choose an allocation method.', message: null };
-  }
   if (!warehouseId) return { error: 'Choose which store receives the output.', message: null };
-  if (!mainQuantity || Number(mainQuantity) <= 0) {
-    return { error: 'Enter the main output quantity.', message: null };
-  }
+  if (!mainQuantity || Number(mainQuantity) <= 0) return { error: 'Enter how many kilograms of the main output came out.', message: null };
 
-  const outputs: OutputLine[] = [];
-
-  const lineFor = (
-    itemId: string,
-    outputType: 'MAIN' | 'BY_PRODUCT',
-    quantity: string,
-    salePrice: string,
-    costsToSell: string,
-    weight: string,
-  ): OutputLine | { error: string } => {
-    const line: OutputLine = { itemId, outputType, quantity };
-    if (method === 'NRV') {
-      const price = parseNairaToKobo(salePrice);
-      if (price === null) return { error: `Enter a sale price for the ${outputType === 'MAIN' ? 'main output' : 'by-product'}.` };
-      line.salePricePerUnitKobo = price.toString();
-      const costs = parseNairaToKobo(costsToSell);
-      if (costs !== null) line.costsToSellPerUnitKobo = costs.toString();
-    } else {
-      if (!weight || Number(weight) <= 0) {
-        return { error: `Enter a weight for the ${outputType === 'MAIN' ? 'main output' : 'by-product'}.` };
-      }
-      line.weight = weight;
-    }
-    return line;
-  };
-
-  const main = lineFor(
-    mainItemId,
-    'MAIN',
-    mainQuantity,
-    String(formData.get('mainSalePrice') ?? ''),
-    String(formData.get('mainCostsToSell') ?? ''),
-    String(formData.get('mainWeight') ?? ''),
-  );
-  if ('error' in main) return { error: main.error, message: null };
-  outputs.push(main);
-
+  const outputs: OutputLine[] = [{ itemId: mainItemId, outputType: 'MAIN', quantity: mainQuantity }];
   for (let i = 1; i <= 2; i++) {
     const itemId = String(formData.get(`byProductItemId${i}`) ?? '');
     const quantity = String(formData.get(`byProductQuantity${i}`) ?? '').trim();
-    if (!itemId || !quantity) continue;
-    const line = lineFor(
-      itemId,
-      'BY_PRODUCT',
-      quantity,
-      String(formData.get(`byProductSalePrice${i}`) ?? ''),
-      String(formData.get(`byProductCostsToSell${i}`) ?? ''),
-      String(formData.get(`byProductWeight${i}`) ?? ''),
-    );
-    if ('error' in line) return { error: line.error, message: null };
-    outputs.push(line);
+    if (itemId && quantity && Number(quantity) > 0) outputs.push({ itemId, outputType: 'BY_PRODUCT', quantity });
   }
 
   try {
     await api(`/production-orders/${id}/outputs`, {
       method: 'POST',
-      body: { method, warehouseId, outputs },
+      body: { warehouseId, outputs, ...(normalLossQuantity ? { normalLossQuantity } : {}) },
     });
   } catch (caught) {
     return fail(caught, 'Could not record those outputs.');

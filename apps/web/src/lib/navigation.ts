@@ -6,6 +6,7 @@ import {
   IconClipboard,
   IconDashboard,
   IconFarm,
+  IconFeed,
   IconSettings,
   IconTag,
   IconUsers,
@@ -243,24 +244,6 @@ export const SECTIONS: NavSection[] = [
         keywords: ['transfer', 'write-off', 'writeoff', 'move stock', 'adjustment', 'loss'],
       },
       {
-        href: '/production',
-        label: 'Processing orders',
-        hint: 'SnailPro, PoultryPro and Feed Mill — turning stock into a different product',
-        keywords: ['production', 'processing', 'snailpro', 'poultrypro', 'feed mill', 'convert', 'manufacture', 'wip'],
-      },
-      {
-        href: '/production/recipes',
-        label: 'Recipes',
-        hint: 'What a processing order consumes to make one batch of output',
-        keywords: ['recipe', 'bom', 'bill of materials', 'formula', 'components'],
-      },
-      {
-        href: '/production/cost-pools',
-        label: 'Cost pools',
-        hint: 'Overhead grouped by what drives it, for routing to absorb',
-        keywords: ['cost pool', 'overhead', 'abc', 'activity based costing', 'driver', 'absorption'],
-      },
-      {
         href: '/items',
         label: 'Items',
         hint: 'Everything the farm buys, stores or sells',
@@ -271,6 +254,53 @@ export const SECTIONS: NavSection[] = [
         label: 'Stores',
         hint: 'Where stock physically sits',
         keywords: ['warehouse', 'store', 'location', 'cold room'],
+      },
+    ],
+  },
+
+  /*
+   * Feed mill and processing: where stock becomes a different product. The
+   * workbook treats the feed mill as its own segment (Segment P&L: Farm |
+   * Feed mill | Processing), so it has its own shelf rather than sitting
+   * among the store's receiving screens. Same permission as the store — the
+   * people who run the mill are the people who issue its ingredients.
+   */
+  {
+    key: 'mill',
+    label: 'Feed mill',
+    icon: IconFeed,
+    section: 'inventory',
+    href: '/feed-mill',
+    children: [
+      {
+        href: '/feed-mill',
+        label: 'Feed mill',
+        hint: 'Milling runs, what they cost a kilo, and what is still in production',
+        keywords: ['feed mill', 'mill', 'milling', 'feed', 'ration', 'formulation'],
+      },
+      {
+        href: '/production',
+        label: 'Processing orders',
+        hint: 'SnailPro, PoultryPro and Feed Mill — turning stock into a different product',
+        keywords: ['production', 'processing', 'snailpro', 'poultrypro', 'convert', 'manufacture', 'wip', 'slaughter'],
+      },
+      {
+        href: '/production/recipes',
+        label: 'Recipes',
+        hint: 'What a processing order consumes to make one batch of output',
+        keywords: ['recipe', 'bom', 'bill of materials', 'formula', 'components', 'ration'],
+      },
+      {
+        href: '/production/cost-pools',
+        label: 'Cost pools',
+        hint: 'Overhead grouped by what drives it, for routing to absorb',
+        keywords: ['cost pool', 'overhead', 'abc', 'activity based costing', 'driver', 'absorption', 'routing'],
+      },
+      {
+        href: '/production/joint-cost',
+        label: 'Joint-cost prices',
+        hint: 'The approved selling prices that share a processing order’s cost between its outputs',
+        keywords: ['joint cost', 'nrv', 'split-off', 'by-product', 'allocation', 'selling price'],
       },
     ],
   },
@@ -291,8 +321,8 @@ export const SECTIONS: NavSection[] = [
       {
         href: '/staff/employees',
         label: 'Employees',
-        hint: 'Records payroll runs against — bank details, cost centre, tax state',
-        keywords: ['employee', 'payroll', 'salary', 'bank', 'pension', 'nhf', 'tax'],
+        hint: 'Onboarding in four steps, and what still blocks each person from payroll',
+        keywords: ['employee', 'payroll', 'salary', 'bank', 'pension', 'nhf', 'tax', 'onboarding', 'documents', 'promotion', 'transfer'],
       },
     ],
   },

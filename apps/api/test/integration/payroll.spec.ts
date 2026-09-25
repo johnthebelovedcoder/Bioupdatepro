@@ -19,6 +19,7 @@ import { PayrollPaymentService } from '../../src/payroll/payroll-payment.service
 import { PayrollPaymentPostingHandler, PayrollPostingHandler } from '../../src/payroll/payroll.handler';
 import { WorkflowActor } from '../../src/workflow/workflow.types';
 import { kobo } from '../../src/common/money';
+import { completeDocumentPack, setApprovedPay } from '../helpers/employee';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
@@ -275,13 +276,13 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       ['OTHER', spec.other],
     ] as const) {
       if (amount > 0n) {
-        await employees.setSalaryComponent({
+        await setApprovedPay(employees, {
           employeeId: employee.id,
           componentCode: code,
           amount: kobo(amount),
           effectiveFrom: new Date('2026-01-01'),
           actorId: fixture.makerId,
-        });
+        }, fixture);
       }
     }
 
@@ -301,6 +302,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       });
     }
 
+    await completeDocumentPack(prisma, fixture, employee.id);
     await employees.activateForPayroll({
       employeeId: employee.id,
       on: PAYROLL_DATE,

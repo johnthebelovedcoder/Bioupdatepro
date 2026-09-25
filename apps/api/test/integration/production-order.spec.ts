@@ -19,6 +19,9 @@ import { DelegationService } from '../../src/workflow/delegation.service';
 import { NotificationService } from '../../src/workflow/notification.service';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
 import { ControlAccountReconciliationService } from '../../src/reporting/control-account-reconciliation.service';
+import { JointCostService } from '../../src/production/joint-cost.service';
+import { RoutingService } from '../../src/routing/routing.service';
+import { kobo } from '../../src/common/money';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
@@ -105,6 +108,16 @@ beforeEach(async () => {
   // Components are set while a draft; an active version is locked (a database rule).
   await prisma.productRecipeVersion.update({ where: { id: versionId }, data: { status: 'ACTIVE' } });
 
+  // Approved selling prices at split-off (handbook §62.5), from the start of the year.
+  const joint = new JointCostService(prisma, new AuditService(prisma));
+  for (const [code, price] of [['MEAT', 1800000n], ['SHELL', 250000n]] as const) {
+    const proposed = await joint.proposePrice({
+      companyId: fixture.companyId, itemId: item[code]!, sellingPricePerUnitKobo: price, furtherCostPerUnitKobo: 0n,
+      effectiveFrom: new Date('2026-01-01'), evidenceReference: 'Price list 2026', actor: maker,
+    });
+    await joint.decide({ companyId: fixture.companyId, priceId: proposed.id, approve: true, actor: { userId: fixture.financeUserId, roles: ['FINANCE_CONTROLLER'] } });
+  }
+
   // 500 market snails, last valued at ₦3,000 each, harvested for processing.
   const pen = await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: 'S1', name: 'Snailery 1' } });
   const cohort = await prisma.livestockGroup.create({
@@ -154,7 +167,7 @@ describe('Processing and production-order close (UAT-015 / UAT-024)', () => {
     expect(await wip()).toBe(1_500_000_00n + 5_000_00n + 1_400_000_00n);
 
     await orders.recordOutputs({
-      productionOrderId: id, method: 'WEIGHT', warehouseId: fgStore, actor: maker,
+      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38',
       outputs: [
         { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
         { itemId: item.SHELL!, outputType: 'BY_PRODUCT', quantity: '16', weight: '16' },
@@ -186,6 +199,74 @@ describe('Processing and production-order close (UAT-015 / UAT-024)', () => {
     const id = await throughConversion();
     expect(await wip()).toBeGreaterThan(0n);
     await expect(orders.settle({ productionOrderId: id, actor: maker })).rejects.toThrow(/IN_PRODUCTION; only a completed order can settle/);
+  });
+
+  it('costs by the one released method, from approved prices, and only when the quantities balance (JOINT_COST_ALLOCATION)', async () => {
+    const id = await throughConversion();
+    const outputs = [
+      { itemId: item.MEAT!, outputType: 'MAIN' as const, quantity: '36', weight: '36' },
+      { itemId: item.SHELL!, outputType: 'BY_PRODUCT' as const, quantity: '16', weight: '16' },
+    ];
+    await expect(orders.recordOutputs({ productionOrderId: id, method: 'WEIGHT', warehouseId: fgStore, actor: maker, normalLossQuantity: '38', outputs })).rejects.toThrow(
+      /allocates joint cost by NRV on every order; WEIGHT was asked for/,
+    );
+    await expect(orders.recordOutputs({ productionOrderId: id, warehouseId: fgStore, actor: maker, outputs })).rejects.toThrow(
+      /State the normal process loss\. 90\.000 kg went in; outputs are 52\.000 kg, so normal loss would be 38\.000 kg/,
+    );
+    await expect(orders.recordOutputs({ productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '30', outputs })).rejects.toThrow(
+      /is 82\.000 kg, but 90\.000 kg went in/,
+    );
+
+    // NRV at split-off: meat 36 kg × ₦18,000, shell 16 kg × ₦2,500 → 94.19% / 5.81% of the pool.
+    await orders.recordOutputs({ productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38', outputs });
+    const out = await prisma.productionOrderOutput.findMany({ where: { productionOrderId: id }, include: { item: true } });
+    const pool = 1_500_000_00n + 5_000_00n + 1_400_000_00n;
+    const meat = out.find((o) => o.item.code === 'MEAT')!.allocatedCostKobo;
+    expect(meat + out.find((o) => o.item.code === 'SHELL')!.allocatedCostKobo).toBe(pool);
+    expect(Number(meat) / Number(pool)).toBeCloseTo(648_000 / 688_000, 6);
+  });
+
+  it('keeps joint-cost prices honest: no price, no costing; approved by someone else; never edited once approved', async () => {
+    const joint = new JointCostService(prisma, new AuditService(prisma));
+    const proposed = await joint.proposePrice({
+      companyId: fixture.companyId, itemId: item.PACK!, sellingPricePerUnitKobo: 100_00n, furtherCostPerUnitKobo: 0n,
+      effectiveFrom: new Date('2026-06-01'), evidenceReference: 'Quote', actor: maker,
+    });
+    await expect(joint.decide({ companyId: fixture.companyId, priceId: proposed.id, approve: true, actor: { userId: fixture.makerId, roles: ['FINANCE_CONTROLLER'] } })).rejects.toThrow(
+      /someone else must approve/,
+    );
+    await expect(joint.pricesOn(fixture.companyId, [item.PACK!], new Date('2026-07-01'))).rejects.toThrow(/No approved selling price for PACK/);
+    const approved = await prisma.jointOutputPrice.findFirstOrThrow({ where: { itemId: item.MEAT!, status: 'APPROVED' } });
+    await expect(prisma.jointOutputPrice.update({ where: { id: approved.id }, data: { sellingPricePerUnitKobo: 1n } })).rejects.toThrow(/cannot be changed/);
+  });
+
+  it('works out standard conversion from the routing: actual hours × approved rates (PCR-053, ABC_Pools_Drivers)', async () => {
+    const routing = new RoutingService(prisma, new AuditService(prisma));
+    const pool = await routing.createCostPool({ companyId: fixture.companyId, code: 'SNL-PROC', name: 'Snail processing', driverName: 'Labour hours', actorId: fixture.makerId });
+    // ₦1,400,000 over 100 practical hours: ₦14,000 an hour.
+    await routing.setCostPoolRate({ companyId: fixture.companyId, poolId: pool.id, poolCost: kobo(1_400_000_00n), practicalCapacity: '100', effectiveFrom: new Date('2026-01-01'), actorId: fixture.makerId });
+    await routing.createRoutingOperation({
+      companyId: fixture.companyId, recipeVersionId: versionId, costCentreId: fixture.costCentreId, costPoolId: pool.id,
+      operationName: 'Deshell and clean', resourceType: 'LABOUR', setupHours: '0', runHoursPerUnit: '1', actorId: fixture.makerId,
+    });
+
+    const { id } = await orders.createFromHarvest({ harvestRecordId: harvestId, recipeVersionId: versionId, warehouseId: fgStore, plannedOutputQuantity: '90', actor: maker });
+    const submitted = await orders.submit({ productionOrderId: id, actor: maker });
+    await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+    await orders.issueMaterials({ productionOrderId: id, actor: maker });
+
+    const conversion = { productionOrderId: id, actualLabourCostKobo: 600_000_00n, actualOverheadCostKobo: 900_000_00n, actor: maker };
+    await expect(orders.confirmConversion({ ...conversion, standardConversionCostKobo: 1_300_000_00n, actualHours: { 'Deshell and clean': 100 } })).rejects.toThrow(
+      /comes from its routing: 140000000 kobo/,
+    );
+    await orders.confirmConversion({ ...conversion, actualHours: { 'Deshell and clean': 100 } }); // 90 standard hours; 100 worked
+    const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id } });
+    expect(order.standardConversionCostKobo).toBe(1_400_000_00n); // 100 h × ₦14,000
+    const line = await prisma.productionOrderRoutingLine.findFirstOrThrow({ where: { productionOrderId: id } });
+    expect(line.standardHours.toString()).toBe('90');
+    expect(line.absorbedCostKobo).toBe(1_400_000_00n);
+    // The pool's capacity is fully used by those 100 hours: nothing idle.
+    expect((await routing.unusedCapacity(pool.id)).unusedCapacity).toBe('0.00');
   });
 
   it('refuses a second order against the same harvest', async () => {

@@ -167,7 +167,10 @@ ALTER TABLE employee_salary_components ADD CONSTRAINT employee_salary_no_overlap
     employee_id WITH =,
     salary_component_id WITH =,
     daterange(effective_from, effective_to, '[]') WITH &&
-  );
+  )
+  -- Only approved pay is in force; a proposal waiting for approval, or a
+  -- rejected one, overlaps nothing (Employee_Compensation).
+  WHERE (status = 'APPROVED');
 
 -- ---------------------------------------------------------------------------
 -- 6. An employee cannot report to themselves.

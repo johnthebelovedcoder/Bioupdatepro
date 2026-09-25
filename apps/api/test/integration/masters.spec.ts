@@ -12,8 +12,10 @@ import { AuditService } from '../../src/audit/audit.service';
 import { PartyService } from '../../src/masters/party.service';
 import { ItemService } from '../../src/masters/item.service';
 import { EmployeeService } from '../../src/masters/employee.service';
+import { EmployeeOnboardingService } from '../../src/masters/employee-onboarding.service';
 import { RecipeService } from '../../src/masters/recipe.service';
 import { kobo } from '../../src/common/money';
+import { completeDocumentPack, setApprovedPay } from '../helpers/employee';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
@@ -29,6 +31,7 @@ describe('Master Data (§5, §6, §7, §10)', () => {
   let parties: PartyService;
   let items: ItemService;
   let employees: EmployeeService;
+  let onboarding: EmployeeOnboardingService;
   let recipes: RecipeService;
   let fixture: TestFixture;
 
@@ -46,6 +49,7 @@ describe('Master Data (§5, §6, §7, §10)', () => {
     parties = new PartyService(prisma, audit);
     items = new ItemService(prisma, audit);
     employees = new EmployeeService(prisma, audit);
+    onboarding = new EmployeeOnboardingService(prisma, audit, employees);
     recipes = new RecipeService(prisma, audit);
   });
 
@@ -768,13 +772,13 @@ describe('Master Data (§5, §6, §7, §10)', () => {
         ['TRANSPORT', 45_000_00n],
         ['MEAL', 30_000_00n],
       ] as const) {
-        await employees.setSalaryComponent({
+        await setApprovedPay(employees, {
           employeeId: employee.id,
           componentCode: code,
           amount: kobo(amount),
           effectiveFrom: new Date('2026-01-01'),
           actorId: fixture.makerId,
-        });
+        }, fixture);
       }
 
       const snapshot = await employees.salarySnapshot(employee.id, JAN);
@@ -788,20 +792,20 @@ describe('Master Data (§5, §6, §7, §10)', () => {
       await seedSalaryComponents();
       const employee = await makeEmployee();
 
-      await employees.setSalaryComponent({
+      await setApprovedPay(employees, {
         employeeId: employee.id,
         componentCode: 'BASIC',
         amount: kobo(180_000_00),
         effectiveFrom: new Date('2026-01-01'),
         actorId: fixture.makerId,
-      });
-      await employees.setSalaryComponent({
+      }, fixture);
+      await setApprovedPay(employees, {
         employeeId: employee.id,
         componentCode: 'BASIC',
         amount: kobo(220_000_00),
         effectiveFrom: new Date('2026-07-01'),
         actorId: fixture.makerId,
-      });
+      }, fixture);
 
       const history = await prisma.employeeSalaryComponent.findMany({
         where: { employeeId: employee.id },
@@ -847,13 +851,13 @@ describe('Master Data (§5, §6, §7, §10)', () => {
     it('blocks payroll activation while a mandatory field is missing', async () => {
       await seedSalaryComponents();
       const employee = await makeEmployee({ costCentreId: null });
-      await employees.setSalaryComponent({
+      await setApprovedPay(employees, {
         employeeId: employee.id,
         componentCode: 'BASIC',
         amount: kobo(180_000_00),
         effectiveFrom: new Date('2026-01-01'),
         actorId: fixture.makerId,
-      });
+      }, fixture);
 
       const readiness = await employees.payrollReadiness(employee.id, JAN);
       expect(readiness.ready).toBe(false);
@@ -871,13 +875,13 @@ describe('Master Data (§5, §6, §7, §10)', () => {
     it('blocks activation when enrolled in pension without an RSA number', async () => {
       await seedSalaryComponents();
       const employee = await makeEmployee({ pensionEnrolled: true });
-      await employees.setSalaryComponent({
+      await setApprovedPay(employees, {
         employeeId: employee.id,
         componentCode: 'BASIC',
         amount: kobo(180_000_00),
         effectiveFrom: new Date('2026-01-01'),
         actorId: fixture.makerId,
-      });
+      }, fixture);
 
       const readiness = await employees.payrollReadiness(employee.id, JAN);
       expect(readiness.blockers.join(' ')).toMatch(/no RSA number/i);
@@ -886,13 +890,13 @@ describe('Master Data (§5, §6, §7, §10)', () => {
     it('blocks activation with no tax state, since PAYE could not be remitted', async () => {
       await seedSalaryComponents();
       const employee = await makeEmployee({ taxState: null });
-      await employees.setSalaryComponent({
+      await setApprovedPay(employees, {
         employeeId: employee.id,
         componentCode: 'BASIC',
         amount: kobo(180_000_00),
         effectiveFrom: new Date('2026-01-01'),
         actorId: fixture.makerId,
-      });
+      }, fixture);
 
       const readiness = await employees.payrollReadiness(employee.id, JAN);
       expect(readiness.blockers.join(' ')).toMatch(/No tax state/i);
@@ -901,14 +905,15 @@ describe('Master Data (§5, §6, §7, §10)', () => {
     it('activates a complete employee', async () => {
       await seedSalaryComponents();
       const employee = await makeEmployee();
-      await employees.setSalaryComponent({
+      await setApprovedPay(employees, {
         employeeId: employee.id,
         componentCode: 'BASIC',
         amount: kobo(180_000_00),
         effectiveFrom: new Date('2026-01-01'),
         actorId: fixture.makerId,
-      });
+      }, fixture);
 
+      await completeDocumentPack(prisma, fixture, employee.id);
       const activated = await employees.activateForPayroll({
         employeeId: employee.id,
         on: JAN,
@@ -918,6 +923,139 @@ describe('Master Data (§5, §6, §7, §10)', () => {
 
       const readiness = await employees.payrollReadiness(employee.id, JAN);
       expect(readiness.ready).toBe(true);
+    });
+
+    it('pays nothing until someone else approves the change (Employee_Compensation)', async () => {
+      await seedSalaryComponents();
+      const employee = await makeEmployee();
+      const proposed = await employees.setSalaryComponent({
+        employeeId: employee.id,
+        componentCode: 'BASIC',
+        amount: kobo(180_000_00),
+        effectiveFrom: new Date('2026-01-01'),
+        actorId: fixture.makerId,
+      });
+      expect(proposed.status).toBe('PENDING');
+      expect((await employees.salarySnapshot(employee.id, JAN)).grossPayKobo).toBe('0');
+      expect((await employees.payrollReadiness(employee.id, JAN)).warnings.join(' ')).toMatch(/waiting for approval/);
+
+      // One change at a time, and the preparer cannot approve it.
+      await expect(
+        employees.setSalaryComponent({
+          employeeId: employee.id,
+          componentCode: 'BASIC',
+          amount: kobo(190_000_00),
+          effectiveFrom: new Date('2026-02-01'),
+          actorId: fixture.makerId,
+        }),
+      ).rejects.toThrow(/already waiting for approval/);
+      await expect(
+        employees.decideSalaryComponent({ companyId: fixture.companyId, rowId: proposed.id, approve: true, actorId: fixture.makerId }),
+      ).rejects.toThrow(/someone else must approve/);
+
+      await employees.decideSalaryComponent({ companyId: fixture.companyId, rowId: proposed.id, approve: true, actorId: fixture.checkerId });
+      expect((await employees.salarySnapshot(employee.id, JAN)).grossPayKobo).toBe('18000000');
+
+      // A rise waits alongside the approved amount; the old one closes only on approval.
+      const rise = await employees.setSalaryComponent({
+        employeeId: employee.id,
+        componentCode: 'BASIC',
+        amount: kobo(200_000_00),
+        effectiveFrom: new Date('2026-07-01'),
+        actorId: fixture.makerId,
+      });
+      expect((await employees.salarySnapshot(employee.id, new Date('2026-08-01'))).grossPayKobo).toBe('18000000');
+      await expect(
+        employees.decideSalaryComponent({ companyId: fixture.companyId, rowId: rise.id, approve: false, actorId: fixture.checkerId }),
+      ).rejects.toThrow(/Say why/);
+      await employees.decideSalaryComponent({ companyId: fixture.companyId, rowId: rise.id, approve: true, actorId: fixture.checkerId });
+      expect((await employees.salarySnapshot(employee.id, new Date('2026-08-01'))).grossPayKobo).toBe('20000000');
+      expect((await employees.salarySnapshot(employee.id, JAN)).grossPayKobo).toBe('18000000');
+    });
+
+    it('holds activation until the document pack is complete (Employee_Documents)', async () => {
+      await seedSalaryComponents();
+      const employee = await makeEmployee({ tin: 'TIN-1', pensionEnrolled: true, pensionRsaNumber: 'PEN-1', pensionAdministrator: 'PFA' });
+      await setApprovedPay(employees, {
+        employeeId: employee.id,
+        componentCode: 'BASIC',
+        amount: kobo(180_000_00),
+        effectiveFrom: new Date('2026-01-01'),
+        actorId: fixture.makerId,
+      }, fixture);
+
+      await expect(employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.makerId })).rejects.toThrow(
+        /Document pack incomplete/,
+      );
+
+      // Required checks cannot be waived, and need evidence.
+      await expect(
+        onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType: 'PENSION', status: 'NOT_APPLICABLE', note: 'n/a', actorId: fixture.checkerId }),
+      ).rejects.toThrow(/cannot be marked not applicable/);
+      await expect(
+        onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType: 'ADDRESS', status: 'VERIFIED', reference: 'Utility bill', actorId: fixture.checkerId }),
+      ).rejects.toThrow(/Record the address/);
+
+      for (const checkType of ['CONTRACT', 'BANK', 'TAX_ID', 'PENSION']) {
+        await onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType, status: 'VERIFIED', reference: 'HR/' + checkType, actorId: fixture.checkerId });
+      }
+      for (const checkType of ['NIN', 'NHF', 'NHIA', 'ADDRESS', 'EMERGENCY_CONTACT']) {
+        await onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType, status: 'NOT_APPLICABLE', note: 'Casual hire', actorId: fixture.checkerId });
+      }
+      expect((await onboarding.onboarding(fixture.companyId, employee.id, JAN)).steps.find((s) => s.key === 'DOCUMENTS')!.complete).toBe(true);
+
+      // A changed account is not the account that was verified.
+      await onboarding.updateDetails({ companyId: fixture.companyId, employeeId: employee.id, details: { accountNumber: '9999999999' }, actorId: fixture.makerId });
+      const view = await onboarding.onboarding(fixture.companyId, employee.id, JAN);
+      expect(view.checks.find((c) => c.code === 'BANK')!.status).toBe('OUTSTANDING');
+      await expect(employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.makerId })).rejects.toThrow(/Bank account/);
+
+      await onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType: 'BANK', status: 'VERIFIED', reference: 'Bank letter', actorId: fixture.checkerId });
+      const activated = await employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.makerId });
+      expect(activated.payrollActive).toBe(true);
+    });
+
+    it('keeps employment as dated history (Employee_Employment)', async () => {
+      const employee = await makeEmployee({ designation: 'Farm attendant' });
+      const first = await prisma.employeeAssignment.findMany({ where: { companyId: fixture.companyId, employeeId: employee.id } });
+      expect(first).toHaveLength(1);
+      expect(first[0]!.reason).toBe('Joined');
+
+      await onboarding.recordAssignment({
+        companyId: fixture.companyId,
+        employeeId: employee.id,
+        effectiveFrom: new Date('2026-04-01'),
+        employmentStatus: 'ACTIVE',
+        employmentType: 'FULL_TIME',
+        departmentId: fixture.departmentId,
+        costCentreId: fixture.costCentreId,
+        branchId: fixture.branchId,
+        designation: 'Supervisor',
+        reason: 'Confirmed and promoted',
+        actorId: fixture.makerId,
+      });
+      const updated = await prisma.employee.findUniqueOrThrow({ where: { id: employee.id } });
+      expect(updated.designation).toBe('Supervisor');
+      expect(updated.employmentStatus).toBe('ACTIVE');
+      expect(updated.confirmationDate?.toISOString().slice(0, 10)).toBe('2026-04-01');
+
+      await expect(
+        onboarding.recordAssignment({
+          companyId: fixture.companyId,
+          employeeId: employee.id,
+          effectiveFrom: new Date('2026-03-01'),
+          employmentStatus: 'ACTIVE',
+          employmentType: 'FULL_TIME',
+          reason: 'Backdated',
+          actorId: fixture.makerId,
+        }),
+      ).rejects.toThrow(/must start after it/);
+
+      const view = await onboarding.onboarding(fixture.companyId, employee.id, new Date('2026-05-01'));
+      expect(view.assignments).toHaveLength(2);
+      expect(view.assignments[0]!.current).toBe(true);
+      expect(view.steps.find((s) => s.key === 'EMPLOYMENT')!.complete).toBe(true);
+      expect(view.steps.find((s) => s.key === 'COMPENSATION')!.missing).toContain('no approved pay in force');
     });
 
     it('refuses a self-referencing reporting line, at the database', async () => {

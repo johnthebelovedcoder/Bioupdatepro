@@ -143,7 +143,10 @@ export async function createEmployee(
   }
 
   revalidatePath('/staff/employees');
-  return { error: null, created: `${firstName} ${surname}` };
+  return {
+    error: null,
+    created: `${firstName} ${surname} — open their record to finish onboarding${basicPayKobo ? '; basic pay waits for approval' : ''}`,
+  };
 }
 
 export interface FlowState {
@@ -176,9 +179,10 @@ export async function activateEmployeePayroll(
 }
 
 /**
- * Set one pay component — a new amount for basic, a housing allowance, a
- * rise — from a date. The API closes the previous amount the day before, so
- * history is kept and a past payroll run still reproduces exactly.
+ * Propose one pay component — a new amount for basic, a housing allowance, a
+ * rise — from a date. It waits for someone else to approve it; on approval the
+ * API closes the previous amount the day before, so history is kept and a past
+ * payroll run still reproduces exactly.
  */
 export async function setEmployeePay(
   _previous: FlowState,
@@ -216,5 +220,6 @@ export async function setEmployeePay(
   }
 
   revalidatePath('/staff/employees');
-  return { error: null, message: `${componentCode} set from ${effectiveFrom}.` };
+  revalidatePath(`/staff/employees/${employeeId}`);
+  return { error: null, message: `${componentCode} from ${effectiveFrom} is waiting for someone else to approve it.` };
 }

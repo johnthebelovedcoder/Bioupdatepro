@@ -209,6 +209,8 @@ model User {
   @@map("users")
   weighingsRecorded LivestockWeighing[] @relation("WeighingRecorder")
   weighingsApproved LivestockWeighing[] @relation("WeighingApprover")
+  jointPricesProposed JointOutputPrice[] @relation("JointPriceProposer")
+  jointPricesApproved JointOutputPrice[] @relation("JointPriceApprover")
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +226,10 @@ model Company {
   /// Company income tax rate, per cent of positive profit before tax
   /// (500_Assumptions: 30% illustrative). PCR-084 provides for it.
   incomeTaxRatePercent Decimal @default(30) @map("income_tax_rate_percent") @db.Decimal(9, 4)
+  /// The released joint-cost method (JOINT_COST_ALLOCATION, handbook §62.3):
+  /// every processing order allocates its joint cost this one way. NRV —
+  /// relative sales value at split-off — unless the CFO releases another.
+  jointCostMethod String @default("NRV") @map("joint_cost_method")
   name           String
   /// Statutory applicability inputs (Statutory workbook, Company_Setup sheet).
   /// Kept here because Phase 9 payroll reads them; they are configuration, not code.
@@ -338,6 +344,7 @@ model Company {
   @@map("companies")
   livestockWeighings LivestockWeighing[]
   documentSequences DocumentSequence[]
+  jointOutputPrices JointOutputPrice[]
 }
 
 /// The atomic counter behind controlled references (Numbering_Parameters):
@@ -2226,6 +2233,7 @@ model Item {
   @@unique([companyId, code])
   @@index([companyId, itemType, active])
   @@map("items")
+  jointOutputPrices JointOutputPrice[]
 }
 
 /// §5 "Standard Cost", effective-dated (Rule 8).
@@ -2323,6 +2331,11 @@ model ProductionOrderRoutingLine {
   standardHours    Decimal @map("standard_hours") @db.Decimal(18, 6)
   ratePerHourKobo  BigInt  @map("rate_per_hour_kobo")
   standardCostKobo BigInt  @map("standard_cost_kobo")
+  /// The driver actually consumed (hours, kilos…) as confirmed at conversion —
+  /// PCR-053: "actual driver quantity × approved standard rate". Null until then.
+  actualHours       Decimal? @map("actual_hours") @db.Decimal(18, 6)
+  /// actualHours × ratePerHourKobo: what this operation absorbed into WIP.
+  absorbedCostKobo  BigInt?  @map("absorbed_cost_kobo")
 
   productionOrder  ProductionOrder  @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
   routingOperation RoutingOperation @relation(fields: [routingOperationId], references: [id])
@@ -2472,6 +2485,8 @@ model Employee {
   @@unique([companyId, employeeNumber])
   @@index([companyId, employmentStatus])
   @@map("employees")
+  assignments   EmployeeAssignment[]
+  verifications EmployeeVerification[]
 }
 
 /// §7 "Documents: Photo, Offer Letter, Contract, ID, CV, Certificates, Medical
@@ -2494,6 +2509,56 @@ model EmployeeDocument {
 
   @@index([employeeId, documentType])
   @@map("employee_documents")
+}
+
+/// Employee_Employment: the job, place and reporting line an employee holds
+/// from a date. History, never overwritten — the employee's own fields carry
+/// the one in force today.
+model EmployeeAssignment {
+  id                 String   @id @default(uuid()) @db.Uuid
+  companyId          String   @map("company_id") @db.Uuid
+  employeeId         String   @map("employee_id") @db.Uuid
+  effectiveFrom      DateTime @map("effective_from") @db.Date
+  employmentStatus   String   @map("employment_status")
+  employmentType     String   @map("employment_type")
+  departmentId       String?  @map("department_id") @db.Uuid
+  costCentreId       String?  @map("cost_centre_id") @db.Uuid
+  branchId           String?  @map("branch_id") @db.Uuid
+  farmId             String?  @map("farm_id") @db.Uuid
+  designation        String?
+  grade              String?
+  reportingManagerId String?  @map("reporting_manager_id") @db.Uuid
+  shift              String?
+  reason             String?
+  recordedById       String   @map("recorded_by_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, effectiveFrom])
+  @@index([companyId])
+  @@map("employee_assignments")
+}
+
+/// Employee_Documents: each check in an employee's document pack — seen and
+/// verified, not applicable, or still outstanding — by whom and when.
+model EmployeeVerification {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  employeeId   String    @map("employee_id") @db.Uuid
+  checkType    String    @map("check_type") // CONTRACT | BANK | TAX_ID | NIN | PENSION | ADDRESS | NHF | NHIA | EMERGENCY_CONTACT
+  status       String    // VERIFIED | NOT_APPLICABLE | OUTSTANDING
+  /// Where the evidence is: file reference, letter number, bank confirmation.
+  reference    String?
+  note         String?
+  verifiedById String    @map("verified_by_id") @db.Uuid
+  verifiedAt   DateTime  @default(now()) @map("verified_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, checkType])
+  @@index([companyId])
+  @@map("employee_verifications")
 }
 
 /// §7 Payroll Setup — the catalogue of components a company pays or deducts.
@@ -2565,6 +2630,13 @@ model EmployeeSalaryComponent {
   effectiveFrom DateTime  @map("effective_from") @db.Date
   effectiveTo   DateTime? @map("effective_to") @db.Date
 
+  /// Employee_Compensation: prepared by one person, approved by another;
+  /// only an approved amount feeds payroll. APPROVED for rows that predate
+  /// 2026-09-25, when there was no approval step.
+  status       String    @default("APPROVED") // PENDING | APPROVED | REJECTED
+  preparedById String?   @map("prepared_by_id") @db.Uuid
+  approvedById String?   @map("approved_by_id") @db.Uuid
+  approvedAt   DateTime? @map("approved_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -6714,6 +6786,37 @@ model MarketPriceList {
 
   @@index([companyId, speciesKey, breed, effectiveFrom])
   @@map("market_price_lists")
+}
+
+/// The selling price and further-processing cost of a joint output at
+/// split-off (handbook §62.5: "require approval, effective dates and audit
+/// history because they drive joint-cost allocation"). Proposed, then
+/// approved by someone other than whoever proposed it; an approved price is
+/// never edited — a new one is proposed from a later date.
+model JointOutputPrice {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  itemId    String @map("item_id") @db.Uuid
+
+  sellingPricePerUnitKobo BigInt @map("selling_price_per_unit_kobo")
+  furtherCostPerUnitKobo  BigInt @default(0) @map("further_cost_per_unit_kobo")
+  effectiveFrom           DateTime @map("effective_from") @db.Date
+  evidenceReference       String @map("evidence_reference")
+
+  status          String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  proposedById    String    @map("proposed_by_id") @db.Uuid
+  approvedById    String?   @map("approved_by_id") @db.Uuid
+  approvedAt      DateTime? @map("approved_at")
+  rejectionReason String?   @map("rejection_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  company    Company @relation(fields: [companyId], references: [id])
+  item       Item    @relation(fields: [itemId], references: [id])
+  proposedBy User    @relation("JointPriceProposer", fields: [proposedById], references: [id])
+  approvedBy User?   @relation("JointPriceApprover", fields: [approvedById], references: [id])
+
+  @@index([companyId, itemId, effectiveFrom])
+  @@map("joint_output_prices")
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import {
   AuditAction,
@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { Kobo } from '../common/money';
+import { documentPackGaps } from './employee-onboarding';
 
 export interface PayrollReadiness {
   ready: boolean;
@@ -161,6 +162,26 @@ export class EmployeeService {
         },
       });
 
+      // Employee_Employment: the job they start in is the first entry of
+      // their history.
+      await tx.employeeAssignment.create({
+        data: {
+          companyId: employee.companyId,
+          employeeId: employee.id,
+          effectiveFrom: employee.employmentDate,
+          employmentStatus: employee.employmentStatus,
+          employmentType: employee.employmentType,
+          departmentId: employee.departmentId,
+          costCentreId: employee.costCentreId,
+          branchId: employee.branchId,
+          designation: employee.designation,
+          grade: employee.grade,
+          reportingManagerId: employee.reportingManagerId,
+          reason: 'Joined',
+          recordedById: input.actorId,
+        },
+      });
+
       await this.audit.write(
         {
           transactionId: employee.id,
@@ -180,10 +201,13 @@ export class EmployeeService {
   }
 
   /**
-   * Assign or change a salary component.
+   * Propose a salary component, or a change to one.
    *
-   * A change CLOSES the current row and opens a new one; it never edits an
-   * amount in place. §7.1 requires a payroll run to store "the exact rules and
+   * Employee_Compensation: pay is prepared by one person and approved by
+   * another, and only an approved amount reaches payroll. So this records the
+   * change as PENDING; `decideSalaryComponent` approves it, and only then is
+   * the current row CLOSED and the new one opened — it never edits an amount
+   * in place. §7.1 requires a payroll run to store "the exact rules and
    * source values used", and that is only reproducible if the salary history is
    * intact. The database enforces non-overlap; this method is what makes the
    * common case do the right thing without the caller thinking about it.
@@ -237,25 +261,25 @@ export class EmployeeService {
 
     const day = startOfDay(params.effectiveFrom);
 
+    const waiting = await this.prisma.employeeSalaryComponent.findFirst({
+      where: { employeeId: params.employeeId, salaryComponentId: component.id, status: 'PENDING', employee: { companyId: employee.companyId } },
+      select: { effectiveFrom: true },
+    });
+    if (waiting) {
+      throw new AccountingRuleViolation(
+        'Employee_Compensation — one change at a time',
+        `A change to ${component.code} from ${waiting.effectiveFrom.toISOString().slice(0, 10)} is already waiting for approval. Approve or reject it first.`,
+        { componentCode: component.code },
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      // Close any open assignment the day before the new one starts.
-      const previousDay = new Date(day);
-      previousDay.setUTCDate(previousDay.getUTCDate() - 1);
-
-      await tx.employeeSalaryComponent.updateMany({
-        where: {
-          employeeId: params.employeeId,
-          salaryComponentId: component.id,
-          effectiveTo: null,
-          effectiveFrom: { lt: day },
-        },
-        data: { effectiveTo: previousDay },
-      });
-
       const created = await tx.employeeSalaryComponent.create({
         data: {
           employeeId: params.employeeId,
           salaryComponentId: component.id,
+          status: 'PENDING',
+          preparedById: params.actorId,
           amountKobo: params.amount ?? null,
           rate:
             params.rate !== undefined && params.rate !== null
@@ -271,11 +295,11 @@ export class EmployeeService {
           module: 'masters',
           entityType: 'EmployeeSalaryComponent',
           entityId: created.id,
-          status: 'ACTIVE',
+          status: 'PENDING',
           action: AuditAction.UPDATE,
           userId: params.actorId,
           comments:
-            `Set ${component.code} for ${employee.employeeNumber} from ` +
+            `Proposed ${component.code} for ${employee.employeeNumber} from ` +
             `${day.toISOString().slice(0, 10)}.`,
           metadata: {
             componentCode: component.code,
@@ -287,6 +311,79 @@ export class EmployeeService {
       );
 
       return created;
+    });
+  }
+
+  /**
+   * Approve or reject a proposed salary change (Employee_Compensation: maker
+   * and checker are different people unless the company allows otherwise).
+   * Approval closes the row it replaces the day before the new one starts.
+   */
+  async decideSalaryComponent(params: {
+    companyId: string;
+    rowId: string;
+    approve: boolean;
+    reason?: string;
+    actorId: string;
+  }) {
+    const row = await this.prisma.employeeSalaryComponent.findFirst({
+      where: { id: params.rowId, employee: { companyId: params.companyId } },
+      include: { salaryComponent: { select: { code: true } }, employee: { select: { employeeNumber: true } } },
+    });
+    if (!row) throw new NotFoundException('No such pay change.');
+    if (row.status !== 'PENDING') throw new BadRequestException(`That pay change was already ${row.status.toLowerCase()}.`);
+    if (params.approve && row.preparedById === params.actorId) {
+      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: params.companyId }, select: { allowSelfApproval: true } });
+      if (!company.allowSelfApproval) throw new ForbiddenException('You prepared this pay change, so someone else must approve it.');
+    }
+    if (!params.approve && !params.reason?.trim()) throw new BadRequestException('Say why the pay change is rejected.');
+
+    return this.prisma.$transaction(async (tx) => {
+      if (params.approve) {
+        const previousDay = new Date(row.effectiveFrom);
+        previousDay.setUTCDate(previousDay.getUTCDate() - 1);
+        const later = await tx.employeeSalaryComponent.findFirst({
+          where: { employeeId: row.employeeId, salaryComponentId: row.salaryComponentId, status: 'APPROVED', effectiveFrom: { gte: row.effectiveFrom } },
+          select: { effectiveFrom: true },
+        });
+        if (later) {
+          throw new AccountingRuleViolation(
+            'Employee_Compensation — history is not rewritten',
+            `${row.salaryComponent.code} already has an approved amount from ${later.effectiveFrom.toISOString().slice(0, 10)}; a change must start after it.`,
+            { componentCode: row.salaryComponent.code },
+          );
+        }
+        await tx.employeeSalaryComponent.updateMany({
+          where: {
+            employeeId: row.employeeId,
+            salaryComponentId: row.salaryComponentId,
+            status: 'APPROVED',
+            effectiveTo: null,
+            effectiveFrom: { lt: row.effectiveFrom },
+          },
+          data: { effectiveTo: previousDay },
+        });
+      }
+      const decided = await tx.employeeSalaryComponent.update({
+        where: { id: row.id },
+        data: { status: params.approve ? 'APPROVED' : 'REJECTED', approvedById: params.actorId, approvedAt: new Date() },
+      });
+      await this.audit.write(
+        {
+          transactionId: row.employeeId,
+          module: 'masters',
+          entityType: 'EmployeeSalaryComponent',
+          entityId: row.id,
+          status: decided.status,
+          action: params.approve ? AuditAction.APPROVE : AuditAction.REJECT,
+          userId: params.actorId,
+          comments: params.approve
+            ? `Approved ${row.salaryComponent.code} for ${row.employee.employeeNumber} from ${row.effectiveFrom.toISOString().slice(0, 10)}.`
+            : params.reason!.trim(),
+        },
+        tx,
+      );
+      return decided;
     });
   }
 
@@ -410,6 +507,7 @@ export class EmployeeService {
     const assignments = await this.prisma.employeeSalaryComponent.findMany({
       where: {
         employeeId,
+        status: 'APPROVED',
         effectiveFrom: { lte: day },
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: day } }],
       },
@@ -522,6 +620,27 @@ export class EmployeeService {
     }
     if (!employee.tin) warnings.push('No TIN recorded.');
 
+    const pendingPay = await this.prisma.employeeSalaryComponent.count({
+      where: { employeeId, status: 'PENDING', employee: { companyId: employee.companyId } },
+    });
+    if (pendingPay > 0) {
+      warnings.push(`${pendingPay} pay change${pendingPay === 1 ? ' is' : 's are'} waiting for approval and will not be paid until approved.`);
+    }
+
+    // Employee_Master_Checks: the document pack must be complete before
+    // payroll accepts the employee. For someone already on payroll before the
+    // checks existed, a gap is a warning to clear rather than a stopped run.
+    const verifications = await this.prisma.employeeVerification.findMany({
+      where: { companyId: employee.companyId, employeeId },
+      select: { checkType: true, status: true },
+    });
+    const gaps = documentPackGaps(employee, verifications);
+    if (gaps.length > 0) {
+      const message = `Document pack incomplete: ${gaps.join('; ')}.`;
+      if (employee.payrollActive) warnings.push(message);
+      else blockers.push(message);
+    }
+
     return {
       ready: blockers.length === 0,
       employeeNumber: employee.employeeNumber,
@@ -583,7 +702,7 @@ export class EmployeeService {
    * A reporting line must not loop. The database rejects self-reference; this
    * catches the longer cycles it cannot see from one row.
    */
-  private async assertNoManagementCycle(
+  async assertNoManagementCycle(
     managerId: string,
     employeeId: string | null,
   ): Promise<void> {

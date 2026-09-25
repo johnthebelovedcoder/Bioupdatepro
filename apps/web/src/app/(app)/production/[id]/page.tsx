@@ -54,7 +54,7 @@ export default async function ProductionOrderDetailPage({
           </div>
 
           <div style={{ marginTop: 'var(--sp-4)' }}>
-            <StageAction order={order} />
+            <StageAction order={order} routing={routing} />
           </div>
         </Card>
 
@@ -250,8 +250,10 @@ function MoneyStat({ label, value }: { label: string; value: string }) {
 
 function StageAction({
   order,
+  routing,
 }: {
   order: NonNullable<Awaited<ReturnType<typeof getProductionOrder>>>;
+  routing: Awaited<ReturnType<typeof getProductionRouting>>;
 }) {
   switch (order.status) {
     case 'DRAFT':
@@ -281,7 +283,16 @@ function StageAction({
         />
       );
     case 'RELEASED':
-      return <ConfirmConversionForm orderId={order.id} />;
+      return (
+        <ConfirmConversionForm
+          orderId={order.id}
+          operations={routing.map((line) => ({
+            name: line.routingOperation.operationName,
+            standardHours: line.standardHours,
+            ratePerHourKobo: line.ratePerHourKobo,
+          }))}
+        />
+      );
     case 'IN_PRODUCTION':
       return (
         <RecordOutputsFormLoader order={order} />

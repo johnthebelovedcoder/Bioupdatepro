@@ -346,11 +346,18 @@ export class RoutingService {
       return { hasRate: false as const };
     }
 
-    const consumed = await this.prisma.productionOrderRoutingLine.aggregate({
-      where: { routingOperation: { costPoolId: poolId } },
-      _sum: { standardHours: true },
+    // Hours consumed while this rate applied: actual where conversion has
+    // been confirmed, standard otherwise (an order still in progress).
+    const lines = await this.prisma.productionOrderRoutingLine.findMany({
+      where: {
+        routingOperation: { costPoolId: poolId },
+        productionOrder: {
+          createdAt: { gte: rate.effectiveFrom, ...(rate.effectiveTo ? { lte: new Date(rate.effectiveTo.getTime() + 86_400_000) } : {}) },
+        },
+      },
+      select: { standardHours: true, actualHours: true },
     });
-    const consumedHours = Number(consumed._sum.standardHours ?? 0);
+    const consumedHours = lines.reduce((sum, line) => sum + Number(line.actualHours ?? line.standardHours), 0);
     const practicalCapacity = Number(rate.practicalCapacity);
     const unusedCapacity = Math.max(0, practicalCapacity - consumedHours);
     const unusedCapacityCostKobo = BigInt(Math.round(unusedCapacity * Number(rate.ratePerUnitKobo)));

@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductionOrderService } from './production-order.service';
+import { JointCostService } from './joint-cost.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { AnyRole, Roles } from '../auth/roles.guard';
 import { OwnedRecord } from '../auth/owned-record.guard';
@@ -18,6 +19,7 @@ export class ProductionOrderController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly orders: ProductionOrderService,
+    private readonly joint: JointCostService,
   ) {}
 
   /**
@@ -59,6 +61,55 @@ export class ProductionOrderController {
         recipeVersion: { include: { recipe: { include: { outputItem: true } } } },
       },
     });
+  }
+
+  /* --- Joint-cost controls (handbook §62) --------------------------------- */
+
+  @AnyRole('The joint-cost method and prices are how an order will be costed; everyone costing one needs them.')
+  @Get('joint-cost')
+  async jointCost(@CurrentCompany() companyId: string) {
+    return { method: await this.joint.releasedMethod(companyId), prices: await this.joint.listPrices(companyId) };
+  }
+
+  @Roles('CFO')
+  @Post('joint-cost/method')
+  async releaseJointCostMethod(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Body() body: { method: string }) {
+    return this.joint.releaseMethod({ companyId, method: String(body?.method ?? ''), actor });
+  }
+
+  @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('joint-cost/prices')
+  async proposeJointPrice(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { itemId: string; sellingPricePerUnitKobo: string; furtherCostPerUnitKobo?: string; effectiveFrom: string; evidenceReference: string },
+  ) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body?.effectiveFrom ?? '')) throw new BadRequestException('effectiveFrom must be a date, YYYY-MM-DD.');
+    if (!/^[0-9]+$/.test(body?.sellingPricePerUnitKobo ?? '') || (body.furtherCostPerUnitKobo && !/^[0-9]+$/.test(body.furtherCostPerUnitKobo))) {
+      throw new BadRequestException('Prices are whole kobo.');
+    }
+    const price = await this.joint.proposePrice({
+      companyId,
+      itemId: body.itemId,
+      sellingPricePerUnitKobo: BigInt(body.sellingPricePerUnitKobo),
+      furtherCostPerUnitKobo: BigInt(body.furtherCostPerUnitKobo ?? '0'),
+      effectiveFrom: new Date(`${body.effectiveFrom}T00:00:00.000Z`),
+      evidenceReference: String(body.evidenceReference ?? ''),
+      actor,
+    });
+    return { id: price.id, status: price.status };
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('joint-cost/prices/:priceId/decide')
+  async decideJointPrice(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('priceId') priceId: string,
+    @Body() body: { approve: boolean; reason?: string },
+  ) {
+    const decided = await this.joint.decide({ companyId, priceId, approve: body?.approve === true, reason: body?.reason, actor });
+    return { id: decided.id, status: decided.status };
   }
 
   @AnyRole('One processing order in full.')
@@ -140,11 +191,19 @@ export class ProductionOrderController {
     @Param('id') id: string,
     @CurrentUser() actor: WorkflowActor,
     @Body()
-    body: { standardConversionCostKobo: string; actualLabourCostKobo: string; actualOverheadCostKobo: string },
+    body: {
+      /** Only when the recipe has no routing; otherwise derived from actual hours × approved rates. */
+      standardConversionCostKobo?: string;
+      /** Actual hours per routing operation, by operation name or line id. */
+      actualHours?: Record<string, string | number>;
+      actualLabourCostKobo: string;
+      actualOverheadCostKobo: string;
+    },
   ) {
     return this.orders.confirmConversion({
       productionOrderId: id,
-      standardConversionCostKobo: BigInt(body.standardConversionCostKobo),
+      ...(body.standardConversionCostKobo ? { standardConversionCostKobo: BigInt(body.standardConversionCostKobo) } : {}),
+      ...(body.actualHours ? { actualHours: body.actualHours } : {}),
       actualLabourCostKobo: BigInt(body.actualLabourCostKobo),
       actualOverheadCostKobo: BigInt(body.actualOverheadCostKobo),
       actor,
@@ -176,8 +235,11 @@ export class ProductionOrderController {
     @CurrentUser() actor: WorkflowActor,
     @Body()
     body: {
-      method: CostAllocationMethod;
+      /** Optional; the company's released method is used and another is refused. */
+      method?: CostAllocationMethod;
       warehouseId: string;
+      /** Normal process loss in kg, for an order from a harvest (mass balance). */
+      normalLossQuantity?: string;
       outputs: Array<{
         itemId: string;
         outputType: 'MAIN' | 'BY_PRODUCT';
@@ -200,6 +262,7 @@ export class ProductionOrderController {
     return this.orders.recordOutputs({
       productionOrderId: id,
       method: body.method,
+      normalLossQuantity: body.normalLossQuantity,
       outputs,
       warehouseId: body.warehouseId,
       actor,

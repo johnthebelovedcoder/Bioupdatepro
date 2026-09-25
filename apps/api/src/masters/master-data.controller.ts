@@ -8,6 +8,7 @@ import {
 import { PartyService } from './party.service';
 import { ItemService } from './item.service';
 import { EmployeeService } from './employee.service';
+import { EmployeeOnboardingService } from './employee-onboarding.service';
 import { RecipeService } from './recipe.service';
 import { kobo } from '../common/money';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
@@ -30,6 +31,7 @@ export class MasterDataController {
     private readonly parties: PartyService,
     private readonly items: ItemService,
     private readonly employees: EmployeeService,
+    private readonly onboarding: EmployeeOnboardingService,
     private readonly recipes: RecipeService,
     private readonly structure: FarmStructureService,
     private readonly stockMovements: StockMovementService,
@@ -399,6 +401,88 @@ export class MasterDataController {
     });
   }
 
+  /** Approve or reject a proposed pay change — by someone other than who prepared it. */
+  @Post('salary-changes/:rowId/decide')
+  async decideSalaryChange(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('rowId') rowId: string,
+    @Body() body: { approve: boolean; reason?: string },
+  ) {
+    return this.employees.decideSalaryComponent({
+      companyId,
+      rowId,
+      approve: body.approve === true,
+      reason: body.reason,
+      actorId: actor.userId,
+    });
+  }
+
+  /** The four onboarding steps and whether each is done (Employee_Master_Checks). */
+  @OwnedRecord('employee', 'id')
+  @Get('employees/:id/onboarding')
+  async employeeOnboarding(@CurrentCompany() companyId: string, @Param('id') id: string, @Query('on') on?: string) {
+    return this.onboarding.onboarding(companyId, id, on ? new Date(on) : new Date());
+  }
+
+  @OwnedRecord('employee', 'id')
+  @Post('employees/:id/details')
+  async updateEmployeeDetails(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: Record<string, string | boolean | null>,
+  ) {
+    return this.onboarding.updateDetails({
+      companyId,
+      employeeId: id,
+      details: body as Parameters<EmployeeOnboardingService['updateDetails']>[0]['details'],
+      actorId: actor.userId,
+    });
+  }
+
+  @OwnedRecord('employee', 'id')
+  @Post('employees/:id/assignments')
+  async recordAssignment(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      effectiveFrom: string;
+      employmentStatus: string;
+      employmentType: string;
+      departmentId?: string | null;
+      costCentreId?: string | null;
+      branchId?: string | null;
+      farmId?: string | null;
+      designation?: string | null;
+      grade?: string | null;
+      reportingManagerId?: string | null;
+      shift?: string | null;
+      reason: string;
+    },
+  ) {
+    return this.onboarding.recordAssignment({
+      ...body,
+      companyId,
+      employeeId: id,
+      effectiveFrom: new Date(body.effectiveFrom),
+      actorId: actor.userId,
+    });
+  }
+
+  @OwnedRecord('employee', 'id')
+  @Post('employees/:id/verifications')
+  async verifyEmployeeCheck(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: { checkType: string; status: string; reference?: string | null; note?: string | null },
+  ) {
+    return this.onboarding.verify({ ...body, companyId, employeeId: id, actorId: actor.userId });
+  }
+
   @OwnedRecord('employee', 'id')
   @Get('employees/:id/salary')
   async salarySnapshot(@Param('id') id: string, @Query('on') on?: string) {
@@ -644,6 +728,12 @@ export class MasterDataController {
   @Get('tax-codes')
   async listTaxCodes(@CurrentCompany() companyId: string) {
     return this.structure.listTaxCodes(companyId);
+  }
+
+  /** Departments, for an employee's job (Employee_Employment). */
+  @Get('departments')
+  async listDepartments(@CurrentCompany() companyId: string) {
+    return this.onboarding.listDepartments(companyId);
   }
 
   @AnyRole('Cost centres appear on every production posting.')

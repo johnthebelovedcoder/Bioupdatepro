@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { getContext } from '@/lib/org';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
@@ -179,7 +180,7 @@ export default async function EmployeesPage() {
                     return (
                       <tr key={employee.id}>
                         <td className="num strong" style={{ textAlign: 'left' }}>
-                          {employee.employeeNumber}
+                          <Link href={`/staff/employees/${employee.id}`}>{employee.employeeNumber}</Link>
                         </td>
                         <td>{employee.name}</td>
                         <td className="faint">{employee.costCentre ?? '—'}</td>
@@ -204,9 +205,9 @@ export default async function EmployeesPage() {
                           ) : realBlockers.length === 0 ? (
                             <ActivatePayrollButton employeeId={employee.id} />
                           ) : (
-                            <span className="faint" style={{ whiteSpace: 'normal' }}>
-                              {realBlockers[0]}
-                            </span>
+                            <Link href={`/staff/employees/${employee.id}`} className="faint" style={{ whiteSpace: 'normal' }}>
+                              {realBlockers[0]} Continue onboarding →
+                            </Link>
                           )}
                         </td>
                       </tr>

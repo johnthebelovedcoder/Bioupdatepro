@@ -233,6 +233,22 @@ Stated here rather than discovered later.
   than whoever recorded it, and never edited; the latest approved one is the
   current weight, and biomass, FCR and daily gain read from approved weighings
   only. Target weights come from the breed stages where they are set.
+- **Joint cost uses one released method.** Every processing order shares its
+  cost between outputs by NRV at split-off (handbook §62) unless a CFO releases
+  another (Feed mill → Joint-cost prices). The selling prices NRV reads are
+  proposed with evidence and approved by someone else, and a change is a new
+  price from a later date. Outputs plus the stated normal and abnormal loss
+  must equal the harvested weight before an order is costed.
+- **Routing sets standard conversion.** An order with routing is charged
+  actual hours × the rate snapshotted from its cost pools; the hours are kept
+  on the order's routing lines, and a pool's unused capacity reads them.
+- **Onboarding is four steps** (People → Employees → an employee): personal,
+  employment, compensation and documents, each marked done only when the
+  workbook's Employee_Master_Checks pass it. Pay changes wait for someone
+  other than who prepared them; job changes are dated history; a changed bank
+  account or TIN clears its verification. Employees on payroll before
+  2026-09-25 keep being paid with document gaps shown as warnings; everyone
+  else needs a complete pack before activation.
 - **References are the system's.** Documents and journals are numbered
   TYPE-ENTITY-SITE-YYYY-000001 by an atomic sequence; the API ignores a number
   sent by a caller. Journals posted before 2026-09-25 keep only their source

@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { RoutingService } from '../routing/routing.service';
+import { JointCostService } from './joint-cost.service';
 import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
@@ -642,7 +644,14 @@ export class ProductionOrderService {
 
   async confirmConversion(params: {
     productionOrderId: string;
-    standardConversionCostKobo: bigint;
+    /**
+     * Only for an order whose recipe has no routing. With a routing the
+     * standard is derived — actual hours × each operation's approved rate
+     * (PCR-053) — and a typed figure that disagrees is refused.
+     */
+    standardConversionCostKobo?: bigint;
+    /** Actual driver quantity per routing operation (keyed by operation name or line id); standard hours where omitted. */
+    actualHours?: Record<string, number | string>;
     actualLabourCostKobo: bigint;
     actualOverheadCostKobo: bigint;
     actor: WorkflowActor;
@@ -660,6 +669,49 @@ export class ProductionOrderService {
       );
     }
     const rules = this.cycleRules(order.processingCycle);
+
+    // --- The standard, from the routing (ABC_Pools_Drivers, PCR-053) --------
+    const routing = new RoutingService(this.prisma, this.audit);
+    await routing.snapshotRouting(order.id);
+    const lines = await this.prisma.productionOrderRoutingLine.findMany({
+      where: { productionOrderId: order.id },
+      include: { routingOperation: { select: { operationName: true } } },
+    });
+    let standardConversionCostKobo: bigint;
+    if (lines.length > 0) {
+      const absorbed = lines.map((line) => {
+        const given = params.actualHours?.[line.id] ?? params.actualHours?.[line.routingOperation.operationName];
+        const hours = given === undefined || given === '' ? new Decimal(line.standardHours.toString()) : new Decimal(given);
+        if (hours.lt(0)) {
+          throw new AccountingRuleViolation('ABC_Pools_Drivers — driver quantity', `${line.routingOperation.operationName}: hours cannot be negative.`, {});
+        }
+        const cost = BigInt(hours.mul(line.ratePerHourKobo.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+        return { id: line.id, hours, cost };
+      });
+      standardConversionCostKobo = absorbed.reduce((sum, a) => sum + a.cost, 0n);
+      if (params.standardConversionCostKobo !== undefined && params.standardConversionCostKobo !== standardConversionCostKobo) {
+        throw new AccountingRuleViolation(
+          'PCR-053 — Standard conversion from the routing',
+          `${order.orderNumber}'s standard conversion comes from its routing: ${standardConversionCostKobo} kobo (actual hours × approved rates), not the ${params.standardConversionCostKobo} kobo given.`,
+          { derived: standardConversionCostKobo.toString() },
+        );
+      }
+      for (const a of absorbed) {
+        await this.prisma.productionOrderRoutingLine.update({
+          where: { id: a.id },
+          data: { actualHours: new Prisma.Decimal(a.hours.toFixed(6)), absorbedCostKobo: a.cost },
+        });
+      }
+    } else {
+      if (params.standardConversionCostKobo === undefined) {
+        throw new AccountingRuleViolation(
+          'PCR-053 — Standard conversion',
+          `${order.orderNumber}'s recipe has no routing, so give its standard conversion cost — or set up the routing (operations, cost pools and rates) so it is worked out.`,
+          {},
+        );
+      }
+      standardConversionCostKobo = params.standardConversionCostKobo;
+    }
 
     const context = await this.postingContext(order.companyId, new Date());
     if (!context) {
@@ -682,13 +734,13 @@ export class ProductionOrderService {
         {
           glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          debit: kobo(params.standardConversionCostKobo),
+          debit: kobo(standardConversionCostKobo),
           dimensions,
         },
         {
           glAccountId: this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId,
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          credit: kobo(params.standardConversionCostKobo),
+          credit: kobo(standardConversionCostKobo),
           dimensions,
         },
       ];
@@ -708,13 +760,13 @@ export class ProductionOrderService {
         {
           glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          debit: kobo(params.standardConversionCostKobo),
+          debit: kobo(standardConversionCostKobo),
           dimensions,
         },
         {
           glAccountId: this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId,
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          credit: kobo(params.standardConversionCostKobo),
+          credit: kobo(standardConversionCostKobo),
           dimensions,
         },
         {
@@ -742,13 +794,13 @@ export class ProductionOrderService {
         {
           glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          debit: kobo(params.standardConversionCostKobo),
+          debit: kobo(standardConversionCostKobo),
           dimensions,
         },
         {
           glAccountId: this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId,
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          credit: kobo(params.standardConversionCostKobo),
+          credit: kobo(standardConversionCostKobo),
           dimensions,
         },
         {
@@ -801,7 +853,7 @@ export class ProductionOrderService {
         where: { id: order.id },
         data: {
           status: ProductionOrderStatus.IN_PRODUCTION,
-          standardConversionCostKobo: params.standardConversionCostKobo,
+          standardConversionCostKobo: standardConversionCostKobo,
           actualLabourCostKobo: params.actualLabourCostKobo,
           actualOverheadCostKobo: params.actualOverheadCostKobo,
           conversionJournalEntryId: result.journalEntryId,
@@ -817,7 +869,7 @@ export class ProductionOrderService {
           status: ProductionOrderStatus.IN_PRODUCTION,
           action: AuditAction.POST,
           userId: params.actor.userId,
-          comments: `Confirmed conversion for ${order.orderNumber}: standard ${params.standardConversionCostKobo}, actual labour ${params.actualLabourCostKobo}, actual overhead ${params.actualOverheadCostKobo}.`,
+          comments: `Confirmed conversion for ${order.orderNumber}: standard ${standardConversionCostKobo}, actual labour ${params.actualLabourCostKobo}, actual overhead ${params.actualOverheadCostKobo}.`,
         },
         tx,
       );
@@ -1069,8 +1121,16 @@ export class ProductionOrderService {
    */
   async recordOutputs(params: {
     productionOrderId: string;
-    method: CostAllocationMethod;
+    /** Optional: the company's released method is used; naming another is refused (handbook §62). */
+    method?: CostAllocationMethod;
     outputs: AllocationOutput[];
+    /**
+     * Normal process loss, in the harvest's unit (kg): what the input lost on
+     * the way to good output. With the outputs and any abnormal loss it must
+     * add up to the harvest (handbook §62.5), so it is required for an order
+     * from a harvest.
+     */
+    normalLossQuantity?: Decimal.Value;
     warehouseId: string;
     actor: WorkflowActor;
   }) {
@@ -1108,6 +1168,50 @@ export class ProductionOrderService {
 
     const rules = this.cycleRules(order.processingCycle);
 
+    // --- Handbook §62: one released method, approved prices, mass balance --
+    const joint = new JointCostService(this.prisma, this.audit);
+    const method = await joint.releasedMethod(order.companyId);
+    if (params.method && params.method !== method) {
+      throw new AccountingRuleViolation(
+        'JOINT_COST_ALLOCATION — one released method',
+        `This company allocates joint cost by ${method} on every order; ${params.method} was asked for. The CFO changes the released method, not the order.`,
+        { released: method, requested: params.method },
+      );
+    }
+    let outputs = params.outputs;
+    if (method === 'NRV') {
+      const prices = await joint.pricesOn(order.companyId, [...new Set(outputs.map((o) => o.itemId))], new Date());
+      outputs = outputs.map((o) => ({
+        ...o,
+        salePricePerUnitKobo: prices.get(o.itemId)!.sellingPricePerUnitKobo,
+        costsToSellPerUnitKobo: prices.get(o.itemId)!.furtherCostPerUnitKobo,
+      }));
+    }
+    if (order.harvestRecordId) {
+      const harvest = await this.prisma.harvestRecord.findUniqueOrThrow({ where: { id: order.harvestRecordId }, select: { weightKg: true } });
+      const input = new Decimal(harvest.weightKg.toString());
+      const good = outputs.reduce((sum, o) => sum.plus(new Decimal(o.weight ?? o.quantity)), new Decimal(0));
+      const abnormal = (
+        await this.prisma.productionOrderLossEvent.findMany({ where: { productionOrderId: order.id, classification: 'ABNORMAL' }, select: { quantity: true } })
+      ).reduce((sum, l) => sum.plus(new Decimal(l.quantity.toString())), new Decimal(0));
+      const implied = input.minus(good).minus(abnormal);
+      if (params.normalLossQuantity === undefined || params.normalLossQuantity === null || params.normalLossQuantity === '') {
+        throw new AccountingRuleViolation(
+          'Handbook §62.5 — Mass balance',
+          `State the normal process loss. ${input.toFixed(3)} kg went in; outputs are ${good.toFixed(3)} kg${abnormal.gt(0) ? ` and abnormal loss ${abnormal.toFixed(3)} kg` : ''}, so normal loss would be ${implied.toFixed(3)} kg.`,
+          { inputKg: input.toFixed(3), outputKg: good.toFixed(3), abnormalKg: abnormal.toFixed(3) },
+        );
+      }
+      const normal = new Decimal(params.normalLossQuantity);
+      if (normal.lt(0) || good.plus(normal).plus(abnormal).minus(input).abs().gt('0.001')) {
+        throw new AccountingRuleViolation(
+          'Handbook §62.5 — Mass balance',
+          `Outputs ${good.toFixed(3)} kg + normal loss ${normal.toFixed(3)} kg + abnormal loss ${abnormal.toFixed(3)} kg is ${good.plus(normal).plus(abnormal).toFixed(3)} kg, but ${input.toFixed(3)} kg went in. Correct the quantities before the order completes.`,
+          { inputKg: input.toFixed(3) },
+        );
+      }
+    }
+
     const wipDebits =
       order.biologicalInputValueKobo +
       order.rearingCostKobo +
@@ -1124,9 +1228,9 @@ export class ProductionOrderService {
     }
 
     const allocated = this.costAllocation.allocate({
-      method: params.method,
+      method,
       totalKobo: kobo(totalToAllocate),
-      outputs: params.outputs,
+      outputs,
     });
 
     const context = await this.postingContext(order.companyId, new Date());

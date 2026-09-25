@@ -1,4 +1,5 @@
 import { Module, OnModuleInit } from '@nestjs/common';
+import { JointCostService } from './joint-cost.service';
 import { ProductionOrderService } from './production-order.service';
 import { CostAllocationService } from './cost-allocation.service';
 import { ProductionOrderAbnormalLossPostingHandler } from './production-order.handlers';
@@ -13,7 +14,7 @@ import { WorkflowService } from '../workflow/workflow.service';
  */
 @Module({
   imports: [MastersModule, PostingControlModule],
-  providers: [ProductionOrderService, CostAllocationService, ProductionOrderAbnormalLossPostingHandler],
+  providers: [ProductionOrderService, CostAllocationService, ProductionOrderAbnormalLossPostingHandler, JointCostService],
   // ProductionOrderController is registered in AppModule, matching every
   // other feature module's controller in this codebase.
   exports: [ProductionOrderService],

@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { PartyService } from './party.service';
 import { ItemService } from './item.service';
 import { EmployeeService } from './employee.service';
+import { EmployeeOnboardingService } from './employee-onboarding.service';
 import { RecipeService } from './recipe.service';
 import { FarmStructureService } from './farm-structure.service';
 
@@ -14,7 +15,7 @@ import { FarmStructureService } from './farm-structure.service';
  */
 @Global()
 @Module({
-  providers: [PartyService, ItemService, EmployeeService, RecipeService, FarmStructureService],
-  exports: [PartyService, ItemService, EmployeeService, RecipeService, FarmStructureService],
+  providers: [PartyService, ItemService, EmployeeService, EmployeeOnboardingService, RecipeService, FarmStructureService],
+  exports: [PartyService, ItemService, EmployeeService, EmployeeOnboardingService, RecipeService, FarmStructureService],
 })
 export class MastersModule {}

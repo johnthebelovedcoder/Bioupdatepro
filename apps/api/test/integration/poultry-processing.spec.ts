@@ -19,6 +19,7 @@ import { DelegationService } from '../../src/workflow/delegation.service';
 import { NotificationService } from '../../src/workflow/notification.service';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
 import { ControlAccountReconciliationService } from '../../src/reporting/control-account-reconciliation.service';
+import { JointCostService } from '../../src/production/joint-cost.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
@@ -103,6 +104,16 @@ beforeEach(async () => {
   // Components are set while a draft; an active version is locked (a database rule).
   await prisma.productRecipeVersion.update({ where: { id: versionId }, data: { status: 'ACTIVE' } });
 
+  // Approved selling prices at split-off (handbook §62.5), from the start of the year.
+  const joint = new JointCostService(prisma, new AuditService(prisma));
+  for (const [code, price] of [['MEAT', 600000n], ['SHELL', 100000n]] as const) {
+    const proposed = await joint.proposePrice({
+      companyId: fixture.companyId, itemId: item[code]!, sellingPricePerUnitKobo: price, furtherCostPerUnitKobo: 0n,
+      effectiveFrom: new Date('2026-01-01'), evidenceReference: 'Price list 2026', actor: maker,
+    });
+    await joint.decide({ companyId: fixture.companyId, priceId: proposed.id, approve: true, actor: { userId: fixture.financeUserId, roles: ['FINANCE_CONTROLLER'] } });
+  }
+
   // 500 market-ready birds, last valued at ₦3,000 each, harvested for processing.
   const pen = await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: 'P1', name: 'Poultry house 1' } });
   const cohort = await prisma.livestockGroup.create({
@@ -152,7 +163,7 @@ describe('Poultry processing and close (UAT-020)', () => {
     expect(await wip()).toBe(1_500_000_00n + 5_000_00n + 1_400_000_00n);
 
     await orders.recordOutputs({
-      productionOrderId: id, method: 'WEIGHT', warehouseId: fgStore, actor: maker,
+      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38',
       outputs: [
         { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
         { itemId: item.SHELL!, outputType: 'BY_PRODUCT', quantity: '16', weight: '16' },
