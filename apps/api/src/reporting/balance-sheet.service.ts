@@ -63,8 +63,9 @@ export class BalanceSheetService {
     const currentYearId = await currentFinancialYearId(this.prisma, filter.companyId);
     const currentYearEarningsKobo = currentYearId
       ? BigInt(
+          // After tax: the tax provided for is a liability, not equity.
           (await this.profitLoss.build({ ...filter, financialYearId: currentYearId }))
-            .profitBeforeTaxKobo,
+            .profitAfterTaxKobo,
         )
       : 0n;
 

@@ -308,6 +308,9 @@ export class ReportingController {
       ['Gross Profit', '', '', pl.grossProfitKobo],
       ['Total Operating Expense', '', '', pl.operatingExpenseKobo],
       ['Profit Before Tax', '', '', pl.profitBeforeTaxKobo],
+      ...lineRows('Income Tax', pl.incomeTaxLines),
+      ['Income Tax', '', '', pl.incomeTaxKobo],
+      ['Profit After Tax', '', '', pl.profitAfterTaxKobo],
     ];
     return [header, ...rows].map((row) => row.join(',')).join('\r\n');
   }

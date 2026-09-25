@@ -7,6 +7,7 @@ import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { ExportLink } from '@/components/export-link';
 import { SegmentStatements, type SegmentReport } from '@/components/segment-statements';
+import { IncomeTaxPanel } from '@/components/income-tax-panel';
 
 export const metadata = { title: 'Profit & loss — BioAssetPro' };
 
@@ -22,6 +23,8 @@ interface ProfitLoss {
   grossProfitKobo: string;
   operatingExpenseKobo: string;
   profitBeforeTaxKobo: string;
+  incomeTaxKobo: string;
+  profitAfterTaxKobo: string;
   revenueLines: Line[];
   costOfSalesLines: Line[];
   operatingExpenseLines: Line[];
@@ -74,6 +77,7 @@ export default async function ProfitLossPage({
   if (farmId) query.set('farmId', farmId);
 
   const bySegment = params.view === 'segments';
+  const today = new Date().toISOString().slice(0, 10);
   let report: ProfitLoss | null = null;
   let segments: SegmentReport | null = null;
   let error: string | null = null;
@@ -174,15 +178,22 @@ export default async function ProfitLossPage({
                 )}
                 <TotalRow label="Total operating expense" amountKobo={report.operatingExpenseKobo} />
 
-                <TotalRow label="Profit before tax" amountKobo={report.profitBeforeTaxKobo} strong final />
+                <TotalRow label="Profit before tax" amountKobo={report.profitBeforeTaxKobo} strong />
+                <TotalRow label="Income tax" amountKobo={report.incomeTaxKobo} />
+                <TotalRow label="Profit after tax" amountKobo={report.profitAfterTaxKobo} strong final />
               </tbody>
             </table>
           </div>
           <div className="card-footer">
-            <span className="faint">
-              No tax line — this company&rsquo;s tax rates and treatment have not been configured
-              yet, so profit before tax is where this statement stops.
-            </span>
+            <IncomeTaxPanel
+              periodId={
+                periodId ||
+                // The month we are in, or else the year's last open one.
+                (year?.periods.find((p) => p.startDate.slice(0, 10) <= today && today <= p.endDate.slice(0, 10))?.id ??
+                  [...(year?.periods ?? [])].reverse().find((p) => p.status === 'OPEN')?.id ??
+                  '')
+              }
+            />
           </div>
         </Card>
       ) : null}

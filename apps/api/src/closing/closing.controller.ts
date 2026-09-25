@@ -2,6 +2,7 @@ import { Body, Controller, Get, NotFoundException, Param, Post, Query } from '@n
 import { ChecklistItemStatus } from '@bioassetpro/database';
 import { PeriodCloseService } from './period-close.service';
 import { YearEndService } from './year-end.service';
+import { IncomeTaxService } from './income-tax.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
@@ -16,7 +17,27 @@ export class ClosingController {
     private readonly periods: PeriodCloseService,
     private readonly yearEnd: YearEndService,
     private readonly prisma: PrismaService,
+    private readonly incomeTax: IncomeTaxService,
   ) {}
+
+  /** What providing for income tax through this period would post (PCR-084). */
+  @Get('period/:id/income-tax')
+  async incomeTaxPreview(@CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.incomeTax.preview(companyId, id);
+  }
+
+  /** Provide for income tax on the year's profit to the end of this period. */
+  @Roles('CFO')
+  @Post('period/:id/income-tax')
+  async provideIncomeTax(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Param('id') id: string) {
+    return this.incomeTax.provide({ companyId, financialPeriodId: id, actor });
+  }
+
+  @Roles('CFO')
+  @Post('income-tax-rate')
+  async setIncomeTaxRate(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Body() body: { ratePercent: number }) {
+    return this.incomeTax.setRate({ companyId, ratePercent: Number(body?.ratePercent), actor });
+  }
 
   /**
    * Reopen requests for one period — what a "reopen" screen needs to show

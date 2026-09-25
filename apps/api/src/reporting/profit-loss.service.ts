@@ -14,9 +14,13 @@ export interface ProfitLoss {
   grossProfitKobo: string;
   operatingExpenseKobo: string;
   profitBeforeTaxKobo: string;
+  /** Income tax provided for (PCR-084, 650100) — below profit before tax. */
+  incomeTaxKobo: string;
+  profitAfterTaxKobo: string;
   revenueLines: ProfitLossLine[];
   costOfSalesLines: ProfitLossLine[];
   operatingExpenseLines: ProfitLossLine[];
+  incomeTaxLines: ProfitLossLine[];
 }
 
 /**
@@ -35,6 +39,9 @@ export const COST_OF_SALES_ACCOUNTS = new Set([
   // biological losses that replace 5305 (chart.ts, SPECIES_ACCOUNTS).
   '510100', '510200', '510300', '510400', '640300', '640500',
 ]);
+
+/** Income tax expense (PCR-084-DR) — shown below profit before tax, not among operating costs. */
+export const INCOME_TAX_ACCOUNTS = new Set(['650100']);
 
 /**
  * Profit & Loss, as a read over the same ledger the Trial Balance already
@@ -58,8 +65,9 @@ export class ProfitLossService {
     const costOfSalesRows = expenseRows.filter((row) =>
       COST_OF_SALES_ACCOUNTS.has(row.accountNumber),
     );
+    const incomeTaxRows = expenseRows.filter((row) => INCOME_TAX_ACCOUNTS.has(row.accountNumber));
     const operatingExpenseRows = expenseRows.filter(
-      (row) => !COST_OF_SALES_ACCOUNTS.has(row.accountNumber),
+      (row) => !COST_OF_SALES_ACCOUNTS.has(row.accountNumber) && !INCOME_TAX_ACCOUNTS.has(row.accountNumber),
     );
 
     // Revenue is credit-normal, so `displayedBalanceKobo` is already positive
@@ -69,6 +77,8 @@ export class ProfitLossService {
     const operatingExpenseKobo = sumOf(operatingExpenseRows);
     const grossProfitKobo = revenueKobo - costOfSalesKobo;
     const profitBeforeTaxKobo = grossProfitKobo - operatingExpenseKobo;
+    const incomeTaxKobo = sumOf(incomeTaxRows);
+    const profitAfterTaxKobo = profitBeforeTaxKobo - incomeTaxKobo;
 
     return {
       revenueKobo: revenueKobo.toString(),
@@ -76,9 +86,12 @@ export class ProfitLossService {
       grossProfitKobo: grossProfitKobo.toString(),
       operatingExpenseKobo: operatingExpenseKobo.toString(),
       profitBeforeTaxKobo: profitBeforeTaxKobo.toString(),
+      incomeTaxKobo: incomeTaxKobo.toString(),
+      profitAfterTaxKobo: profitAfterTaxKobo.toString(),
       revenueLines: toLines(revenueRows),
       costOfSalesLines: toLines(costOfSalesRows),
       operatingExpenseLines: toLines(operatingExpenseRows),
+      incomeTaxLines: toLines(incomeTaxRows),
     };
   }
 }

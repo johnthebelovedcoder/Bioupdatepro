@@ -48,7 +48,9 @@ export type Row =
   | 'productionVariance'
   | 'feedMedication'
   | 'lifecycleLabourOverhead'
-  | 'lossesAndOther';
+  | 'lossesAndOther'
+  /** Below profit before tax: PCR-084, not a segment cost. */
+  | 'incomeTax';
 
 export const INCOME_ROWS: Row[] = ['externalRevenue', 'internalFeedRevenue', 'fairValueGain'];
 export const EXPENSE_ROWS: Row[] = [
@@ -76,6 +78,7 @@ export const ROW_LABELS: Record<Row, string> = {
   feedMedication: 'Feed and medication',
   lifecycleLabourOverhead: 'Lifecycle labour and overhead',
   lossesAndOther: 'Losses and other expenses',
+  incomeTax: 'Income tax',
 };
 
 /** Account → segment and row, on both charts. Anything unlisted: the farm's other income or expense. */
@@ -122,6 +125,8 @@ const SEGMENT_ACCOUNTS: Record<string, [ProductSegment, Row]> = {
   // Feed mill
   '623100': ['feedMill', 'lossesAndOther'],
   '640200': ['feedMill', 'lossesAndOther'],
+  // Income tax (PCR-084) — shown below profit before tax
+  '650100': ['farm', 'incomeTax'],
   // Biological losses
   '640300': ['farm', 'lossesAndOther'],
   '640500': ['farm', 'lossesAndOther'],
@@ -143,7 +148,7 @@ type Owner = Species | 'shared';
 
 export interface Statement {
   columns: string[];
-  rows: Array<{ key: Row | 'totalIncome' | 'totalExpenses' | 'profitBeforeTax'; label: string; amounts: string[] }>;
+  rows: Array<{ key: Row | 'totalIncome' | 'totalExpenses' | 'profitBeforeTax' | 'profitAfterTax'; label: string; amounts: string[] }>;
 }
 
 export interface SegmentReport {
@@ -242,6 +247,12 @@ export class SegmentProfitLossService {
     const enterprisePbt = pbt(sumRows(enterpriseCols));
     const checks: SegmentReport['checks'] = [
       check('Enterprise consolidated PBT', enterprisePbt, BigInt(statutory.profitBeforeTaxKobo), 'Segment PBT ties the statutory profit and loss'),
+      check(
+        'Enterprise consolidated PAT',
+        enterprisePbt - sumRows(enterpriseCols).incomeTax,
+        BigInt(statutory.profitAfterTaxKobo),
+        'Segment PAT ties the statutory profit and loss',
+      ),
       ...(['snail', 'poultry'] as const).flatMap((species) => {
         const e = grids[species].eliminations;
         const label = species === 'snail' ? 'Snail' : 'Poultry';
@@ -335,7 +346,7 @@ export class SegmentProfitLossService {
   }
 }
 
-const ALL_ROWS: Row[] = [...INCOME_ROWS, ...EXPENSE_ROWS];
+const ALL_ROWS: Row[] = [...INCOME_ROWS, ...EXPENSE_ROWS, 'incomeTax'];
 
 function zeroRows(): Record<Row, bigint> {
   return Object.fromEntries(ALL_ROWS.map((r) => [r, 0n])) as Record<Row, bigint>;
@@ -365,6 +376,8 @@ function statement(columns: string[], values: Array<Record<Row, bigint>>): State
       ...EXPENSE_ROWS.map((r) => ({ key: r, label: ROW_LABELS[r], amounts: show((c) => c[r]) })),
       { key: 'totalExpenses' as const, label: 'Total expenses', amounts: show(expenses) },
       { key: 'profitBeforeTax' as const, label: 'Profit before tax', amounts: show(pbt) },
+      { key: 'incomeTax' as const, label: ROW_LABELS.incomeTax, amounts: show((c) => c.incomeTax) },
+      { key: 'profitAfterTax' as const, label: 'Profit after tax', amounts: show((c) => pbt(c) - c.incomeTax) },
     ],
   };
 }

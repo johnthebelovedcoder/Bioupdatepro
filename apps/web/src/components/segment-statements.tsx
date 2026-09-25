@@ -13,7 +13,7 @@ export interface SegmentReport {
   checks: Array<{ check: string; actual: string; expected: string; status: 'PASS' | 'FAIL'; meaning: string }>;
 }
 
-const TOTALS = new Set(['totalIncome', 'totalExpenses', 'profitBeforeTax']);
+const TOTALS = new Set(['totalIncome', 'totalExpenses', 'profitBeforeTax', 'profitAfterTax']);
 
 /**
  * The segment statements (S_/P_/ENTERPRISE_CONSOLIDATED_PL) and their release

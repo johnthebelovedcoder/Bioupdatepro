@@ -221,6 +221,9 @@ model Company {
   /// The ENTITY part of every controlled reference (Numbering_Parameters):
   /// three letters, e.g. AGR in PO-AGR-LAG-2026-000001.
   referenceCode  String?  @map("reference_code")
+  /// Company income tax rate, per cent of positive profit before tax
+  /// (500_Assumptions: 30% illustrative). PCR-084 provides for it.
+  incomeTaxRatePercent Decimal @default(30) @map("income_tax_rate_percent") @db.Decimal(9, 4)
   name           String
   /// Statutory applicability inputs (Statutory workbook, Company_Setup sheet).
   /// Kept here because Phase 9 payroll reads them; they are configuration, not code.

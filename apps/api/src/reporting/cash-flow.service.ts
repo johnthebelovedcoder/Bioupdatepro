@@ -69,6 +69,8 @@ const PAYABLE_ACCOUNTS = [
   // their period movement, breaking the closing-cash reconciliation this
   // service exists to prove.
   '219810', '219820', '219830',
+  // Income tax provided for but not yet paid (PCR-084-CR).
+  '227100',
 ];
 const BANK_ACCOUNTS = ['1101', '110100'];
 const PPE_ACCOUNTS = ['1701', '140100'];
@@ -148,7 +150,9 @@ export class CashFlowService {
     const inventoryChangeKobo = -(closing.inventory - opening.inventory) - fairValueAdjustmentKobo;
     const payablesChangeKobo = closing.payables - opening.payables;
 
-    const netIncomeKobo = BigInt(netIncome.profitBeforeTaxKobo);
+    // Profit after tax: the tax provision is not cash, and its payable is
+    // working capital above, so the statement still ends at the bank.
+    const netIncomeKobo = BigInt(netIncome.profitAfterTaxKobo);
     const netCashFromOperationsKobo =
       netIncomeKobo +
       depreciationAddBackKobo +

@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PeriodCloseService } from './period-close.service';
 import { YearEndService } from './year-end.service';
+import { IncomeTaxService } from './income-tax.service';
+import { PostingControlModule } from '../posting-control/posting-control.module';
 
 /**
  * Period-End & Year-End Closing (§8).
@@ -11,7 +13,8 @@ import { YearEndService } from './year-end.service';
  * shared.
  */
 @Module({
-  providers: [PeriodCloseService, YearEndService],
-  exports: [PeriodCloseService, YearEndService],
+  imports: [PostingControlModule],
+  providers: [PeriodCloseService, YearEndService, IncomeTaxService],
+  exports: [PeriodCloseService, YearEndService, IncomeTaxService],
 })
 export class ClosingModule {}
