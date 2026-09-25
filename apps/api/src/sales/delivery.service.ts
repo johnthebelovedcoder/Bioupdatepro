@@ -1,4 +1,5 @@
 import { eggItemIds, eggUnitCost } from './egg-cost';
+import { groupByAccounts, saleAccountsByItem } from './item-accounts';
 import { Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import {
@@ -304,6 +305,7 @@ export class DeliveryService {
     let journalEntryId: string | null;
 
     if (recogniseHere && delivery.totalCostKobo > 0n) {
+      const accountsFor = await saleAccountsByItem(params.tx, delivery.companyId, delivery.lines.map((l) => l.itemId), config);
       const result = await this.posting.post(
         {
           sourceModule: 'sales',
@@ -315,11 +317,18 @@ export class DeliveryService {
           ...dimensions,
           idempotencyKey: `delivery:${delivery.id}`,
           actor: params.actor,
-          lines: [
+          // Per item: its own cost-of-sales account, and the store account
+          // its stock is actually held in (item-accounts.ts).
+          lines: groupByAccounts(
+            delivery.lines.map((line) => {
+              const accounts = accountsFor(line.itemId);
+              return { debitAccount: accounts.costOfSales, creditAccount: accounts.inventory, amountKobo: line.costKobo };
+            }),
+          ).flatMap((pair) => [
             {
-              glAccountId: config.costOfSalesGlAccountId,
+              glAccountId: pair.debitAccount,
               description: `Cost of sales — ${delivery.deliveryNumber}`,
-              debit: kobo(delivery.totalCostKobo),
+              debit: kobo(pair.amountKobo),
               dimensions: {
                 ...dimensions,
                 costCentreId: delivery.salesOrder.costCentreId,
@@ -328,16 +337,16 @@ export class DeliveryService {
               },
             },
             {
-              glAccountId: config.inventoryGlAccountId,
+              glAccountId: pair.creditAccount,
               description: `Inventory relieved — ${delivery.deliveryNumber}`,
-              credit: kobo(delivery.totalCostKobo),
+              credit: kobo(pair.amountKobo),
               dimensions: {
                 ...dimensions,
                 farmId: delivery.salesOrder.farmId,
                 customerId: delivery.customerId,
               },
             },
-          ],
+          ]),
         },
         params.tx,
       );

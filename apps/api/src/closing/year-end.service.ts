@@ -7,6 +7,7 @@ import {
   PeriodStatus,
   Prisma,
 } from '@bioassetpro/database';
+import { chartVersionOf, numberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -592,8 +593,9 @@ export class YearEndService {
    * refusing to close.
    */
   private async findRetainedEarnings(companyId: string) {
+    const number = numberFor(await chartVersionOf(this.prisma, companyId), 'retainedEarnings');
     const byNumber = await this.prisma.gLAccount.findFirst({
-      where: { companyId, accountNumber: '3200', active: true, isPostingAccount: true },
+      where: { companyId, accountNumber: number, active: true, isPostingAccount: true },
     });
     if (byNumber) return byNumber;
 

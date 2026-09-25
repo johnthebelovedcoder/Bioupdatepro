@@ -7,6 +7,7 @@ import {
   SalaryComponentBasis,
   SalaryComponentType,
 } from '@bioassetpro/database';
+import { chartVersionOf, numberFor, type AccountRole } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
@@ -303,10 +304,18 @@ export class EmployeeService {
     const existing = await this.prisma.salaryComponent.count({ where: { companyId } });
     if (existing > 0) return null;
 
+    // Each purpose resolved on the company's own chart (chart.ts).
+    const version = await chartVersionOf(this.prisma, companyId);
+    const n = (role: AccountRole) => numberFor(version, role);
     const accounts = await this.prisma.gLAccount.findMany({
       where: {
         companyId,
-        accountNumber: { in: ['5101', '2101', '2102', '2103', '2104', '2105', '2110', '5102', '5103', '5104'] },
+        accountNumber: {
+          in: [
+            n('salaryExpense'), n('salaryPayable'), n('pensionPayable'), n('nhfPayable'), n('nsitfPayable'),
+            n('itfPayable'), n('payePayable'), n('employerPensionExpense'), n('nsitfExpense'), n('itfExpense'),
+          ],
+        },
       },
       select: { id: true, accountNumber: true },
     });
@@ -323,8 +332,8 @@ export class EmployeeService {
       isPensionable: spec.pensionable,
       isNhfBase: spec.nhfBase,
       isGrossPayComponent: true,
-      expenseGlAccountId: byNumber.get('5101') ?? null,
-      payableGlAccountId: byNumber.get('2101') ?? null,
+      expenseGlAccountId: byNumber.get(n('salaryExpense')) ?? null,
+      payableGlAccountId: byNumber.get(n('salaryPayable')) ?? null,
     }));
 
     const statutory: Array<{
@@ -334,29 +343,29 @@ export class EmployeeService {
       payable: string;
       expense?: string;
     }> = [
-      { code: 'PAYE', name: 'PAYE', type: SalaryComponentType.DEDUCTION, payable: '2110' },
-      { code: 'PENSION-EE', name: 'Employee pension', type: SalaryComponentType.DEDUCTION, payable: '2102' },
-      { code: 'NHF', name: 'NHF', type: SalaryComponentType.DEDUCTION, payable: '2103' },
+      { code: 'PAYE', name: 'PAYE', type: SalaryComponentType.DEDUCTION, payable: n('payePayable') },
+      { code: 'PENSION-EE', name: 'Employee pension', type: SalaryComponentType.DEDUCTION, payable: n('pensionPayable') },
+      { code: 'NHF', name: 'NHF', type: SalaryComponentType.DEDUCTION, payable: n('nhfPayable') },
       {
         code: 'PENSION-ER',
         name: 'Employer pension',
         type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
-        payable: '2102',
-        expense: '5102',
+        payable: n('pensionPayable'),
+        expense: n('employerPensionExpense'),
       },
       {
         code: 'NSITF',
         name: 'NSITF',
         type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
-        payable: '2104',
-        expense: '5103',
+        payable: n('nsitfPayable'),
+        expense: n('nsitfExpense'),
       },
       {
         code: 'ITF',
         name: 'ITF',
         type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
-        payable: '2105',
-        expense: '5104',
+        payable: n('itfPayable'),
+        expense: n('itfExpense'),
       },
     ];
     for (const spec of statutory) {

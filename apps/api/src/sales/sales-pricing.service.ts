@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { Prisma } from '@bioassetpro/database';
+import { chartVersionOf } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaxEngineService } from '../tax/tax-engine.service';
 import { AccountingRuleViolation } from '../common/errors';
@@ -228,6 +229,11 @@ export class SalesPricingService {
     companyId: string,
     client: Prisma.TransactionClient | PrismaService,
   ) {
+    // The old chart's single revenue, cost-of-sales and finished-goods
+    // accounts. A company on the client's chart has these per species and
+    // gets its configuration when it moves there (ChartUnificationService)
+    // or signs up, so nothing is guessed for it here.
+    if ((await chartVersionOf(client, companyId)) === 'SPEC') return null;
     const accounts = await client.gLAccount.findMany({
       where: {
         companyId,

@@ -1275,6 +1275,37 @@ describe('Order-to-Cash (§6)', () => {
     });
   });
 
+  describe('an item that names its own accounts (PCR-072)', () => {
+    it('relieves the item’s own store account and posts to its own cost-of-sales and revenue', async () => {
+      const own: Record<string, string> = {};
+      for (const [number, name, type, normal] of [
+        ['130215', 'Egg Inventory', 'ASSET', 'DEBIT'],
+        ['510300', 'COGS — Live Birds/Eggs', 'EXPENSE', 'DEBIT'],
+        ['410300', 'Revenue — Live Birds/Eggs', 'REVENUE', 'CREDIT'],
+      ] as const) {
+        own[number] = (
+          await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType: type, normalBalance: normal } })
+        ).id;
+      }
+      await prisma.item.update({
+        where: { id: itemId },
+        data: { inventoryGlAccountId: own['130215'], costOfSalesGlAccountId: own['510300'], revenueGlAccountId: own['410300'] },
+      });
+      const before1401 = await accountBalance('1401');
+
+      const order = await makeApprovedOrder(10);
+      await deliverAll(order.id);
+      const cost = 10n * UNIT_COST;
+      expect(await accountBalance('130215')).toBe(-cost);
+      expect(await accountBalance('510300')).toBe(cost);
+      expect(await accountBalance('1401')).toBe(before1401); // not the configuration's store
+
+      const invoice = await invoiceAll(order.id);
+      expect(await accountBalance('410300')).toBe(-invoice.netAmountKobo);
+      expect(await accountBalance('4101')).toBe(0n);
+    });
+  });
+
   describe('eggs sold at the value they were collected at (PCR-067)', () => {
     /** Make the item the farm's eggs item, carried at `wac` per unit as collections would leave it. */
     async function asEggs(wac: bigint | null) {

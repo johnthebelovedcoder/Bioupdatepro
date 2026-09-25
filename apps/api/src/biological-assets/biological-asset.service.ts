@@ -7,6 +7,7 @@ import {
   ValuationDirection,
   WorkflowStatus,
 } from '@bioassetpro/database';
+import { chartVersionOf, speciesNumberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { WorkflowService } from '../workflow/workflow.service';
@@ -1098,9 +1099,21 @@ export class BiologicalAssetService {
 
     const priorFvlcts = group.currentFvlctsPerUnitKobo ?? 0n;
     const currentFvlcts = params.marketPricePerUnitKobo - params.costsToSellPerUnitKobo;
-    // Formula 4: closing quantity × (current − prior). Population is the
-    // closing quantity — nothing has moved between raising this and reading it.
-    const gainLossKobo = BigInt(group.population) * (currentFvlcts - priorFvlcts);
+    /*
+     * On the client's chart a flock's rearing cost is capitalised into the
+     * same Biological Assets account its fair value sits in (chart.ts), so
+     * the carrying amount before this valuation is prior fair value PLUS the
+     * rearing cost held since. The gain is measured against both, and the
+     * cost is absorbed into the new fair value when this posts. On the old
+     * chart rearing cost is held apart (1501) and none is absorbed.
+     */
+    const version = await chartVersionOf(this.prisma, params.companyId);
+    const holdsRearingInAsset = version === 'SPEC' && speciesNumberFor(version, 'rearingCost', group.speciesKey) !== null;
+    const rearingCostAbsorbedKobo = holdsRearingInAsset ? await this.rearing.remaining(group.id) : 0n;
+    // Formula 4: closing quantity × (current − prior), less capitalised cost.
+    // Population is the closing quantity — nothing has moved between raising
+    // this and reading it.
+    const gainLossKobo = BigInt(group.population) * (currentFvlcts - priorFvlcts) - rearingCostAbsorbedKobo;
     const direction: ValuationDirection = gainLossKobo >= 0n ? 'GAIN' : 'LOSS';
 
     const valuation = await this.prisma.biologicalAssetValuation.create({
@@ -1117,6 +1130,7 @@ export class BiologicalAssetService {
         currentFvlctsPerUnitKobo: currentFvlcts,
         direction,
         gainLossKobo: gainLossKobo < 0n ? -gainLossKobo : gainLossKobo,
+        rearingCostAbsorbedKobo,
         evidenceReference: params.evidenceReference,
         preparedById: params.actor.userId,
       },
@@ -1244,6 +1258,26 @@ export class BiologicalAssetService {
       where: { id: valuation.groupId },
       data: { currentFvlctsPerUnitKobo: valuation.currentFvlctsPerUnitKobo },
     });
+
+    // The rearing cost this valuation measured against is now part of the
+    // flock's fair value: record it leaving the rearing-cost ledger, so the
+    // next death, sale or valuation does not count it again. No journal of
+    // its own — it never left the account; the valuation journal restated it.
+    if (valuation.rearingCostAbsorbedKobo > 0n) {
+      await params.tx.livestockRearingRelief.create({
+        data: {
+          companyId: valuation.companyId,
+          groupId: valuation.groupId,
+          eventType: 'REVALUED',
+          sourceId: valuation.id,
+          count: 0,
+          populationBefore: valuation.group.population,
+          amountKobo: valuation.rearingCostAbsorbedKobo,
+          journalEntryId: result.journalEntryId,
+          occurredOn: valuation.valuationDate,
+        },
+      });
+    }
 
     return { journalEntryId: result.journalEntryId };
   }

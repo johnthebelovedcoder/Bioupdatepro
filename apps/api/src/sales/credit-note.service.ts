@@ -1,4 +1,5 @@
 import { eggItemIds, eggUnitCost } from './egg-cost';
+import { groupByAccounts, saleAccountsByItem } from './item-accounts';
 import { Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import {
@@ -324,9 +325,16 @@ export class CreditNoteService {
       itemId?: string | null;
     }> = [];
 
+    // Each item's own accounts where it names them (item-accounts.ts).
+    const accountsFor = await saleAccountsByItem(
+      params.tx,
+      creditNote.companyId,
+      [...creditNote.lines.map((l) => l.itemId), ...(creditNote.salesReturn?.lines ?? []).map((l) => l.itemId)],
+      config,
+    );
     for (const line of creditNote.lines) {
       lines.push({
-        glAccountId: config.revenueGlAccountId,
+        glAccountId: accountsFor(line.itemId).revenue,
         description: `Credit — ${line.description}`,
         debit: line.netAmountKobo,
         itemId: line.itemId,
@@ -358,16 +366,26 @@ export class CreditNoteService {
     // are actually resaleable.
     const resaleableCost = creditNote.salesReturn?.totalCostKobo ?? 0n;
     if (resaleableCost > 0n) {
-      lines.push({
-        glAccountId: config.inventoryGlAccountId,
-        description: `Goods returned to stock — ${creditNote.salesReturn!.returnNumber}`,
-        debit: resaleableCost,
-      });
-      lines.push({
-        glAccountId: config.costOfSalesGlAccountId,
-        description: `Cost of sales reversed — ${creditNote.salesReturn!.returnNumber}`,
-        credit: resaleableCost,
-      });
+      // Back into the store account each item is held in, out of its own
+      // cost of sales. Only resaleable lines carry value (as totalCostKobo).
+      const resaleable = creditNote.salesReturn!.lines.filter((l) => l.condition === ReturnCondition.RESALEABLE);
+      for (const pair of groupByAccounts(
+        resaleable.map((line) => {
+          const accounts = accountsFor(line.itemId);
+          return { debitAccount: accounts.inventory, creditAccount: accounts.costOfSales, amountKobo: line.costKobo };
+        }),
+      )) {
+        lines.push({
+          glAccountId: pair.debitAccount,
+          description: `Goods returned to stock — ${creditNote.salesReturn!.returnNumber}`,
+          debit: pair.amountKobo,
+        });
+        lines.push({
+          glAccountId: pair.creditAccount,
+          description: `Cost of sales reversed — ${creditNote.salesReturn!.returnNumber}`,
+          credit: pair.amountKobo,
+        });
+      }
     }
 
     const result = await this.posting.post(

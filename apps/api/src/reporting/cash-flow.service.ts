@@ -35,7 +35,10 @@ export interface CashFlow {
 // accounts by name-matching alone (120100, 110100, 140100, 221100-224100)
 // and every one of them turned out to have zero journal lines ever posted
 // against it — removed rather than left in as harmless dead weight.
-const RECEIVABLE_ACCOUNTS = ['1201'];
+// Each bucket lists its accounts on both charts (chart.ts): a company that
+// has moved charts has nothing left on the old numbers, and one that has not
+// has nothing on the new.
+const RECEIVABLE_ACCOUNTS = ['1201', '120100'];
 const INVENTORY_ACCOUNTS = [
   '1301', '1302', '1305', '1401', '1501',
   '130100', '130110', '130199', '130410', '130420', '130430', '130510', '130520',
@@ -45,6 +48,8 @@ const PAYABLE_ACCOUNTS = [
   // Payroll's own statutory payables (PayrollRunService's hardcoded map) —
   // salary, pension, NHF, NSITF, ITF, PAYE.
   '2101', '2102', '2103', '2104', '2105', '2110',
+  // …and their homes on the client's chart.
+  '221100', '222100', '223100', '224100',
   // Standard-costing recovery/clearing liabilities (Dr WIP / Cr Recovery as
   // standard cost is absorbed, cleared against actual cost at settlement) —
   // real posted liability balances that move independently of every other
@@ -53,9 +58,9 @@ const PAYABLE_ACCOUNTS = [
   // service exists to prove.
   '219810', '219820', '219830',
 ];
-const BANK_ACCOUNTS = ['1101'];
-const PPE_ACCOUNTS = ['1701'];
-const DEPRECIATION_ACCOUNTS = ['5501'];
+const BANK_ACCOUNTS = ['1101', '110100'];
+const PPE_ACCOUNTS = ['1701', '140100'];
+const DEPRECIATION_ACCOUNTS = ['5501', '630100'];
 
 /**
  * Cash Flow, indirect method — the only method the data supports.

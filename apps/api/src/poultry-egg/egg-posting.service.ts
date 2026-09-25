@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma } from '@bioassetpro/database';
+import { chartVersionOf, speciesNumberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { AuditService } from '../audit/audit.service';
@@ -40,7 +41,7 @@ const ACCOUNT = {
   eggs: '130215',
   incubation: '130216',
   poultry: '130210',
-  loss: '5305',
+  // (The loss account depends on the chart — resolved in postHatch.)
 } as const;
 
 @Injectable()
@@ -356,7 +357,13 @@ export class EggPostingService {
         const [context, incubationAccount, target] = await Promise.all([
           this.context(tx, hatch.companyId, hatch.hatchedOn),
           this.account(hatch.companyId, ACCOUNT.incubation, tx),
-          this.account(hatch.companyId, chicks ? ACCOUNT.poultry : ACCOUNT.loss, tx),
+          this.account(
+            hatch.companyId,
+            chicks
+              ? ACCOUNT.poultry
+              : speciesNumberFor(await chartVersionOf(tx, hatch.companyId), 'productionLoss', 'poultry')!,
+            tx,
+          ),
         ]);
         const group = chicks ? await tx.livestockGroup.findUniqueOrThrow({ where: { id: hatch.chickGroupId! } }) : null;
         const dims = {

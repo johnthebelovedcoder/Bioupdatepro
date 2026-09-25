@@ -28,7 +28,13 @@ export interface ProfitLoss {
  * rather than hidden, because it is a convention this codebase is choosing,
  * not a fact the chart already recorded.
  */
-const COST_OF_SALES_ACCOUNTS = new Set(['5001', '5305']);
+const COST_OF_SALES_ACCOUNTS = new Set([
+  // The old chart.
+  '5001', '5305',
+  // The client's chart: cost of sales by species and product, and the
+  // biological losses that replace 5305 (chart.ts, SPECIES_ACCOUNTS).
+  '510100', '510200', '510300', '510400', '640300', '640500',
+]);
 
 /**
  * Profit & Loss, as a read over the same ledger the Trial Balance already

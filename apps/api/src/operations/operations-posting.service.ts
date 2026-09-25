@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@bioassetpro/database';
+import { chartVersionOf, numberFor, speciesNumberFor, SNAIL_FEED_EXPENSE } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { kobo } from '../common/money';
@@ -96,7 +97,7 @@ export class OperationsPostingService {
       }
 
       const group = issue.dailyRecord.group;
-      const accounts = await this.accounts(params.companyId);
+      const accounts = await this.accounts(params.companyId, group.speciesKey, 'feed');
       if (!accounts) {
         skipped.push('The chart of accounts has no Work in Progress or Raw Material Inventory.');
         break;
@@ -243,7 +244,7 @@ export class OperationsPostingService {
       return { posted: false };
     }
 
-    const accounts = await this.accounts(params.companyId);
+    const accounts = await this.accounts(params.companyId, treatment.group.speciesKey, 'treatment');
     const period = await this.periodFor(params.companyId, treatment.givenOn);
     const costCentre = await this.costCentreFor(params.companyId);
     if (!accounts || !period || !costCentre) {
@@ -404,13 +405,23 @@ export class OperationsPostingService {
     return warehouse?.id ?? null;
   }
 
-  private async accounts(companyId: string) {
+  /**
+   * Where a feed or treatment posts, on the company's own chart (chart.ts).
+   * `workInProgress` is what is debited: the population's rearing cost
+   * (1501 on LEGACY; 130210 for poultry on SPEC) or, for snails on SPEC, the
+   * feed-and-medication expense (611000) — the workbook expenses snail inputs
+   * as used. `rawMaterials` is the store it leaves when the item names none.
+   */
+  private async accounts(companyId: string, speciesKey: string, purpose: 'feed' | 'treatment') {
+    const version = await chartVersionOf(this.prisma, companyId);
+    const debitNumber = speciesNumberFor(version, 'rearingCost', speciesKey) ?? SNAIL_FEED_EXPENSE;
+    const creditNumber = numberFor(version, purpose === 'feed' ? 'feedInventory' : 'rawMaterials');
     const rows = await this.prisma.gLAccount.findMany({
-      where: { companyId, accountNumber: { in: ['1501', '1301'] } },
+      where: { companyId, accountNumber: { in: [debitNumber, creditNumber] }, active: true },
       select: { id: true, accountNumber: true },
     });
-    const workInProgress = rows.find((r) => r.accountNumber === '1501')?.id;
-    const rawMaterials = rows.find((r) => r.accountNumber === '1301')?.id;
+    const workInProgress = rows.find((r) => r.accountNumber === debitNumber)?.id;
+    const rawMaterials = rows.find((r) => r.accountNumber === creditNumber)?.id;
     if (!workInProgress || !rawMaterials) return null;
     return { workInProgress, rawMaterials };
   }

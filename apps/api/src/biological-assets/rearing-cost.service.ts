@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@bioassetpro/database';
+import { chartVersionOf, speciesNumberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { kobo } from '../common/money';
@@ -27,16 +28,19 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  * open period is not in WIP yet, and relieving it would take out of WIP what
  * was never put in.
  */
-const ACCOUNT = {
-  workInProgress: '1501',
-  productionLoss: '5305',
-  costOfSales: '5001',
-} as const;
+/*
+ * Accounts are resolved on the company's own chart (chart.ts): on LEGACY the
+ * four-digit Work in Progress (1501), Production Loss (5305) and Cost of Sales
+ * (5001) as always; on SPEC, poultry rearing cost is held in Biological Assets
+ * — Poultry (130210) and relieved to 640500 / 510300, while snail feed and
+ * medication are expensed as used (611000), so a snail population holds none.
+ */
 
 export type ReliefEvent = 'MORTALITY' | 'DISPOSAL' | 'HARVEST';
 
 /** Events that take cost out of a population. TRANSFER_IN adds it back. */
-const OUTFLOWS = ['MORTALITY', 'DISPOSAL', 'HARVEST', 'TRANSFER_OUT'];
+// REVALUED: absorbed into the flock's fair value by a valuation (client's chart only).
+const OUTFLOWS = ['MORTALITY', 'DISPOSAL', 'HARVEST', 'TRANSFER_OUT', 'REVALUED'];
 
 @Injectable()
 export class RearingCostService {
@@ -49,6 +53,13 @@ export class RearingCostService {
 
   /** What is still sitting in WIP for this population, in kobo. */
   async remaining(groupId: string, client: Prisma.TransactionClient | PrismaService = this.prisma) {
+    // On the client's chart a snail population holds no rearing cost: its
+    // feed and medication were expensed as used (and anything it held before
+    // the company moved charts was expensed by the unification journal).
+    const owner = await client.livestockGroup.findUnique({ where: { id: groupId }, select: { companyId: true, speciesKey: true } });
+    if (owner && speciesNumberFor(await chartVersionOf(client, owner.companyId), 'rearingCost', owner.speciesKey) === null) {
+      return 0n;
+    }
     // Posted and still standing: a reversed feed or treatment journal took its
     // cost back out of WIP, so it is no longer in the population either.
     const standing = { is: { reversedBy: { is: null } } };
@@ -243,14 +254,20 @@ export class RearingCostService {
     }
 
     const group = relief.group;
-    const debitNumber = relief.eventType === 'MORTALITY' ? ACCOUNT.productionLoss : ACCOUNT.costOfSales;
+    const version = await chartVersionOf(this.prisma, relief.companyId);
+    const wipNumber = speciesNumberFor(version, 'rearingCost', group.speciesKey);
+    const debitNumber = speciesNumberFor(version, relief.eventType === 'MORTALITY' ? 'productionLoss' : 'liveCostOfSales', group.speciesKey)!;
+    if (!wipNumber) {
+      // Held nowhere on this chart (snails on SPEC): expensed when incurred.
+      return { posted: false, reason: 'This population\u2019s rearing cost is expensed as it is incurred, so there is nothing to relieve.' };
+    }
 
     try {
       const [accounts, period, costCentre, company] = await Promise.all([
         this.prisma.gLAccount.findMany({
           where: {
             companyId: relief.companyId,
-            accountNumber: { in: [ACCOUNT.workInProgress, debitNumber] },
+            accountNumber: { in: [wipNumber, debitNumber] },
             active: true,
           },
           select: { id: true, accountNumber: true },
@@ -272,10 +289,10 @@ export class RearingCostService {
         this.prisma.company.findUniqueOrThrow({ where: { id: relief.companyId } }),
       ]);
 
-      const wip = accounts.find((a) => a.accountNumber === ACCOUNT.workInProgress)?.id;
+      const wip = accounts.find((a) => a.accountNumber === wipNumber)?.id;
       const debit = accounts.find((a) => a.accountNumber === debitNumber)?.id;
       if (!wip || !debit) {
-        return { posted: false, reason: `No active ${ACCOUNT.workInProgress} or ${debitNumber} account.` };
+        return { posted: false, reason: `No active ${wipNumber} or ${debitNumber} account.` };
       }
       if (!period) {
         return {

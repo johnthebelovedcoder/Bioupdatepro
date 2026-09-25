@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
+import { chartVersionOf, speciesNumberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -472,10 +473,17 @@ export class ProductionOrderService {
      * finished goods carry the feed that produced them. Debited to the same
      * processing WIP as the biological input; credited out of rearing WIP.
      */
+    // 1501 on the old chart; 130210 for poultry on the client's (a snail
+    // population holds no rearing cost there, so carries none into here).
+    const rearingNumber = speciesNumberFor(
+      await chartVersionOf(this.prisma, order.companyId),
+      'rearingCost',
+      order.processingCycle === 'SNAILPRO' ? 'snail' : 'poultry',
+    );
     const rearingWip =
-      order.rearingCostKobo > 0n
+      order.rearingCostKobo > 0n && rearingNumber
         ? await this.prisma.gLAccount.findFirst({
-            where: { companyId: order.companyId, accountNumber: '1501', active: true },
+            where: { companyId: order.companyId, accountNumber: rearingNumber, active: true },
             select: { id: true },
           })
         : null;

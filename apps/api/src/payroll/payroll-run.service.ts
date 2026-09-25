@@ -16,6 +16,7 @@ import { EmployeeService } from '../masters/employee.service';
 import { PayeEngineService } from './paye-engine.service';
 import { StatutoryEngineService } from './statutory-engine.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { chartVersionOf, numberFor } from '../chart/chart';
 import { kobo } from '../common/money';
 
 export interface PayrollValidationResult {
@@ -728,18 +729,22 @@ export class PayrollRunService {
    */
   /** Not private: PayrollPaymentService needs the same payable accounts to know what it is clearing. */
   async resolveAccounts(companyId: string, tx: Prisma.TransactionClient) {
-    const required = {
-      salaryExpense: '5101',
-      employerPensionExpense: '5102',
-      nsitfExpense: '5103',
-      itfExpense: '5104',
-      salaryPayable: '2101',
-      pensionPayable: '2102',
-      nhfPayable: '2103',
-      nsitfPayable: '2104',
-      itfPayable: '2105',
-      payePayable: '2110',
-    } as const;
+    // On the company's own chart (chart.ts): four-digit on LEGACY, the
+    // client's six-digit accounts on SPEC.
+    const version = await chartVersionOf(tx, companyId);
+    const roles = [
+      'salaryExpense',
+      'employerPensionExpense',
+      'nsitfExpense',
+      'itfExpense',
+      'salaryPayable',
+      'pensionPayable',
+      'nhfPayable',
+      'nsitfPayable',
+      'itfPayable',
+      'payePayable',
+    ] as const;
+    const required = Object.fromEntries(roles.map((role) => [role, numberFor(version, role)])) as Record<(typeof roles)[number], string>;
 
     let accounts = await tx.gLAccount.findMany({
       where: { companyId, accountNumber: { in: Object.values(required) } },
@@ -758,7 +763,9 @@ export class PayrollRunService {
      */
     const found = new Set(accounts.map((a) => a.accountNumber));
     const missing = Object.values(required).filter((number) => !found.has(number));
-    if (missing.length > 0) {
+    // The lazy self-heal below is for the old four-digit chart only; the
+    // six-digit chart is loaded whole by the posting-rules provisioning.
+    if (missing.length > 0 && version === 'LEGACY') {
       const definitions: Record<string, { name: string; type: AccountType; normal: NormalBalance }> = {
         '2102': { name: 'Pension Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
         '2103': { name: 'NHF Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
@@ -789,7 +796,7 @@ export class PayrollRunService {
     const byNumber = new Map(accounts.map((a) => [a.accountNumber, a]));
     const resolved: Record<string, string> = {};
 
-    for (const [key, number] of Object.entries(required)) {
+    for (const [key, number] of Object.entries(required) as Array<[string, string]>) {
       const account = byNumber.get(number);
       if (!account || !account.active || !account.isPostingAccount) {
         throw new AccountingRuleViolation(

@@ -7,6 +7,7 @@ import {
   SalesInvoiceStatus,
   VatDirection,
 } from '@bioassetpro/database';
+import { groupByAccounts, saleAccountsByItem } from './item-accounts';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -253,10 +254,18 @@ export class SalesInvoiceService {
       },
     ];
 
-    // Revenue per line so item-level analysis remains possible afterwards.
+    // Revenue per line so item-level analysis remains possible afterwards —
+    // and to each item's own revenue account where it names one.
+    const costLines = await this.resolveUnrecognisedCost(invoice.id, params.tx);
+    const accountsFor = await saleAccountsByItem(
+      params.tx,
+      invoice.companyId,
+      [...invoice.lines.map((l) => l.itemId), ...costLines.lines.map((l) => l.itemId)],
+      config,
+    );
     for (const line of invoice.lines) {
       lines.push({
-        glAccountId: config.revenueGlAccountId,
+        glAccountId: accountsFor(line.itemId).revenue,
         description: line.description,
         credit: line.netAmountKobo,
         itemId: line.itemId,
@@ -279,21 +288,27 @@ export class SalesInvoiceService {
     }
 
     // --- Cost of sales, only if not already recognised at delivery ---------
-    const costLines = await this.resolveUnrecognisedCost(invoice.id, params.tx);
     if (
       config.cogsRecognitionPoint === CogsRecognitionPoint.INVOICE &&
       costLines.totalKobo > 0n
     ) {
-      lines.push({
-        glAccountId: config.costOfSalesGlAccountId,
-        description: `Cost of sales — ${invoice.invoiceNumber}`,
-        debit: costLines.totalKobo,
-      });
-      lines.push({
-        glAccountId: config.inventoryGlAccountId,
-        description: `Inventory relieved — ${invoice.invoiceNumber}`,
-        credit: costLines.totalKobo,
-      });
+      for (const pair of groupByAccounts(
+        costLines.lines.map((line) => {
+          const accounts = accountsFor(line.itemId);
+          return { debitAccount: accounts.costOfSales, creditAccount: accounts.inventory, amountKobo: line.costKobo };
+        }),
+      )) {
+        lines.push({
+          glAccountId: pair.debitAccount,
+          description: `Cost of sales — ${invoice.invoiceNumber}`,
+          debit: pair.amountKobo,
+        });
+        lines.push({
+          glAccountId: pair.creditAccount,
+          description: `Inventory relieved — ${invoice.invoiceNumber}`,
+          credit: pair.amountKobo,
+        });
+      }
     }
 
     const result = await this.posting.post(
@@ -401,7 +416,7 @@ export class SalesInvoiceService {
   private async resolveUnrecognisedCost(
     invoiceId: string,
     tx: Prisma.TransactionClient,
-  ): Promise<{ totalKobo: bigint; deliveryLineIds: string[] }> {
+  ): Promise<{ totalKobo: bigint; deliveryLineIds: string[]; lines: Array<{ itemId: string; costKobo: bigint }> }> {
     const invoiceLines = await tx.salesInvoiceLine.findMany({
       where: { invoiceId },
       select: { salesOrderLineId: true },
@@ -410,7 +425,7 @@ export class SalesInvoiceService {
       .map((l) => l.salesOrderLineId)
       .filter((id): id is string => id !== null);
 
-    if (orderLineIds.length === 0) return { totalKobo: 0n, deliveryLineIds: [] };
+    if (orderLineIds.length === 0) return { totalKobo: 0n, deliveryLineIds: [], lines: [] };
 
     const deliveryLines = await tx.deliveryNoteLine.findMany({
       where: {
@@ -418,12 +433,13 @@ export class SalesInvoiceService {
         cogsPostedAt: null,
         deliveryNote: { status: 'POSTED' },
       },
-      select: { id: true, costKobo: true },
+      select: { id: true, costKobo: true, itemId: true },
     });
 
     return {
       totalKobo: deliveryLines.reduce((s, l) => s + l.costKobo, 0n),
       deliveryLineIds: deliveryLines.map((l) => l.id),
+      lines: deliveryLines.map((l) => ({ itemId: l.itemId, costKobo: l.costKobo })),
     };
   }
 

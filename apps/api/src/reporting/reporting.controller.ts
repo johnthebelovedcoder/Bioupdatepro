@@ -905,9 +905,12 @@ export class ReportingController {
     const [revenue, expenses, receivables, workInProgress, finishedGoods] = await Promise.all([
       this.balanceOfType(companyId, 'REVENUE'),
       this.balanceOfType(companyId, 'EXPENSE'),
-      this.balanceOfAccount(companyId, '1201'),
-      this.balanceOfAccount(companyId, '1501'),
-      this.balanceOfAccount(companyId, '1401'),
+      // Old and new chart together: a company that has moved charts has
+      // nothing left on the old accounts, one that has not has nothing on
+      // the new — the sum is right either way (chart.ts).
+      this.balanceOfAccount(companyId, ['1201', '120100']),
+      this.balanceOfAccount(companyId, ['1501', '130400', '130410', '130420', '130430']),
+      this.balanceOfAccount(companyId, ['1401', '130510', '130520']),
     ]);
 
     return {
@@ -1040,11 +1043,11 @@ export class ReportingController {
       .filter((line): line is NonNullable<typeof line> => line !== null && line.amountKobo !== '0');
   }
 
-  private async balanceOfAccount(companyId: string, accountNumber: string) {
+  private async balanceOfAccount(companyId: string, accountNumbers: string[]) {
     const result = await this.prisma.journalLine.aggregate({
       where: {
         journalEntry: { companyId, status: 'POSTED' },
-        glAccount: { companyId, accountNumber },
+        glAccount: { companyId, accountNumber: { in: accountNumbers } },
       },
       _sum: { debitKobo: true, creditKobo: true },
     });

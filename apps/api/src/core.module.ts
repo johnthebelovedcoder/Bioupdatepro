@@ -6,6 +6,7 @@ import { PeriodService } from './periods/period.service';
 import { DimensionValidatorService } from './enterprise-dimensions/dimension-validator.service';
 import { PostingService } from './posting/posting.service';
 import { StockMovementService } from './inventory/stock-movement.service';
+import { ChartService } from './chart/chart.service';
 import { TrialBalanceService } from './reporting/trial-balance.service';
 import { ProfitLossService } from './reporting/profit-loss.service';
 import { BalanceSheetService } from './reporting/balance-sheet.service';
@@ -30,6 +31,7 @@ import { ControlAccountReconciliationService } from './reporting/control-account
     DimensionValidatorService,
     PostingService,
     StockMovementService,
+    ChartService,
     TrialBalanceService,
     ProfitLossService,
     BalanceSheetService,
@@ -44,6 +46,7 @@ import { ControlAccountReconciliationService } from './reporting/control-account
     DimensionValidatorService,
     PostingService,
     StockMovementService,
+    ChartService,
     TrialBalanceService,
     ProfitLossService,
     BalanceSheetService,

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { AuditAction, WhtBasis } from '@bioassetpro/database';
+import { chartVersionOf, numberFor, type ChartVersion } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
@@ -28,13 +29,11 @@ import { AccountingRuleViolation } from '../common/errors';
  */
 const TAX_EFFECTIVE_FROM = new Date('2026-01-01');
 
-/** The four control accounts every signed-up company is provisioned with. */
-const ACCOUNTS = {
-  inputVat: '1601',
-  whtReceivable: '1602',
-  outputVat: '2120',
-  whtPayable: '2130',
-} as const;
+/** The four tax control accounts, on the company's own chart (chart.ts). */
+const TAX_ROLES = ['inputVat', 'whtReceivable', 'outputVat', 'whtPayable'] as const;
+function taxAccounts(version: ChartVersion) {
+  return Object.fromEntries(TAX_ROLES.map((role) => [role, numberFor(version, role)])) as Record<(typeof TAX_ROLES)[number], string>;
+}
 
 const VAT_CODES = [
   {
@@ -148,6 +147,7 @@ export class TaxSetupService {
       );
     }
 
+    const ACCOUNTS = taxAccounts(await chartVersionOf(this.prisma, companyId));
     const accounts = await this.prisma.gLAccount.findMany({
       where: { companyId, accountNumber: { in: Object.values(ACCOUNTS) }, active: true },
       select: { id: true, accountNumber: true },
@@ -422,6 +422,7 @@ export class TaxSetupService {
       throw new AccountingRuleViolation('Consolidated Reference §4 — Tax codes', `${code} already exists.`, { code });
     }
 
+    const ACCOUNTS = taxAccounts(await chartVersionOf(this.prisma, params.companyId));
     const pair =
       params.taxType === 'VAT'
         ? [

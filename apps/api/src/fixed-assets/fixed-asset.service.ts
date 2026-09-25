@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma, ProductionOrderCycle, WorkflowStatus } from '@bioassetpro/database';
+import { chartVersionOf, numberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -810,11 +811,13 @@ export class FixedAssetService {
     tx: Prisma.TransactionClient,
     keys: K[],
   ): Promise<Record<K, string>> {
+    // On the company's own chart (chart.ts).
+    const version = await chartVersionOf(tx, companyId);
     const numbers: Record<string, string> = {
-      ppe: '1701',
-      accumulatedDepreciation: '1702',
-      depreciationExpense: '5501',
-      payables: '2201',
+      ppe: numberFor(version, 'ppe'),
+      accumulatedDepreciation: numberFor(version, 'accumulatedDepreciation'),
+      depreciationExpense: numberFor(version, 'depreciationExpense'),
+      payables: numberFor(version, 'tradePayables'),
     };
 
     const wanted = keys.map((key) => numbers[key]!);

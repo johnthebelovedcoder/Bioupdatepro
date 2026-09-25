@@ -228,6 +228,10 @@ model Company {
   /// SYSTEM_INTEGRITY_MATRIX says a self-approval must never happen, so only a
   /// one-person farm that accepts the risk turns it on (CFO or administrator).
   allowSelfApproval Boolean @default(false) @map("allow_self_approval")
+  /// LEGACY (the four-digit chart) or SPEC (the client's six-digit chart).
+  /// Changed only by the chart unification, which moves every balance first.
+  /// See apps/api/src/chart/chart.ts.
+  chartVersion String @default("LEGACY") @map("chart_version")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -493,6 +497,7 @@ model GLAccount {
   itemsInventoryDefault        Item[]                        @relation("ItemInventoryAccount")
   itemsExpenseDefault          Item[]                        @relation("ItemExpenseAccount")
   itemsRevenueDefault          Item[]                        @relation("ItemRevenueAccount")
+  itemsCostOfSalesDefault      Item[]                        @relation("ItemCostOfSalesAccount")
   salaryComponentExpense       SalaryComponent[]             @relation("SalaryComponentExpense")
   salaryComponentPayable       SalaryComponent[]             @relation("SalaryComponentPayable")
   manualJournalLines           ManualJournalLine[]
@@ -2120,6 +2125,10 @@ model Item {
   inventoryGlAccountId String? @map("inventory_gl_account_id") @db.Uuid
   expenseGlAccountId   String? @map("expense_gl_account_id") @db.Uuid
   revenueGlAccountId   String? @map("revenue_gl_account_id") @db.Uuid
+  /// Where selling this item costs its stock (PCR-072's COGS side): on the
+  /// client's chart, by species and product (510100–510400). Null falls back
+  /// to the sales configuration, as before.
+  costOfSalesGlAccountId String? @map("cost_of_sales_gl_account_id") @db.Uuid
 
   defaultWarehouseId String? @map("default_warehouse_id") @db.Uuid
 
@@ -2150,6 +2159,7 @@ model Item {
   inventoryGlAccount GLAccount?    @relation("ItemInventoryAccount", fields: [inventoryGlAccountId], references: [id])
   expenseGlAccount   GLAccount?    @relation("ItemExpenseAccount", fields: [expenseGlAccountId], references: [id])
   revenueGlAccount   GLAccount?    @relation("ItemRevenueAccount", fields: [revenueGlAccountId], references: [id])
+  costOfSalesGlAccount GLAccount? @relation("ItemCostOfSalesAccount", fields: [costOfSalesGlAccountId], references: [id])
   defaultWarehouse   Warehouse?    @relation(fields: [defaultWarehouseId], references: [id])
 
   standardCosts          ItemStandardCost[]
@@ -6528,6 +6538,11 @@ model BiologicalAssetValuation {
 
   direction    ValuationDirection @map("direction")
   gainLossKobo BigInt             @map("gain_loss_kobo")
+  /// On the client's chart, poultry rearing cost is held in the same account
+  /// as the flock's fair value, so a revaluation measures the gain against
+  /// prior fair value PLUS the rearing cost held since, and absorbs it. This
+  /// is that cost; zero on the old chart, where rearing cost is held apart.
+  rearingCostAbsorbedKobo BigInt @default(0) @map("rearing_cost_absorbed_kobo")
 
   /// §61.6 blocking control: "approved market evidence and costs-to-sell
   /// required." A reference to what was approved — a price list, a buyer

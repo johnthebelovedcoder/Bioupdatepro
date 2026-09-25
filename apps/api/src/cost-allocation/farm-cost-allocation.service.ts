@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { AccountType, AuditAction, JournalStatus } from '@bioassetpro/database';
+import { chartVersionOf, speciesNumberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { AuditService } from '../audit/audit.service';
@@ -39,7 +40,7 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  * counted without keeping a second ledger of what was allocated.
  */
 
-const POULTRY_TARGET = '1501';
+/** Where a snail cohort's share goes, on either chart (PCR-043-DR). A flock's goes where its rearing cost is held — see targetAccounts. */
 const SNAIL_TARGET = '612000';
 const SPECIES = ['poultry', 'snail'] as const;
 
@@ -233,6 +234,7 @@ export class FarmCostAllocationService {
     const debitLines = shares.map((share) => {
       const group = groupById.get(share.groupId)!;
       const glAccountId = share.speciesKey === 'poultry' ? targets.poultry! : targets.snail!;
+      // (A snail share is expensed on either chart, so no rearing cost is held for it.)
       return {
         share,
         line: {
@@ -441,6 +443,8 @@ export class FarmCostAllocationService {
   }
 
   private async targetAccounts(companyId: string, required: boolean) {
+    // 1501 on the old chart; Biological Assets — Poultry (130210) on the client's.
+    const POULTRY_TARGET = speciesNumberFor(await chartVersionOf(this.prisma, companyId), 'rearingCost', 'poultry')!;
     const rows = await this.prisma.gLAccount.findMany({
       where: { companyId, accountNumber: { in: [POULTRY_TARGET, SNAIL_TARGET] }, active: true },
       select: { id: true, accountNumber: true },

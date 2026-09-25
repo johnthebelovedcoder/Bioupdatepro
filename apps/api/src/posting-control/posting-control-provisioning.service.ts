@@ -297,6 +297,8 @@ function load(): Loaded {
 const EXTRA_ACCOUNTS: Array<[string, string]> = [
   ['420210', 'Agricultural Produce Gain — Eggs'], // PCR-067-CR "130210/420210"
   ['623100', 'Feed Mill Overhead Expense'], // PCR-031-DR "Processing/Feed-mill OH Expense"
+  ['125200', 'WHT Receivable'], // the old chart's 1602, which the spec chart lacks
+  ['690100', 'Operating Expenses'], // the old chart's 5401, which the spec chart lacks
 ];
 
 function derive(code: string): { type: AccountType; normal: NormalBalance } {
