@@ -74,6 +74,10 @@ export interface TimesheetRow {
   group: string;
   hours: string;
   notes: string | null;
+  /** Only APPROVED hours share wages. */
+  status: 'PENDING' | 'APPROVED';
+  selfApproved: boolean;
+  createdById: string;
 }
 
 export async function getTimesheets(from: string, to: string): Promise<TimesheetRow[]> {

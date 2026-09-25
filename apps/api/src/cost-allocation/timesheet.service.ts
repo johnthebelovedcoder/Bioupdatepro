@@ -13,6 +13,9 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  * replaces the hours rather than adding a second row, so a correction is an
  * edit, and a person can never be booked for more than 24 hours in a day.
  */
+/** Who may approve timesheet hours: the people who run the farm and its money. */
+export const APPROVER_ROLES = ['FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'ADMINISTRATOR'];
+
 @Injectable()
 export class TimesheetService {
   constructor(private readonly prisma: PrismaService) {}
@@ -43,6 +46,9 @@ export class TimesheetService {
       group: group.get(entry.groupId) ?? '—',
       hours: entry.hours.toString(),
       notes: entry.notes,
+      status: entry.status,
+      selfApproved: entry.selfApproved,
+      createdById: entry.createdById,
     }));
   }
 
@@ -79,7 +85,15 @@ export class TimesheetService {
       }
       return tx.timesheetEntry.upsert({
         where: { employeeId_groupId_workDate: { employeeId: params.employeeId, groupId: params.groupId, workDate: params.workDate } },
-        update: { hours: new Prisma.Decimal(params.hours.toFixed(2)), notes: params.notes ?? null },
+        // A correction is new, unapproved information: it goes back for approval.
+        update: {
+          hours: new Prisma.Decimal(params.hours.toFixed(2)),
+          notes: params.notes ?? null,
+          status: 'PENDING',
+          approvedById: null,
+          approvedAt: null,
+          selfApproved: false,
+        },
         create: {
           companyId: params.companyId,
           employeeId: params.employeeId,
@@ -91,6 +105,48 @@ export class TimesheetService {
         },
       });
     });
+  }
+
+  /**
+   * Approve hours — PCR-028's "approved hours". Whoever logged an entry may
+   * not approve it, unless nobody else in the company could (the same rule
+   * as a self-approved document), in which case it is marked so.
+   */
+  async approve(params: { companyId: string; ids: string[]; actor: WorkflowActor }) {
+    const entries = await this.prisma.timesheetEntry.findMany({
+      where: { companyId: params.companyId, id: { in: params.ids }, status: 'PENDING' },
+    });
+    const own = entries.filter((e) => e.createdById === params.actor.userId);
+    let alone = false;
+    if (own.length > 0) {
+      const others = await this.prisma.user.count({
+        where: {
+          companyId: params.companyId,
+          active: true,
+          id: { not: params.actor.userId },
+          roles: { hasSome: APPROVER_ROLES },
+        },
+      });
+      alone = others === 0;
+      if (!alone) {
+        throw new BadRequestException(
+          `You logged ${own.length === 1 ? 'one of these entries' : `${own.length} of these entries`} yourself, so someone else approves ${own.length === 1 ? 'it' : 'them'}.`,
+        );
+      }
+    }
+    const now = new Date();
+    for (const entry of entries) {
+      await this.prisma.timesheetEntry.update({
+        where: { id: entry.id },
+        data: {
+          status: 'APPROVED',
+          approvedById: params.actor.userId,
+          approvedAt: now,
+          selfApproved: entry.createdById === params.actor.userId,
+        },
+      });
+    }
+    return { approved: entries.length, selfApproved: alone ? own.length : 0 };
   }
 
   async remove(companyId: string, id: string) {
@@ -110,7 +166,7 @@ export class TimesheetService {
    */
   async weights(companyId: string, from: Date, to: Date, financialPeriodId: string): Promise<Map<string, { hours: Decimal; weight: Decimal }>> {
     const entries = await this.prisma.timesheetEntry.findMany({
-      where: { companyId, workDate: { gte: from, lte: to } },
+      where: { companyId, workDate: { gte: from, lte: to }, status: 'APPROVED' },
       select: { employeeId: true, groupId: true, hours: true },
     });
     const pay = await this.prisma.payrollRunLine.groupBy({

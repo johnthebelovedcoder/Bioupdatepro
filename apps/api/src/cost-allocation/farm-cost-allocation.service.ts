@@ -195,7 +195,7 @@ export class FarmCostAllocationService {
     if (shares.length === 0 && basis === 'HOURS') {
       throw new AccountingRuleViolation(
         'PCR-028 — Approved timesheet required',
-        `No timesheet hours are logged against any batch in ${period.name}, so there is nothing to share wages by. Log hours under Farm costing → Timesheets, or share by animal-days.`,
+        `No approved timesheet hours are logged against any batch in ${period.name}, so there is nothing to share wages by. Log and approve hours under Money → Timesheets, or share by animal-days.`,
         { periodId: period.id },
       );
     }

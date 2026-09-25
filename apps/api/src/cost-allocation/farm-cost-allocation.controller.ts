@@ -138,6 +138,18 @@ export class FarmCostAllocationController {
     });
   }
 
+  /** Approve hours so they count. The people who run the farm and its money approve; a supervisor logs. */
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('timesheets/approve')
+  async timesheetApprove(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { ids: string[] },
+  ) {
+    if (!Array.isArray(body?.ids) || body.ids.length === 0) throw new BadRequestException('ids is required.');
+    return this.timesheets.approve({ companyId, ids: body.ids, actor });
+  }
+
   @Roles('PRODUCTION_SUPERVISOR', 'FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post('timesheets/:id/delete')
   async timesheetRemove(@CurrentCompany() companyId: string, @Param('id') id: string) {

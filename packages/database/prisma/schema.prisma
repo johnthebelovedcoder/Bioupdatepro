@@ -7068,6 +7068,13 @@ model TimesheetEntry {
   notes       String?
   createdById String   @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
+  /// PCR-028's "approved hours": only APPROVED hours share wages. Changing an
+  /// approved entry puts it back to PENDING.
+  status       String    @default("PENDING")
+  approvedById String?   @map("approved_by_id") @db.Uuid
+  approvedAt   DateTime? @map("approved_at")
+  /// Approved by the person who logged it, because nobody else could.
+  selfApproved Boolean   @default(false) @map("self_approved")
 
   @@unique([employeeId, groupId, workDate])
   @@index([companyId, workDate])

@@ -5,7 +5,7 @@ import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { IconClipboard } from '@/components/icons';
 import { TimesheetForm } from '@/components/timesheet-form';
-import { removeHours } from './actions';
+import { approveHours, removeHours } from './actions';
 
 export const metadata = { title: 'Timesheets — BioAssetPro' };
 
@@ -14,7 +14,7 @@ export const metadata = { title: 'Timesheets — BioAssetPro' };
  * uses on Books → Farm costing (PCR-028: approved hours × actual payroll
  * rate). One month at a time.
  */
-export default async function TimesheetsPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+export default async function TimesheetsPage({ searchParams }: { searchParams: Promise<{ month?: string; error?: string }> }) {
   const params = await searchParams;
   const today = new Date().toISOString().slice(0, 10);
   const month = /^\d{4}-\d{2}$/.test(params.month ?? '') ? params.month! : today.slice(0, 7);
@@ -29,6 +29,8 @@ export default async function TimesheetsPage({ searchParams }: { searchParams: P
     getTimesheetChoices().catch(() => ({ employees: [], groups: [] })),
   ]);
   const monthName = new Date(Date.UTC(year, mon - 1, 1)).toLocaleString('en-NG', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+  const pending = entries.filter((e) => e.status === 'PENDING');
 
   // Totals by person and by batch, so the month can be checked at a glance.
   const byPerson = new Map<string, number>();
@@ -46,6 +48,22 @@ export default async function TimesheetsPage({ searchParams }: { searchParams: P
         actions={<TimesheetForm employees={choices.employees} groups={choices.groups} today={today} />}
       />
       <Tabs />
+
+      {params.error ? <div className="notice notice-error">{params.error}</div> : null}
+      {pending.length > 0 ? (
+        <div className="notice notice-warning row" style={{ justifyContent: 'space-between', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+          <span>
+            {pending.length} entr{pending.length === 1 ? 'y is' : 'ies are'} waiting for approval. Only approved hours are used to
+            share wages.
+          </span>
+          <form action={approveHours}>
+            <input type="hidden" name="ids" value={pending.map((e) => e.id).join(',')} />
+            <button type="submit" className="btn btn-sm btn-primary">
+              Approve all {pending.length}
+            </button>
+          </form>
+        </div>
+      ) : null}
 
       {choices.employees.length === 0 ? (
         <div className="notice notice-warning">
@@ -99,7 +117,8 @@ export default async function TimesheetsPage({ searchParams }: { searchParams: P
                   <th>Batch</th>
                   <th className="right">Hours</th>
                   <th>Note</th>
-                  <th style={{ width: 90 }} />
+                  <th>Status</th>
+                  <th style={{ width: 170 }} />
                 </tr>
               </thead>
               <tbody>
@@ -111,6 +130,21 @@ export default async function TimesheetsPage({ searchParams }: { searchParams: P
                     <td className="num">{Number(e.hours).toLocaleString('en-NG')}</td>
                     <td className="faint">{e.notes ?? ''}</td>
                     <td>
+                      {e.status === 'APPROVED' ? (
+                        <span className="badge badge-success">{e.selfApproved ? 'self-approved' : 'approved'}</span>
+                      ) : (
+                        <span className="badge badge-warning">pending</span>
+                      )}
+                    </td>
+                    <td className="row" style={{ gap: 'var(--sp-1)' }}>
+                      {e.status === 'PENDING' ? (
+                        <form action={approveHours}>
+                          <input type="hidden" name="ids" value={e.id} />
+                          <button type="submit" className="btn btn-sm btn-ghost">
+                            Approve
+                          </button>
+                        </form>
+                      ) : null}
                       <form action={removeHours}>
                         <input type="hidden" name="id" value={e.id} />
                         <button type="submit" className="btn btn-sm btn-ghost">

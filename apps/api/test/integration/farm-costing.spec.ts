@@ -402,8 +402,33 @@ describe('Wages shared by timesheet hours × pay rate (PCR-028)', () => {
     await prisma.payrollRun.update({ where: { id: run.id }, data: { status: 'POSTED' } });
   }
 
-  const log = (employeeId: string, groupId: string, day: string, hours: string) =>
-    timesheets.record({ companyId: fixture.companyId, employeeId, groupId, workDate: new Date(day), hours: new Decimal(hours), actor });
+  /** Hours logged by the test actor and approved by the farm manager — only approved hours count. */
+  const log = async (employeeId: string, groupId: string, day: string, hours: string) => {
+    const entry = await timesheets.record({ companyId: fixture.companyId, employeeId, groupId, workDate: new Date(day), hours: new Decimal(hours), actor });
+    await timesheets.approve({ companyId: fixture.companyId, ids: [entry.id], actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
+    return entry;
+  };
+
+  it('counts only approved hours, and sends a correction back for approval', async () => {
+    const flock = await population('L-A', 'poultry', 100);
+    const worker = await employee('E-9');
+    const pending = await timesheets.record({
+      companyId: fixture.companyId, employeeId: worker.id, groupId: flock.id, workDate: new Date('2026-01-12'), hours: new Decimal('6'), actor,
+    });
+    expect(await allocation.preview(fixture.companyId, fixture.periodIds[JANUARY]!, 1000n, 'HOURS')).toEqual([]);
+
+    // Whoever logged it may not approve it while someone else could.
+    await expect(timesheets.approve({ companyId: fixture.companyId, ids: [pending.id], actor })).rejects.toThrow(/someone else approves/);
+    await timesheets.approve({ companyId: fixture.companyId, ids: [pending.id], actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
+    expect(await allocation.preview(fixture.companyId, fixture.periodIds[JANUARY]!, 1000n, 'HOURS')).toHaveLength(1);
+
+    // A correction is unapproved again.
+    await timesheets.record({
+      companyId: fixture.companyId, employeeId: worker.id, groupId: flock.id, workDate: new Date('2026-01-12'), hours: new Decimal('7'), actor,
+    });
+    const [corrected] = await timesheets.list(fixture.companyId, new Date('2026-01-01'), new Date('2026-01-31'));
+    expect(corrected).toMatchObject({ hours: '7', status: 'PENDING' });
+  });
 
   it('weights each person’s hours by their pay for the month', async () => {
     const flockA = await population('L-A', 'poultry', 100);
@@ -449,7 +474,7 @@ describe('Wages shared by timesheet hours × pay rate (PCR-028)', () => {
         companyId: fixture.companyId, financialPeriodId: fixture.periodIds[JANUARY]!, basis: 'HOURS',
         sources: [{ glAccountId: account['5101']!, amountKobo: 50_000n }], actor,
       }),
-    ).rejects.toThrow(/No timesheet hours/);
+    ).rejects.toThrow(/No approved timesheet hours/);
 
     const worker = await employee('E-1');
     await log(worker.id, flockA.id, '2026-01-08', '16');

@@ -126,11 +126,30 @@ local database, review the SQL it wrote, and commit it. Deploys run
 `npm run db:migrate`, which applies pending migrations in order. `db:push` is
 for throwaway local databases only.
 
+## Backups
+
+A GitHub Action (`.github/workflows/backup.yml`) dumps the production
+database every night at 02:00 UTC, encrypts it, proves it can be read back,
+and keeps it for 30 days as a workflow artifact. It needs two repository
+secrets: `BACKUP_DATABASE_URL` (Neon's direct connection string — the host
+without `-pooler`) and `BACKUP_PASSPHRASE` (keep a copy outside GitHub; the
+backups cannot be read without it).
+
+To restore, download the artifact from the workflow run, then:
+
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in bioassetpro-YYYY-MM-DD.dump.enc -out restore.dump
+pg_restore --no-owner --no-privileges --dbname "$TARGET_DATABASE_URL" restore.dump
+```
+
+Restore into a new, empty database first and check it before pointing the
+API at it. `pg_restore` must be version 18 or newer, like the server.
+
 ## Testing
 
 ```bash
 npm run typecheck
-npm test                  # 372 integration and 31 unit tests against a real PostgreSQL
+npm test                  # 376 integration and 31 unit tests against a real PostgreSQL
 ```
 
 The integration suite starts its own ephemeral database. It exercises the
@@ -162,7 +181,8 @@ Stated here rather than discovered later.
   Timesheets); flocks take theirs into Work in Progress, snails to 612000. On
   animal-days, a month before 2026-09-24 can understate a population that later
   sold live animals, whose counts were not dated then. Hours are logged per
-  person, batch and day, not approved separately.
+  person, batch and day; only hours approved by someone other than whoever
+  logged them count (or self-approved, where nobody else could).
 - **Machine depreciation** goes to the machine's processing line, or is split
   by the hours logged on each line that month. Egg value is a dated price per
   crate, with an optional separate price for hatching eggs; rejects carry none.

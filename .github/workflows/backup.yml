@@ -1,0 +1,85 @@
+name: Nightly database backup
+
+# A copy of the production database that does not depend on the database
+# provider. Neon's own history on the free plan is short, and a restore from
+# it is only as good as the account that holds it; this is an independent,
+# encrypted dump kept for 30 days as a workflow artifact.
+#
+# Needs two repository secrets (Settings -> Secrets and variables -> Actions):
+#   BACKUP_DATABASE_URL  the Neon DIRECT connection string (the host WITHOUT
+#                        "-pooler"), for a consistent dump
+#   BACKUP_PASSPHRASE    a long random passphrase, kept somewhere other than
+#                        GitHub — without it the backup cannot be read, by
+#                        anyone, including you
+#
+# The dump is encrypted before it leaves the runner, so the artifact is
+# unreadable to anyone who can see the repository's Actions. Each run also
+# decrypts it again and lists its contents, so a backup that cannot be
+# restored fails loudly on the night it is taken, not on the day it is needed.
+#
+# Restore: see "Backups" in README.md.
+on:
+  schedule:
+    - cron: '0 2 * * *' # 02:00 UTC — 03:00 in Lagos
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check the secrets are set
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$BACKUP_DATABASE_URL" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::Set BACKUP_DATABASE_URL and BACKUP_PASSPHRASE in the repository's Actions secrets."
+            exit 1
+          fi
+
+      - name: Install the PostgreSQL 18 client (matches the server)
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-18
+          /usr/lib/postgresql/18/bin/pg_dump --version
+
+      - name: Dump and encrypt
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -o pipefail
+          stamp=$(date -u +%Y-%m-%d)
+          /usr/lib/postgresql/18/bin/pg_dump --format=custom --no-owner --no-privileges "$BACKUP_DATABASE_URL" \
+            | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE -out "bioassetpro-$stamp.dump.enc"
+          ls -lh "bioassetpro-$stamp.dump.enc"
+          echo "STAMP=$stamp" >> "$GITHUB_ENV"
+
+      - name: Prove it can be restored
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -o pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_PASSPHRASE -in "bioassetpro-$STAMP.dump.enc" \
+            | /usr/lib/postgresql/18/bin/pg_restore --list > contents.txt
+          tables=$(grep -c " TABLE DATA " contents.txt || true)
+          echo "The backup holds data for $tables tables."
+          if [ "$tables" -lt 50 ]; then
+            echo "::error::Only $tables tables in the backup — expected well over 50. Something is wrong."
+            exit 1
+          fi
+
+      - name: Keep for 30 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: bioassetpro-${{ env.STAMP }}
+          path: bioassetpro-${{ env.STAMP }}.dump.enc
+          retention-days: 30
+          if-no-files-found: error

@@ -24,4 +24,4 @@ jobs:
       - name: Ping web service
         run: curl -fsS --max-time 30 https://bioassetpro-web.onrender.com/login -o /dev/null || true
       - name: Ping API health check
-        run: curl -fsS --max-time 30 https://bioassetpro-api.onrender.com/api/auth/providers -o /dev/null || true
+        run: curl -fsS --max-time 30 https://bioassetpro-api.onrender.com/api/health -o /dev/null || true
