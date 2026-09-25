@@ -15,6 +15,7 @@ import { compressPhoto, formatBytes, type CapturedPhoto } from '@/lib/photo';
 import type { LanguageCode } from '@/lib/farm-config';
 import { Card, PageHeader } from './ui';
 import { Sheet } from './sheet';
+import { ScanButton } from './scan-button';
 
 /**
  * The daily round — what happened today, house by house.
@@ -261,6 +262,7 @@ export function DailyRecordEntry({
   });
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [reviewing, setReviewing] = useState(false);
+  const [scanned, setScanned] = useState<string | null>(null);
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [submitted, setSubmitted] = useState<number | null>(null);
@@ -613,9 +615,27 @@ export function DailyRecordEntry({
               needs one tap to get there, not four Backs.
             */}
             <div>
-              <div className="field" style={{ marginBottom: 'var(--sp-2)' }}>
-                {say('round.progress')}
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)' }}>
+                <div className="field">{say('round.progress')}</div>
+                {/* Scan the label on a house door or batch card to jump to its stop. */}
+                <ScanButton
+                  onResult={(value) => {
+                    const wanted = value.trim().toLowerCase();
+                    const index = stops.findIndex(
+                      (candidate) =>
+                        candidate.house.toLowerCase() === wanted ||
+                        candidate.groups.some((group) => group.code.toLowerCase() === wanted),
+                    );
+                    if (index === -1) {
+                      setScanned(`${value} is not on this round.`);
+                    } else {
+                      setScanned(null);
+                      setStopIndex(index);
+                    }
+                  }}
+                />
               </div>
+              {scanned ? <div className="notice notice-warning" style={{ marginBottom: 'var(--sp-2)' }}>{scanned}</div> : null}
               <div className="rounds-progress" role="tablist" aria-label="Round stops">
                 {stops.map((candidate, index) => {
                   const done = candidate.groups.some((group) => hasContent(drafts[group.id]));

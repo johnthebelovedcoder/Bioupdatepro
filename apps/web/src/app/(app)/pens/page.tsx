@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { FarmForm, PenForm } from '@/components/pen-form';
@@ -55,6 +56,11 @@ export default async function PensPage() {
       <PageHeader
         title="Houses &amp; pens"
         subtitle="Every place an animal can live. A population has to be placed in one"
+        actions={
+          <Link className="btn" href="/pens/labels">
+            Print labels
+          </Link>
+        }
       />
 
       <div className="stack">

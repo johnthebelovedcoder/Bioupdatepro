@@ -61,16 +61,16 @@ jobs:
         working-directory: apps/api
         run: npx vitest run --config vitest.config.ts --reporter=default --reporter=json --outputFile.json=test/uat/results-integration.json
 
-      # Non-blocking until the 500-snail case replay lands: UAT-022 is honestly
-      # MISSING until then, and the run says so rather than failing every push.
+      # Every UAT test must be evidenced; a missing or failing one fails the run.
+      # UAT-026 also needs an observed user test, which the report names.
       - name: UAT evidence (UAT_CONTROL_REGISTER)
         if: always()
-        continue-on-error: true
         working-directory: apps/api
         run: |
           status=0
           node test/uat/run-uat.mjs --score || status=$?
           cat test/uat/uat-report.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f test/uat/case-500-report.md ]; then cat test/uat/case-500-report.md >> "$GITHUB_STEP_SUMMARY"; fi
           exit $status
 
       - name: Keep the UAT report
@@ -78,7 +78,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: uat-report
-          path: apps/api/test/uat/uat-report.*
+          path: |
+            apps/api/test/uat/uat-report.*
+            apps/api/test/uat/case-500-report.md
           retention-days: 90
 
       - name: Web production build
