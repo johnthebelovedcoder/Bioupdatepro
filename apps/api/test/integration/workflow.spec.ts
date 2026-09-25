@@ -12,6 +12,7 @@ import { PeriodService } from '../../src/periods/period.service';
 import { DimensionValidatorService } from '../../src/enterprise-dimensions/dimension-validator.service';
 import { PostingService } from '../../src/posting/posting.service';
 import { WorkflowService } from '../../src/workflow/workflow.service';
+import { NotificationDispatcherService } from '../../src/workflow/notification-dispatcher.service';
 import { WorkflowRoutingService } from '../../src/workflow/workflow-routing.service';
 import { DelegationService } from '../../src/workflow/delegation.service';
 import { NotificationService } from '../../src/workflow/notification.service';
@@ -341,6 +342,65 @@ describe('Workflow & Approval Engine (§2)', () => {
       expect(step.comments).toMatch(/Self-approved/);
       const history = await workflow.history(submitted.transactionId);
       expect(history.some((h) => (h.comments ?? '').includes('Self-approved'))).toBe(true);
+    });
+
+    it('tells only approvers in the document’s own farm', async () => {
+      const otherFarm = await prisma.company.create({
+        data: { code: 'OTHER', name: 'Another Farm', baseCurrencyId: fixture.currencyId },
+      });
+      const outsider = await prisma.user.create({
+        data: { email: 'outsider@test', fullName: 'Outsider', passwordHash: 'x', roles: ['FARM_MANAGER'], companyId: otherFarm.id },
+      });
+      const submitted = await workflow.submit(submitRequest());
+
+      const told = await prisma.workflowNotification.findMany({ where: { transactionId: submitted.transactionId } });
+      expect(told.some((n) => n.recipientId === outsider.id)).toBe(false);
+      expect(told.some((n) => n.recipientId === users.farmManager.id)).toBe(true);
+    });
+
+    it('tells the maker when they are the only one who can approve', async () => {
+      await prisma.user.updateMany({
+        where: { companyId: fixture.companyId, id: { not: users.maker.id } },
+        data: { active: false },
+      });
+      await prisma.user.update({ where: { id: users.maker.id }, data: { roles: ['FARM_MANAGER'] } });
+      const submitted = await workflow.submit(submitRequest({ actor: { userId: users.maker.id, roles: ['FARM_MANAGER'] } }));
+
+      const told = await prisma.workflowNotification.findMany({
+        where: { transactionId: submitted.transactionId, channel: 'IN_APP' },
+      });
+      expect(told.map((n) => n.recipientId)).toEqual([users.maker.id]);
+    });
+
+    it('emails what is still waiting, and never what has been decided', async () => {
+      const waiting = await workflow.submit(submitRequest());
+      const decided = await workflow.submit(submitRequest({ documentReference: 'MJ-0002' }));
+      await prisma.workflowTransaction.update({ where: { id: decided.transactionId }, data: { status: 'CANCELLED' } });
+
+      const sentTo: string[] = [];
+      const realFetch = globalThis.fetch;
+      process.env.RESEND_API_KEY = 'test-key';
+      process.env.RESEND_FROM_EMAIL = 'approvals@test';
+      globalThis.fetch = (async (_url: string, init: { body: string }) => {
+        sentTo.push(JSON.parse(init.body).to);
+        return new Response('{}', { status: 200 });
+      }) as never;
+      try {
+        const result = await new NotificationDispatcherService(prisma).dispatch();
+        expect(result.sent).toBeGreaterThan(0);
+      } finally {
+        globalThis.fetch = realFetch;
+        delete process.env.RESEND_API_KEY;
+        delete process.env.RESEND_FROM_EMAIL;
+      }
+
+      const emails = await prisma.workflowNotification.findMany({ where: { channel: 'EMAIL' } });
+      for (const email of emails.filter((e) => e.transactionId === waiting.transactionId)) expect(email.status).toBe('SENT');
+      for (const email of emails.filter((e) => e.transactionId === decided.transactionId)) {
+        expect(email.status).toBe('FAILED');
+        expect(email.failureReason).toMatch(/no longer waiting/);
+      }
+      expect(sentTo).toContain('farm@test');
     });
 
     it('still refuses the maker while someone else in the farm could approve', async () => {

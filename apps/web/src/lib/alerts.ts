@@ -10,6 +10,7 @@ import { standardAt, standardFor, type FarmConfig } from './farm-config';
 import { defaultFeedFor, getModule, subscribedModules, type ModuleKey } from './modules';
 import { applyOverrides, sectionForPath, sectionsFor, type Section } from './permissions';
 import { getRoleSectionOverrides } from './role-sections';
+import { getPendingApprovals } from './procurement';
 
 /**
  * What needs attention, and what to do about it.
@@ -268,6 +269,8 @@ function sectionForKind(kind: string): Section {
       return 'livestock';
     case 'postingGap':
       return 'ledger';
+    case 'approvalsWaiting':
+      return 'approvals';
     default:
       return 'money';
   }
@@ -568,6 +571,31 @@ export async function getAlerts(roles?: readonly string[]): Promise<Alert[]> {
    * module, so the same mapping that decides who may see an alert decides
    * whether it applies at all.
    */
+  /*
+   * Documents waiting on this person. Six sat unnoticed for twelve days on a
+   * one-person farm (2026-09-25) — the approval inbox existed, but nothing
+   * on the page they open every morning said anything was in it. Always on:
+   * an approval nobody knows about is not a preference.
+   */
+  const waiting = await getPendingApprovals().catch(() => []);
+  if (waiting.length > 0) {
+    const oldestDays = Math.max(
+      ...waiting.map((w) => Math.floor((Date.now() - new Date(w.waitingSince).getTime()) / 86_400_000)),
+    );
+    const own = waiting.filter((w) => w.selfApproval).length;
+    alerts.push({
+      id: 'approvals-waiting',
+      kind: 'approvalsWaiting',
+      severity: oldestDays >= 3 ? 'critical' : 'warning',
+      title: `${waiting.length} document${waiting.length === 1 ? '' : 's'} waiting for your approval`,
+      detail:
+        `The oldest has waited ${oldestDays} day${oldestDays === 1 ? '' : 's'}. Nothing on ${waiting.length === 1 ? 'it' : 'them'} reaches the books until approved.` +
+        (own > 0 ? ` ${own === waiting.length ? 'All are' : `${own} are`} your own — nobody else here can approve them, so you may.` : ''),
+      action: { label: 'Open approvals', href: '/approvals' },
+      rank: oldestDays >= 3 ? 1 : 15,
+    });
+  }
+
   const hasSpecies = subscribedModules(config.modules).length > 0;
   const applicable = hasSpecies
     ? alerts

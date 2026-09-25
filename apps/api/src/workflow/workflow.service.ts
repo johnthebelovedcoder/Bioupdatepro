@@ -928,8 +928,13 @@ export class WorkflowService {
       excludeUserId?: string;
     },
   ): Promise<void> {
+    // Within the document's own company. Until 2026-09-25 this asked every
+    // company, so a farm's finance manager was told about another farm's
+    // purchase orders — their references and amounts included. Administrators
+    // can approve any level (DelegationService.authorityFor), so they are
+    // told too.
     const holders = await tx.user.findMany({
-      where: { active: true, roles: { has: roleCode } },
+      where: { companyId: options.companyId, active: true, roles: { hasSome: [roleCode, 'ADMINISTRATOR'] } },
       select: { id: true },
     });
 
@@ -945,10 +950,14 @@ export class WorkflowService {
       select: { delegateId: true },
     });
 
-    const recipients = [
-      ...holders.map((h) => h.id),
-      ...delegated.map((d) => d.delegateId),
-    ].filter((id) => id !== options.excludeUserId);
+    const everyone = [...holders.map((h) => h.id), ...delegated.map((d) => d.delegateId)];
+    let recipients = everyone.filter((id) => id !== options.excludeUserId);
+    // Nobody else can act on it: the excluded maker is the only approver (the
+    // self-approval case), so they are the one to tell — otherwise a
+    // one-person farm's documents wait unannounced, as six did for 12 days.
+    if (recipients.length === 0 && options.excludeUserId && everyone.includes(options.excludeUserId)) {
+      recipients = [options.excludeUserId];
+    }
 
     await this.notifications.queue(
       {

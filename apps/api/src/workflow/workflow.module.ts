@@ -3,6 +3,7 @@ import { WorkflowService } from './workflow.service';
 import { WorkflowRoutingService } from './workflow-routing.service';
 import { DelegationService } from './delegation.service';
 import { NotificationService } from './notification.service';
+import { NotificationDispatcherService } from './notification-dispatcher.service';
 import { EscalationService } from './escalation.service';
 import { GlPostingHandler } from './gl-posting.handler';
 import { WORKFLOW_POSTING_HANDLERS } from './workflow.types';
@@ -24,6 +25,7 @@ import { WORKFLOW_POSTING_HANDLERS } from './workflow.types';
     WorkflowRoutingService,
     DelegationService,
     NotificationService,
+    NotificationDispatcherService,
     EscalationService,
     GlPostingHandler,
     {

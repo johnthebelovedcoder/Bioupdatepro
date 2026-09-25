@@ -219,8 +219,13 @@ export class EscalationService {
     roleCode: string,
     message: { event: NotificationEvent; subject: string; body: string },
   ): Promise<void> {
+    // The document's own company only — see WorkflowService.notifyLevel.
+    const transaction = await tx.workflowTransaction.findUniqueOrThrow({
+      where: { id: transactionId },
+      select: { companyId: true },
+    });
     const holders = await tx.user.findMany({
-      where: { active: true, roles: { has: roleCode } },
+      where: { companyId: transaction.companyId, active: true, roles: { has: roleCode } },
       select: { id: true },
     });
     await this.notifications.queue(
