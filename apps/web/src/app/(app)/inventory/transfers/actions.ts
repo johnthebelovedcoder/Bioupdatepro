@@ -13,13 +13,6 @@ function fail(caught: unknown, fallback: string): FlowState {
   return { error: caught instanceof ApiError ? caught.message : fallback, message: null };
 }
 
-/** Same `PREFIX-YYYYMMDD-hash` shape every other document number in this app uses. */
-function documentNumber(prefix: string): string {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const hash = Math.random().toString(36).slice(2, 8).toUpperCase();
-  return `${prefix}-${today}-${hash}`;
-}
-
 /** Issue stock out of one store, in transit to another. Posts Dr/Cr the in-transit holding account (PCR-012). */
 export async function issueTransfer(_previous: FlowState, formData: FormData): Promise<FlowState> {
   const itemId = String(formData.get('itemId') ?? '');
@@ -40,10 +33,10 @@ export async function issueTransfer(_previous: FlowState, formData: FormData): P
   if (!branch) return { error: 'This company has no active branch.', message: null };
 
   try {
-    const transferNumber = documentNumber('TRF');
-    await api('/inventory/transfers', {
+    // The API numbers the transfer (WTR-ENTITY-SITE-YYYY-000001).
+    const { transferNumber } = await api<{ transferNumber: string }>('/inventory/transfers', {
       method: 'POST',
-      body: { branchId: branch.id, itemId, fromWarehouseId, toWarehouseId, quantity, transferNumber },
+      body: { branchId: branch.id, itemId, fromWarehouseId, toWarehouseId, quantity },
     });
     revalidatePath('/inventory/transfers');
     return { error: null, message: `${transferNumber} issued — in transit until received at the other end.` };

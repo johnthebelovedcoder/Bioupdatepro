@@ -124,11 +124,6 @@ function HarvestForm({
       </label>
 
       <label className="field">
-        Order number
-        <input name="orderNumber" placeholder="PROC-2026-001" required />
-      </label>
-
-      <label className="field">
         Planned output quantity
         <input name="plannedOutputQuantity" type="number" step="0.001" min="0.001" required />
       </label>
@@ -201,11 +196,6 @@ function FeedForm({
             Nothing to pick — <a href="/production/recipes">add and activate a recipe</a> first.
           </span>
         ) : null}
-      </label>
-
-      <label className="field">
-        Order number
-        <input name="orderNumber" placeholder="FEED-2026-001" required />
       </label>
 
       <label className="field">

@@ -96,31 +96,32 @@ export class TradeService {
           throw new BadRequestException('A sale needs at least one line.');
         }
 
-        const orderNumber = documentNumber('SO', payload.date, idempotencyKey);
 
         /*
          * Recover a previous attempt that created the order but never
          * finished submitting it — a business-rule rejection from
          * `submitOrder` (a missing sales configuration, failed credit
          * routing), or a crash, either of which leaves this exact order
-         * number sitting in the database with nothing recorded in
+         * key sitting in the database with nothing recorded in
          * `idempotencyRecord` yet (that only gets written once `work()`
          * below returns). `createOrder` and `submitOrder` are two separate,
          * already-committed transactions, so a retry that just called
-         * `createOrder` again would collide with `orderNumber`'s own
+         * `createOrder` again would collide with `clientReference`'s own
          * uniqueness constraint and fail with a confusing duplicate-key
          * error instead of either resuming or reporting the original one —
          * which is exactly the failure the outbox's retry exists to avoid.
          */
+        // Found by the key the client sent it under; its number is the
+        // controlled one createOrder gave it (Numbering_Parameters).
         const existing = await this.prisma.salesOrder.findUnique({
-          where: { companyId_orderNumber: { companyId, orderNumber } },
+          where: { companyId_clientReference: { companyId, clientReference: idempotencyKey } },
         });
 
         const order =
           existing ??
           (await this.salesOrders.createOrder({
             companyId,
-            orderNumber,
+            clientReference: idempotencyKey,
             customerId,
             orderDate: new Date(payload.date),
             currencyId: context.currencyId,
@@ -166,7 +167,8 @@ export class TradeService {
             speciesKey: group.speciesKey,
             breed: group.breed,
             stageName: group.stage,
-            startedOn: group.startedOn,
+            // Age counts from hatching where it is known (SNAIL/POULTRY_AGE_TRACKER).
+            startedOn: group.hatchedOn ?? group.startedOn,
             asOfDate: new Date(payload.date),
             groupCode: group.code,
           });
@@ -200,6 +202,7 @@ export class TradeService {
             groupId: group.id,
             quantity: line.animalsRemoved!,
             occurredOn: new Date(payload.date),
+            method: 'SOLD',
             actor,
           });
           if (!outcome.posted && outcome.reason) {
@@ -265,22 +268,23 @@ export class TradeService {
           throw new BadRequestException('A purchase needs at least one line.');
         }
 
-        const orderNumber = documentNumber('PO', payload.date, idempotencyKey);
 
         // Same recovery as `recordSale` above, and for the same reason:
         // `createOrder` and `submitOrder` are two separately-committed
         // steps, so a retry after `submitOrder` fails must not blindly
-        // recreate the order — it would collide with `orderNumber`'s own
+        // recreate the order — it would collide with `clientReference`'s own
         // uniqueness constraint instead of resuming.
+        // Found by the key the client sent it under; its number is the
+        // controlled one createOrder gave it (Numbering_Parameters).
         const existing = await this.prisma.purchaseOrder.findUnique({
-          where: { companyId_orderNumber: { companyId, orderNumber } },
+          where: { companyId_clientReference: { companyId, clientReference: idempotencyKey } },
         });
 
         const order =
           existing ??
           (await this.purchaseOrders.createOrder({
             companyId,
-            orderNumber,
+            clientReference: idempotencyKey,
             supplierId: supplier.id,
             orderDate: new Date(payload.date),
             currencyId: context.currencyId,
@@ -525,12 +529,6 @@ export class TradeService {
 /** Whether a reference could be a database id at all. */
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-}
-
-function documentNumber(prefix: string, date: string, idempotencyKey: string): string {
-  const day = date.replace(/-/g, '').slice(0, 8);
-  const suffix = idempotencyKey.replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase();
-  return `${prefix}-${day}-${suffix}`;
 }
 
 /* -------------------------------------------------------------------------- */

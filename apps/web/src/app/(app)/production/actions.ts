@@ -17,18 +17,18 @@ function fail(caught: unknown, fallback: string): FlowState {
 export async function createFromHarvest(_previous: FlowState, formData: FormData): Promise<FlowState> {
   const harvestRecordId = String(formData.get('harvestRecordId') ?? '');
   const recipeVersionId = String(formData.get('recipeVersionId') ?? '');
-  const orderNumber = String(formData.get('orderNumber') ?? '').trim();
   const plannedOutputQuantity = String(formData.get('plannedOutputQuantity') ?? '').trim();
 
   if (!harvestRecordId) return { error: 'Choose which harvest this order processes.', message: null };
   if (!recipeVersionId) return { error: 'Choose a recipe.', message: null };
-  if (!orderNumber) return { error: 'Give the order a number.', message: null };
   if (!plannedOutputQuantity || Number(plannedOutputQuantity) <= 0) {
     return { error: 'Enter a planned output quantity greater than zero.', message: null };
   }
 
+  let orderNumber: string;
   try {
-    await api('/production-orders', {
+    // The API numbers the order (PRO-ENTITY-SITE-YYYY-000001).
+    ({ orderNumber } = await api<{ orderNumber: string }>('/production-orders', {
       method: 'POST',
       body: {
         harvestRecordId,
@@ -36,10 +36,9 @@ export async function createFromHarvest(_previous: FlowState, formData: FormData
         // Unused by the service (the store is decided per-item at issue
         // time from each item's own default), but the endpoint requires it.
         warehouseId: '00000000-0000-0000-0000-000000000000',
-        orderNumber,
         plannedOutputQuantity,
       },
-    });
+    }));
   } catch (caught) {
     return fail(caught, 'Could not raise that order.');
   }
@@ -53,28 +52,26 @@ export async function createFeedOrder(_previous: FlowState, formData: FormData):
   const branchId = String(formData.get('branchId') ?? '');
   const farmId = String(formData.get('farmId') ?? '');
   const recipeVersionId = String(formData.get('recipeVersionId') ?? '');
-  const orderNumber = String(formData.get('orderNumber') ?? '').trim();
   const plannedOutputQuantity = String(formData.get('plannedOutputQuantity') ?? '').trim();
 
   if (!farmId) return { error: 'Choose which farm this feed is for.', message: null };
   if (!recipeVersionId) return { error: 'Choose a recipe.', message: null };
-  if (!orderNumber) return { error: 'Give the order a number.', message: null };
   if (!plannedOutputQuantity || Number(plannedOutputQuantity) <= 0) {
     return { error: 'Enter a planned output quantity greater than zero.', message: null };
   }
 
+  let orderNumber: string;
   try {
-    await api('/production-orders/feed', {
+    ({ orderNumber } = await api<{ orderNumber: string }>('/production-orders/feed', {
       method: 'POST',
       body: {
         branchId,
         farmId,
         warehouseId: '00000000-0000-0000-0000-000000000000',
         recipeVersionId,
-        orderNumber,
         plannedOutputQuantity,
       },
-    });
+    }));
   } catch (caught) {
     return fail(caught, 'Could not raise that feed order.');
   }

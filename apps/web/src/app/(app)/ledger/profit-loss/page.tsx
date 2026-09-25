@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { formatNaira } from '@/lib/money';
 import { defaultYear, getContext } from '@/lib/org';
@@ -5,6 +6,7 @@ import { TrialBalanceFilters } from '../trial-balance/filters';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { ExportLink } from '@/components/export-link';
+import { SegmentStatements, type SegmentReport } from '@/components/segment-statements';
 
 export const metadata = { title: 'Profit & loss — BioAssetPro' };
 
@@ -71,13 +73,25 @@ export default async function ProfitLossPage({
   if (costCentreId) query.set('costCentreId', costCentreId);
   if (farmId) query.set('farmId', farmId);
 
+  const bySegment = params.view === 'segments';
   let report: ProfitLoss | null = null;
+  let segments: SegmentReport | null = null;
   let error: string | null = null;
   try {
-    report = await api<ProfitLoss>(`/reporting/profit-loss?${query.toString()}`);
+    if (bySegment) {
+      segments = await api<SegmentReport>(`/reporting/profit-loss/segments?${query.toString()}`);
+    } else {
+      report = await api<ProfitLoss>(`/reporting/profit-loss?${query.toString()}`);
+    }
   } catch (caught) {
     error = caught instanceof ApiError ? caught.message : 'Could not build the statement.';
   }
+  const viewHref = (view: string | null) => {
+    const next = new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => !!e[1]));
+    if (view) next.set('view', view);
+    else next.delete('view');
+    return `?${next.toString()}`;
+  };
 
   return (
     <div className="stack">
@@ -103,7 +117,23 @@ export default async function ProfitLossPage({
         }}
       />
 
+      <div className="row" style={{ gap: 'var(--sp-2)' }}>
+        <Link className={`btn btn-sm${bySegment ? '' : ' btn-primary'}`} href={viewHref(null)}>
+          Whole farm
+        </Link>
+        <Link className={`btn btn-sm${bySegment ? ' btn-primary' : ''}`} href={viewHref('segments')}>
+          By segment
+        </Link>
+      </div>
+
       {error ? <div className="notice notice-error">{error}</div> : null}
+
+      {segments ? (
+        <SegmentStatements
+          report={segments}
+          period={periodId ? (year?.periods.find((p) => p.id === periodId)?.name ?? '') : `${year?.code ?? 'This year'} to date`}
+        />
+      ) : null}
 
       {report ? (
         <Card

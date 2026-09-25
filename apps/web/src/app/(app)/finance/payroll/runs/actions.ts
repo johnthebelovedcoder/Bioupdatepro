@@ -96,7 +96,6 @@ export async function recordPayrollPayment(
   formData: FormData,
 ): Promise<FlowState> {
   const runId = String(formData.get('runId') ?? '').trim();
-  const runReference = String(formData.get('runReference') ?? '').trim();
   const bucket = String(formData.get('bucket') ?? '') as (typeof BUCKETS)[number];
   if (!BUCKETS.includes(bucket)) return { error: 'Choose what is being paid.', message: null };
 
@@ -132,17 +131,12 @@ export async function recordPayrollPayment(
     return { error: `No financial period covers ${paymentDate}.`, message: null };
   }
 
-  // Unique per company. Built from the run and the moment it was raised, so
-  // two remittances against the same payable never collide.
-  const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14);
-  const paymentNumber = `${runReference || 'PR'}-${bucket}-${stamp}`;
-
+  // The API numbers the payment (PPV-ENTITY-SITE-YYYY-000001).
   try {
     const payment = await api<{ id: string; paymentNumber: string }>('/payroll/payments', {
       method: 'POST',
       body: {
         payrollRunId: runId,
-        paymentNumber,
         bucket,
         amountKobo: amountKobo.toString(),
         paymentDate: new Date(paymentDate).toISOString(),

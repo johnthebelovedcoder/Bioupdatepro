@@ -207,6 +207,8 @@ model User {
   inventoryWriteOffsCreated InventoryWriteOff[]
 
   @@map("users")
+  weighingsRecorded LivestockWeighing[] @relation("WeighingRecorder")
+  weighingsApproved LivestockWeighing[] @relation("WeighingApprover")
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +218,9 @@ model User {
 model Company {
   id             String   @id @default(uuid()) @db.Uuid
   code           String   @unique
+  /// The ENTITY part of every controlled reference (Numbering_Parameters):
+  /// three letters, e.g. AGR in PO-AGR-LAG-2026-000001.
+  referenceCode  String?  @map("reference_code")
   name           String
   /// Statutory applicability inputs (Statutory workbook, Company_Setup sheet).
   /// Kept here because Phase 9 payroll reads them; they are configuration, not code.
@@ -328,6 +333,27 @@ model Company {
   implementationPhases            ImplementationPhase[]
 
   @@map("companies")
+  livestockWeighings LivestockWeighing[]
+  documentSequences DocumentSequence[]
+}
+
+/// The atomic counter behind controlled references (Numbering_Parameters):
+/// one sequence per company, document type, site and year, incremented in the
+/// database so two people never get the same number and none is reused.
+model DocumentSequence {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  prefix    String
+  siteCode  String @map("site_code")
+  year      Int
+  lastValue Int    @default(0) @map("last_value")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, prefix, siteCode, year])
+  @@map("document_sequences")
 }
 
 model Branch {
@@ -766,6 +792,11 @@ model JournalEntry {
   id            String        @id @default(uuid()) @db.Uuid
   companyId     String        @map("company_id") @db.Uuid
   journalNumber String        @map("journal_number")
+  /// The controlled journal-voucher reference (JV-ENTITY-SITE-YYYY-SEQ),
+  /// given by NumberingService as the journal posts. journalNumber keeps the
+  /// source document's own reference. Blank on journals posted before
+  /// 2026-09-25.
+  voucherNumber String?       @map("voucher_number")
   journalDate   DateTime      @map("journal_date") @db.Date
   narration     String
   status        JournalStatus @default(DRAFT)
@@ -844,6 +875,7 @@ model JournalEntry {
   inventoryWriteOffs        InventoryWriteOff[]
 
   @@unique([companyId, journalNumber])
+  @@unique([companyId, voucherNumber])
   @@index([companyId, financialPeriodId, status])
   @@index([sourceModule, sourceDocumentType, sourceDocumentId])
   @@map("journal_entries")
@@ -4005,6 +4037,10 @@ model SalesOrder {
   creditOverride     Boolean  @default(false) @map("credit_override")
 
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  /// The key the client sent the document under (the offline outbox's
+  /// idempotency key): a retry finds the order it already made by this,
+  /// never by guessing its number (UX_ACCEPTANCE: offline duplicate protection).
+  clientReference String? @map("client_reference")
 
   createdById String   @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
@@ -4025,6 +4061,7 @@ model SalesOrder {
   invoices   SalesInvoice[]
 
   @@unique([companyId, orderNumber])
+  @@unique([companyId, clientReference])
   @@index([companyId, status])
   @@map("sales_orders")
 }
@@ -4806,6 +4843,10 @@ model PurchaseOrder {
   grossAmountKobo BigInt @default(0) @map("gross_amount_kobo")
 
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  /// The key the client sent the document under (the offline outbox's
+  /// idempotency key): a retry finds the order it already made by this,
+  /// never by guessing its number (UX_ACCEPTANCE: offline duplicate protection).
+  clientReference String? @map("client_reference")
 
   /// Increments on every amendment while still DRAFT (US-897-006). Not a
   /// separate version table — unlike a recipe, nothing outside this row ever
@@ -4835,6 +4876,7 @@ model PurchaseOrder {
   invoices    SupplierInvoice[]
 
   @@unique([companyId, orderNumber])
+  @@unique([companyId, clientReference])
   @@index([companyId, status])
   @@map("purchase_orders")
 }
@@ -5464,6 +5506,9 @@ model SpeciesBreedStage {
   stageName String @map("stage_name")
   minDay    Int    @map("min_day")
   sortOrder Int    @map("sort_order")
+  /// The average weight the breed standard expects at this stage, in grams.
+  /// Weighings are compared against it. Blank where no standard is set.
+  targetWeightGrams Int? @map("target_weight_grams")
 
   speciesBreed SpeciesBreed @relation(fields: [speciesBreedId], references: [id], onDelete: Cascade)
 
@@ -5521,6 +5566,13 @@ model LivestockGroup {
   population Int
 
   startedOn DateTime  @map("started_on") @db.Date
+  /// When the animals were hatched, if known — age is counted from it. Blank
+  /// for bought-in stock of unknown age: age is then counted from placement
+  /// (startedOn) and says so.
+  hatchedOn DateTime? @map("hatched_on") @db.Date
+  /// True when the hatch date is an estimate (bought-in stock, a vendor's
+  /// word) — the age basis the masters call ESTIMATED rather than EXACT.
+  hatchDateEstimated Boolean @default(false) @map("hatch_date_estimated")
   closedOn  DateTime? @map("closed_on") @db.Date
 
   /// US-897-004/005. Planned dates, set at placement — this app has no
@@ -5571,6 +5623,7 @@ model LivestockGroup {
   eggBatches   EggCollectionBatch[]       @relation("EggSourceGroup")
   hatchedFrom  HatchEvent[]               @relation("HatchChickGroup")
   rearingReliefs LivestockRearingRelief[]
+  weighings      LivestockWeighing[]
 
   @@unique([companyId, code])
   @@index([companyId, speciesKey, status])
@@ -5647,6 +5700,10 @@ model LivestockGroupDisposal {
 
   occurredOn DateTime @map("occurred_on") @db.Date
 
+  /// How the animals left: SOLD, SLAUGHTERED, CULLED, GIFTED, DESTROYED.
+  /// Blank on disposals recorded before 2026-09-25.
+  method String?
+
   journalEntryId String? @map("journal_entry_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -5656,6 +5713,54 @@ model LivestockGroupDisposal {
 
   @@index([groupId])
   @@map("livestock_group_disposals")
+}
+
+/// A sample weighing of one batch (SNAIL_WEIGHT_HISTORY / POULTRY_WEIGHT_HISTORY).
+///
+/// An event, never overwritten: a wrong weighing is rejected and a new one
+/// recorded. It is recorded PENDING and approved by someone other than whoever
+/// recorded it; the latest approved weighing is the batch's one CURRENT
+/// weighing (a partial unique index holds that), and biomass is the live count
+/// times its average.
+model LivestockWeighing {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  groupId   String @map("group_id") @db.Uuid
+
+  weighedOn DateTime @map("weighed_on") @db.Date
+  /// The batch's stage and age on the day — kept, as the batch moves on.
+  stage     String
+  ageDays   Int      @map("age_days")
+
+  sampleSize             Int @map("sample_size")
+  /// The weight of the whole sample, in grams — what the scale says.
+  totalSampleWeightGrams Int @map("total_sample_weight_grams")
+  /// Total ÷ sample, rounded to the gram.
+  averageWeightGrams     Int @map("average_weight_grams")
+  /// What the breed standard expects at this stage, if one is set.
+  targetWeightGrams      Int? @map("target_weight_grams")
+  /// The unit the weigher used, for showing it back: g or kg.
+  unit                   String @default("g")
+
+  status     String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  isCurrent  Boolean   @default(false) @map("is_current")
+  approvedById String? @map("approved_by_id") @db.Uuid
+  approvedAt DateTime? @map("approved_at")
+  rejectionReason String? @map("rejection_reason")
+
+  notes        String?
+  recordedById String   @map("recorded_by_id") @db.Uuid
+  dailyRecordId String? @map("daily_record_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  company    Company        @relation(fields: [companyId], references: [id])
+  group      LivestockGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  recordedBy User           @relation("WeighingRecorder", fields: [recordedById], references: [id])
+  approvedBy User?          @relation("WeighingApprover", fields: [approvedById], references: [id])
+
+  @@index([groupId, weighedOn])
+  @@index([companyId, status])
+  @@map("livestock_weighings")
 }
 
 /// One population, one day: what it ate, what it produced, what it lost.
@@ -5767,6 +5872,11 @@ model MortalityRecord {
   journalEntryId String?                 @map("journal_entry_id") @db.Uuid
 
   notes String?
+
+  /// What was done with the carcasses — BURIED, BURNT, RENDERED, COLLECTED,
+  /// OTHER. Biosecurity asks; blank on deaths recorded before 2026-09-25.
+  carcassDisposal String? @map("carcass_disposal")
+
 
   dailyRecord  DailyRecord      @relation(fields: [dailyRecordId], references: [id], onDelete: Cascade)
   photos       MortalityPhoto[]

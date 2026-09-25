@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import {
   AuditAction,
@@ -54,7 +55,8 @@ export class SalesInvoiceService {
    */
   async createFromOrder(input: {
     salesOrderId: string;
-    invoiceNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    invoiceNumber?: string;
     invoiceDate: Date;
     financialYearId: string;
     financialPeriodId: string;
@@ -64,6 +66,15 @@ export class SalesInvoiceService {
       where: { id: input.salesOrderId },
       include: { lines: { orderBy: { lineNumber: 'asc' } }, customer: true },
     });
+    const invoiceNumber =
+      input.invoiceNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: order.companyId,
+        type: 'INV',
+        site: await siteOf(this.prisma, { farmId: order.farmId, branchId: order.branchId }),
+        date: input.invoiceDate,
+      }));
+
 
     const invoiceable = order.lines
       .map((line) => ({
@@ -102,7 +113,7 @@ export class SalesInvoiceService {
       const invoice = await tx.salesInvoice.create({
         data: {
           companyId: order.companyId,
-          invoiceNumber: input.invoiceNumber,
+          invoiceNumber,
           customerId: order.customerId,
           salesOrderId: order.id,
           invoiceDate: input.invoiceDate,

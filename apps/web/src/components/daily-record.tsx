@@ -43,6 +43,9 @@ import { Sheet } from './sheet';
  * collects cracked eggs for poultry and harvest weight for snails.
  */
 
+const CARCASS_DISPOSALS = ['BURIED', 'BURNT', 'RENDERED', 'COLLECTED', 'OTHER'] as const;
+type CarcassDisposal = (typeof CARCASS_DISPOSALS)[number];
+
 interface Draft {
   feedType: string;
   feedKg: number;
@@ -50,6 +53,11 @@ interface Draft {
   deaths: number;
   /** More than one when the farm allows it — a die-off is rarely one thing. */
   causes: string[];
+  /** What was done with the dead — biosecurity asks. Optional; blank if not said. */
+  carcassDisposal: CarcassDisposal | '';
+  /** A weight sample (UX-004): how many were weighed, and the scale's total for them. */
+  weightCount: number;
+  weightTotal: number;
   /** Set when the figures were carried over rather than observed. */
   carriedOver: boolean;
   /**
@@ -93,6 +101,9 @@ function emptyDraft(module: SpeciesModule, feedNames: string[], group?: BatchSum
     production: {},
     deaths: 0,
     causes: [],
+    carcassDisposal: '',
+    weightCount: 0,
+    weightTotal: 0,
     carriedOver: false,
     photo: null,
     notes: '',
@@ -104,6 +115,7 @@ function hasContent(draft: Draft | undefined): boolean {
   return (
     draft.feedKg > 0 ||
     draft.deaths > 0 ||
+    ((draft.weightCount ?? 0) > 0 && (draft.weightTotal ?? 0) > 0) ||
     Object.values(draft.production).some((value) => value > 0)
   );
 }
@@ -470,6 +482,10 @@ export function DailyRecordEntry({
           production: draft.production,
           deaths: draft.deaths,
           causes: draft.causes,
+          ...(draft.carcassDisposal ? { carcassDisposal: draft.carcassDisposal } : {}),
+          ...((draft.weightCount ?? 0) > 0 && (draft.weightTotal ?? 0) > 0
+            ? { weightSample: { sampleSize: draft.weightCount, totalWeight: draft.weightTotal, unit: weightUnitFor(module.key) } }
+            : {}),
           photo: draft.photo,
           carriedOver: draft.carriedOver,
           notes: draft.notes,
@@ -1071,6 +1087,23 @@ function GroupEntry({
                 </button>
               ))}
             </div>
+
+            <div className="field" style={{ margin: 'var(--sp-4) 0 var(--sp-2)' }}>
+              {say('mortality.carcass')}
+            </div>
+            <div className="chip-row" role="group" aria-label={`${say('mortality.carcass')} ${group.code}`}>
+              {CARCASS_DISPOSALS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className="chip"
+                  aria-pressed={draft.carcassDisposal === option}
+                  onClick={() => onChange({ carcassDisposal: draft.carcassDisposal === option ? '' : option })}
+                >
+                  {say(`carcass.${option}` as const)}
+                </button>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -1079,6 +1112,37 @@ function GroupEntry({
             {problem}
           </div>
         ) : null}
+      </Card>
+
+      {/*
+        A sample weighing on the round (DAILY_ENTRY_UX UX-004). Optional: most
+        days nobody weighs. It is recorded pending and a supervisor approves
+        it before it becomes the batch's current weight.
+      */}
+      <Card title={say('weight.title')} subtitle={say('weight.optional')}>
+        <div className="grid-auto">
+          <div>
+            <div className="field" style={{ marginBottom: 'var(--sp-2)' }}>{say('weight.count')}</div>
+            <Stepper
+              value={draft.weightCount ?? 0}
+              step={5}
+              label={`${say('weight.count')} ${group.code}`}
+              onChange={(value) => onChange({ weightCount: value })}
+              onAdjust={(delta) => onChange({ weightCount: Math.max(0, (draft.weightCount ?? 0) + delta) })}
+            />
+          </div>
+          <div>
+            <div className="field" style={{ marginBottom: 'var(--sp-2)' }}>{say('weight.total')}</div>
+            <Stepper
+              value={draft.weightTotal ?? 0}
+              step={weightUnitFor(module.key) === 'kg' ? 1 : 50}
+              unit={weightUnitFor(module.key)}
+              label={`${say('weight.total')} ${group.code}`}
+              onChange={(value) => onChange({ weightTotal: value })}
+              onAdjust={(delta) => onChange({ weightTotal: Math.max(0, (draft.weightTotal ?? 0) + delta) })}
+            />
+          </div>
+        </div>
       </Card>
 
       <Card title={say('notes.title')} subtitle={say('notes.optional')}>
@@ -1169,4 +1233,9 @@ function Stepper({
       <span className="stepper-unit">{unit ?? ''}</span>
     </div>
   );
+}
+
+/** Snails are weighed in grams, everything else in kilograms. */
+function weightUnitFor(moduleKey: string): 'g' | 'kg' {
+  return moduleKey === 'snail' ? 'g' : 'kg';
 }

@@ -9,6 +9,7 @@ import { StockMovementService } from './inventory/stock-movement.service';
 import { ChartService } from './chart/chart.service';
 import { TrialBalanceService } from './reporting/trial-balance.service';
 import { ProfitLossService } from './reporting/profit-loss.service';
+import { SegmentProfitLossService } from './reporting/segment-profit-loss.service';
 import { BalanceSheetService } from './reporting/balance-sheet.service';
 import { CashFlowService } from './reporting/cash-flow.service';
 import { ControlAccountReconciliationService } from './reporting/control-account-reconciliation.service';
@@ -34,6 +35,7 @@ import { ControlAccountReconciliationService } from './reporting/control-account
     ChartService,
     TrialBalanceService,
     ProfitLossService,
+    SegmentProfitLossService,
     BalanceSheetService,
     CashFlowService,
     ControlAccountReconciliationService,
@@ -49,6 +51,7 @@ import { ControlAccountReconciliationService } from './reporting/control-account
     ChartService,
     TrialBalanceService,
     ProfitLossService,
+    SegmentProfitLossService,
     BalanceSheetService,
     CashFlowService,
     ControlAccountReconciliationService,

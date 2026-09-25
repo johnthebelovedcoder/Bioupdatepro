@@ -283,7 +283,7 @@ export class WorkflowService {
       let selfApproved = false;
       if (transaction.makerId === request.actor.userId) {
         if (!(await this.noOtherApprover(tx, transaction, step.roleCode, request.actor.userId, now))) {
-          this.assertNotMaker(transaction.makerId, request.actor, transaction.documentReference);
+          await this.assertNotMaker(transaction, request.actor, 'approve');
         }
         selfApproved = true;
       }
@@ -574,7 +574,7 @@ export class WorkflowService {
       const transaction = await this.loadActionable(tx, request.transactionId);
       const step = await this.currentStep(tx, transaction);
 
-      this.assertNotMaker(transaction.makerId, request.actor, transaction.documentReference);
+      await this.assertNotMaker(transaction, request.actor, config.verb);
 
       if (config.requiresAuthority) {
         const authority = await this.delegations.authorityFor({
@@ -905,14 +905,31 @@ export class WorkflowService {
     return true;
   }
 
-  private assertNotMaker(
-    makerId: string,
+  /**
+   * SYSTEM_INTEGRITY_MATRIX: "Maker attempts to approve own transaction ->
+   * Block self-approval and retain attempt." The refusal rolls back the
+   * approval's transaction, so the attempt is written on its own connection
+   * first — it survives the rollback and sits in the audit trail.
+   */
+  private async assertNotMaker(
+    transaction: { id: string; makerId: string; documentReference: string; module?: string | null },
     actor: WorkflowActor,
-    reference: string,
-  ): void {
-    if (makerId === actor.userId) {
-      throw new MakerCheckerViolation(reference, actor.userId);
-    }
+    attempted: string,
+  ): Promise<void> {
+    if (transaction.makerId !== actor.userId) return;
+    await this.audit
+      .write({
+        transactionId: transaction.id,
+        module: transaction.module ?? 'workflow',
+        entityType: 'WorkflowTransaction',
+        entityId: transaction.id,
+        status: 'SELF_APPROVAL_BLOCKED',
+        action: AuditAction.UPDATE,
+        userId: actor.userId,
+        comments: `Blocked: the maker of ${transaction.documentReference} tried to ${attempted} it.`,
+      })
+      .catch((error: unknown) => this.logger.error(`Could not record a blocked self-approval: ${String(error)}`));
+    throw new MakerCheckerViolation(transaction.documentReference, actor.userId);
   }
 
   private async recordEvent(

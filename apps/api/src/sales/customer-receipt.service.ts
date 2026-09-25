@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { nextReference, siteOf } from '../numbering/numbering';
 import {
   AuditAction,
   Prisma,
@@ -51,7 +52,8 @@ export class CustomerReceiptService {
 
   async create(input: {
     companyId: string;
-    receiptNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    receiptNumber?: string;
     customerId: string;
     receiptDate: Date;
     method: ReceiptMethod;
@@ -71,6 +73,15 @@ export class CustomerReceiptService {
     allocations: ReceiptAllocationInput[];
     actor: WorkflowActor;
   }) {
+    const receiptNumber =
+      input.receiptNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: input.companyId,
+        type: 'RCT',
+        site: await siteOf(this.prisma, { farmId: null, branchId: input.branchId }),
+        date: input.receiptDate,
+      }));
+
     const wht = input.whtAmountKobo ?? 0n;
 
     if (wht > 0n && !input.whtCreditNoteReference) {
@@ -79,7 +90,7 @@ export class CustomerReceiptService {
         `A withheld amount of ${wht} kobo has been recorded with no WHT credit note ` +
           `reference. Without the customer's certificate the withholding cannot be ` +
           `claimed, so recording it as receivable would overstate the asset.`,
-        { receiptNumber: input.receiptNumber },
+        { receiptNumber: receiptNumber },
       );
     }
 
@@ -92,7 +103,7 @@ export class CustomerReceiptService {
         `Allocations total ${allocatedTotal} kobo but the receipt settles ${settled} kobo ` +
           `(${input.amountKobo} banked plus ${wht} withheld). Every kobo of a receipt must ` +
           `be allocated to an invoice, or the receivable will not clear.`,
-        { receiptNumber: input.receiptNumber },
+        { receiptNumber: receiptNumber },
       );
     }
 
@@ -155,7 +166,7 @@ export class CustomerReceiptService {
       const receipt = await tx.customerReceipt.create({
         data: {
           companyId: input.companyId,
-          receiptNumber: input.receiptNumber,
+          receiptNumber,
           customerId: input.customerId,
           receiptDate: input.receiptDate,
           method: input.method,

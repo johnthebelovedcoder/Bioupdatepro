@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
 import { chartVersionOf, speciesNumberFor } from '../chart/chart';
@@ -142,14 +143,24 @@ export class ProductionOrderService {
     harvestRecordId: string;
     recipeVersionId: string;
     warehouseId: string;
-    orderNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    orderNumber?: string;
     plannedOutputQuantity: Decimal.Value;
     actor: WorkflowActor;
-  }): Promise<{ id: string }> {
+  }): Promise<{ id: string; orderNumber: string }> {
     const harvest = await this.prisma.harvestRecord.findUniqueOrThrow({
       where: { id: params.harvestRecordId },
       include: { group: true, productionOrder: true },
     });
+    const orderNumber =
+      params.orderNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: harvest.companyId,
+        type: 'PRO',
+        site: await siteOf(this.prisma, { farmId: harvest.group.farmId, branchId: harvest.group.branchId }),
+        date: new Date(),
+      }));
+
 
     if (harvest.productionOrder) {
       throw new AccountingRuleViolation(
@@ -192,7 +203,7 @@ export class ProductionOrderService {
           companyId: harvest.companyId,
           branchId: harvest.group.branchId,
           farmId: harvest.group.farmId,
-          orderNumber: params.orderNumber,
+          orderNumber,
           recipeVersionId: params.recipeVersionId,
           sourceGroupId: harvest.groupId,
           harvestRecordId: harvest.id,
@@ -228,7 +239,7 @@ export class ProductionOrderService {
         tx,
       );
 
-      return { id: order.id };
+      return { id: order.id, orderNumber: order.orderNumber };
     }, { timeout: 15000 });
   }
 
@@ -247,10 +258,20 @@ export class ProductionOrderService {
     farmId: string;
     warehouseId: string;
     recipeVersionId: string;
-    orderNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    orderNumber?: string;
     plannedOutputQuantity: Decimal.Value;
     actor: WorkflowActor;
-  }): Promise<{ id: string }> {
+  }): Promise<{ id: string; orderNumber: string }> {
+    const orderNumber =
+      params.orderNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: params.companyId,
+        type: 'PRO',
+        site: await siteOf(this.prisma, { farmId: params.farmId, branchId: params.branchId }),
+        date: new Date(),
+      }));
+
     const explosion = await this.recipes.explode({
       recipeVersionId: params.recipeVersionId,
       quantity: params.plannedOutputQuantity,
@@ -263,7 +284,7 @@ export class ProductionOrderService {
           companyId: params.companyId,
           branchId: params.branchId,
           farmId: params.farmId,
-          orderNumber: params.orderNumber,
+          orderNumber,
           recipeVersionId: params.recipeVersionId,
           processingCycle: ProductionOrderCycle.FEED_MILL,
           plannedOutputQuantity: new Prisma.Decimal(new Decimal(params.plannedOutputQuantity).toFixed(6)),
@@ -296,7 +317,7 @@ export class ProductionOrderService {
         tx,
       );
 
-      return { id: order.id };
+      return { id: order.id, orderNumber: order.orderNumber };
     }, { timeout: 15000 });
   }
 

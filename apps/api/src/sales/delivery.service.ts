@@ -1,4 +1,5 @@
 import { eggItemIds, eggUnitCost } from './egg-cost';
+import { nextReference, siteOf } from '../numbering/numbering';
 import { groupByAccounts, saleAccountsByItem } from './item-accounts';
 import { Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
@@ -55,7 +56,8 @@ export class DeliveryService {
 
   async create(input: {
     salesOrderId: string;
-    deliveryNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    deliveryNumber?: string;
     deliveryDate: Date;
     financialYearId: string;
     financialPeriodId: string;
@@ -69,6 +71,15 @@ export class DeliveryService {
       where: { id: input.salesOrderId },
       include: { lines: true },
     });
+    const deliveryNumber =
+      input.deliveryNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: order.companyId,
+        type: 'DN',
+        site: await siteOf(this.prisma, { farmId: order.farmId, branchId: order.branchId }),
+        date: input.deliveryDate,
+      }));
+
 
     const deliverable: SalesOrderStatus[] = [
       SalesOrderStatus.APPROVED,
@@ -174,7 +185,7 @@ export class DeliveryService {
       const delivery = await tx.deliveryNote.create({
         data: {
           companyId: order.companyId,
-          deliveryNumber: input.deliveryNumber,
+          deliveryNumber,
           salesOrderId: order.id,
           customerId: order.customerId,
           deliveryDate: input.deliveryDate,

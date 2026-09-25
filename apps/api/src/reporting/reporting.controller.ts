@@ -3,6 +3,7 @@ import { AuditAction } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
 import { ProfitLossService } from './profit-loss.service';
+import { SegmentProfitLossService } from './segment-profit-loss.service';
 import { BalanceSheetService } from './balance-sheet.service';
 import { CashFlowService } from './cash-flow.service';
 import { KpiService } from './kpi.service';
@@ -37,6 +38,7 @@ export class ReportingController {
     private readonly prisma: PrismaService,
     private readonly trialBalance: TrialBalanceService,
     private readonly profitLoss: ProfitLossService,
+    private readonly segmentProfitLoss: SegmentProfitLossService,
     private readonly balanceSheet: BalanceSheetService,
     private readonly cashFlow: CashFlowService,
     private readonly kpis: KpiService,
@@ -224,6 +226,37 @@ export class ReportingController {
         : undefined;
 
     return this.profitLoss.build({
+      companyId,
+      ...(financialYearId ? { financialYearId } : {}),
+      ...(financialPeriodId ? { financialPeriodId } : {}),
+      ...(defaultYearId ? { financialYearId: defaultYearId } : {}),
+      ...(branchId ? { branchId } : {}),
+      ...(costCentreId ? { costCentreId } : {}),
+      ...(farmId ? { farmId } : {}),
+    });
+  }
+
+  /**
+   * Segment profit or loss (S_/P_/ENTERPRISE_CONSOLIDATED_PL): farm, feed mill
+   * and processing per product, internal feed eliminated, with the release
+   * checks. Same filters and roles; the consolidated column is the report above.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('profit-loss/segments')
+  async profitLossBySegment(
+    @CurrentCompany() companyId: string,
+    @Query('financialYearId') financialYearId?: string,
+    @Query('financialPeriodId') financialPeriodId?: string,
+    @Query('branchId') branchId?: string,
+    @Query('costCentreId') costCentreId?: string,
+    @Query('farmId') farmId?: string,
+  ) {
+    const defaultYearId =
+      !financialYearId && !financialPeriodId
+        ? await currentFinancialYearId(this.prisma, companyId)
+        : undefined;
+
+    return this.segmentProfitLoss.build({
       companyId,
       ...(financialYearId ? { financialYearId } : {}),
       ...(financialPeriodId ? { financialPeriodId } : {}),

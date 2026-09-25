@@ -5,6 +5,7 @@ import {
   BadRequestException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { BatchProfileService, CARCASS_DISPOSALS } from './batch-profile.service';
 import { AuditAction, Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
@@ -49,6 +50,7 @@ export class OperationsService {
     private readonly audit: AuditService,
     private readonly postings: OperationsPostingService,
     private readonly biologicalAssets: BiologicalAssetService,
+    private readonly profiles: BatchProfileService,
   ) {}
 
   /* ------------------------------------------------------------------ */
@@ -171,6 +173,10 @@ export class OperationsService {
         production?: Record<string, number>;
         deaths?: number;
         causes?: string[];
+        /** What was done with the dead: BURIED, BURNT, RENDERED, COLLECTED, OTHER. */
+        carcassDisposal?: string | null;
+        /** A sample weighing taken on the round (UX-004): how many, what they weighed together. */
+        weightSample?: { sampleSize: number; totalWeight: number; unit: 'g' | 'kg' } | null;
         carriedOver?: boolean;
         notes?: string | null;
         photo?: { name: string; dataUrl: string; bytes: number } | null;
@@ -273,6 +279,10 @@ export class OperationsService {
                         {
                           quantity: deaths,
                           causes: entry.causes ?? [],
+                          carcassDisposal:
+                            entry.carcassDisposal && (CARCASS_DISPOSALS as readonly string[]).includes(entry.carcassDisposal)
+                              ? entry.carcassDisposal
+                              : null,
                           notes: entry.notes ?? null,
                           ...(entry.photo
                             ? {
@@ -314,6 +324,23 @@ export class OperationsService {
           }
 
           ids.push(record.id);
+
+          // A weight sample taken on the round becomes a PENDING weighing,
+          // in this transaction — the round and its weighing stand or fall
+          // together. A supervisor approves it before it counts.
+          if (entry.weightSample && entry.weightSample.sampleSize > 0) {
+            await this.profiles.recordWeighing({
+              companyId,
+              code: group.code,
+              weighedOn: asDate(payload.date),
+              sampleSize: Math.trunc(entry.weightSample.sampleSize),
+              totalSampleWeight: Number(entry.weightSample.totalWeight),
+              unit: entry.weightSample.unit === 'kg' ? 'kg' : 'g',
+              dailyRecordId: record.id,
+              actor,
+              tx,
+            });
+          }
 
           await this.audit.write(
             {
@@ -588,7 +615,8 @@ export class OperationsService {
         speciesKey: group.speciesKey,
         breed: group.breed,
         stageName: group.stage,
-        startedOn: group.startedOn,
+        // Age counts from hatching where it is known (SNAIL/POULTRY_AGE_TRACKER).
+        startedOn: group.hatchedOn ?? group.startedOn,
         asOfDate: asDate(payload.date),
         groupCode: group.code,
       });
@@ -747,7 +775,8 @@ export class OperationsService {
         speciesKey: group.speciesKey,
         breed: group.breed,
         stageName: payload.toStage,
-        startedOn: group.startedOn,
+        // Age counts from hatching where it is known (SNAIL/POULTRY_AGE_TRACKER).
+        startedOn: group.hatchedOn ?? group.startedOn,
         asOfDate: asDate(payload.date),
         groupCode: group.code,
       });

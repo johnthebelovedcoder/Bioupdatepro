@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { nextReference, siteOf } from '../numbering/numbering';
 import { AuditAction, PayrollPayableBucket, PayrollRunStatus, PaymentStatus, Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -84,7 +85,8 @@ export class PayrollPaymentService {
   async create(input: {
     companyId: string;
     payrollRunId: string;
-    paymentNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    paymentNumber?: string;
     bucket: PayrollPayableBucket;
     amountKobo: bigint;
     paymentDate: Date;
@@ -98,6 +100,15 @@ export class PayrollPaymentService {
     financialPeriodId: string;
     actor: WorkflowActor;
   }) {
+    const paymentNumber =
+      input.paymentNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: input.companyId,
+        type: 'PPV',
+        site: await siteOf(this.prisma, { farmId: null, branchId: input.branchId }),
+        date: input.paymentDate,
+      }));
+
     // Scoped to the caller's company. The run id arrives in the body, where
     // the ownership guard cannot see it, and unscoped this let one company
     // raise a payment that settles another company's payroll.
@@ -138,7 +149,7 @@ export class PayrollPaymentService {
         data: {
           companyId: input.companyId,
           payrollRunId: input.payrollRunId,
-          paymentNumber: input.paymentNumber,
+          paymentNumber,
           bucket: input.bucket,
           amountKobo: input.amountKobo,
           paymentDate: input.paymentDate,

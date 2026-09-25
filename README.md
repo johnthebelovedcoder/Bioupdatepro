@@ -205,6 +205,22 @@ Stated here rather than discovered later.
 - **Machine depreciation** goes to the machine's processing line, or is split
   by the hours logged on each line that month. Egg value is a dated price per
   crate, with an optional separate price for hatching eggs; rejects carry none.
+- **Segment profit or loss is a management view.** Books → Profit & loss → By
+  segment shows farm, feed mill and processing for each product, and the two
+  products together, with release checks. The feed the mill supplies is
+  measured as milled feed issued on the rounds at its store value, shown as
+  mill revenue and farm cost, and eliminated; the consolidated column is the
+  statutory result. Costs neither product can claim stay in a Shared column
+  rather than being spread by a key nobody chose.
+- **Weighings are history and need a supervisor.** A weighing (from the round or
+  the batch page) is recorded pending, approved or rejected by someone other
+  than whoever recorded it, and never edited; the latest approved one is the
+  current weight, and biomass, FCR and daily gain read from approved weighings
+  only. Target weights come from the breed stages where they are set.
+- **References are the system's.** Documents and journals are numbered
+  TYPE-ENTITY-SITE-YYYY-000001 by an atomic sequence; the API ignores a number
+  sent by a caller. Journals posted before 2026-09-25 keep only their source
+  reference.
 - **Google and Facebook sign-in are seams, not features.** The flow is ready;
   the credentials must come from your own developer accounts.
 - **Bank statements are imported, not fed.** A CSV export from the bank is

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import {
   AuditAction,
@@ -38,7 +39,8 @@ export class SalesOrderService {
 
   async createQuotation(input: {
     companyId: string;
-    quoteNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    quoteNumber?: string;
     customerId: string;
     quoteDate: Date;
     validUntil: Date;
@@ -52,11 +54,20 @@ export class SalesOrderService {
     lines: PricedLineInput[];
     actor: WorkflowActor;
   }) {
+    const quoteNumber =
+      input.quoteNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: input.companyId,
+        type: 'QUO',
+        site: await siteOf(this.prisma, { farmId: input.farmId, branchId: input.branchId }),
+        date: input.quoteDate,
+      }));
+
     if (input.validUntil < input.quoteDate) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §6 — Sales quotation',
         'A quotation cannot expire before it is issued.',
-        { quoteNumber: input.quoteNumber },
+        { quoteNumber: quoteNumber },
       );
     }
 
@@ -72,7 +83,7 @@ export class SalesOrderService {
       const quotation = await tx.salesQuotation.create({
         data: {
           companyId: input.companyId,
-          quoteNumber: input.quoteNumber,
+          quoteNumber,
           customerId: input.customerId,
           quoteDate: input.quoteDate,
           validUntil: input.validUntil,
@@ -165,7 +176,8 @@ export class SalesOrderService {
    */
   async convertQuotation(params: {
     quotationId: string;
-    orderNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    orderNumber?: string;
     orderDate: Date;
     deliveryDate?: Date | null;
     warehouseId: string;
@@ -176,6 +188,15 @@ export class SalesOrderService {
       where: { id: params.quotationId },
       include: { lines: { orderBy: { lineNumber: 'asc' } } },
     });
+    const orderNumber =
+      params.orderNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: quotation.companyId,
+        type: 'SO',
+        site: await siteOf(this.prisma, { farmId: quotation.farmId, branchId: quotation.branchId }),
+        date: params.orderDate,
+      }));
+
 
     const convertible: QuotationStatus[] = [
       QuotationStatus.APPROVED,
@@ -203,7 +224,7 @@ export class SalesOrderService {
       const order = await tx.salesOrder.create({
         data: {
           companyId: quotation.companyId,
-          orderNumber: params.orderNumber,
+          orderNumber,
           customerId: quotation.customerId,
           quotationId: quotation.id,
           orderDate: params.orderDate,
@@ -260,7 +281,10 @@ export class SalesOrderService {
 
   async createOrder(input: {
     companyId: string;
-    orderNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    orderNumber?: string;
+    /** The client's own key for this order — the offline outbox's idempotency key. */
+    clientReference?: string | null;
     customerId: string;
     orderDate: Date;
     deliveryDate?: Date | null;
@@ -274,6 +298,15 @@ export class SalesOrderService {
     lines: PricedLineInput[];
     actor: WorkflowActor;
   }) {
+    const orderNumber =
+      input.orderNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: input.companyId,
+        type: 'SO',
+        site: await siteOf(this.prisma, { farmId: input.farmId, branchId: input.branchId }),
+        date: input.orderDate,
+      }));
+
     await this.assertCustomerTransactable(input.customerId);
 
     const priced = await this.pricing.priceDocument({
@@ -286,7 +319,8 @@ export class SalesOrderService {
       const order = await tx.salesOrder.create({
         data: {
           companyId: input.companyId,
-          orderNumber: input.orderNumber,
+          orderNumber,
+          clientReference: input.clientReference ?? null,
           customerId: input.customerId,
           orderDate: input.orderDate,
           deliveryDate: input.deliveryDate ?? null,

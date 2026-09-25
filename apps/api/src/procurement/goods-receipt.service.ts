@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import {
   AuditAction,
@@ -61,7 +62,8 @@ export class GoodsReceiptService {
 
   async create(input: {
     purchaseOrderId: string;
-    grnNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    grnNumber?: string;
     receiptDate: Date;
     financialYearId: string;
     financialPeriodId: string;
@@ -74,6 +76,15 @@ export class GoodsReceiptService {
       where: { id: input.purchaseOrderId },
       include: { lines: { include: { item: true } } },
     });
+    const grnNumber =
+      input.grnNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: order.companyId,
+        type: 'GRN',
+        site: await siteOf(this.prisma, { farmId: order.farmId, branchId: order.branchId }),
+        date: input.receiptDate,
+      }));
+
 
     const receivable: PurchaseOrderStatus[] = [
       PurchaseOrderStatus.APPROVED,
@@ -171,7 +182,7 @@ export class GoodsReceiptService {
       const grn = await tx.goodsReceiptNote.create({
         data: {
           companyId: order.companyId,
-          grnNumber: input.grnNumber,
+          grnNumber,
           purchaseOrderId: order.id,
           supplierId: order.supplierId,
           receiptDate: input.receiptDate,

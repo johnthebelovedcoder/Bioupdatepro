@@ -837,6 +837,8 @@ export class BiologicalAssetService {
     groupId: string;
     quantity: number;
     occurredOn: Date;
+    /** How they left (batch-profile.service DISPOSAL_METHODS). A sale unless said otherwise. */
+    method?: 'SOLD' | 'SLAUGHTERED' | 'CULLED' | 'GIFTED' | 'DESTROYED';
     actor: WorkflowActor;
   }): Promise<{ posted: boolean; reason?: string }> {
     const group = await this.prisma.livestockGroup.findUniqueOrThrow({
@@ -861,6 +863,7 @@ export class BiologicalAssetService {
         fvlctsPerUnitKobo: rateKobo,
         carryingAmountKobo: valueKobo,
         occurredOn: params.occurredOn,
+        method: params.method ?? 'SOLD',
       },
     });
 

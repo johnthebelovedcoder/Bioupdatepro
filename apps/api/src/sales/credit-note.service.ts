@@ -1,4 +1,5 @@
 import { eggItemIds, eggUnitCost } from './egg-cost';
+import { nextReference, siteOf } from '../numbering/numbering';
 import { groupByAccounts, saleAccountsByItem } from './item-accounts';
 import { Injectable, Logger } from '@nestjs/common';
 import Decimal from 'decimal.js';
@@ -65,7 +66,8 @@ export class CreditNoteService {
 
   async create(input: {
     companyId: string;
-    creditNoteNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    creditNoteNumber?: string;
     customerId: string;
     invoiceId?: string | null;
     creditNoteDate: Date;
@@ -85,12 +87,21 @@ export class CreditNoteService {
     } | null;
     actor: WorkflowActor;
   }) {
+    const creditNoteNumber =
+      input.creditNoteNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: input.companyId,
+        type: 'CN',
+        site: await siteOf(this.prisma, { farmId: null, branchId: input.branchId }),
+        date: input.creditNoteDate,
+      }));
+
     if (input.reason === CreditNoteReason.RETURNED_GOODS && !input.salesReturn) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §6 — Credit note',
         `A credit note for returned goods must record the return itself. Crediting the ` +
           `customer without bringing the goods back would lose them from the books.`,
-        { creditNoteNumber: input.creditNoteNumber },
+        { creditNoteNumber: creditNoteNumber },
       );
     }
 
@@ -130,7 +141,7 @@ export class CreditNoteService {
       const creditNote = await tx.creditNote.create({
         data: {
           companyId: input.companyId,
-          creditNoteNumber: input.creditNoteNumber,
+          creditNoteNumber,
           customerId: input.customerId,
           invoiceId: input.invoiceId ?? null,
           creditNoteDate: input.creditNoteDate,

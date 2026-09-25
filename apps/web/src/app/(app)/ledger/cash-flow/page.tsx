@@ -12,6 +12,8 @@ interface CashFlow {
   openingCashKobo: string;
   netIncomeKobo: string;
   depreciationAddBackKobo: string;
+  /** IAS 41: the fair-value gain (negative) or loss (positive) on biological assets, which is not cash. */
+  fairValueAdjustmentKobo?: string;
   receivablesChangeKobo: string;
   inventoryChangeKobo: string;
   payablesChangeKobo: string;
@@ -112,8 +114,11 @@ export default async function CashFlowPage({
                 <SectionHeader label="Operating activities" />
                 <LineRow label="Net income" amountKobo={report.netIncomeKobo} />
                 <LineRow label="Add: depreciation" amountKobo={report.depreciationAddBackKobo} />
+                {report.fairValueAdjustmentKobo !== undefined ? (
+                  <LineRow label="Fair-value (gain)/loss on biological assets" amountKobo={report.fairValueAdjustmentKobo} />
+                ) : null}
                 <LineRow label="Change in receivables" amountKobo={report.receivablesChangeKobo} />
-                <LineRow label="Change in inventory" amountKobo={report.inventoryChangeKobo} />
+                <LineRow label={report.fairValueAdjustmentKobo !== undefined ? "Change in inventory and biological assets" : "Change in inventory"} amountKobo={report.inventoryChangeKobo} />
                 <LineRow label="Change in payables" amountKobo={report.payablesChangeKobo} />
                 <TotalRow
                   label="Net cash from operating activities"

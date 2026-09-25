@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { nextReference, siteOf } from '../numbering/numbering';
 import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma, InventoryTransferStatus } from '@bioassetpro/database';
@@ -44,14 +45,24 @@ export class InventoryTransferService {
     fromWarehouseId: string;
     toWarehouseId: string;
     quantity: Decimal.Value;
-    transferNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    transferNumber?: string;
     actor: WorkflowActor;
-  }): Promise<{ id: string; journalEntryId: string }> {
+  }): Promise<{ id: string; journalEntryId: string; transferNumber: string }> {
+    const transferNumber =
+      params.transferNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: params.companyId,
+        type: 'WTR',
+        site: await siteOf(this.prisma, { farmId: null, branchId: params.branchId }),
+        date: new Date(),
+      }));
+
     if (params.fromWarehouseId === params.toWarehouseId) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §14 — Inventory transfer',
-        `${params.transferNumber} names the same warehouse as both source and destination.`,
-        { transferNumber: params.transferNumber },
+        `${transferNumber} names the same warehouse as both source and destination.`,
+        { transferNumber: transferNumber },
       );
     }
 
@@ -59,7 +70,7 @@ export class InventoryTransferService {
     if (!context) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §8 — Financial calendar',
-        `No open period or cost centre to issue ${params.transferNumber} against.`,
+        `No open period or cost centre to issue ${transferNumber} against.`,
         {},
       );
     }
@@ -77,8 +88,8 @@ export class InventoryTransferService {
         quantity,
         sourceModule: 'inventory',
         sourceDocumentType: 'InventoryTransfer',
-        sourceDocumentId: params.transferNumber,
-        documentReference: params.transferNumber,
+        sourceDocumentId: transferNumber,
+        documentReference: transferNumber,
         movementDate: new Date(),
       });
 
@@ -86,23 +97,23 @@ export class InventoryTransferService {
         {
           sourceModule: 'inventory',
           sourceDocumentType: 'InventoryTransfer',
-          sourceDocumentId: params.transferNumber,
-          journalNumber: `${params.transferNumber}-ISSUE`,
+          sourceDocumentId: transferNumber,
+          journalNumber: `${transferNumber}-ISSUE`,
           journalDate: new Date(),
-          narration: `Transfer issue ${params.transferNumber}`,
+          narration: `Transfer issue ${transferNumber}`,
           ...dimensions,
-          idempotencyKey: `inventory-transfer:${params.transferNumber}:issue`,
+          idempotencyKey: `inventory-transfer:${transferNumber}:issue`,
           actor: params.actor,
           lines: [
             {
               glAccountId: this.requireSide(rule.debit, 'PCR-012', 'debit').glAccountId,
-              description: `PCR-012 — transfer issue (${params.transferNumber})`,
+              description: `PCR-012 — transfer issue (${transferNumber})`,
               debit: kobo(issued.valueKobo),
               dimensions,
             },
             {
               glAccountId: this.requireSide(rule.credit, 'PCR-012', 'credit').glAccountId,
-              description: `PCR-012 — transfer issue (${params.transferNumber})`,
+              description: `PCR-012 — transfer issue (${transferNumber})`,
               credit: kobo(issued.valueKobo),
               dimensions,
             },
@@ -115,7 +126,7 @@ export class InventoryTransferService {
         data: {
           companyId: params.companyId,
           branchId: params.branchId,
-          transferNumber: params.transferNumber,
+          transferNumber,
           itemId: params.itemId,
           fromWarehouseId: params.fromWarehouseId,
           toWarehouseId: params.toWarehouseId,
@@ -139,12 +150,12 @@ export class InventoryTransferService {
           userId: params.actor.userId,
           ipAddress: params.actor.ipAddress,
           device: params.actor.device,
-          comments: `Issued transfer ${params.transferNumber}: ${quantity.toString()} units, ${issued.valueKobo} kobo.`,
+          comments: `Issued transfer ${transferNumber}: ${quantity.toString()} units, ${issued.valueKobo} kobo.`,
         },
         tx,
       );
 
-      return { id: transfer.id, journalEntryId: result.journalEntryId };
+      return { id: transfer.id, journalEntryId: result.journalEntryId, transferNumber: transfer.transferNumber };
     }, { timeout: 15000 });
   }
 

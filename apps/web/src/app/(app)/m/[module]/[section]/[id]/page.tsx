@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getModule, title } from '@/lib/modules';
-import { getGroupDetail, getGroups } from '@/lib/operations';
+import { getGroupDetail, getGroupProfile, getGroups } from '@/lib/operations';
 import { getSpeciesBreeds } from '@/lib/trade';
 import { getPens } from '@/lib/masters';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { CloseBatchForm } from '@/components/close-batch-form';
+import { GrowthCard } from '@/components/growth-card';
 import { HelpTerm } from '@/components/help';
 import { NewGroupForm } from '@/components/new-group-form';
 import { StageChange } from '@/components/record-stage-change';
@@ -79,10 +80,11 @@ export default async function GroupDetailPage({
     );
   }
 
-  const [group, siblings, pens] = await Promise.all([
+  const [group, siblings, pens, profile] = await Promise.all([
     getGroupDetail(module.key, id),
     getGroups(module.key),
     getPens(),
+    getGroupProfile(id),
   ]);
   if (!group) notFound();
 
@@ -244,13 +246,31 @@ export default async function GroupDetailPage({
                 <KeyValue label="Stage" value={group.stage} />
                 <KeyValue label={title(t.housing.one)} value={group.house} />
                 <KeyValue label={t.intake} value={formatDate(group.startedOn)} />
-                <KeyValue label="Age" value={formatAge(group.ageDays)} />
+                <KeyValue
+                  label="Age"
+                  value={
+                    profile
+                      ? `${formatAge(profile.ageDays)}${profile.ageBasis === 'PLACEMENT' ? ' since placement' : ''}`
+                      : formatAge(group.ageDays)
+                  }
+                />
                 <KeyValue label="Source" value={group.source} />
                 {group.expectedEndOn ? (
                   <KeyValue label="Expected sale" value={formatDate(group.expectedEndOn)} />
                 ) : null}
               </div>
             </Card>
+
+            {profile ? (
+              <GrowthCard
+                code={group.code}
+                animals={t.animal.many}
+                profile={profile}
+                active={group.status === 'ACTIVE'}
+                today={new Date().toISOString().slice(0, 10)}
+                unit={module.key === 'snail' ? 'g' : 'kg'}
+              />
+            ) : null}
 
             <Card
               title="Cost accumulated"

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AuditAction, JournalStatus, Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { nextReference, siteOf } from '../numbering/numbering';
 import { IdempotencyService } from '../idempotency/idempotency.service';
 import { PeriodService } from '../periods/period.service';
 import { DimensionValidatorService } from '../enterprise-dimensions/dimension-validator.service';
@@ -120,10 +121,21 @@ export class PostingService {
 
       await this.assertReversalTargetValid(request, tx);
 
+      // The controlled journal-voucher reference (Numbering_Parameters), given
+      // in this transaction: a journal that fails to post leaves no number
+      // behind. The branch is the site — a journal's header has no farm.
+      const voucherNumber = await nextReference(tx, {
+        companyId: request.companyId,
+        type: 'JV',
+        site: await siteOf(tx, { branchId: request.branchId }),
+        date: request.journalDate,
+      });
+
       const entry = await tx.journalEntry.create({
         data: {
           companyId: request.companyId,
           journalNumber: request.journalNumber,
+          voucherNumber,
           journalDate: request.journalDate,
           narration: request.narration,
           status: JournalStatus.POSTED,

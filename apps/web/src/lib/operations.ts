@@ -10,6 +10,7 @@ import type {
   StageBucket,
 } from './demo-ops';
 import { getModule, type SpeciesModule } from './modules';
+import type { BatchProfile } from '@/components/growth-card';
 import { getFarmConfig } from './farm-config.server';
 import { standardAt, standardFor } from './farm-config';
 import { toKobo } from './money';
@@ -47,6 +48,15 @@ export async function getGroupDetail(
   } catch {
     // A code that does not resolve is a 404 from the API, which for a page
     // means "no such population" rather than an error worth showing.
+    return null;
+  }
+}
+
+/** Age, weighings, live weight and how animals left. Null if it cannot be read. */
+export async function getGroupProfile(code: string): Promise<BatchProfile | null> {
+  try {
+    return await api<BatchProfile>(`/operations/groups/${encodeURIComponent(code)}/profile`);
+  } catch {
     return null;
   }
 }

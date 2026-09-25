@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import {
   AuditAction,
@@ -54,7 +55,8 @@ export class PurchaseOrderService {
 
   async createRequisition(input: {
     companyId: string;
-    requisitionNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    requisitionNumber?: string;
     requestDate: Date;
     requiredDate?: Date | null;
     branchId: string;
@@ -66,11 +68,20 @@ export class PurchaseOrderService {
     lines: RequisitionLineInput[];
     actor: WorkflowActor;
   }) {
+    const requisitionNumber =
+      input.requisitionNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: input.companyId,
+        type: 'PR',
+        site: await siteOf(this.prisma, { farmId: input.farmId, branchId: input.branchId }),
+        date: input.requestDate,
+      }));
+
     if (input.lines.length === 0) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §5 — Purchase requisition',
         'A requisition must request at least one item.',
-        { requisitionNumber: input.requisitionNumber },
+        { requisitionNumber: requisitionNumber },
       );
     }
 
@@ -123,7 +134,7 @@ export class PurchaseOrderService {
       const requisition = await tx.purchaseRequisition.create({
         data: {
           companyId: input.companyId,
-          requisitionNumber: input.requisitionNumber,
+          requisitionNumber,
           requestDate: input.requestDate,
           requiredDate: input.requiredDate ?? null,
           requesterId: input.actor.userId,
@@ -305,7 +316,10 @@ export class PurchaseOrderService {
 
   async createOrder(input: {
     companyId: string;
-    orderNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    orderNumber?: string;
+    /** The client's own key for this order — the offline outbox's idempotency key. */
+    clientReference?: string | null;
     supplierId: string;
     requisitionId?: string | null;
     rfqId?: string | null;
@@ -322,6 +336,15 @@ export class PurchaseOrderService {
     lines: PurchaseOrderLineInput[];
     actor: WorkflowActor;
   }) {
+    const orderNumber =
+      input.orderNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: input.companyId,
+        type: 'PO',
+        site: await siteOf(this.prisma, { farmId: input.farmId, branchId: input.branchId }),
+        date: input.orderDate,
+      }));
+
     const supplier = await this.prisma.supplier.findUniqueOrThrow({
       where: { id: input.supplierId },
       include: { paymentTerm: true },
@@ -332,7 +355,7 @@ export class PurchaseOrderService {
       throw new AccountingRuleViolation(
         'Consolidated Reference §5 — Purchase order',
         'A purchase order must order at least one item.',
-        { orderNumber: input.orderNumber },
+        { orderNumber: orderNumber },
       );
     }
 
@@ -346,7 +369,8 @@ export class PurchaseOrderService {
       const order = await tx.purchaseOrder.create({
         data: {
           companyId: input.companyId,
-          orderNumber: input.orderNumber,
+          orderNumber,
+          clientReference: input.clientReference ?? null,
           supplierId: input.supplierId,
           requisitionId: input.requisitionId ?? null,
           rfqId: input.rfqId ?? null,

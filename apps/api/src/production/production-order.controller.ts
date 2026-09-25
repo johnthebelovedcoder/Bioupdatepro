@@ -94,11 +94,11 @@ export class ProductionOrderController {
       harvestRecordId: string;
       recipeVersionId: string;
       warehouseId: string;
-      orderNumber: string;
       plannedOutputQuantity: string;
     },
   ) {
-    return this.orders.createFromHarvest({ ...body, actor });
+    // The number is the system's, never the caller's (Numbering_Parameters).
+    return this.orders.createFromHarvest({ ...body, orderNumber: undefined, actor });
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_MANAGER', 'FARM_ACCOUNTANT')
@@ -116,7 +116,7 @@ export class ProductionOrderController {
       plannedOutputQuantity: string;
     },
   ) {
-    return this.orders.createFeedOrder({ ...body, companyId, actor });
+    return this.orders.createFeedOrder({ ...body, orderNumber: undefined, companyId, actor });
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_MANAGER', 'FARM_ACCOUNTANT')

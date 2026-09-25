@@ -6,6 +6,13 @@ export interface CashFlow {
   openingCashKobo: string;
   netIncomeKobo: string;
   depreciationAddBackKobo: string;
+  /**
+   * IAS 41: the period's fair-value gain (negative here) or loss (positive)
+   * on biological assets, and the gain on eggs valued at collection — income
+   * that is not cash. Shown on its own line rather than left inside the
+   * change in inventory, where a revaluation would look like working capital.
+   */
+  fairValueAdjustmentKobo: string;
   receivablesChangeKobo: string;
   inventoryChangeKobo: string;
   payablesChangeKobo: string;
@@ -42,6 +49,10 @@ const RECEIVABLE_ACCOUNTS = ['1201', '120100'];
 const INVENTORY_ACCOUNTS = [
   '1301', '1302', '1305', '1401', '1501',
   '130100', '130110', '130199', '130410', '130420', '130430', '130510', '130520',
+  // Eggs, held at their value from collection (egg-posting.service.ts) and in
+  // incubation. Left out until 2026-09-25, so every egg collected was income
+  // the statement never reversed and it stopped agreeing with the bank.
+  '130215', '130216',
 ];
 const PAYABLE_ACCOUNTS = [
   '2140', '2201', '210200', '210100', '220100',
@@ -61,6 +72,8 @@ const PAYABLE_ACCOUNTS = [
 const BANK_ACCOUNTS = ['1101', '110100'];
 const PPE_ACCOUNTS = ['1701', '140100'];
 const DEPRECIATION_ACCOUNTS = ['5501', '630100'];
+/** Fair-value gain/loss on snails and poultry, and the gain on eggs at collection. */
+const FAIR_VALUE_ACCOUNTS = ['420100', '420200', '420210'];
 
 /**
  * Cash Flow, indirect method — the only method the data supports.
@@ -122,16 +135,22 @@ export class CashFlowService {
       .filter((line) => DEPRECIATION_ACCOUNTS.includes(line.accountNumber))
       .reduce((sum, line) => sum + BigInt(line.amountKobo), 0n);
 
+    // Gains are revenue here, so a gain is added back as a negative.
+    const fairValueAdjustmentKobo = -netIncome.revenueLines
+      .filter((line) => FAIR_VALUE_ACCOUNTS.includes(line.accountNumber))
+      .reduce((sum, line) => sum + BigInt(line.amountKobo), 0n);
+
     // Receivables/inventory UP consumes cash (a use); payables UP releases
     // cash (a source) — the standard indirect-method sign convention.
     const receivablesChangeKobo = -(closing.receivables - opening.receivables);
-    const inventoryChangeKobo = -(closing.inventory - opening.inventory);
+    const inventoryChangeKobo = -(closing.inventory - opening.inventory) - fairValueAdjustmentKobo;
     const payablesChangeKobo = closing.payables - opening.payables;
 
     const netIncomeKobo = BigInt(netIncome.profitBeforeTaxKobo);
     const netCashFromOperationsKobo =
       netIncomeKobo +
       depreciationAddBackKobo +
+      fairValueAdjustmentKobo +
       receivablesChangeKobo +
       inventoryChangeKobo +
       payablesChangeKobo;
@@ -147,6 +166,7 @@ export class CashFlowService {
       openingCashKobo: openingCashKobo.toString(),
       netIncomeKobo: netIncomeKobo.toString(),
       depreciationAddBackKobo: depreciationAddBackKobo.toString(),
+      fairValueAdjustmentKobo: fairValueAdjustmentKobo.toString(),
       receivablesChangeKobo: receivablesChangeKobo.toString(),
       inventoryChangeKobo: inventoryChangeKobo.toString(),
       payablesChangeKobo: payablesChangeKobo.toString(),

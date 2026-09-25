@@ -28,7 +28,7 @@ export interface ProfitLoss {
  * rather than hidden, because it is a convention this codebase is choosing,
  * not a fact the chart already recorded.
  */
-const COST_OF_SALES_ACCOUNTS = new Set([
+export const COST_OF_SALES_ACCOUNTS = new Set([
   // The old chart.
   '5001', '5305',
   // The client's chart: cost of sales by species and product, and the

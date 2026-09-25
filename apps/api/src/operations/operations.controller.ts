@@ -15,6 +15,7 @@ import { TradeService } from './trade.service';
 import { OperationsPostingService } from './operations-posting.service';
 import { EggPostingService } from '../poultry-egg/egg-posting.service';
 import { BatchCloseService } from './batch-close.service';
+import { BatchProfileService } from './batch-profile.service';
 import { Roles, AnyRole } from '../auth/roles.guard';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -41,6 +42,7 @@ export class OperationsController {
     private readonly postings: OperationsPostingService,
     private readonly eggPostings: EggPostingService,
     private readonly batches: BatchCloseService,
+    private readonly profiles: BatchProfileService,
   ) {}
 
   /* --- Reads ------------------------------------------------------------ */
@@ -239,6 +241,88 @@ export class OperationsController {
       writeOffRemaining: body.writeOffRemaining === true,
       actor,
     });
+  }
+
+  /** Age, weighings, live weight and how animals left — for the group page. */
+  @AnyRole('How a batch is growing is farm information everyone on the farm uses.')
+  @Get('groups/:code/profile')
+  async groupProfile(@CurrentCompany() companyId: string, @Param('code') code: string) {
+    return this.profiles.profile(companyId, code);
+  }
+
+  /**
+   * A sample weighing, recorded PENDING — whoever walks the round can record
+   * it (the round can carry one too); a supervisor or farm manager approves.
+   */
+  @Roles('PRODUCTION_SUPERVISOR', 'SNAIL_SUPERVISOR', 'POULTRY_SUPERVISOR', 'PRODUCTION_LEAD', 'FARM_ATTENDANT', 'FARM_MANAGER', 'CFO')
+  @Post('groups/:code/weighings')
+  async recordWeighing(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('code') code: string,
+    @Body() body: { weighedOn: string; sampleSize: number; totalSampleWeight: number; unit: 'g' | 'kg'; notes?: string },
+  ) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body?.weighedOn ?? '')) {
+      throw new BadRequestException('weighedOn must be a date, YYYY-MM-DD.');
+    }
+    const weighing = await this.profiles.recordWeighing({
+      companyId,
+      code,
+      weighedOn: new Date(`${body.weighedOn}T00:00:00.000Z`),
+      sampleSize: Number(body.sampleSize),
+      totalSampleWeight: Number(body.totalSampleWeight),
+      unit: body.unit,
+      notes: body.notes ?? null,
+      actor,
+    });
+    return { id: weighing.id, averageWeightGrams: weighing.averageWeightGrams, status: weighing.status };
+  }
+
+  @AnyRole('Weighings waiting for a supervisor are farm information.')
+  @Get('weighings/pending')
+  async pendingWeighings(@CurrentCompany() companyId: string) {
+    return this.profiles.pendingWeighings(companyId);
+  }
+
+  @Roles('FARM_MANAGER', 'POULTRY_SUPERVISOR', 'SNAIL_SUPERVISOR', 'PRODUCTION_SUPERVISOR', 'PRODUCTION_LEAD', 'CFO')
+  @Post('weighings/:id/approve')
+  async approveWeighing(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Param('id') id: string) {
+    const weighing = await this.profiles.approveWeighing({ companyId, weighingId: id, actor });
+    return { id: weighing.id, isCurrent: weighing.isCurrent };
+  }
+
+  @Roles('FARM_MANAGER', 'POULTRY_SUPERVISOR', 'SNAIL_SUPERVISOR', 'PRODUCTION_SUPERVISOR', 'PRODUCTION_LEAD', 'CFO')
+  @Post('weighings/:id/reject')
+  async rejectWeighing(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: { reason: string },
+  ) {
+    await this.profiles.rejectWeighing({ companyId, weighingId: id, reason: String(body?.reason ?? ''), actor });
+    return { ok: true };
+  }
+
+  @Roles('PRODUCTION_SUPERVISOR', 'SNAIL_SUPERVISOR', 'POULTRY_SUPERVISOR', 'PRODUCTION_LEAD', 'FARM_MANAGER', 'CFO')
+  @Post('groups/:code/hatch-date')
+  async setHatchDate(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('code') code: string,
+    @Body() body: { hatchedOn: string | null; estimated?: boolean },
+  ) {
+    const hatchedOn = body?.hatchedOn ?? null;
+    if (hatchedOn !== null && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(hatchedOn)) {
+      throw new BadRequestException('hatchedOn must be a date, YYYY-MM-DD, or null.');
+    }
+    await this.profiles.setHatchDate({
+      companyId,
+      code,
+      hatchedOn: hatchedOn ? new Date(`${hatchedOn}T00:00:00.000Z`) : null,
+      estimated: body?.estimated === true,
+      actor,
+    });
+    return { ok: true };
   }
 
   // FARM_ACCOUNTANT (ROL-012) reconciles BA/inventory/WIP/journals day to

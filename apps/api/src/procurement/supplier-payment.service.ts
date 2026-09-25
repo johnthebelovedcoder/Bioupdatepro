@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { nextReference, siteOf } from '../numbering/numbering';
 import {
   AuditAction,
   PaymentMethod,
@@ -56,7 +57,8 @@ export class SupplierPaymentService {
 
   async create(input: {
     companyId: string;
-    paymentNumber: string;
+    /** Given by NumberingService when not supplied (Numbering_Parameters). */
+    paymentNumber?: string;
     supplierId: string;
     paymentDate: Date;
     method: PaymentMethod;
@@ -74,6 +76,15 @@ export class SupplierPaymentService {
     allocations: PaymentAllocationInput[];
     actor: WorkflowActor;
   }) {
+    const paymentNumber =
+      input.paymentNumber?.trim() ||
+      (await nextReference(this.prisma, {
+        companyId: input.companyId,
+        type: 'PV',
+        site: await siteOf(this.prisma, { farmId: null, branchId: input.branchId }),
+        date: input.paymentDate,
+      }));
+
     const supplier = await this.prisma.supplier.findUniqueOrThrow({
       where: { id: input.supplierId },
       include: { whtTaxCode: true },
@@ -93,7 +104,7 @@ export class SupplierPaymentService {
         'Consolidated Reference §5 — Supplier payment',
         `A payment must be allocated to at least one invoice. An unallocated payment ` +
           `leaves the payables balance unexplained.`,
-        { paymentNumber: input.paymentNumber },
+        { paymentNumber: paymentNumber },
       );
     }
 
@@ -175,7 +186,7 @@ export class SupplierPaymentService {
         'Consolidated Reference §5 — Supplier payment',
         `Withholding of ${whtAmount} kobo plus a discount of ${discount} kobo exceeds the ` +
           `${settledTotal} kobo being settled. The bank cannot pay a negative amount.`,
-        { paymentNumber: input.paymentNumber },
+        { paymentNumber: paymentNumber },
       );
     }
 
@@ -183,7 +194,7 @@ export class SupplierPaymentService {
       const payment = await tx.supplierPayment.create({
         data: {
           companyId: input.companyId,
-          paymentNumber: input.paymentNumber,
+          paymentNumber,
           supplierId: input.supplierId,
           paymentDate: input.paymentDate,
           method: input.method,

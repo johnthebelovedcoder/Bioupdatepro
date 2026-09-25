@@ -55,6 +55,16 @@ export type MessageKey =
   | 'mortality.reducesPopulation'
   | 'mortality.cause'
   | 'mortality.photo'
+  | 'mortality.carcass'
+  | 'carcass.BURIED'
+  | 'carcass.BURNT'
+  | 'carcass.RENDERED'
+  | 'carcass.COLLECTED'
+  | 'carcass.OTHER'
+  | 'weight.title'
+  | 'weight.optional'
+  | 'weight.count'
+  | 'weight.total'
   | 'notes.title'
   | 'notes.optional'
   | 'notes.placeholder'
@@ -101,6 +111,16 @@ const EN: Catalogue = {
   'mortality.reducesPopulation': 'Reduces the number here',
   'mortality.cause': 'What caused it',
   'mortality.photo': 'Photograph',
+  'mortality.carcass': 'What was done with the dead',
+  'carcass.BURIED': 'Buried',
+  'carcass.BURNT': 'Burnt',
+  'carcass.RENDERED': 'Rendered',
+  'carcass.COLLECTED': 'Collected',
+  'carcass.OTHER': 'Other',
+  'weight.title': 'Weight sample',
+  'weight.optional': 'Optional — a supervisor approves it',
+  'weight.count': 'How many weighed',
+  'weight.total': 'What they weighed together',
   'notes.title': 'Notes',
   'notes.optional': 'Optional',
   'notes.placeholder': 'Anything unusual — weather, behaviour, equipment',
@@ -146,6 +166,16 @@ const HA: Catalogue = {
   'mortality.reducesPopulation': 'Zai rage adadin da ke nan',
   'mortality.cause': 'Me ya jawo',
   'mortality.photo': 'Hoto',
+  'mortality.carcass': 'Me aka yi da gawarwakin',
+  'carcass.BURIED': 'An binne',
+  'carcass.BURNT': 'An ƙone',
+  'carcass.RENDERED': 'An sarrafa',
+  'carcass.COLLECTED': 'An kwashe',
+  'carcass.OTHER': 'Wani abu dabam',
+  'weight.title': 'Samfurin nauyi',
+  'weight.optional': 'Ba dole ba — mai kulawa zai amince',
+  'weight.count': 'Nawa aka auna',
+  'weight.total': 'Nauyinsu gaba ɗaya',
   'notes.title': 'Bayani',
   'notes.optional': 'Ba dole ba',
   'notes.placeholder': 'Duk abin da ba a saba gani ba — yanayi, hali, na’ura',
@@ -191,6 +221,16 @@ const YO: Catalogue = {
   'mortality.reducesPopulation': 'Yóò dín iye tí ó wà níbí kù',
   'mortality.cause': 'Ohun tí ó fà á',
   'mortality.photo': 'Àwòrán',
+  'mortality.carcass': 'Kí ni a ṣe sí òkú wọn',
+  'carcass.BURIED': 'A sin wọ́n',
+  'carcass.BURNT': 'A sun wọ́n',
+  'carcass.RENDERED': 'A ṣe wọ́n di ohun èlò',
+  'carcass.COLLECTED': 'Wọ́n kó wọn lọ',
+  'carcass.OTHER': 'Òmíràn',
+  'weight.title': 'Àpẹẹrẹ ìwúwo',
+  'weight.optional': 'Kò pọndandan — alábòójútó yóò fọwọ́ sí i',
+  'weight.count': 'Mélòó ni a wọ̀n',
+  'weight.total': 'Ìwúwo gbogbo wọn papọ̀',
   'notes.title': 'Àkíyèsí',
   'notes.optional': 'Kì í ṣe dandan',
   'notes.placeholder': 'Ohunkóhun tí kò wọ́pọ̀ — ojú ọjọ́, ìwà, ẹ̀rọ',
@@ -236,6 +276,16 @@ const IG: Catalogue = {
   'mortality.reducesPopulation': 'Ọ ga-ebelata ọnụọgụ dị ebe a',
   'mortality.cause': 'Ihe kpatara ya',
   'mortality.photo': 'Foto',
+  'mortality.carcass': 'Gịnị ka e mere ozu ha',
+  'carcass.BURIED': 'E liri ha',
+  'carcass.BURNT': 'E sure ha ọkụ',
+  'carcass.RENDERED': 'E mebere ha ihe ọzọ',
+  'carcass.COLLECTED': 'A kpọrọ ha pụọ',
+  'carcass.OTHER': 'Ihe ọzọ',
+  'weight.title': 'Ihe nlele ịdị arọ',
+  'weight.optional': 'Ọ bụghị iwu — onye nlekọta ga-akwado ya',
+  'weight.count': 'Ole ka a tụrụ',
+  'weight.total': 'Ịdị arọ ha niile ọnụ',
   'notes.title': 'Ndetu',
   'notes.optional': 'Ọ bụghị mmanye',
   'notes.placeholder': 'Ihe ọ bụla na-adịghị adị — ihu igwe, àgwà, akụrụngwa',

@@ -298,6 +298,13 @@ describe('Workflow & Approval Engine (§2)', () => {
           actor: { userId: selfApprover.id, roles: selfApprover.roles },
         }),
       ).rejects.toThrow(/cannot also approve it/i);
+
+      // SYSTEM_INTEGRITY_MATRIX: "Block self-approval and retain attempt."
+      const attempts = await prisma.auditRecord.findMany({
+        where: { transactionId: submitted.transactionId, status: 'SELF_APPROVAL_BLOCKED' },
+      });
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0]!.userId).toBe(selfApprover.id);
     });
 
     it('refuses the maker even when they hold ADMINISTRATOR', async () => {

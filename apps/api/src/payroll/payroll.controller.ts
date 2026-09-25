@@ -201,7 +201,6 @@ export class PayrollController {
     @Body()
     body: {
       payrollRunId: string;
-      paymentNumber: string;
       bucket: PayrollPayableBucket;
       amountKobo: string;
       paymentDate: string;
@@ -219,6 +218,8 @@ export class PayrollController {
       companyId,
       actor,
       ...body,
+      // The number is the system's, never the caller's (Numbering_Parameters).
+      paymentNumber: undefined,
       amountKobo: BigInt(body.amountKobo),
       paymentDate: new Date(body.paymentDate),
     });

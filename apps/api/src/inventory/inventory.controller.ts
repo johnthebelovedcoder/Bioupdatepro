@@ -68,10 +68,10 @@ export class InventoryController {
       fromWarehouseId: string;
       toWarehouseId: string;
       quantity: string;
-      transferNumber: string;
     },
   ) {
-    return this.transfers.issueTransfer({ ...body, companyId, actor });
+    // The number is the system's, never the caller's (Numbering_Parameters).
+    return this.transfers.issueTransfer({ ...body, transferNumber: undefined, companyId, actor });
   }
 
   @Roles('STOREKEEPER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'PRODUCTION_LEAD')

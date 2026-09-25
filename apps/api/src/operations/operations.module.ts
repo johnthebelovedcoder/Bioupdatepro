@@ -5,6 +5,7 @@ import { OperationsReadService } from './operations-read.service';
 import { TradeService } from './trade.service';
 import { OperationsPostingService } from './operations-posting.service';
 import { BatchCloseService } from './batch-close.service';
+import { BatchProfileService } from './batch-profile.service';
 import { SalesModule } from '../sales/sales.module';
 import { ProcurementModule } from '../procurement/procurement.module';
 import { BiologicalAssetModule } from '../biological-assets/biological-asset.module';
@@ -31,6 +32,7 @@ import { PoultryEggModule } from '../poultry-egg/poultry-egg.module';
     TradeService,
     OperationsPostingService,
     BatchCloseService,
+    BatchProfileService,
   ],
   exports: [OperationsService, OperationsReadService],
 })
