@@ -14,6 +14,9 @@ import { PoultryEggService } from '../../src/poultry-egg/poultry-egg.service';
 import { EggPostingService } from '../../src/poultry-egg/egg-posting.service';
 import { FixedAssetService } from '../../src/fixed-assets/fixed-asset.service';
 import type { WorkflowService } from '../../src/workflow/workflow.service';
+import { PoultryEggController } from '../../src/poultry-egg/poultry-egg.controller';
+import { FarmCostAllocationController } from '../../src/cost-allocation/farm-cost-allocation.controller';
+import { FixedAssetsController } from '../../src/fixed-assets/fixed-assets.controller';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
 import { ControlAccountReconciliationService } from '../../src/reporting/control-account-reconciliation.service';
 import { kobo } from '../../src/common/money';
@@ -266,6 +269,76 @@ describe('Eggs at a dated value per crate (PCR-067/068/069)', () => {
     // The eggs account agrees with the eggs in stock.
     const eggsRow = (await reconciliation.reconcile(fixture.companyId)).find((r) => r.accountNumber === '130215')!;
     expect(eggsRow.reconciled).toBe(true);
+  });
+});
+
+/*
+ * Through the controllers, with the bodies the web forms send. The service
+ * tests above never touched the controllers' own input checks — which is how
+ * an egg-value check that refused every value (its digit patterns had lost
+ * their backslashes) reached production on 2026-09-25.
+ */
+describe('The endpoints the forms call', () => {
+  const company = () => fixture.companyId;
+
+  it('accepts ₦4,500 a crate from the egg value form, and refuses what the form cannot send', async () => {
+    const crate = await prisma.unitOfMeasure.create({ data: { companyId: fixture.companyId, code: 'CRATE', name: 'Crate' } });
+    const item = await prisma.item.create({
+      data: { companyId: fixture.companyId, code: 'EGG-CRATE', description: 'Table eggs', unitOfMeasureId: crate.id },
+    });
+    const controller = new PoultryEggController(eggs, prisma, eggPostings);
+
+    const saved = await controller.setValuePolicy(company(), actor, {
+      itemId: item.id,
+      eggsPerUnit: 30,
+      valuePerUnitKobo: '450000',
+      effectiveFrom: '2026-09-25',
+    });
+    expect(saved.valuePerUnitKobo).toBe(450_000n);
+    expect(saved.effectiveFrom.toISOString().slice(0, 10)).toBe('2026-09-25');
+    expect(await controller.valuePolicies(company())).toHaveLength(1);
+
+    const bad = (body: Partial<{ itemId: string; eggsPerUnit: number; valuePerUnitKobo: string; effectiveFrom: string }>) =>
+      controller.setValuePolicy(company(), actor, { itemId: item.id, eggsPerUnit: 30, valuePerUnitKobo: '450000', effectiveFrom: '2026-09-25', ...body });
+    await expect(bad({ valuePerUnitKobo: '4500.50' })).rejects.toThrow(/whole-kobo/);
+    await expect(bad({ effectiveFrom: '25/09/2026' })).rejects.toThrow(/effectiveFrom/);
+    await expect(bad({ valuePerUnitKobo: '0' })).rejects.toThrow(/more than zero/);
+    await expect(bad({ eggsPerUnit: 0 })).rejects.toThrow(/at least 1/);
+  });
+
+  it('posts an allocation from the form’s string amounts', async () => {
+    await population('L-A', 'poultry', 100);
+    await salaries(40_000n);
+    const controller = new FarmCostAllocationController(allocation);
+
+    expect(await controller.sources(company(), fixture.periodIds[JANUARY]!)).toHaveLength(1);
+    const result = await controller.post(company(), actor, {
+      financialPeriodId: fixture.periodIds[JANUARY]!,
+      sources: [{ glAccountId: account['5101']!, costCentreId: null, amountKobo: '40000' }],
+    });
+    expect(result.totalKobo).toBe(40_000n);
+    await expect(
+      controller.post(company(), actor, {
+        financialPeriodId: fixture.periodIds[JANUARY]!,
+        sources: [{ glAccountId: account['5101']!, amountKobo: '12.5' }],
+      }),
+    ).rejects.toThrow(/whole number of kobo/);
+  });
+
+  it('sets and clears a machine’s processing line from the form', async () => {
+    const asset = await prisma.fixedAsset.create({
+      data: {
+        companyId: fixture.companyId, assetNumber: 'FA-1', name: 'Plucker', assetClass: 'Plant', acquisitionDate: new Date('2025-12-01'),
+        costKobo: 1_200_000n, usefulLifeMonths: 12, status: 'POSTED', createdById: fixture.makerId,
+      },
+    });
+    const controller = new FixedAssetsController(assets);
+
+    await controller.setProcessingLine(asset.id, company(), actor, { processingCycle: 'POULTRYPRO' });
+    expect((await prisma.fixedAsset.findUniqueOrThrow({ where: { id: asset.id } })).processingCycle).toBe('POULTRYPRO');
+    await controller.setProcessingLine(asset.id, company(), actor, { processingCycle: null });
+    expect((await prisma.fixedAsset.findUniqueOrThrow({ where: { id: asset.id } })).processingCycle).toBeNull();
+    await expect(controller.setProcessingLine(asset.id, company(), actor, { processingCycle: 'BAKERY' })).rejects.toThrow(/must be/);
   });
 });
 

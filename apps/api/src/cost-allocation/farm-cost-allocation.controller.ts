@@ -18,18 +18,18 @@ export class FarmCostAllocationController {
   constructor(private readonly allocations: FarmCostAllocationService) {}
 
   @Get()
-  list(@CurrentCompany() companyId: string) {
+  async list(@CurrentCompany() companyId: string) {
     return this.allocations.list(companyId);
   }
 
   @Get('sources')
-  sources(@CurrentCompany() companyId: string, @Query('periodId') periodId: string) {
+  async sources(@CurrentCompany() companyId: string, @Query('periodId') periodId: string) {
     if (!periodId) throw new BadRequestException('periodId is required.');
     return this.allocations.sources(companyId, periodId);
   }
 
   @Get('preview')
-  preview(@CurrentCompany() companyId: string, @Query('periodId') periodId: string, @Query('totalKobo') totalKobo: string) {
+  async preview(@CurrentCompany() companyId: string, @Query('periodId') periodId: string, @Query('totalKobo') totalKobo: string) {
     if (!periodId) throw new BadRequestException('periodId is required.');
     return this.allocations.preview(companyId, periodId, koboOf(totalKobo ?? '0', 'totalKobo'));
   }
@@ -37,7 +37,7 @@ export class FarmCostAllocationController {
   /** Moves cost between accounts, so only the roles that can reverse a journal may post one. */
   @Roles('FINANCE_CONTROLLER', 'CFO')
   @Post()
-  post(
+  async post(
     @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
     @Body() body: { financialPeriodId: string; sources: Array<{ glAccountId: string; costCentreId?: string | null; amountKobo: string }> },
