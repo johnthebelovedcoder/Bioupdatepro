@@ -134,16 +134,16 @@ and the decisions behind it are in `docs/chart-unification-mapping.csv`.
 
 ## Release evidence (UAT)
 
- runs every suite and scores the
+`npm run uat --workspace @bioassetpro/api` runs every suite and scores the
 26 tests of the client's UAT_CONTROL_REGISTER against the automated tests that
 evidence each one — its positive path and its negative/integrity test — in
-. CI does the same on every push and fails
+`apps/api/test/uat/uat-report.md`. CI does the same on every push and fails
 if any is missing or failing. UAT-026 additionally needs the observed test with
 a farm worker, supervisor and finance user that UX_ACCEPTANCE requires.
 
 The client's 500-snail case is replayed through the application
-() and compared with the
-workbook's APP_EXPECTED_RESULTS in : figures
+(`apps/api/test/integration/case-500-snail.spec.ts`) and compared with the
+workbook's APP_EXPECTED_RESULTS in `apps/api/test/uat/case-500-report.md`: figures
 either match or differ by named causes (the workbook's purchased breeders
 vanishing from its books, its unposted opening stock, and so on); an
 unexplained difference fails the test.
