@@ -116,7 +116,21 @@ Sign in with any seeded user — password `admin123@`:
 
 Or create your own farm at `/signup` — registration provisions a chart of
 accounts, cost centres and twelve open periods in one transaction, so a new
-farm can record a round on its first morning.
+farm can record a round on its first morning. A new farm keeps its books on
+the client's six-digit chart from the start.
+
+## The two charts of accounts
+
+Farms registered before 2026-09-25 started on a four-digit chart (`LEGACY`);
+the client's posting rules are written against a six-digit one (`SPEC`).
+`Company.chartVersion` says which a farm is on, and code asks for an account
+by purpose through `apps/api/src/chart/chart.ts` rather than by number.
+
+**Books → Controls → See the move** (`/ledger/chart`) moves a farm across. It
+shows every old balance and where it will go before anything changes, then a
+CFO runs it: one journal per branch dated the first day of an open month,
+settings repointed, old accounts retired, all in one transaction. The mapping
+and the decisions behind it are in `docs/chart-unification-mapping.csv`.
 
 ## Deploying schema changes
 

@@ -107,9 +107,10 @@ export class PostingControlProvisioningService {
   ) {}
 
   async status(companyId: string) {
-    const [rules, keys] = await Promise.all([
+    const [rules, keys, company] = await Promise.all([
       this.prisma.postingRule.count({ where: { companyId } }),
       this.prisma.postingKey.count({ where: { companyId } }),
+      this.prisma.company.findUnique({ where: { id: companyId }, select: { chartVersion: true } }),
     ]);
     const data = load();
     return {
@@ -118,6 +119,8 @@ export class PostingControlProvisioningService {
       keys,
       expectedRules: data.rules.length,
       expectedKeys: data.keys.length,
+      /** LEGACY until the farm is moved to the six-digit chart (ChartUnificationService). */
+      chartVersion: company?.chartVersion ?? 'LEGACY',
     };
   }
 

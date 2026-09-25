@@ -117,7 +117,32 @@ export interface PostingControlStatus {
   keys: number;
   expectedRules: number;
   expectedKeys: number;
+  chartVersion: 'LEGACY' | 'SPEC';
 }
 
 export const getPostingControlStatus = () =>
   load<PostingControlStatus>('/posting-control/provisioning');
+
+/* --- Moving to the six-digit chart ---------------------------------------- */
+
+export type ProductClass = 'LIVE_POULTRY' | 'EGGS' | 'PROCESSED_POULTRY' | 'LIVE_SNAIL' | 'PROCESSED_SNAIL';
+
+export interface UnificationPreview {
+  cutoverDate: string | null;
+  chartVersion?: 'LEGACY' | 'SPEC';
+  canRun: boolean;
+  blockers: string[];
+  warnings: string[];
+  accounts: Array<{
+    from: string;
+    name: string;
+    balanceKobo: string;
+    moves: Array<{ to: string; amountKobo: string; basis: string; assumed: boolean }>;
+  }>;
+  items: Array<{ itemId: string; code: string; description: string; proposed: ProductClass | null; chosen: ProductClass; feed: boolean }>;
+  untouched: Array<{ accountNumber: string; name: string; balanceKobo: string }>;
+  classes: Record<ProductClass, { label: string; revenue: string; costOfSales: string; inventory: string }>;
+}
+
+export const getUnificationPreview = (cutover?: string) =>
+  load<UnificationPreview>(`/posting-control/chart-unification${cutover ? `?cutover=${encodeURIComponent(cutover)}` : ''}`);

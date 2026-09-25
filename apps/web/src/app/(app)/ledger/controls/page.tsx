@@ -74,6 +74,19 @@ export default async function ControlsPage() {
           </Card>
         ) : null}
 
+        {provisioning.ok && provisioning.data.chartVersion === 'LEGACY' ? (
+          <Card title="Books are on the four-digit chart" subtitle="The client’s posting rules are written against the six-digit chart">
+            <p style={{ fontSize: 14, marginBottom: 'var(--sp-3)' }}>
+              Moving to the six-digit chart carries every balance across on the first day of a month, splits them by item
+              and by species where the new chart does, and points every setting at the new accounts. You see every move
+              before anything changes.
+            </p>
+            <Link className="btn" href="/ledger/chart">
+              See the move
+            </Link>
+          </Card>
+        ) : null}
+
         <Card
           title="Control accounts"
           subtitle={

@@ -1,8 +1,9 @@
-import { Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingControlService } from './posting-control.service';
 import { PostingControlChecksService } from './posting-control-checks.service';
 import { PostingControlProvisioningService } from './posting-control-provisioning.service';
+import { ChartUnificationService, PRODUCT_CLASSES, ProductClass, UnificationOptions } from '../chart/chart-unification.service';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { CurrentCompany } from '../auth/current-user.decorator';
@@ -30,7 +31,53 @@ export class PostingControlController {
     private readonly control: PostingControlService,
     private readonly checks: PostingControlChecksService,
     private readonly provisioning: PostingControlProvisioningService,
+    private readonly unification: ChartUnificationService,
   ) {}
+
+  /**
+   * The move to the six-digit chart: what would happen, then doing it.
+   * The preview changes nothing and can be asked for as often as needed;
+   * the run is one transaction, audited, and only a CFO may start it.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Get('chart-unification')
+  async unificationPreview(
+    @CurrentCompany() companyId: string,
+    @Query('cutover') cutover?: string,
+    @Query('defaultClass') defaultClass?: string,
+    @Query('defaultSpecies') defaultSpecies?: string,
+  ) {
+    const date = cutover ? parseDay(cutover) : await this.unification.suggestedCutover(companyId);
+    if (!date) {
+      return { cutoverDate: null, canRun: false, blockers: ['No future month is open. Set up the next financial period first.'], warnings: [], accounts: [], items: [], untouched: [], classes: PRODUCT_CLASSES };
+    }
+    const preview = await this.unification.preview(companyId, date, parseOptions({ defaultClass, defaultSpecies }));
+    return { ...preview, classes: PRODUCT_CLASSES };
+  }
+
+  /** The same preview with the person's choices for each item. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('chart-unification/preview')
+  async unificationPreviewWith(
+    @CurrentCompany() companyId: string,
+    @Body() body: { cutover?: string; itemClasses?: Record<string, string>; defaultClass?: string; defaultSpecies?: string },
+  ) {
+    if (!body?.cutover) throw new BadRequestException('Give the cutover date.');
+    const preview = await this.unification.preview(companyId, parseDay(body.cutover), parseOptions(body));
+    return { ...preview, classes: PRODUCT_CLASSES };
+  }
+
+  @Roles('CFO')
+  @Post('chart-unification')
+  async unificationRun(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { cutover?: string; itemClasses?: Record<string, string>; defaultClass?: string; defaultSpecies?: string },
+  ) {
+    if (!body?.cutover) throw new BadRequestException('Give the cutover date.');
+    const result = await this.unification.run({ companyId, cutoverDate: parseDay(body.cutover), options: parseOptions(body), actor });
+    return { journals: result.journals, moved: result.moved, repointed: result.repointed, retired: result.retired };
+  }
 
   @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Get('provisioning')
@@ -177,4 +224,30 @@ function describe(
      */
     dynamicResolution: key.dynamicResolution,
   };
+}
+
+function parseDay(value: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new BadRequestException('Dates are YYYY-MM-DD.');
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function parseOptions(body: { itemClasses?: Record<string, string>; defaultClass?: string; defaultSpecies?: string }): UnificationOptions {
+  const isClass = (v: unknown): v is ProductClass => typeof v === 'string' && v in PRODUCT_CLASSES;
+  const options: UnificationOptions = {};
+  if (body.defaultClass) {
+    if (!isClass(body.defaultClass)) throw new BadRequestException(`Unknown product type ${body.defaultClass}.`);
+    options.defaultClass = body.defaultClass;
+  }
+  if (body.defaultSpecies) {
+    if (body.defaultSpecies !== 'poultry' && body.defaultSpecies !== 'snail') throw new BadRequestException('Species is poultry or snail.');
+    options.defaultSpecies = body.defaultSpecies;
+  }
+  if (body.itemClasses) {
+    options.itemClasses = {};
+    for (const [itemId, cls] of Object.entries(body.itemClasses)) {
+      if (!isClass(cls)) throw new BadRequestException(`Unknown product type ${String(cls)}.`);
+      options.itemClasses[itemId] = cls;
+    }
+  }
+  return options;
 }

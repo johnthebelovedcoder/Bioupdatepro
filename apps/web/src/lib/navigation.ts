@@ -394,7 +394,7 @@ export const SECTIONS: NavSection[] = [
         href: '/ledger/profit-loss',
         label: 'Profit & loss',
         hint: 'Revenue and expense for the period',
-        keywords: ['p&l', 'profit', 'loss', 'income statement', 'revenue', 'expense'],
+        keywords: ['p&l', 'profit', 'loss', 'income statement', 'revenue', 'expense', 'segment', 'by species', 'poultry', 'snail'],
       },
       {
         href: '/ledger/balance-sheet',
@@ -461,6 +461,12 @@ export const SECTIONS: NavSection[] = [
         label: 'Controls',
         hint: 'Control-account reconciliation, posting checks and release sign-off',
         keywords: ['control', 'reconciliation', 'subledger', 'sign off', 'release', 'uat', 'build order'],
+      },
+      {
+        href: '/ledger/chart',
+        label: 'Six-digit chart',
+        hint: 'Move the books to the client’s six-digit chart',
+        keywords: ['chart of accounts', 'coa', 'six-digit', 'cutover', 'unification', 'migrate accounts'],
       },
       {
         href: '/ledger/farm-costing',
