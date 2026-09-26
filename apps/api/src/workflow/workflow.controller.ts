@@ -335,9 +335,36 @@ export class WorkflowController {
       subject: n.subject,
       body: n.body,
       createdAt: n.createdAt,
+      readAt: n.readAt,
       document: n.transaction.documentReference,
       documentStatus: n.transaction.status,
     }));
+  }
+
+  /** The bell: unread count and the latest few, the caller's own. */
+  @AnyRole('Your own notices. The service scopes them to the caller.')
+  @Get('inbox/summary')
+  async inboxSummary(@CurrentUser() actor: WorkflowActor) {
+    const { unread, latest } = await this.notifications.summary(actor.userId);
+    return {
+      unread,
+      latest: latest.map((n) => ({
+        id: n.id,
+        event: n.event,
+        subject: n.subject,
+        body: n.body,
+        createdAt: n.createdAt,
+        readAt: n.readAt,
+        document: n.transaction.documentReference,
+      })),
+    };
+  }
+
+  /** Mark your own notices read: those named, or every unread one. */
+  @AnyRole('Your own notices. The service scopes them to the caller.')
+  @Post('inbox/read')
+  async inboxRead(@CurrentUser() actor: WorkflowActor, @Body() body: { ids?: string[] } = {}) {
+    return this.notifications.markRead(actor.userId, Array.isArray(body?.ids) ? body.ids.map(String) : undefined);
   }
 
   /**

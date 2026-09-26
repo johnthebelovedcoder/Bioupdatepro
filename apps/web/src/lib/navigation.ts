@@ -763,12 +763,6 @@ export const HOME: NavSection = {
   href: '/',
   children: [
     { href: '/', label: 'Home', hint: 'What needs attention today' },
-    {
-      href: '/notifications',
-      label: 'My notifications',
-      hint: 'Email and WhatsApp notices, and your consent',
-      keywords: ['notification', 'whatsapp', 'email', 'consent', 'alerts', 'messages'],
-    },
   ],
 };
 

@@ -8,6 +8,7 @@ export interface InboxNotification {
   subject: string;
   body: string;
   createdAt: string;
+  readAt: string | null;
   document: string;
   documentStatus: string;
 }

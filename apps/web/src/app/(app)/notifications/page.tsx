@@ -3,7 +3,7 @@ import type { SessionUser } from '@/lib/session';
 import { Card, PageHeader } from '@/components/ui';
 import { NotificationPolicyForm, WhatsAppSettings, type MyNotifications } from '@/components/notification-forms';
 
-export const metadata = { title: 'My notifications — BioAssetPro' };
+export const metadata = { title: 'Notification settings — BioAssetPro' };
 
 interface Policy {
   events: string[];
@@ -28,7 +28,7 @@ export default async function NotificationsPage() {
 
   return (
     <>
-      <PageHeader title="My notifications" subtitle="How you hear about approvals: in the app, by email, and on WhatsApp if you choose" />
+      <PageHeader title="Notification settings" subtitle="How you hear about approvals: in the app (the bell), by email, and on WhatsApp if you choose" />
       <div className="stack">
         <Card title="WhatsApp" subtitle="Only to a number you have verified, and only while you agree">
           <WhatsAppSettings mine={mine} />

@@ -112,6 +112,29 @@ export class NotificationService {
     });
   }
 
+  /** How many in-app notices the user has not opened, and the latest few — the bell. */
+  async summary(userId: string, take = 8) {
+    const [unread, latest] = await Promise.all([
+      this.prisma.workflowNotification.count({ where: { recipientId: userId, channel: NotificationChannel.IN_APP, readAt: null } }),
+      this.prisma.workflowNotification.findMany({
+        where: { recipientId: userId, channel: NotificationChannel.IN_APP },
+        orderBy: { createdAt: 'desc' },
+        take,
+        include: { transaction: { select: { documentReference: true, status: true } } },
+      }),
+    ]);
+    return { unread, latest };
+  }
+
+  /** Mark the user's own in-app notices read — the ones named, or all of them. */
+  async markRead(userId: string, ids?: string[]) {
+    const result = await this.prisma.workflowNotification.updateMany({
+      where: { recipientId: userId, channel: NotificationChannel.IN_APP, readAt: null, ...(ids && ids.length ? { id: { in: ids } } : {}) },
+      data: { readAt: new Date() },
+    });
+    return { marked: result.count };
+  }
+
   /**
    * Drain queued external notifications. Wired to a scheduler in deployment;
    * called directly by tests. With no provider configured this reports what it

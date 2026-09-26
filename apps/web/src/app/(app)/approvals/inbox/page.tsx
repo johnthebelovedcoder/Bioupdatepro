@@ -3,6 +3,7 @@ import { formatDate } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { IconBell } from '@/components/icons';
+import { MarkAllRead } from '@/components/mark-all-read';
 
 export const metadata = { title: 'Notifications — BioAssetPro' };
 
@@ -12,13 +13,12 @@ export const metadata = { title: 'Notifications — BioAssetPro' };
  * a rejection or return sent back to them. `NotificationService.queue()` has
  * written these rows all along; this is the first screen that reads them.
  *
- * Read-only, on purpose. There is no read/unread state anywhere in the
- * `WorkflowNotification` model this reads from, so nothing here invents one —
- * the same "quantity real, status computed" discipline the rest of the app
- * uses rather than fabricate a concept the data does not carry.
+ * Unread notices are marked; the bell in the top bar counts them, and they
+ * are marked read from there or all at once here.
  */
 export default async function InboxPage() {
   const notifications = await getInbox();
+  const unread = notifications.filter((n) => !n.readAt).length;
 
   return (
     <>
@@ -26,7 +26,11 @@ export default async function InboxPage() {
 
       <Tabs />
 
-      <Card title={`${notifications.length} notification${notifications.length === 1 ? '' : 's'}`} padded={false}>
+      <Card
+        title={`${notifications.length} notification${notifications.length === 1 ? '' : 's'}${unread ? `, ${unread} unread` : ''}`}
+        action={unread ? <MarkAllRead /> : undefined}
+        padded={false}
+      >
         {notifications.length === 0 ? (
           <EmptyState
             icon={<IconBell size={22} />}
@@ -52,7 +56,10 @@ export default async function InboxPage() {
                       <span className="badge">{describeEvent(n.event)}</span>
                     </td>
                     <td>
-                      <div className="list-title">{n.subject}</div>
+                      <div className="list-title" style={{ fontWeight: n.readAt ? 400 : 600 }}>
+                        {!n.readAt ? <span className="badge badge-success" style={{ marginRight: 6 }}>new</span> : null}
+                        {n.subject}
+                      </div>
                       <div className="faint">{n.body}</div>
                     </td>
                     <td className="num" style={{ textAlign: 'left' }}>

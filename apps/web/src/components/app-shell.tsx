@@ -12,6 +12,7 @@ import { SearchPalette } from './search-palette';
 import { RolesProvider } from './roles-context';
 import { ModuleSwitcher } from './module-switcher';
 import { UserMenu } from './user-menu';
+import { NotificationBell } from './notification-bell';
 import { SyncStatus } from './sync-status';
 import { BottomNav } from './bottom-nav';
 import { OfflineSupport } from './offline-support';
@@ -143,6 +144,7 @@ export function AppShell({
           <SearchPalette roles={user.roles} />
           <div className="spacer" />
           <SyncStatus />
+          <NotificationBell />
           <UserMenu user={user} />
         </header>
         <main className="page">

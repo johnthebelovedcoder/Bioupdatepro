@@ -1,10 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { logout } from '@/app/login/actions';
 import type { SessionUser } from '@/lib/session';
 import { humanRole } from '@/lib/roles';
-import { IconSignOut } from './icons';
+import { IconBell, IconSignOut } from './icons';
 
 /**
  * Who is signed in, and therefore who every action is recorded against.
@@ -94,6 +95,11 @@ export function UserMenu({ user }: { user: SessionUser }) {
               <div className="faint">{user.roles.map(humanRole).join(', ') || 'No role assigned'}</div>
             </div>
           </div>
+
+          <Link href="/notifications" role="menuitem" className="user-menu-option" onClick={() => setOpen(false)}>
+            <IconBell size={17} />
+            <span>Notification settings</span>
+          </Link>
 
           <form
             action={logout}

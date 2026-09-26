@@ -1452,12 +1452,15 @@ model WorkflowNotification {
   status        NotificationStatus  @default(PENDING)
   sentAt        DateTime?           @map("sent_at")
   failureReason String?             @map("failure_reason")
+  /// When the recipient opened an in-app notice; null while unread.
+  readAt        DateTime?           @map("read_at")
   createdAt     DateTime            @default(now()) @map("created_at")
 
   transaction WorkflowTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   recipient   User                @relation("NotificationRecipient", fields: [recipientId], references: [id])
 
   @@index([recipientId, status])
+  @@index([recipientId, readAt])
   @@index([status, createdAt])
   @@map("workflow_notifications")
 }
