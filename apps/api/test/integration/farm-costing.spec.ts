@@ -18,6 +18,7 @@ import type { WorkflowService } from '../../src/workflow/workflow.service';
 import { PoultryEggController } from '../../src/poultry-egg/poultry-egg.controller';
 import { FarmCostAllocationController } from '../../src/cost-allocation/farm-cost-allocation.controller';
 import { FixedAssetsController } from '../../src/fixed-assets/fixed-assets.controller';
+import { AssetChangeService } from '../../src/fixed-assets/asset-change.service';
 import { BatchCloseService } from '../../src/operations/batch-close.service';
 import { BiologicalAssetService } from '../../src/biological-assets/biological-asset.service';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
@@ -337,7 +338,7 @@ describe('The endpoints the forms call', () => {
         costKobo: 1_200_000n, usefulLifeMonths: 12, status: 'POSTED', createdById: fixture.makerId,
       },
     });
-    const controller = new FixedAssetsController(assets);
+    const controller = new FixedAssetsController(assets, new AssetChangeService(prisma, new AuditService(prisma), posting));
 
     await controller.setProcessingLine(asset.id, company(), actor, { processingCycle: 'POULTRYPRO' });
     expect((await prisma.fixedAsset.findUniqueOrThrow({ where: { id: asset.id } })).processingCycle).toBe('POULTRYPRO');
@@ -545,7 +546,7 @@ describe('Machine depreciation split by machine hours (PCR-031)', () => {
       },
     });
     // 30 hours on poultry processing, 10 in the feed mill: 3 : 1.
-    await new FixedAssetsController(assets).setMachineHours(mixer.id, fixture.companyId, actor, {
+    await new FixedAssetsController(assets, new AssetChangeService(prisma, new AuditService(prisma), posting)).setMachineHours(mixer.id, fixture.companyId, actor, {
       financialPeriodId: fixture.periodIds[JANUARY]!,
       hours: { POULTRYPRO: '30', FEED_MILL: '10' },
     });

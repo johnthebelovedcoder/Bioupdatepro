@@ -1440,7 +1440,9 @@ describe('Procure-to-Pay (§5)', () => {
       await expect(returns.decide({ companyId: fixture.companyId, returnId: raised.id, decision: 'APPROVE', actor: { ...maker, roles: ['FINANCE_MANAGER'] } })).rejects.toThrow(
         /so someone else approves it/,
       );
-      return returns.decide({ companyId: fixture.companyId, returnId: raised.id, decision: 'APPROVE', actor: finance() });
+      const posted = await returns.decide({ companyId: fixture.companyId, returnId: raised.id, decision: 'APPROVE', actor: finance() });
+      if (posted.status !== 'POSTED') throw new Error('The return did not post.');
+      return posted;
     };
 
     it('takes goods returned before invoicing off GRNI, and they can no longer be billed', async () => {

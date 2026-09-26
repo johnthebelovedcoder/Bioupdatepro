@@ -22,10 +22,6 @@ import { RoutingService } from '../../src/routing/routing.service';
 import { kobo } from '../../src/common/money';
 import { FeedQualityService } from '../../src/production/feed-quality.service';
 import { VarianceProrationService } from '../../src/production/variance-proration.service';
-import { PostingService } from '../../src/posting/posting.service';
-import { IdempotencyService } from '../../src/idempotency/idempotency.service';
-import { PeriodService } from '../../src/periods/period.service';
-import { DimensionValidatorService } from '../../src/enterprise-dimensions/dimension-validator.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
