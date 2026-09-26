@@ -1271,6 +1271,27 @@ export class ProductionOrderService {
         );
       }
       const normal = new Decimal(params.normalLossQuantity);
+      /*
+       * POL-005: normal loss is absorbed only "within approved standard" —
+       * the recipe's expected yield. Anything beyond it is abnormal (POL-006,
+       * "not hidden in FG") and must be recorded as such, so it is expensed
+       * rather than carried in finished goods.
+       */
+      const recipeVersion = await this.prisma.productRecipeVersion.findUniqueOrThrow({
+        where: { id: order.recipeVersionId },
+        select: { expectedYieldPercent: true, version: true },
+      });
+      if (recipeVersion.expectedYieldPercent !== null) {
+        const yieldPercent = new Decimal(recipeVersion.expectedYieldPercent.toString());
+        const allowed = input.mul(new Decimal(100).minus(yieldPercent)).div(100);
+        if (normal.gt(allowed.plus('0.001'))) {
+          throw new AccountingRuleViolation(
+            'POL-005 / POL-006 — Normal loss within standard',
+            `Normal loss of ${normal.toFixed(3)} kg is more than the recipe's approved ${yieldPercent.toString()}% yield allows (${allowed.toFixed(3)} kg of ${input.toFixed(3)} kg). Record the other ${normal.minus(allowed).toFixed(3)} kg as abnormal loss — it is expensed, not carried in finished goods.`,
+            { allowedKg: allowed.toFixed(3), statedKg: normal.toFixed(3) },
+          );
+        }
+      }
       if (normal.lt(0) || good.plus(normal).plus(abnormal).minus(input).abs().gt('0.001')) {
         throw new AccountingRuleViolation(
           'Handbook §62.5 — Mass balance',

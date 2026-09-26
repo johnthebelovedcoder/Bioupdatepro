@@ -120,6 +120,11 @@ export class EmployeeService {
     if (input.reportingManagerId) {
       await this.assertNoManagementCycle(input.reportingManagerId, null);
     }
+    await this.assertUniqueIdentity(input.companyId, null, {
+      accountNumber: (input.accountNumber as string) ?? null,
+      bankName: (input.bankName as string) ?? null,
+      tin: (input.tin as string) ?? null,
+    });
 
     return this.prisma.$transaction(async (tx) => {
       const employee = await tx.employee.create({
@@ -653,8 +658,64 @@ export class EmployeeService {
    * Activate an employee for payroll. Refuses while any blocker stands, so the
    * validation cannot be skipped by setting the flag directly through the API.
    */
+  /**
+   * INT-001/INT-012, AC-HR-001: one person, one record — a bank account or a
+   * TIN already on another employee is refused, the usual shape of a ghost
+   * employee.
+   */
+  async assertUniqueIdentity(
+    companyId: string,
+    employeeId: string | null,
+    identity: { accountNumber?: string | null; bankName?: string | null; tin?: string | null },
+  ) {
+    const others = { ...(employeeId ? { id: { not: employeeId } } : {}) };
+    const account = identity.accountNumber?.trim();
+    if (account) {
+      const clash = await this.prisma.employee.findFirst({
+        where: { companyId, ...others, accountNumber: account, ...(identity.bankName?.trim() ? { bankName: identity.bankName.trim() } : {}) },
+        select: { employeeNumber: true },
+      });
+      if (clash) {
+        throw new AccountingRuleViolation(
+          'INT-012 — One employee, one bank account',
+          `Account ${account} is already ${clash.employeeNumber}'s. Two employees cannot be paid into one account.`,
+          { employeeNumber: clash.employeeNumber },
+        );
+      }
+    }
+    const tin = identity.tin?.trim();
+    if (tin) {
+      const clash = await this.prisma.employee.findFirst({ where: { companyId, ...others, tin }, select: { employeeNumber: true } });
+      if (clash) {
+        throw new AccountingRuleViolation(
+          'INT-012 — One employee, one identity',
+          `TIN ${tin} is already ${clash.employeeNumber}'s.`,
+          { employeeNumber: clash.employeeNumber },
+        );
+      }
+    }
+  }
+
   async activateForPayroll(params: { employeeId: string; on: Date; actorId: string }) {
     const readiness = await this.payrollReadiness(params.employeeId, params.on);
+
+    // INT-012: "HR Officer ≠ HR Manager" — whoever set the employee up does not
+    // also put them on payroll, unless the company allows self-approval.
+    const subject = await this.prisma.employee.findUniqueOrThrow({ where: { id: params.employeeId }, select: { companyId: true, employeeNumber: true } });
+    const created = await this.prisma.auditRecord.findFirst({
+      where: { companyId: subject.companyId, entityType: 'Employee', entityId: params.employeeId, action: AuditAction.CREATE },
+      select: { userId: true },
+    });
+    if (created?.userId === params.actorId) {
+      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: subject.companyId }, select: { allowSelfApproval: true } });
+      if (!company.allowSelfApproval) {
+        throw new AccountingRuleViolation(
+          'INT-012 — Maker ≠ approver',
+          `You set up ${subject.employeeNumber}, so someone else activates them for payroll.`,
+          { employeeNumber: subject.employeeNumber },
+        );
+      }
+    }
 
     // The activation flag itself is a blocker before activation; ignore that one.
     const realBlockers = readiness.blockers.filter(

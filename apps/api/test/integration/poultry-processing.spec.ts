@@ -190,6 +190,26 @@ describe('Poultry processing and close (UAT-020)', () => {
     expect(processing.every((row) => row.reconciled)).toBe(true);
   });
 
+  it('shows the ₦40,000 poultry variance of the sample (AC-MFG-008, STANDARD_COST_CONTROL)', async () => {
+    const { id } = await orders.createFromHarvest({ harvestRecordId: harvestId, recipeVersionId: versionId, warehouseId: fgStore, plannedOutputQuantity: '90', actor: maker });
+    const submitted = await orders.submit({ productionOrderId: id, actor: maker });
+    await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+    await orders.issueMaterials({ productionOrderId: id, actor: maker });
+    // Labour ₦220,000 + machine ₦160,000 + overhead ₦240,000 at standard; ₦235,000 + ₦170,000 + ₦255,000 actual.
+    await orders.confirmConversion({ productionOrderId: id, standardConversionCostKobo: 620_000_00n, actualLabourCostKobo: 235_000_00n, actualOverheadCostKobo: 425_000_00n, actor: maker });
+    await orders.recordOutputs({
+      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38',
+      outputs: [
+        { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
+        { itemId: item.SHELL!, outputType: 'BY_PRODUCT', quantity: '16', weight: '16' },
+      ],
+    });
+    const settled = await orders.settle({ productionOrderId: id, actor: maker });
+    expect(settled.variance).toBe(40_000_00n.toString());
+    expect(await balanceOf('520300')).toBe(40_000_00n);
+    expect(await balanceOf('219820')).toBe(0n);
+  });
+
   it('refuses to close an order while anything is still in WIP, and says why', async () => {
     const id = await throughConversion();
     expect(await wip()).toBeGreaterThan(0n);

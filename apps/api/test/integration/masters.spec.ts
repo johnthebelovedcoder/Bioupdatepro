@@ -119,6 +119,21 @@ describe('Master Data (§5, §6, §7, §10)', () => {
       expect(linked.taxType).toBe(TaxType.WHT);
     });
 
+    it('refuses a second supplier with the same TIN or bank account, and a customer with a used TIN (INT-001)', async () => {
+      const base = { companyId: fixture.companyId, defaultCurrencyId: fixture.currencyId, actorId: fixture.makerId };
+      await parties.createSupplier({ ...base, code: 'SUP-A', name: 'Agro Inputs Ltd', tin: 'TIN-777', bankName: 'Zenith', accountNumber: '1010101010' });
+      await expect(parties.createSupplier({ ...base, code: 'SUP-B', name: 'Agro Inputs Limited', tin: 'TIN-777' })).rejects.toThrow(
+        /TIN TIN-777 is already supplier SUP-A/,
+      );
+      await expect(parties.createSupplier({ ...base, code: 'SUP-C', name: 'Someone Else', accountNumber: '1010101010' })).rejects.toThrow(
+        /Account 1010101010 is already supplier SUP-A's/,
+      );
+      await parties.createCustomer({ companyId: fixture.companyId, code: 'CUS-A', name: 'Sunrise Foods', tin: 'TIN-888', currencyId: fixture.currencyId, actorId: fixture.makerId });
+      await expect(
+        parties.createCustomer({ companyId: fixture.companyId, code: 'CUS-B', name: 'Sunrise Foods Ltd', tin: 'TIN-888', currencyId: fixture.currencyId, actorId: fixture.makerId }),
+      ).rejects.toThrow(/TIN TIN-888 is already customer CUS-A/);
+    });
+
     it('refuses a VAT code where a WHT category belongs', async () => {
       await expect(
         parties.createSupplier({
@@ -867,7 +882,7 @@ describe('Master Data (§5, §6, §7, §10)', () => {
         employees.activateForPayroll({
           employeeId: employee.id,
           on: JAN,
-          actorId: fixture.makerId,
+          actorId: fixture.checkerId,
         }),
       ).rejects.toThrow(/cannot be activated for payroll/i);
     });
@@ -917,7 +932,7 @@ describe('Master Data (§5, §6, §7, §10)', () => {
       const activated = await employees.activateForPayroll({
         employeeId: employee.id,
         on: JAN,
-        actorId: fixture.makerId,
+        actorId: fixture.checkerId,
       });
       expect(activated.payrollActive).toBe(true);
 
@@ -984,7 +999,7 @@ describe('Master Data (§5, §6, §7, §10)', () => {
         actorId: fixture.makerId,
       }, fixture);
 
-      await expect(employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.makerId })).rejects.toThrow(
+      await expect(employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.checkerId })).rejects.toThrow(
         /Document pack incomplete/,
       );
 
@@ -1008,10 +1023,10 @@ describe('Master Data (§5, §6, §7, §10)', () => {
       await onboarding.updateDetails({ companyId: fixture.companyId, employeeId: employee.id, details: { accountNumber: '9999999999' }, actorId: fixture.makerId });
       const view = await onboarding.onboarding(fixture.companyId, employee.id, JAN);
       expect(view.checks.find((c) => c.code === 'BANK')!.status).toBe('OUTSTANDING');
-      await expect(employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.makerId })).rejects.toThrow(/Bank account/);
+      await expect(employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.checkerId })).rejects.toThrow(/Bank account/);
 
       await onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType: 'BANK', status: 'VERIFIED', reference: 'Bank letter', actorId: fixture.checkerId });
-      const activated = await employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.makerId });
+      const activated = await employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.checkerId });
       expect(activated.payrollActive).toBe(true);
     });
 
@@ -1056,6 +1071,27 @@ describe('Master Data (§5, §6, §7, §10)', () => {
       expect(view.assignments[0]!.current).toBe(true);
       expect(view.steps.find((s) => s.key === 'EMPLOYMENT')!.complete).toBe(true);
       expect(view.steps.find((s) => s.key === 'COMPENSATION')!.missing).toContain('no approved pay in force');
+    });
+
+    it('refuses a ghost employee: a bank account or TIN already on someone else (INT-012, AC-HR-001)', async () => {
+      const first = await makeEmployee({ accountNumber: '2222222222', tin: 'TIN-E1' });
+      await expect(makeEmployee({ accountNumber: '2222222222' })).rejects.toThrow(/Account 2222222222 is already EMP-/);
+      await expect(makeEmployee({ accountNumber: '3333333333', tin: 'TIN-E1' })).rejects.toThrow(/TIN TIN-E1 is already EMP-/);
+      const second = await makeEmployee({ accountNumber: '4444444444' });
+      await expect(
+        onboarding.updateDetails({ companyId: fixture.companyId, employeeId: second.id, details: { accountNumber: '2222222222' }, actorId: fixture.makerId }),
+      ).rejects.toThrow(new RegExp(`already ${first.employeeNumber}'s`));
+    });
+
+    it('is activated for payroll by someone other than whoever set the employee up (INT-012)', async () => {
+      await seedSalaryComponents();
+      const employee = await makeEmployee();
+      await setApprovedPay(employees, { employeeId: employee.id, componentCode: 'BASIC', amount: kobo(180_000_00), effectiveFrom: new Date('2026-01-01'), actorId: fixture.makerId }, fixture);
+      await completeDocumentPack(prisma, fixture, employee.id);
+      await expect(employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.makerId })).rejects.toThrow(
+        /You set up EMP-.*, so someone else activates them for payroll/,
+      );
+      expect((await employees.activateForPayroll({ employeeId: employee.id, on: JAN, actorId: fixture.checkerId })).payrollActive).toBe(true);
     });
 
     it('refuses a self-referencing reporting line, at the database', async () => {

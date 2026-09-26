@@ -226,6 +226,45 @@ describe('Processing and production-order close (UAT-015 / UAT-024)', () => {
     expect(Number(meat) / Number(pool)).toBeCloseTo(648_000 / 688_000, 6);
   });
 
+  it('keeps normal loss within the recipe’s approved yield; the rest is abnormal (POL-005/006)', async () => {
+    // 52 kg of good output from 90 kg is 57.8%. At an approved 60% yield,
+    // only 36 kg of loss is normal: the 38 kg claimed would hide 2 kg in FG.
+    await prisma.productRecipeVersion.update({ where: { id: versionId }, data: { expectedYieldPercent: 60 } });
+    const id = await throughConversion();
+    const outputs = [
+      { itemId: item.MEAT!, outputType: 'MAIN' as const, quantity: '36', weight: '36' },
+      { itemId: item.SHELL!, outputType: 'BY_PRODUCT' as const, quantity: '16', weight: '16' },
+    ];
+    await expect(orders.recordOutputs({ productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38', outputs })).rejects.toThrow(
+      /Normal loss of 38\.000 kg is more than the recipe's approved 60% yield allows \(36\.000 kg of 90\.000 kg\)\. Record the other 2\.000 kg as abnormal loss/,
+    );
+    // Within the standard it completes.
+    await prisma.productRecipeVersion.update({ where: { id: versionId }, data: { expectedYieldPercent: 57 } });
+    await orders.recordOutputs({ productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38', outputs });
+    expect(await wip()).toBe(0n);
+  });
+
+  it('shows the ₦26,000 snail variance of the sample (AC-MFG-008, STANDARD_COST_CONTROL)', async () => {
+    const { id } = await orders.createFromHarvest({ harvestRecordId: harvestId, recipeVersionId: versionId, warehouseId: fgStore, plannedOutputQuantity: '90', actor: maker });
+    const submitted = await orders.submit({ productionOrderId: id, actor: maker });
+    await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+    await orders.issueMaterials({ productionOrderId: id, actor: maker });
+    // Labour ₦100,000 + machine ₦80,000 + overhead ₦120,000 at standard; ₦110,000 + ₦86,000 + ₦130,000 actual.
+    await orders.confirmConversion({ productionOrderId: id, standardConversionCostKobo: 300_000_00n, actualLabourCostKobo: 110_000_00n, actualOverheadCostKobo: 216_000_00n, actor: maker });
+    await orders.recordOutputs({
+      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38',
+      outputs: [
+        { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
+        { itemId: item.SHELL!, outputType: 'BY_PRODUCT', quantity: '16', weight: '16' },
+      ],
+    });
+    const settled = await orders.settle({ productionOrderId: id, actor: maker });
+    expect(settled.variance).toBe(26_000_00n.toString());
+    expect(await balanceOf('520100')).toBe(26_000_00n);
+    expect(await balanceOf('219810')).toBe(0n);
+    expect(await wip()).toBe(0n);
+  });
+
   it('keeps joint-cost prices honest: no price, no costing; approved by someone else; never edited once approved', async () => {
     const joint = new JointCostService(prisma, new AuditService(prisma));
     const proposed = await joint.proposePrice({

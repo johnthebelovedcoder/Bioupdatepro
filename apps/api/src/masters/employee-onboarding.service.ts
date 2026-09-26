@@ -290,6 +290,13 @@ export class EmployeeOnboardingService {
       if (typeof params.details[flag] === 'boolean' && params.details[flag] !== employee[flag]) data[flag] = params.details[flag];
     }
     if (Object.keys(data).length === 0) return employee;
+    if ('accountNumber' in data || 'bankName' in data || 'tin' in data) {
+      await this.employees.assertUniqueIdentity(params.companyId, employee.id, {
+        accountNumber: ('accountNumber' in data ? data.accountNumber : employee.accountNumber) as string | null,
+        bankName: ('bankName' in data ? data.bankName : employee.bankName) as string | null,
+        tin: ('tin' in data ? data.tin : employee.tin) as string | null,
+      });
+    }
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.employee.update({ where: { id: employee.id }, data });

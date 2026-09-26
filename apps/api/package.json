@@ -13,7 +13,8 @@
     "test:integration": "vitest run --config vitest.config.ts",
     "test:watch": "vitest",
     "uat": "node test/uat/run-uat.mjs",
-    "uat:score": "node test/uat/run-uat.mjs --score"
+    "uat:score": "node test/uat/run-uat.mjs --score",
+    "boot-check": "node scripts/boot-check.cjs"
   },
   "dependencies": {
     "@bioassetpro/database": "*",

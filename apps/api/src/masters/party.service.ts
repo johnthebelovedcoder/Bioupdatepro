@@ -57,6 +57,30 @@ export class PartyService {
     });
   }
 
+  /**
+   * INT-001: "Duplicate TIN/bank" must never happen — one TIN is one party,
+   * and one bank account belongs to one supplier. A second record for the
+   * same business is how a payment gets made twice or diverted.
+   */
+  private async assertUniqueParty(kind: 'supplier' | 'customer', companyId: string, tin?: string | null, accountNumber?: string | null) {
+    const label = kind === 'supplier' ? 'supplier' : 'customer';
+    const model = (kind === 'supplier' ? this.prisma.supplier : this.prisma.customer) as unknown as {
+      findFirst: (args: unknown) => Promise<{ code: string; name: string } | null>;
+    };
+    if (tin?.trim()) {
+      const clash = await model.findFirst({ where: { companyId, tin: tin.trim() }, select: { code: true, name: true } });
+      if (clash) {
+        throw new AccountingRuleViolation('INT-001 — Duplicate TIN', `TIN ${tin.trim()} is already ${label} ${clash.code} (${clash.name}).`, { code: clash.code });
+      }
+    }
+    if (accountNumber?.trim()) {
+      const clash = await model.findFirst({ where: { companyId, accountNumber: accountNumber.trim() }, select: { code: true, name: true } });
+      if (clash) {
+        throw new AccountingRuleViolation('INT-001 — Duplicate bank account', `Account ${accountNumber.trim()} is already ${label} ${clash.code}'s (${clash.name}).`, { code: clash.code });
+      }
+    }
+  }
+
   async createSupplier(input: {
     companyId: string;
     code: string;
@@ -85,6 +109,8 @@ export class PartyService {
     const paymentTermId = input.paymentTermCode
       ? await this.resolvePaymentTerm(input.companyId, input.paymentTermCode)
       : null;
+
+    await this.assertUniqueParty('supplier', input.companyId, input.tin, input.accountNumber);
 
     return this.prisma.$transaction(async (tx) => {
       const supplier = await tx.supplier.create({
@@ -210,6 +236,8 @@ export class PartyService {
     const paymentTermId = input.paymentTermCode
       ? await this.resolvePaymentTerm(input.companyId, input.paymentTermCode)
       : null;
+
+    await this.assertUniqueParty('customer', input.companyId, input.tin, null);
 
     return this.prisma.$transaction(async (tx) => {
       const customer = await tx.customer.create({

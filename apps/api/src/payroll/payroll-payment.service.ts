@@ -125,6 +125,29 @@ export class PayrollPaymentService {
       );
     }
 
+    /*
+     * AC-PAY-002: "Preparer cannot approve or pay same payroll run." Whoever
+     * prepared the run, or approved it, does not also pay it — unless the
+     * company allows self-approval because nobody else could.
+     */
+    const approvers = run.workflowTransactionId
+      ? await this.prisma.workflowTransactionStep.findMany({
+          where: { transactionId: run.workflowTransactionId, transaction: { companyId: input.companyId }, actedById: { not: null } },
+          select: { actedById: true },
+        })
+      : [];
+    const involved = new Set([run.createdById, ...approvers.map((a) => a.actedById!)]);
+    if (involved.has(input.actor.userId)) {
+      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: input.companyId }, select: { allowSelfApproval: true } });
+      if (!company.allowSelfApproval) {
+        throw new AccountingRuleViolation(
+          'AC-PAY-002 — Preparer and approver do not pay',
+          `You ${input.actor.userId === run.createdById ? 'prepared' : 'approved'} payroll run ${run.reference}, so someone else pays it.`,
+          { reference: run.reference },
+        );
+      }
+    }
+
     if (input.amountKobo <= 0n) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §7 — Payroll payment',

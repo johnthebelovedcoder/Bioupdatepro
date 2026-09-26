@@ -50,6 +50,8 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
 
   let maker: WorkflowActor;
   let approver: WorkflowActor;
+  /** Pays the run: neither its preparer nor its approver (AC-PAY-002). */
+  let treasurer: WorkflowActor;
 
   const PAYROLL_DATE = new Date('2026-01-31');
 
@@ -90,6 +92,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
     fixture = await seedFixture(prisma as unknown as PrismaClient);
 
     maker = { userId: fixture.makerId, roles: ['HR_OFFICER'] };
+    treasurer = { userId: fixture.financeUserId, roles: ['FINANCE_MANAGER'] };
     const approverUser = await prisma.user.create({
       data: {
         email: 'payroll-approver@test',
@@ -306,7 +309,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
     await employees.activateForPayroll({
       employeeId: employee.id,
       on: PAYROLL_DATE,
-      actorId: fixture.makerId,
+      actorId: fixture.checkerId,
     });
 
     return employee;
@@ -1222,9 +1225,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         currencyId: fixture.currencyId,
         financialYearId: fixture.financialYearId,
         financialPeriodId: fixture.periodIds[0]!,
-        actor: maker,
+        actor: treasurer,
       });
-      const submitted = await payments.submit({ paymentId: payment.id, actor: maker });
+      const submitted = await payments.submit({ paymentId: payment.id, actor: treasurer });
       await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
 
       const salaryPayableBalance = await accountBalance('2101');
@@ -1253,9 +1256,23 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
           currencyId: fixture.currencyId,
           financialYearId: fixture.financialYearId,
           financialPeriodId: fixture.periodIds[0]!,
-          actor: maker,
+          actor: treasurer,
         }),
       ).rejects.toThrow(/only .* is outstanding/i);
+    });
+
+    it('is paid by neither whoever prepared the run nor whoever approved it (AC-PAY-002)', async () => {
+      const run = await postedRun();
+      const pay = (actor: WorkflowActor) =>
+        payments.create({
+          companyId: fixture.companyId, payrollRunId: run.id, bucket: 'SALARY', amountKobo: 1_00n, paymentDate: PAYROLL_DATE,
+          method: 'BANK_TRANSFER', bankGlAccountId: fixture.accounts['1101']!, branchId: fixture.branchId, currencyId: fixture.currencyId,
+          financialYearId: fixture.financialYearId, financialPeriodId: fixture.periodIds[0]!, actor,
+        });
+      await expect(pay(maker)).rejects.toThrow(/You prepared payroll run .*, so someone else pays it/);
+      await expect(pay(approver)).rejects.toThrow(/You approved payroll run .*, so someone else pays it/);
+      const paid = await pay(treasurer);
+      expect(paid.amountKobo).toBe(1_00n);
     });
 
     it('refuses a payment against a run that has not posted', async () => {
@@ -1290,7 +1307,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
           currencyId: fixture.currencyId,
           financialYearId: fixture.financialYearId,
           financialPeriodId: fixture.periodIds[0]!,
-          actor: maker,
+          actor: treasurer,
         }),
       ).rejects.toThrow(/only a posted run/i);
     });
@@ -1311,9 +1328,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         currencyId: fixture.currencyId,
         financialYearId: fixture.financialYearId,
         financialPeriodId: fixture.periodIds[0]!,
-        actor: maker,
+        actor: treasurer,
       });
-      const submitted = await payments.submit({ paymentId: payment.id, actor: maker });
+      const submitted = await payments.submit({ paymentId: payment.id, actor: treasurer });
       await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
 
       expect(await accountBalance('2110')).toBe(0n);

@@ -53,6 +53,13 @@ jobs:
           npm run typecheck --workspace @bioassetpro/api
           npm run typecheck --workspace @bioassetpro/web
 
+      # The deployed API starts from this build. Wiring every module and
+      # controller here catches a missing provider before it crashes a deploy.
+      - name: API build and boot check
+        run: |
+          npm run build --workspace @bioassetpro/api
+          npm run boot-check --workspace @bioassetpro/api
+
       - name: Unit tests (including tenant isolation)
         working-directory: apps/api
         run: npx vitest run --config vitest.unit.config.ts --reporter=default --reporter=json --outputFile.json=test/uat/results-unit.json

@@ -18,7 +18,7 @@ import { WorkflowService } from '../workflow/workflow.service';
   providers: [ProductionOrderService, CostAllocationService, ProductionOrderAbnormalLossPostingHandler, JointCostService, StandardCostService],
   // ProductionOrderController is registered in AppModule, matching every
   // other feature module's controller in this codebase.
-  exports: [ProductionOrderService],
+  exports: [ProductionOrderService, JointCostService, StandardCostService],
 })
 export class ProductionModule implements OnModuleInit {
   constructor(
