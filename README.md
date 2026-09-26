@@ -213,7 +213,9 @@ Stated here rather than discovered later.
   before the year's first production posting and locked by it. Materials go
   into WIP at BOM quantity × standard rate; the actual issue at moving average
   is split into usage and price variances. A product's standard is rolled up
-  from its recipe and routing, prepared by one person and released by another;
+  from its recipe and routing into POL-003's six parts — material, packaging
+  (a recipe line's type), labour, machine, overhead and depreciation (a routing
+  operation's resource) — prepared by one person and released by another;
   a feed order's good output is received at good kg × that standard, and the
   shortfall is a yield variance. Settlement clears WIP, recovery and the
   feed-mill pool (623100) to zero. Feed and treatments absorbed by a population

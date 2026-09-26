@@ -24,6 +24,8 @@ export interface ExplodedComponent {
   standardCostKobo: string;
   extendedCostKobo: string;
   optional: boolean;
+  /** MATERIAL or PACKAGING (P500_BOM_ROUTING line type). */
+  componentType: string;
 }
 
 export interface RecipeExplosion {
@@ -287,6 +289,7 @@ export class RecipeService {
         standardCostKobo: standardCost.toString(),
         extendedCostKobo: extendedKobo.toString(),
         optional: component.optional,
+        componentType: component.componentType,
       });
     }
 
@@ -518,7 +521,13 @@ export class RecipeService {
     unitOfMeasureCode: string;
     wastagePercent?: Decimal.Value | null;
     optional?: boolean;
+    /** MATERIAL (default) or PACKAGING — reported separately in the standard (POL-003). */
+    componentType?: string | null;
   }) {
+    const componentType = params.componentType || 'MATERIAL';
+    if (componentType !== 'MATERIAL' && componentType !== 'PACKAGING') {
+      throw new AccountingRuleViolation('POL-003 — Standard cost parts', `A recipe line is MATERIAL or PACKAGING, not ${componentType}.`, { componentType });
+    }
     const version = await this.prisma.productRecipeVersion.findFirstOrThrow({
       where: { id: params.recipeVersionId, recipe: { companyId: params.companyId } },
       select: { id: true, status: true },
@@ -560,6 +569,7 @@ export class RecipeService {
             ? new Prisma.Decimal(params.wastagePercent.toString())
             : null,
         optional: params.optional ?? false,
+        componentType,
       },
     });
   }

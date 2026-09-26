@@ -115,7 +115,10 @@ export default async function RecipeDetailPage({
                         <tr key={component.id}>
                           <td style={{ textAlign: 'left' }}>
                             <span className="strong">{component.componentItem.code}</span>
-                            <div className="faint">{component.componentItem.description}</div>
+                            <div className="faint">
+                              {component.componentItem.description}
+                              {component.componentType === 'PACKAGING' ? ' · packaging' : ''}
+                            </div>
                           </td>
                           <td className="num">
                             {component.quantityPerBatch} {component.unitOfMeasure.code}

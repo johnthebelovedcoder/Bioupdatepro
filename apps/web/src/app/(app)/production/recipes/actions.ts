@@ -88,6 +88,7 @@ export async function addComponent(
   const unitOfMeasureCode = String(formData.get('unitOfMeasureCode') ?? '');
   const wastagePercent = String(formData.get('wastagePercent') ?? '').trim();
   const optional = formData.get('optional') === 'on';
+  const componentType = String(formData.get('componentType') ?? 'MATERIAL');
 
   if (!componentItemId) return { error: 'Choose what this line consumes.' };
   if (!quantityPerBatch || Number(quantityPerBatch) <= 0) {
@@ -103,6 +104,7 @@ export async function addComponent(
         unitOfMeasureCode,
         ...(wastagePercent ? { wastagePercent } : {}),
         optional,
+        componentType,
       },
     });
   } catch (caught) {
@@ -134,7 +136,7 @@ export async function addRoutingOperation(
   if (!operationName) return { error: 'Name the operation.' };
   if (!costCentreId) return { error: 'Choose which cost centre this operation belongs to.' };
   if (!costPoolId) return { error: 'Choose which cost pool absorbs this operation’s overhead.' };
-  if (!resourceType) return { error: 'Say whether this is a labour or a machine standard.' };
+  if (!resourceType) return { error: 'Say whether this is labour, machine, overhead or depreciation.' };
 
   try {
     await api(`/masters/recipes/versions/${recipeVersionId}/routing`, {

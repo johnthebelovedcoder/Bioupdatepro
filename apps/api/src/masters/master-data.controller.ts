@@ -574,6 +574,7 @@ export class MasterDataController {
       unitOfMeasureCode: string;
       wastagePercent?: string;
       optional?: boolean;
+      componentType?: string;
     },
   ) {
     return this.recipes.addComponent({
@@ -584,6 +585,7 @@ export class MasterDataController {
       unitOfMeasureCode: body.unitOfMeasureCode,
       wastagePercent: body.wastagePercent ?? null,
       optional: body.optional ?? false,
+      componentType: body.componentType ?? null,
     });
   }
 

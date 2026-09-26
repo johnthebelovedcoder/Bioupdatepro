@@ -2286,6 +2286,10 @@ model ItemStandardCost {
 enum RoutingResourceType {
   LABOUR
   MACHINE
+  /// POL-003: power, maintenance, QA, stores — absorbed by a driver.
+  OVERHEAD
+  /// POL-003 / POL-010: manufacturing depreciation absorbed by machine hours.
+  DEPRECIATION
 }
 
 /// One operation on a recipe version's routing — the RTE-... rows in
@@ -2435,9 +2439,14 @@ model StandardCostVersion {
   /// QUANTITY the roll-up is for — the recipe's batch.
   outputQuantity   Decimal @map("output_quantity") @db.Decimal(18, 6)
   /// MONEY, integer kobo, for the whole batch.
+  /// POL-003's six parts: material + packaging + labour + machine +
+  /// overhead + depreciation = total.
   materialKobo     BigInt  @map("material_kobo")
+  packagingKobo    BigInt  @default(0) @map("packaging_kobo")
   labourKobo       BigInt  @map("labour_kobo")
   machineKobo      BigInt  @map("machine_kobo")
+  overheadKobo     BigInt  @default(0) @map("overhead_kobo")
+  depreciationKobo BigInt  @default(0) @map("depreciation_kobo")
   totalKobo        BigInt  @map("total_kobo")
   /// MONEY. Per one unit of output: total ÷ output quantity, rounded once.
   unitCostKobo     BigInt  @map("unit_cost_kobo")
@@ -2798,6 +2807,10 @@ model ProductRecipeComponent {
 
   /// Whether a shortage of this component blocks production or merely warns.
   optional Boolean @default(false)
+
+  /// P500_BOM_ROUTING's line type: MATERIAL or PACKAGING. POL-003 reports the
+  /// two separately in a product's standard cost.
+  componentType String @default("MATERIAL") @map("component_type")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

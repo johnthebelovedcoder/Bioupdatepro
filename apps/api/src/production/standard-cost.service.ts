@@ -14,7 +14,7 @@ const POLICY_ROLES = ['CFO', 'FINANCE_CONTROLLER'];
 const RELEASE_ROLES = ['FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'CFO', 'ADMINISTRATOR'];
 
 export interface RollUpLine {
-  kind: 'MATERIAL' | 'LABOUR' | 'MACHINE';
+  kind: 'MATERIAL' | 'PACKAGING' | 'LABOUR' | 'MACHINE' | 'OVERHEAD' | 'DEPRECIATION';
   reference: string;
   description: string;
   quantity: string;
@@ -163,7 +163,7 @@ export class StandardCostService {
 
     const explosion = await this.recipes.explode({ recipeVersionId, quantity: batch, on });
     const lines: RollUpLine[] = explosion.components.map((c) => ({
-      kind: 'MATERIAL',
+      kind: c.componentType === 'PACKAGING' ? 'PACKAGING' : 'MATERIAL',
       reference: c.itemCode,
       description: c.description,
       quantity: c.grossQuantity,
@@ -193,7 +193,7 @@ export class StandardCostService {
       const hours = new Decimal(op.setupHours.toString()).plus(new Decimal(op.runHoursPerUnit.toString()).mul(batch));
       const cost = BigInt(hours.mul(rate.ratePerUnitKobo.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
       lines.push({
-        kind: op.resourceType === 'LABOUR' ? 'LABOUR' : 'MACHINE',
+        kind: op.resourceType,
         reference: `OP${op.sequence}`,
         description: `${op.operationName} — ${op.costPool.name}`,
         quantity: hours.toFixed(6),
@@ -205,9 +205,12 @@ export class StandardCostService {
 
     const sum = (kind: RollUpLine['kind']) => lines.filter((l) => l.kind === kind).reduce((s, l) => s + BigInt(l.costKobo), 0n);
     const materialKobo = sum('MATERIAL');
+    const packagingKobo = sum('PACKAGING');
     const labourKobo = sum('LABOUR');
     const machineKobo = sum('MACHINE');
-    const totalKobo = materialKobo + labourKobo + machineKobo;
+    const overheadKobo = sum('OVERHEAD');
+    const depreciationKobo = sum('DEPRECIATION');
+    const totalKobo = materialKobo + packagingKobo + labourKobo + machineKobo + overheadKobo + depreciationKobo;
     const unitCostKobo = BigInt(new Decimal(totalKobo.toString()).div(batch).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
     return {
       recipeVersionId,
@@ -215,8 +218,11 @@ export class StandardCostService {
       recipeCode: version.recipe.code,
       outputQuantity: batch.toFixed(6),
       materialKobo,
+      packagingKobo,
       labourKobo,
       machineKobo,
+      overheadKobo,
+      depreciationKobo,
       totalKobo,
       unitCostKobo,
       lines,
@@ -279,8 +285,11 @@ export class StandardCostService {
         effectiveFrom,
         outputQuantity: new Prisma.Decimal(rolled.outputQuantity),
         materialKobo: rolled.materialKobo,
+        packagingKobo: rolled.packagingKobo,
         labourKobo: rolled.labourKobo,
         machineKobo: rolled.machineKobo,
+        overheadKobo: rolled.overheadKobo,
+        depreciationKobo: rolled.depreciationKobo,
         totalKobo: rolled.totalKobo,
         unitCostKobo: rolled.unitCostKobo,
         previousUnitCostKobo: current?.unitCostKobo ?? null,
@@ -421,8 +430,11 @@ export class StandardCostService {
       effectiveFrom: iso(v.effectiveFrom),
       outputQuantity: v.outputQuantity.toString(),
       materialKobo: v.materialKobo.toString(),
+      packagingKobo: v.packagingKobo.toString(),
       labourKobo: v.labourKobo.toString(),
       machineKobo: v.machineKobo.toString(),
+      overheadKobo: v.overheadKobo.toString(),
+      depreciationKobo: v.depreciationKobo.toString(),
       totalKobo: v.totalKobo.toString(),
       unitCostKobo: v.unitCostKobo.toString(),
       previousUnitCostKobo: v.previousUnitCostKobo?.toString() ?? null,

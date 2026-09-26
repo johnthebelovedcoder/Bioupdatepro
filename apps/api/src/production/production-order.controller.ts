@@ -163,8 +163,11 @@ export class ProductionOrderController {
     return {
       ...rolled,
       materialKobo: rolled.materialKobo.toString(),
+      packagingKobo: rolled.packagingKobo.toString(),
       labourKobo: rolled.labourKobo.toString(),
       machineKobo: rolled.machineKobo.toString(),
+      overheadKobo: rolled.overheadKobo.toString(),
+      depreciationKobo: rolled.depreciationKobo.toString(),
       totalKobo: rolled.totalKobo.toString(),
       unitCostKobo: rolled.unitCostKobo.toString(),
     };

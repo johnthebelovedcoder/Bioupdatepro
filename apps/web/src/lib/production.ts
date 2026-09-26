@@ -149,6 +149,7 @@ export interface RecipeComponentRow {
   unitOfMeasure: { code: string };
   wastagePercent: string | null;
   optional: boolean;
+  componentType?: string;
 }
 
 export type RecipeVersionStatus = 'DRAFT' | 'ACTIVE' | 'SUPERSEDED';
@@ -214,7 +215,7 @@ export interface RoutingOperationRow {
   id: string;
   sequence: number;
   operationName: string;
-  resourceType: 'LABOUR' | 'MACHINE';
+  resourceType: 'LABOUR' | 'MACHINE' | 'OVERHEAD' | 'DEPRECIATION';
   setupHours: string;
   runHoursPerUnit: string;
   costCentre: { code: string; name: string };

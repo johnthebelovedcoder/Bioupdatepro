@@ -108,7 +108,7 @@ beforeEach(async () => {
   for (const [code, name, driver, cost, capacity, op, type, setup, run] of [
     ['SFM-LAB', 'Mill labour', 'Labour hours', 250_000_00n, '100', 'Grind and mix', 'LABOUR', '24', '0'],
     ['SFM-MCH', 'Mixer SFM-01', 'Machine hours', 500_000_00n, '100', 'Mixer run', 'MACHINE', '10', '0'],
-    ['SFM-OH', 'Mill overhead', 'kg output', 35_000_00n, '1000', 'Other overhead', 'MACHINE', '0', '1'],
+    ['SFM-OH', 'Mill overhead', 'kg output', 35_000_00n, '1000', 'Other overhead', 'OVERHEAD', '0', '1'],
   ] as const) {
     const pool = await routing.createCostPool({ companyId: fixture.companyId, code, name, driverName: driver, actorId: fixture.makerId });
     await routing.setCostPoolRate({ companyId: fixture.companyId, poolId: pool.id, poolCost: kobo(cost), practicalCapacity: capacity, effectiveFrom: new Date('2026-01-01'), actorId: fixture.makerId });
@@ -147,9 +147,70 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     const rolled = await standards.rollUp(fixture.companyId, versionId, new Date('2026-01-01'));
     expect(rolled.materialKobo).toBe(399_000_00n); // 1,050 kg × ₦380
     expect(rolled.labourKobo).toBe(60_000_00n); // 24 h × ₦2,500
-    expect(rolled.machineKobo).toBe(85_000_00n); // 10 h × ₦5,000 + 1,000 kg × ₦35
+    expect(rolled.machineKobo).toBe(50_000_00n); // 10 h × ₦5,000
+    expect(rolled.overheadKobo).toBe(35_000_00n); // 1,000 kg × ₦35
+    expect(rolled.packagingKobo).toBe(0n);
+    expect(rolled.depreciationKobo).toBe(0n);
     expect(rolled.totalKobo).toBe(544_000_00n);
     expect(rolled.unitCostKobo).toBe(544_00n);
+  });
+
+  it('reports the six parts of POL-003: material, packaging, labour, machine, overhead, depreciation', async () => {
+    const uom = await prisma.unitOfMeasure.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'KG' } });
+    const bags = await prisma.item.create({
+      data: {
+        companyId: fixture.companyId, code: 'BAG-25', description: '25 kg feed bag', unitOfMeasureId: uom.id,
+        inventoryGlAccountId: (await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '130100' } })).id,
+        standardCosts: { create: [{ standardCostKobo: 150_00n, effectiveFrom: new Date('2026-01-01') }] },
+      },
+    });
+    const bagged = await prisma.item.create({
+      data: {
+        companyId: fixture.companyId, code: 'SFD-GROWER-25', description: 'Snail grower mash, bagged', unitOfMeasureId: uom.id, isManufactured: true,
+        inventoryGlAccountId: (await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '130110' } })).id,
+      },
+    });
+    const recipe = await prisma.productRecipe.create({ data: { companyId: fixture.companyId, code: 'SFD-GROWER-BAG', name: 'Snail grower mash, bagged', outputItemId: bagged.id } });
+    const draft = await prisma.productRecipeVersion.create({
+      data: { recipeId: recipe.id, version: 1, batchSize: '1000', effectiveFrom: new Date('2026-01-01') },
+    });
+    const recipes = new RecipeService(prisma, new AuditService(prisma));
+    await recipes.addComponent({ companyId: fixture.companyId, recipeVersionId: draft.id, componentItemId: item.RM!, quantityPerBatch: '1050', unitOfMeasureCode: 'KG' });
+    await recipes.addComponent({ companyId: fixture.companyId, recipeVersionId: draft.id, componentItemId: bags.id, quantityPerBatch: '40', unitOfMeasureCode: 'KG', componentType: 'PACKAGING' });
+    await expect(
+      recipes.addComponent({ companyId: fixture.companyId, recipeVersionId: draft.id, componentItemId: bags.id, quantityPerBatch: '1', unitOfMeasureCode: 'KG', componentType: 'BIOLOGICAL' }),
+    ).rejects.toThrow(/MATERIAL or PACKAGING/);
+    await prisma.productRecipeVersion.update({ where: { id: draft.id }, data: { status: 'ACTIVE' } });
+
+    const routing = new RoutingService(prisma, new AuditService(prisma));
+    const pool = await routing.createCostPool({ companyId: fixture.companyId, code: 'SFM-DEP', name: 'Mill depreciation', driverName: 'Machine hours', actorId: fixture.makerId });
+    await routing.setCostPoolRate({ companyId: fixture.companyId, poolId: pool.id, poolCost: kobo(120_000_00n), practicalCapacity: '100', effectiveFrom: new Date('2026-01-01'), actorId: fixture.makerId });
+    await routing.createRoutingOperation({
+      companyId: fixture.companyId, recipeVersionId: draft.id, costCentreId: fixture.costCentreId, costPoolId: pool.id,
+      operationName: 'Mixer depreciation', resourceType: 'DEPRECIATION', setupHours: '10', runHoursPerUnit: '0', actorId: fixture.makerId,
+    });
+
+    const rolled = await standards.rollUp(fixture.companyId, draft.id, new Date('2026-01-01'));
+    expect(rolled.materialKobo).toBe(399_000_00n);
+    expect(rolled.packagingKobo).toBe(6_000_00n); // 40 bags × ₦150
+    expect(rolled.depreciationKobo).toBe(12_000_00n); // 10 h × ₦1,200
+    expect(rolled.labourKobo + rolled.machineKobo + rolled.overheadKobo).toBe(0n);
+    expect(rolled.totalKobo).toBe(417_000_00n);
+
+    const prepared = await standards.prepare({ companyId: fixture.companyId, recipeVersionId: draft.id, effectiveFrom: new Date('2026-01-01'), actor: maker });
+    expect(prepared.packagingKobo).toBe(6_000_00n);
+    expect(prepared.depreciationKobo).toBe(12_000_00n);
+    // The total is the six parts, at the database.
+    await expect(
+      prisma.$executeRawUnsafe(
+        `INSERT INTO standard_cost_versions (id, company_id, item_id, recipe_version_id, financial_year_id, version_number, effective_from, output_quantity,
+          material_kobo, packaging_kobo, labour_kobo, machine_kobo, overhead_kobo, depreciation_kobo, total_kobo, unit_cost_kobo, lines, prepared_by_id)
+         SELECT gen_random_uuid(), company_id, item_id, recipe_version_id, financial_year_id, 99, effective_from, output_quantity,
+          material_kobo, packaging_kobo, labour_kobo, machine_kobo, overhead_kobo, depreciation_kobo, material_kobo, unit_cost_kobo, lines, prepared_by_id
+         FROM standard_cost_versions WHERE id = $1::uuid`,
+        prepared.id,
+      ),
+    ).rejects.toThrow();
   });
 
   it('receives good feed at standard and shows every variance, WIP and recovery at zero', async () => {

@@ -33,8 +33,11 @@ interface StandardCosts {
     effectiveFrom: string;
     outputQuantity: string;
     materialKobo: string;
+    packagingKobo: string;
     labourKobo: string;
     machineKobo: string;
+    overheadKobo: string;
+    depreciationKobo: string;
     totalKobo: string;
     unitCostKobo: string;
     previousUnitCostKobo: string | null;
@@ -113,7 +116,7 @@ export default async function StandardCostsPage() {
           </div>
         </Card>
 
-        <Card title="Prepare a standard" subtitle="Materials at approved standard rates plus routing hours at approved pool rates">
+        <Card title="Prepare a standard" subtitle="POL-003: material + packaging + labour + machine + overhead + depreciation">
           <PrepareStandardForm recipeVersions={data.recipeVersions} today={today} />
         </Card>
 
@@ -125,9 +128,12 @@ export default async function StandardCostsPage() {
                   <th>Product</th>
                   <th style={{ width: 90 }}>Version</th>
                   <th style={{ width: 110 }}>From</th>
-                  <th className="right" style={{ width: 130 }}>Materials</th>
-                  <th className="right" style={{ width: 130 }}>Labour</th>
-                  <th className="right" style={{ width: 130 }}>Machine & OH</th>
+                  <th className="right" style={{ width: 120 }}>Material</th>
+                  <th className="right" style={{ width: 120 }}>Packaging</th>
+                  <th className="right" style={{ width: 120 }}>Labour</th>
+                  <th className="right" style={{ width: 120 }}>Machine</th>
+                  <th className="right" style={{ width: 120 }}>Overhead</th>
+                  <th className="right" style={{ width: 120 }}>Depreciation</th>
                   <th className="right" style={{ width: 140 }}>A unit</th>
                   <th style={{ width: 210 }}>Status</th>
                 </tr>
@@ -135,7 +141,7 @@ export default async function StandardCostsPage() {
               <tbody>
                 {data.versions.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="faint">
+                    <td colSpan={11} className="faint">
                       No standards yet. A feed-mill order&rsquo;s output cannot be received until its product has a released standard.
                     </td>
                   </tr>
@@ -177,8 +183,11 @@ export default async function StandardCostsPage() {
                           {v.effectiveFrom}
                         </td>
                         <td className="num right">{formatNaira(v.materialKobo)}</td>
+                        <td className="num right">{formatNaira(v.packagingKobo)}</td>
                         <td className="num right">{formatNaira(v.labourKobo)}</td>
                         <td className="num right">{formatNaira(v.machineKobo)}</td>
+                        <td className="num right">{formatNaira(v.overheadKobo)}</td>
+                        <td className="num right">{formatNaira(v.depreciationKobo)}</td>
                         <td className="num right">
                           <strong>{formatNaira(v.unitCostKobo)}</strong>
                           {change !== null ? (

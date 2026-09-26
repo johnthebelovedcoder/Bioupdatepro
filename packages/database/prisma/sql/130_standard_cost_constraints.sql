@@ -63,8 +63,11 @@ BEGIN
      OR NEW.effective_from IS DISTINCT FROM OLD.effective_from
      OR NEW.output_quantity IS DISTINCT FROM OLD.output_quantity
      OR NEW.material_kobo IS DISTINCT FROM OLD.material_kobo
+     OR NEW.packaging_kobo IS DISTINCT FROM OLD.packaging_kobo
      OR NEW.labour_kobo IS DISTINCT FROM OLD.labour_kobo
      OR NEW.machine_kobo IS DISTINCT FROM OLD.machine_kobo
+     OR NEW.overhead_kobo IS DISTINCT FROM OLD.overhead_kobo
+     OR NEW.depreciation_kobo IS DISTINCT FROM OLD.depreciation_kobo
      OR NEW.total_kobo IS DISTINCT FROM OLD.total_kobo
      OR NEW.unit_cost_kobo IS DISTINCT FROM OLD.unit_cost_kobo
      OR NEW.lines IS DISTINCT FROM OLD.lines

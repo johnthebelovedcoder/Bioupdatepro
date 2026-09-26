@@ -84,6 +84,14 @@ export function AddRecipeComponentButton({
               Expected wastage %
               <input name="wastagePercent" type="number" step="any" min="0" max="100" placeholder="0" />
             </label>
+            <label className="field">
+              Line type
+              <select name="componentType" defaultValue="MATERIAL">
+                <option value="MATERIAL">Material</option>
+                <option value="PACKAGING">Packaging</option>
+              </select>
+              <span className="faint">Shown separately in the standard cost</span>
+            </label>
           </div>
 
           <label className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center' }}>

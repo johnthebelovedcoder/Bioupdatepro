@@ -66,10 +66,12 @@ export function AddRoutingOperationButton({
               Resource
               <select name="resourceType" required defaultValue="">
                 <option value="" disabled>
-                  Labour or machine?
+                  Labour, machine, overhead or depreciation?
                 </option>
                 <option value="LABOUR">Labour</option>
                 <option value="MACHINE">Machine</option>
+                <option value="OVERHEAD">Overhead (power, maintenance, QA)</option>
+                <option value="DEPRECIATION">Depreciation</option>
               </select>
             </label>
             <label className="field">
