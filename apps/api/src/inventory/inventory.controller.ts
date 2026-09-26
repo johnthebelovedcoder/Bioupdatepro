@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryTransferService } from './inventory-transfer.service';
+import { StockCountService } from './stock-count.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.guard';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -21,7 +22,65 @@ export class InventoryController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly transfers: InventoryTransferService,
+    private readonly counts: StockCountService,
   ) {}
+
+  // --- Stock counts (INT-009) ---------------------------------------------
+
+  @Roles('STOREKEEPER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'PRODUCTION_LEAD', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Get('counts')
+  async listCounts(@CurrentCompany() companyId: string) {
+    return this.counts.list(companyId);
+  }
+
+  @Roles('STOREKEEPER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'PRODUCTION_LEAD', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Get('counts/:id')
+  async countDetail(@CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.counts.detail(companyId, id);
+  }
+
+  /** Freeze a store and take its book quantities. */
+  @Roles('STOREKEEPER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'PRODUCTION_LEAD')
+  @Post('counts')
+  async startCount(
+    @CurrentUser() actor: WorkflowActor,
+    @CurrentCompany() companyId: string,
+    @Body() body: { warehouseId: string; itemIds?: string[]; recountThresholdPercent?: string | number },
+  ) {
+    const count = await this.counts.start({ companyId, warehouseId: String(body?.warehouseId ?? ''), itemIds: body?.itemIds, recountThresholdPercent: body?.recountThresholdPercent, actor });
+    return { id: count.id, reference: count.reference };
+  }
+
+  @Roles('STOREKEEPER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'PRODUCTION_LEAD')
+  @Post('counts/:id/counts')
+  async recordCounts(
+    @CurrentUser() actor: WorkflowActor,
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @Body() body: { counts: Array<{ itemId: string; quantity?: string | number | null; reason?: string | null }> },
+  ) {
+    return this.counts.record({ companyId, countId: id, counts: body?.counts ?? [], actor });
+  }
+
+  @Roles('STOREKEEPER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'PRODUCTION_LEAD')
+  @Post('counts/:id/submit')
+  async submitCount(@CurrentUser() actor: WorkflowActor, @CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.counts.submit({ companyId, countId: id, actor });
+  }
+
+  /** Approve (post), hold for investigation, or cancel — not by the counter. */
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('counts/:id/decide')
+  async decideCount(
+    @CurrentUser() actor: WorkflowActor,
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @Body() body: { action: 'APPROVE' | 'HOLD' | 'CANCEL'; note?: string },
+  ) {
+    const action = body?.action;
+    if (action !== 'APPROVE' && action !== 'HOLD' && action !== 'CANCEL') throw new BadRequestException('Approve, hold or cancel.');
+    return this.counts.decide({ companyId, countId: id, action, note: body?.note, actor });
+  }
 
   // Raw findMany() until now — id, itemId, fromWarehouseId as bare UUIDs.
   // Fine for a script, not for a screen: the first real page needs names,

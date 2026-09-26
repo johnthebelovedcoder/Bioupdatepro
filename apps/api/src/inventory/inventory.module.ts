@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { InventoryTransferService } from './inventory-transfer.service';
+import { StockCountService } from './stock-count.service';
 import { PostingControlModule } from '../posting-control/posting-control.module';
 
 /**
@@ -9,7 +10,8 @@ import { PostingControlModule } from '../posting-control/posting-control.module'
  */
 @Module({
   imports: [PostingControlModule],
-  providers: [InventoryTransferService],
-  exports: [InventoryTransferService],
+  providers: [InventoryTransferService, StockCountService],
+  // Exported: InventoryController is registered in AppModule and needs both.
+  exports: [InventoryTransferService, StockCountService],
 })
 export class InventoryModule {}

@@ -172,6 +172,7 @@ export class StockMovementService {
     movementDate: Date;
     journalEntryId?: string | null;
   }): Promise<{ stockMovementId: string; unitCostKobo: bigint }> {
+    await this.assertNotFrozen(params);
     if (params.quantity.lessThanOrEqualTo(0)) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §14 — Inventory receipt',
@@ -230,6 +231,26 @@ export class StockMovementService {
    * asked of it. The average cost is company-wide; stock on hand is not — a
    * store with none cannot give any, whatever another store holds.
    */
+  /**
+   * INT-009 count freeze: a store being counted takes nothing in or out but
+   * the count's own adjustment. The database refuses it too; this says so in
+   * words first.
+   */
+  private async assertNotFrozen(params: { tx: Prisma.TransactionClient; companyId: string; warehouseId: string; sourceDocumentType: string }) {
+    if (params.sourceDocumentType === 'StockCount') return;
+    const open = await params.tx.stockCount.findFirst({
+      where: { companyId: params.companyId, warehouseId: params.warehouseId, status: { in: ['COUNTING', 'SUBMITTED', 'ON_HOLD'] } },
+      select: { reference: true },
+    });
+    if (open) {
+      throw new AccountingRuleViolation(
+        'INT-009 — Count freeze',
+        `This store is being counted (${open.reference}); nothing moves in or out until the count is posted or cancelled.`,
+        { reference: open.reference },
+      );
+    }
+  }
+
   async storeQuantity(tx: Prisma.TransactionClient, companyId: string, itemId: string, warehouseId: string): Promise<Decimal> {
     const rows = await tx.stockMovement.groupBy({
       by: ['direction'],
@@ -281,6 +302,7 @@ export class StockMovementService {
     /** Also refuse when the named store itself holds too little (UAT-006). */
     perStore?: boolean;
   }): Promise<{ stockMovementId: string; unitCostKobo: bigint; valueKobo: bigint }> {
+    await this.assertNotFrozen(params);
     const before = await this.currentPosition(params.tx, params.companyId, params.itemId);
     if (params.perStore) await this.assertStoreHolds(params);
     if (before.quantity.lessThan(params.quantity) || before.valueKobo < params.valueKobo) {
@@ -338,6 +360,7 @@ export class StockMovementService {
     /** Also refuse when the named store itself holds too little (UAT-006). */
     perStore?: boolean;
   }): Promise<{ stockMovementId: string; unitCostKobo: bigint; valueKobo: bigint }> {
+    await this.assertNotFrozen(params);
     const before = await this.currentPosition(params.tx, params.companyId, params.itemId);
     if (params.perStore) await this.assertStoreHolds(params);
 

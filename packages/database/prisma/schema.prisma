@@ -3182,6 +3182,73 @@ model InventoryWriteOff {
   @@map("inventory_write_offs")
 }
 
+/// INT-009, a stock count: the store's book quantities frozen when counting
+/// starts, the physical count against them, a recount where a difference is
+/// beyond the threshold, a reason for every difference, and an adjustment
+/// approved by someone other than the counter before it posts (PCR-014).
+/// While a count is open its store takes no stock in or out.
+model StockCount {
+  id          String @id @default(uuid()) @db.Uuid
+  companyId   String @map("company_id") @db.Uuid
+  branchId    String @map("branch_id") @db.Uuid
+  warehouseId String @map("warehouse_id") @db.Uuid
+  reference   String
+
+  /// COUNTING | SUBMITTED | ON_HOLD | POSTED | CANCELLED
+  status String @default("COUNTING")
+  /// A line whose difference is beyond this share of its book quantity is
+  /// counted again before the count can be submitted.
+  recountThresholdPercent Decimal @default(5) @map("recount_threshold_percent") @db.Decimal(9, 4)
+
+  frozenAt     DateTime  @default(now()) @map("frozen_at")
+  startedById  String    @map("started_by_id") @db.Uuid
+  submittedById String?  @map("submitted_by_id") @db.Uuid
+  submittedAt  DateTime? @map("submitted_at")
+  decidedById  String?   @map("decided_by_id") @db.Uuid
+  decidedAt    DateTime? @map("decided_at")
+  /// Why it was held for investigation, or cancelled.
+  decisionNote String?   @map("decision_note")
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  /// MONEY. Net value of the adjustment: positive a surplus, negative a shortage.
+  netAdjustmentKobo BigInt @default(0) @map("net_adjustment_kobo")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lines StockCountLine[]
+
+  @@unique([companyId, reference])
+  @@index([companyId, warehouseId, status])
+  @@map("stock_counts")
+}
+
+model StockCountLine {
+  id           String @id @default(uuid()) @db.Uuid
+  stockCountId String @map("stock_count_id") @db.Uuid
+  itemId       String @map("item_id") @db.Uuid
+
+  /// QUANTITY in the store, and its moving-average cost, when the count froze.
+  bookQuantity Decimal @map("book_quantity") @db.Decimal(18, 6)
+  unitCostKobo BigInt  @map("unit_cost_kobo")
+
+  countedQuantity Decimal? @map("counted_quantity") @db.Decimal(18, 6)
+  countedById     String?  @map("counted_by_id") @db.Uuid
+  recountRequired Boolean  @default(false) @map("recount_required")
+  recountQuantity Decimal? @map("recount_quantity") @db.Decimal(18, 6)
+  recountedById   String?  @map("recounted_by_id") @db.Uuid
+  /// Why the count differs from the book; required for any difference.
+  reason          String?
+
+  /// Final count less book, and its value at the frozen cost. Set at submission.
+  varianceQuantity  Decimal? @map("variance_quantity") @db.Decimal(18, 6)
+  varianceValueKobo BigInt?  @map("variance_value_kobo")
+
+  stockCount StockCount @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+
+  @@unique([stockCountId, itemId])
+  @@map("stock_count_lines")
+}
+
 // ---------------------------------------------------------------------------
 // Accounting Adjustment & Manual Journal  (Consolidated Reference §3 — Phase 10)
 //

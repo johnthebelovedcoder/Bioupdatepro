@@ -238,6 +238,12 @@ export const SECTIONS: NavSection[] = [
         hidden: true,
       },
       {
+        href: '/inventory/counts',
+        label: 'Stock counts',
+        hint: 'Count a store against its book; differences post once someone else approves',
+        keywords: ['stock count', 'stocktake', 'stock take', 'physical count', 'cycle count', 'recount', 'shrinkage', 'variance'],
+      },
+      {
         href: '/inventory/transfers',
         label: 'Transfers & write-offs',
         hint: 'Move stock between stores, or remove it with a reason',
