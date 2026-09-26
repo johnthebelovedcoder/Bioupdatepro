@@ -19,13 +19,13 @@ Tests are in `apps/api/test/integration/`. Run them with
 | Status | Rows |
 |---|---|
 | Built | 63 |
-| Built 26 Sep | 8 |
+| Built 26 Sep | 9 |
 | Partial | 14 |
-| Not built | 2 |
+| Not built | 1 |
 
 88 rows; AC-001, a check on the workbook itself rather than the application, is not counted.
 
-**Not built:** leave (AC-HR-003) and end-to-end lot traceability (AC-011). **Missing parts of partial rows**, the larger ones:
+**Not built:** leave (AC-HR-003). **Missing parts of partial rows**, the larger ones:
 the direct-method cash flow (AC-013 / AC-ENT-001), multi-factor sign-in
 (INT-034), purchase budgets (INT-002), bank verification before paying
 (INT-005 / INT-015), WhatsApp with consent (AC-015), and a single
@@ -45,6 +45,7 @@ rows marked Built above):
 | INT-012 | Whoever set up an employee cannot also activate them for payroll | masters.spec: "is activated for payroll by someone other than whoever set the employee up" |
 | INT-009 | Stock counts: the store frozen while counted, a recount beyond the threshold, a reason for every difference, and approval by someone other than the counter before anything posts (Dr/Cr 640100 and inventory, PCR-014) | stock-count.spec |
 | PCR-014 | A write-off is requested, then approved (stock issued, PCR-014 posted) or rejected by someone other than the requester; decided once, then fixed in the database | inventory.spec: "writes off only once someone other than the requester approves it" |
+| AC-011 | A delivery, invoice, lot, production order or population traced back through transfers, production, harvest, the population and its breeders or hatch, its feed and treatments, to the goods receipts and suppliers of every input — one search and one CSV | traceability.spec |
 | AC-PAY-002 | Neither the preparer nor the approver of a payroll run can pay it | payroll.spec: "is paid by neither whoever prepared the run nor whoever approved it" |
 | POL-001 tolerance | A total variance beyond the year's tolerance settles only with a reason | standard-costing.spec: "settles a variance beyond the year's tolerance only with a reason" |
 | POL-003 | Standards carry six parts: material, packaging, labour, machine, overhead, depreciation | standard-costing.spec: "reports the six parts of POL-003" |
@@ -88,7 +89,7 @@ other approval does.
 | AC-008 | Receipts recalculate moving average; issues freeze cost | Built | inventory.spec |
 | AC-009 | WIP inputs − outputs − loss/variance = 0 | Built | settlement WIP identity |
 | AC-010 | Recovery GLs reconcile by order and period | Built | as AC-MFG-007 |
-| AC-011 | Sale lot traces to harvest, cohort, GRN and inputs in one query | **Not built** | No lot genealogy. Sales link to a population where one is named, but there is no end-to-end trace. |
+| AC-011 | Sale lot traces to harvest, cohort, GRN and inputs in one query | Built 26 Sep | Store → Trace a lot, and a CSV of the same chain. Issues are matched to receipts first in first out within each store (a named lot first), since stock is valued at moving average (traceability.spec) |
 | AC-012 | Reports tie to subledger, journal and GL | Built | reports.spec; Controls reconciliation |
 | AC-013 | Direct and indirect cash flow agree with SOFP | Partial | as AC-ENT-001 |
 | AC-014 | Posted records immutable; correction by reversal | Built | posting.spec: "reversal is the only correction path" |

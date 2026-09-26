@@ -238,6 +238,12 @@ export const SECTIONS: NavSection[] = [
         hidden: true,
       },
       {
+        href: '/inventory/trace',
+        label: 'Trace a lot',
+        hint: 'From a sale back to the harvest, the animals and every input’s supplier',
+        keywords: ['trace', 'traceability', 'recall', 'lot', 'batch', 'genealogy', 'origin', 'audit trail'],
+      },
+      {
         href: '/inventory/counts',
         label: 'Stock counts',
         hint: 'Count a store against its book; differences post once someone else approves',
