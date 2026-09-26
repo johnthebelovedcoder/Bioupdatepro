@@ -5,6 +5,7 @@ import { useFormStatus } from 'react-dom';
 import { switchModule, switchToCore } from '@/app/(app)/module-actions';
 import { MODULES, type ModuleKey } from '@/lib/modules';
 import { IconChart } from './icons';
+import { MenuOverlay } from './menu-overlay';
 
 /**
  * Picks the species module the whole interface is currently speaking about.
@@ -84,6 +85,8 @@ export function ModuleSwitcher({ active }: { active: ModuleKey | null }) {
         </span>
         <Chevron open={open} />
       </button>
+
+      {open ? <MenuOverlay onClose={() => setOpen(false)} /> : null}
 
       {open ? (
         <div className="module-menu" role="menu" aria-label="Species module">

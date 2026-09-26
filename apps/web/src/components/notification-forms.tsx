@@ -129,43 +129,106 @@ export function WhatsAppSettings({ mine }: { mine: MyNotifications }) {
   );
 }
 
-/** Which events go out by email and by WhatsApp (AC-015 "approved event"). */
-export function NotificationPolicyForm({ events, emailEvents, whatsappEvents, canEdit }: { events: string[]; emailEvents: string[]; whatsappEvents: string[]; canEdit: boolean }) {
+/** Events grouped as the person reads them: what needs them, and news of their own documents. */
+const GROUPS: Array<{ title: string; events: Array<{ key: string; label: string; hint: string }> }> = [
+  {
+    title: 'Needs you',
+    events: [
+      { key: 'SUBMISSION', label: 'Something is waiting for my approval', hint: 'A document reached your approval level' },
+      { key: 'REMINDER', label: 'Reminder of something waiting', hint: 'An approval has waited longer than it should' },
+      { key: 'ESCALATION', label: 'An approval was escalated', hint: 'It went unanswered and moved up to you' },
+    ],
+  },
+  {
+    title: 'About your documents',
+    events: [
+      { key: 'APPROVAL', label: 'Approved', hint: 'Your document was approved' },
+      { key: 'REJECTION', label: 'Rejected', hint: 'Your document was rejected, with the reason' },
+      { key: 'RETURN', label: 'Sent back', hint: 'Your document came back for a change' },
+      { key: 'POSTING', label: 'Posted', hint: 'Your document reached the ledger' },
+      { key: 'CANCELLATION', label: 'Cancelled', hint: 'A document was cancelled' },
+    ],
+  },
+];
+
+function Toggle({ name, value, checked, disabled, label }: { name: string; value: string; checked: boolean; disabled: boolean; label: string }) {
+  return (
+    <label className="switch" title={label}>
+      <input type="checkbox" name={name} value={value} defaultChecked={checked} disabled={disabled} aria-label={label} />
+      <span className="switch-track" />
+    </label>
+  );
+}
+
+/** Which events go out by email and by WhatsApp (AC-015 "approved event"). In the app, always. */
+export function NotificationPolicyForm({
+  events,
+  emailEvents,
+  whatsappEvents,
+  canEdit,
+  whatsappAvailable = false,
+}: {
+  events: string[];
+  emailEvents: string[];
+  whatsappEvents: string[];
+  canEdit: boolean;
+  whatsappAvailable?: boolean;
+}) {
   const [state, action] = useActionState(savePolicy, EMPTY);
+  const known = new Set(events);
   return (
     <form action={action} className="stack" style={{ gap: 'var(--sp-3)' }}>
       <Notices state={state} />
-      <div className="table-wrap">
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th style={{ width: 90 }}>Email</th>
-              <th style={{ width: 90 }}>WhatsApp</th>
+      <table className="pref-table">
+        <thead>
+          <tr>
+            <th>Event</th>
+            <th>In app</th>
+            <th>Email</th>
+            <th>WhatsApp</th>
+          </tr>
+        </thead>
+        {GROUPS.map((group) => (
+          <tbody key={group.title}>
+            <tr className="pref-group">
+              <td colSpan={4}>{group.title}</td>
             </tr>
-          </thead>
-          <tbody>
-            {events.map((event) => (
-              <tr key={event}>
-                <td style={{ textAlign: 'left' }}>{EVENT_LABEL[event] ?? event}</td>
-                <td>
-                  <input type="checkbox" name="email" value={event} defaultChecked={emailEvents.includes(event)} disabled={!canEdit} aria-label={`${event} by email`} />
-                </td>
-                <td>
-                  <input type="checkbox" name="whatsapp" value={event} defaultChecked={whatsappEvents.includes(event)} disabled={!canEdit} aria-label={`${event} by WhatsApp`} />
-                </td>
-              </tr>
-            ))}
+            {group.events
+              .filter((e) => known.has(e.key))
+              .map((e) => (
+                <tr key={e.key} className="pref-row">
+                  <td>
+                    <div className="pref-label">{e.label}</div>
+                    <div className="pref-hint">{e.hint}</div>
+                  </td>
+                  <td>
+                    <span className="pref-always">Always</span>
+                  </td>
+                  <td>
+                    <Toggle name="email" value={e.key} checked={emailEvents.includes(e.key)} disabled={!canEdit} label={`${e.label} by email`} />
+                  </td>
+                  <td>
+                    <Toggle
+                      name="whatsapp"
+                      value={e.key}
+                      checked={whatsappEvents.includes(e.key)}
+                      disabled={!canEdit}
+                      label={`${e.label} by WhatsApp${whatsappAvailable ? '' : ' (once WhatsApp is set up)'}`}
+                    />
+                  </td>
+                </tr>
+              ))}
           </tbody>
-        </table>
+        ))}
+      </table>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+        <span className="faint" style={{ fontSize: 13 }}>
+          {canEdit
+            ? 'These apply to everyone on the farm. WhatsApp also needs each person to verify their number and agree.'
+            : 'These apply to everyone on the farm; an administrator or the CFO chooses them.'}
+        </span>
+        {canEdit ? <Submit label="Save changes" /> : null}
       </div>
-      {canEdit ? (
-        <div>
-          <Submit label="Save" />
-        </div>
-      ) : (
-        <p className="faint" style={{ margin: 0 }}>An administrator or the CFO chooses these.</p>
-      )}
     </form>
   );
 }

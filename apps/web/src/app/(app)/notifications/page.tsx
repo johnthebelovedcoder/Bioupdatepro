@@ -33,8 +33,14 @@ export default async function NotificationsPage() {
         <Card title="WhatsApp" subtitle="Only to a number you have verified, and only while you agree">
           <WhatsAppSettings mine={mine} />
         </Card>
-        <Card title="What goes out, and how" subtitle="Everything also appears in the app. These are the events the farm sends outside it.">
-          <NotificationPolicyForm events={policy.events} emailEvents={policy.emailEvents} whatsappEvents={policy.whatsappEvents} canEdit={canEdit} />
+        <Card title="What you are told, and where" subtitle="Every notice appears in the app under the bell. Choose which also go out by email and WhatsApp.">
+          <NotificationPolicyForm
+            events={policy.events}
+            emailEvents={policy.emailEvents}
+            whatsappEvents={policy.whatsappEvents}
+            canEdit={canEdit}
+            whatsappAvailable={policy.whatsappAvailable}
+          />
         </Card>
       </div>
     </>

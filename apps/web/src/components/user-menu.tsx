@@ -6,6 +6,7 @@ import { logout } from '@/app/login/actions';
 import type { SessionUser } from '@/lib/session';
 import { humanRole } from '@/lib/roles';
 import { IconBell, IconSignOut } from './icons';
+import { MenuOverlay } from './menu-overlay';
 
 /**
  * Who is signed in, and therefore who every action is recorded against.
@@ -69,6 +70,7 @@ export function UserMenu({ user }: { user: SessionUser }) {
         </div>
       </button>
 
+      {open ? <MenuOverlay onClose={() => setOpen(false)} /> : null}
       {open ? (
         <div className="user-menu-dropdown" role="menu" aria-label="Account">
           <div className="user-menu-head">

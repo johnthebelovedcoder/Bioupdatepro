@@ -31,3 +31,23 @@ export async function markNoticesRead(ids?: string[]): Promise<void> {
   }
   revalidatePath('/approvals/inbox');
 }
+
+export interface AttentionItem {
+  id: string;
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  href: string | null;
+}
+
+/** What needs attention now — the same list as Home's "Needs attention", for the bell. */
+export async function attentionItems(): Promise<AttentionItem[]> {
+  try {
+    const me = await api<{ roles: string[] }>('/auth/me', { redirectOnUnauthorised: false });
+    const { getAlerts } = await import('@/lib/alerts');
+    const alerts = await getAlerts(me.roles);
+    return alerts.slice(0, 6).map((a) => ({ id: a.id, severity: a.severity, title: a.title, detail: a.detail, href: a.action?.href ?? null }));
+  } catch {
+    return [];
+  }
+}
