@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { nextReference, siteOf } from '../numbering/numbering';
 import { randomUUID } from 'node:crypto';
 import Decimal from 'decimal.js';
@@ -28,6 +28,9 @@ import { kobo } from '../common/money';
  * concept: PCR-012's own reversal note reads "reverse transfer or return to
  * source", so a return is just a new transfer with the warehouses swapped.
  */
+/** Who may approve a write-off (PCR-014): not the storekeeper who asked for it. */
+const WRITE_OFF_APPROVERS = ['FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'ADMINISTRATOR'];
+
 @Injectable()
 export class InventoryTransferService {
   constructor(
@@ -255,7 +258,11 @@ export class InventoryTransferService {
     }, { timeout: 15000 });
   }
 
-  /** PCR-014 — an approved write-off, outside any production order or delivery. */
+  /**
+   * PCR-014 — an *approved* write-off, outside any production order or
+   * delivery. Requesting one records it as PENDING: nothing leaves the store
+   * and nothing posts until someone other than the requester approves it.
+   */
   async writeOff(params: {
     companyId: string;
     branchId: string;
@@ -264,7 +271,7 @@ export class InventoryTransferService {
     quantity: Decimal.Value;
     reason: string;
     actor: WorkflowActor;
-  }): Promise<{ id: string; journalEntryId: string }> {
+  }): Promise<{ id: string; status: string; journalEntryId: string | null }> {
     if (!params.reason?.trim()) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §14 — Inventory write-off',
@@ -272,31 +279,110 @@ export class InventoryTransferService {
         {},
       );
     }
+    const quantity = new Decimal(params.quantity);
+    if (quantity.isNaN() || quantity.lte(0)) {
+      throw new AccountingRuleViolation('Consolidated Reference §14 — Inventory write-off', 'Write off a quantity greater than zero.', {});
+    }
+    const item = await this.prisma.item.findFirst({ where: { id: params.itemId, companyId: params.companyId }, select: { id: true, code: true } });
+    if (!item) throw new NotFoundException('No such item.');
+
+    return this.prisma.$transaction(async (tx) => {
+      // Refused now, in words, if the store does not hold it — not only at approval.
+      await this.stockMovements.assertStoreHolds({
+        tx, companyId: params.companyId, itemId: params.itemId, warehouseId: params.warehouseId, quantity, documentReference: params.reason,
+      });
+      const position = await this.stockMovements.currentPosition(tx, params.companyId, params.itemId);
+      const estimate = BigInt(quantity.mul((position.wacKobo ?? 0n).toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+      const writeOff = await tx.inventoryWriteOff.create({
+        data: {
+          companyId: params.companyId,
+          branchId: params.branchId,
+          itemId: params.itemId,
+          warehouseId: params.warehouseId,
+          quantity: new Prisma.Decimal(quantity.toFixed(6)),
+          valueKobo: estimate,
+          reason: params.reason.trim(),
+          status: 'PENDING',
+          createdById: params.actor.userId,
+        },
+      });
+      await this.audit.write(
+        {
+          transactionId: writeOff.id,
+          module: 'inventory',
+          entityType: 'InventoryWriteOff',
+          entityId: writeOff.id,
+          status: 'PENDING',
+          action: AuditAction.CREATE,
+          userId: params.actor.userId,
+          ipAddress: params.actor.ipAddress,
+          device: params.actor.device,
+          comments: `Requested write-off of ${quantity.toString()} ${item.code} (about ${estimate} kobo) — ${params.reason.trim()}`,
+        },
+        tx,
+      );
+      return { id: writeOff.id, status: 'PENDING', journalEntryId: null };
+    });
+  }
+
+  /**
+   * Approve (issue the stock at moving average now and post PCR-014) or
+   * reject a requested write-off — by someone other than the requester.
+   */
+  async decideWriteOff(params: { companyId: string; writeOffId: string; approve: boolean; reason?: string | null; actor: WorkflowActor }) {
+    if (!params.actor.roles.some((r) => WRITE_OFF_APPROVERS.includes(r))) {
+      throw new ForbiddenException('A farm manager or finance approver decides a write-off.');
+    }
+    const writeOff = await this.prisma.inventoryWriteOff.findFirst({
+      where: { id: params.writeOffId, companyId: params.companyId },
+      include: { item: { select: { code: true } } },
+    });
+    if (!writeOff) throw new NotFoundException('No such write-off.');
+    if (writeOff.status !== 'PENDING') throw new BadRequestException(`That write-off was already ${writeOff.status.toLowerCase()}.`);
+    if (params.approve && writeOff.createdById === params.actor.userId) {
+      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: params.companyId }, select: { allowSelfApproval: true } });
+      if (!company.allowSelfApproval) throw new ForbiddenException('You requested this write-off, so someone else approves it (PCR-014).');
+    }
+    const reason = params.reason?.trim() || null;
+
+    if (!params.approve) {
+      if (!reason) throw new BadRequestException('Say why the write-off is rejected.');
+      await this.prisma.inventoryWriteOff.update({
+        where: { id: writeOff.id },
+        data: { status: 'REJECTED', approvedById: params.actor.userId, approvedAt: new Date(), rejectionReason: reason },
+      });
+      await this.audit.write({
+        transactionId: writeOff.id,
+        module: 'inventory',
+        entityType: 'InventoryWriteOff',
+        entityId: writeOff.id,
+        status: 'REJECTED',
+        action: AuditAction.REJECT,
+        userId: params.actor.userId,
+        comments: reason,
+      });
+      return { id: writeOff.id, status: 'REJECTED', journalEntryId: null };
+    }
 
     const context = await this.postingContext(params.companyId, new Date());
     if (!context) {
       throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', 'No open period for this write-off.', {});
     }
-    const dimensions = this.dimensions(params, context);
+    const dimensions = this.dimensions({ companyId: params.companyId, branchId: writeOff.branchId }, context);
     const rule = await this.postingControl.resolve({ companyId: params.companyId, ruleId: 'PCR-014', on: new Date() });
-
-    // stock_movements is append-only (a DB trigger refuses UPDATE) — the id
-    // this write-off will be created with has to be known BEFORE issueOut()
-    // writes the movement, not patched in afterward.
-    const writeOffId = randomUUID();
 
     return this.prisma.$transaction(async (tx) => {
       const issued = await this.stockMovements.issueOut({
         tx,
         companyId: params.companyId,
-        branchId: params.branchId,
-        itemId: params.itemId,
-        warehouseId: params.warehouseId,
-        quantity: new Decimal(params.quantity),
+        branchId: writeOff.branchId,
+        itemId: writeOff.itemId,
+        warehouseId: writeOff.warehouseId,
+        quantity: new Decimal(writeOff.quantity.toString()),
         sourceModule: 'inventory',
         sourceDocumentType: 'InventoryWriteOff',
-        sourceDocumentId: writeOffId,
-        documentReference: params.reason,
+        sourceDocumentId: writeOff.id,
+        documentReference: writeOff.reason,
         movementDate: new Date(),
         perStore: true,
       });
@@ -305,23 +391,23 @@ export class InventoryTransferService {
         {
           sourceModule: 'inventory',
           sourceDocumentType: 'InventoryWriteOff',
-          sourceDocumentId: writeOffId,
-          journalNumber: `WO-${writeOffId.slice(0, 8).toUpperCase()}`,
+          sourceDocumentId: writeOff.id,
+          journalNumber: `WO-${writeOff.id.slice(0, 8).toUpperCase()}`,
           journalDate: new Date(),
-          narration: `Inventory write-off: ${params.reason}`,
+          narration: `Inventory write-off: ${writeOff.reason}`,
           ...dimensions,
           idempotencyKey: `inventory-write-off:${issued.stockMovementId}`,
           actor: params.actor,
           lines: [
             {
               glAccountId: this.requireSide(rule.debit, 'PCR-014', 'debit').glAccountId,
-              description: `PCR-014 — inventory write-off (${params.reason})`,
+              description: `PCR-014 — inventory write-off (${writeOff.reason})`,
               debit: kobo(issued.valueKobo),
               dimensions,
             },
             {
               glAccountId: this.requireSide(rule.credit, 'PCR-014', 'credit').glAccountId,
-              description: `PCR-014 — inventory write-off (${params.reason})`,
+              description: `PCR-014 — inventory write-off (${writeOff.reason})`,
               credit: kobo(issued.valueKobo),
               dimensions,
             },
@@ -330,21 +416,10 @@ export class InventoryTransferService {
         tx,
       );
 
-      const writeOff = await tx.inventoryWriteOff.create({
-        data: {
-          id: writeOffId,
-          companyId: params.companyId,
-          branchId: params.branchId,
-          itemId: params.itemId,
-          warehouseId: params.warehouseId,
-          quantity: new Prisma.Decimal(new Decimal(params.quantity).toFixed(6)),
-          valueKobo: issued.valueKobo,
-          reason: params.reason,
-          journalEntryId: result.journalEntryId,
-          createdById: params.actor.userId,
-        },
+      await tx.inventoryWriteOff.update({
+        where: { id: writeOff.id },
+        data: { status: 'POSTED', valueKobo: issued.valueKobo, journalEntryId: result.journalEntryId, approvedById: params.actor.userId, approvedAt: new Date() },
       });
-
       await this.audit.write(
         {
           transactionId: writeOff.id,
@@ -352,16 +427,13 @@ export class InventoryTransferService {
           entityType: 'InventoryWriteOff',
           entityId: writeOff.id,
           status: 'POSTED',
-          action: AuditAction.CREATE,
+          action: AuditAction.APPROVE,
           userId: params.actor.userId,
-          ipAddress: params.actor.ipAddress,
-          device: params.actor.device,
-          comments: `Wrote off ${params.quantity.toString()} units — ${issued.valueKobo} kobo — ${params.reason}`,
+          comments: `Approved write-off of ${writeOff.quantity.toString()} ${writeOff.item.code} — ${issued.valueKobo} kobo — ${writeOff.reason}`,
         },
         tx,
       );
-
-      return { id: writeOff.id, journalEntryId: result.journalEntryId };
+      return { id: writeOff.id, status: 'POSTED', journalEntryId: result.journalEntryId };
     }, { timeout: 15000 });
   }
 

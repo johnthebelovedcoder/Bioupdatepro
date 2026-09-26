@@ -78,8 +78,19 @@ export async function writeOffStock(_previous: FlowState, formData: FormData): P
       body: { branchId: branch.id, itemId, warehouseId, quantity, reason },
     });
     revalidatePath('/inventory/transfers');
-    return { error: null, message: 'Written off.' };
+    return { error: null, message: 'Requested. Nothing leaves the store until someone else approves it.' };
   } catch (caught) {
     return fail(caught, 'Could not write that off.');
   }
+}
+
+/** Approve (post PCR-014) or reject a requested write-off. */
+export async function decideWriteOff(id: string, approve: boolean, reason?: string): Promise<FlowState> {
+  try {
+    await api(`/inventory/write-offs/${id}/decide`, { method: 'POST', body: { approve, reason } });
+  } catch (caught) {
+    return fail(caught, 'Could not record that decision.');
+  }
+  revalidatePath('/inventory/transfers');
+  return { error: null, message: approve ? 'Approved and posted.' : 'Rejected.' };
 }

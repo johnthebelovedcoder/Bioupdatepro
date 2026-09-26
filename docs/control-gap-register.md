@@ -44,6 +44,7 @@ rows marked Built above):
 | INT-012 / AC-HR-001 | A bank account or TIN already on another employee is refused, at creation and on edit | masters.spec: "refuses a ghost employee" |
 | INT-012 | Whoever set up an employee cannot also activate them for payroll | masters.spec: "is activated for payroll by someone other than whoever set the employee up" |
 | INT-009 | Stock counts: the store frozen while counted, a recount beyond the threshold, a reason for every difference, and approval by someone other than the counter before anything posts (Dr/Cr 640100 and inventory, PCR-014) | stock-count.spec |
+| PCR-014 | A write-off is requested, then approved (stock issued, PCR-014 posted) or rejected by someone other than the requester; decided once, then fixed in the database | inventory.spec: "writes off only once someone other than the requester approves it" |
 | AC-PAY-002 | Neither the preparer nor the approver of a payroll run can pay it | payroll.spec: "is paid by neither whoever prepared the run nor whoever approved it" |
 | POL-001 tolerance | A total variance beyond the year's tolerance settles only with a reason | standard-costing.spec: "settles a variance beyond the year's tolerance only with a reason" |
 | POL-003 | Standards carry six parts: material, packaging, labour, machine, overhead, depreciation | standard-costing.spec: "reports the six parts of POL-003" |

@@ -6,6 +6,7 @@ import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
 import { IssueTransferForm } from '@/components/issue-transfer-form';
 import { WriteOffForm } from '@/components/write-off-form';
+import { WriteOffDecision } from '@/components/write-off-decision';
 import { ReceiveTransferButton } from '@/components/receive-transfer-button';
 import { IconBox } from '@/components/icons';
 
@@ -147,6 +148,7 @@ export default async function TransfersPage() {
                         Value
                       </th>
                       <th>Reason</th>
+                      <th style={{ width: 190 }}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -166,6 +168,9 @@ export default async function TransfersPage() {
                         </td>
                         <td className="num">{formatNaira(w.valueKobo)}</td>
                         <td>{w.reason}</td>
+                        <td>
+                          <WriteOffDecision id={w.id} status={w.status} rejectionReason={w.rejectionReason} />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -179,7 +184,8 @@ export default async function TransfersPage() {
           <p className="muted" style={{ fontSize: 14 }}>
             A transfer posts twice — once at issue (Dr/Cr in-transit) and once at receipt, at the
             original value, never re-priced at the destination&apos;s current cost. A write-off
-            posts once, immediately, and always needs a reason.
+            always needs a reason, and moves nothing until someone other than whoever asked for it
+            approves it (PCR-014).
           </p>
         </Card>
       </div>

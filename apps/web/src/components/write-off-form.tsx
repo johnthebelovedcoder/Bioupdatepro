@@ -76,7 +76,7 @@ function Submit() {
   const { pending } = useFormStatus();
   return (
     <button type="submit" className="btn btn-danger" disabled={pending}>
-      {pending ? 'Writing off…' : 'Write off'}
+      {pending ? 'Sending…' : 'Request write-off'}
     </button>
   );
 }

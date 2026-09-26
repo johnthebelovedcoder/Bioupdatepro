@@ -3168,6 +3168,14 @@ model InventoryWriteOff {
   reason         String
   journalEntryId String? @map("journal_entry_id") @db.Uuid
 
+  /// PCR-014 is an *approved* write-off: requested as PENDING, then posted
+  /// or rejected by someone other than the requester. POSTED for write-offs
+  /// made before 2026-09-26, which posted on request.
+  status          String    @default("POSTED") // PENDING | POSTED | REJECTED
+  approvedById    String?   @map("approved_by_id") @db.Uuid
+  approvedAt      DateTime? @map("approved_at")
+  rejectionReason String?   @map("rejection_reason")
+
   createdById String   @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
 

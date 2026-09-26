@@ -265,7 +265,8 @@ export class StockMovementService {
     return held;
   }
 
-  private async assertStoreHolds(params: {
+  /** Refuses, in words, when the named store holds less than asked for. */
+  async assertStoreHolds(params: {
     tx: Prisma.TransactionClient;
     companyId: string;
     itemId: string;

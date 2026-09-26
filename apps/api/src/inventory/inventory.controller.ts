@@ -139,7 +139,7 @@ export class InventoryController {
     return this.transfers.receiveTransfer({ transferId: id, actor });
   }
 
-  @Roles('STOREKEEPER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'PRODUCTION_LEAD')
+  @Roles('STOREKEEPER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'PRODUCTION_LEAD', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Get('write-offs')
   async listWriteOffs(@CurrentCompany() companyId: string) {
     const rows = await this.prisma.inventoryWriteOff.findMany({
@@ -160,6 +160,9 @@ export class InventoryController {
       quantity: row.quantity.toString(),
       valueKobo: row.valueKobo.toString(),
       reason: row.reason,
+      status: row.status,
+      rejectionReason: row.rejectionReason,
+      approvedAt: row.approvedAt,
       createdBy: row.createdBy.fullName,
       createdAt: row.createdAt,
     }));
@@ -180,5 +183,17 @@ export class InventoryController {
     },
   ) {
     return this.transfers.writeOff({ ...body, companyId, actor });
+  }
+
+  /** Approve (post PCR-014) or reject a requested write-off — not by the requester. */
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('write-offs/:id/decide')
+  async decideWriteOff(
+    @CurrentUser() actor: WorkflowActor,
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @Body() body: { approve: boolean; reason?: string },
+  ) {
+    return this.transfers.decideWriteOff({ companyId, writeOffId: id, approve: body?.approve === true, reason: body?.reason, actor });
   }
 }

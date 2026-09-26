@@ -29,6 +29,7 @@ let transfers: InventoryTransferService;
 let reconciliation: ControlAccountReconciliationService;
 let fixture: TestFixture;
 let actor: { userId: string; roles: string[] };
+let approver: { userId: string; roles: string[] };
 let itemId: string;
 const store: Record<string, string> = {};
 
@@ -45,6 +46,7 @@ beforeEach(async () => {
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
   actor = { userId: fixture.makerId, roles: ['FARM_MANAGER'] };
+  approver = { userId: fixture.financeUserId, roles: ['FINANCE_MANAGER'] };
   // The posting rules and six-digit accounts transfers and write-offs post through.
   await new PostingControlProvisioningService(prisma, new AuditService(prisma)).provision(fixture.companyId, null);
   const rawMaterials = await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '130100' } });
@@ -80,6 +82,40 @@ beforeEach(async () => {
 const onHand = async (warehouseId: string) => (await stock.storeQuantity(prisma, fixture.companyId, itemId, warehouseId)).toNumber();
 
 describe('Inventory control (UAT-006)', () => {
+  it('writes off only once someone other than the requester approves it (PCR-014)', async () => {
+    const requested = await transfers.writeOff({
+      companyId: fixture.companyId, branchId: fixture.branchId, itemId, warehouseId: store.MAIN!, quantity: 5, reason: 'Rat damage, bay 3', actor,
+    });
+    await expect(transfers.decideWriteOff({ companyId: fixture.companyId, writeOffId: requested.id, approve: true, actor })).rejects.toThrow(
+      /You requested this write-off, so someone else approves it/,
+    );
+    await expect(transfers.decideWriteOff({ companyId: fixture.companyId, writeOffId: requested.id, approve: true, actor: { userId: fixture.checkerId, roles: ['STOREKEEPER'] } })).rejects.toThrow(
+      /farm manager or finance approver/,
+    );
+    await expect(prisma.inventoryWriteOff.update({ where: { id: requested.id }, data: { status: 'POSTED', approvedById: fixture.makerId } })).rejects.toThrow(
+      /whoever requested it cannot approve it/,
+    );
+
+    // Rejected: nothing moves, and it is closed.
+    await expect(transfers.decideWriteOff({ companyId: fixture.companyId, writeOffId: requested.id, approve: false, actor: approver })).rejects.toThrow(/Say why/);
+    await transfers.decideWriteOff({ companyId: fixture.companyId, writeOffId: requested.id, approve: false, reason: 'Damage not confirmed on inspection', actor: approver });
+    expect(await onHand(store.MAIN!)).toBe(1000);
+    await expect(transfers.decideWriteOff({ companyId: fixture.companyId, writeOffId: requested.id, approve: true, actor: approver })).rejects.toThrow(/already rejected/);
+
+    // Approved: stock leaves at moving average and PCR-014 posts; the row is then fixed.
+    const second = await transfers.writeOff({
+      companyId: fixture.companyId, branchId: fixture.branchId, itemId, warehouseId: store.MAIN!, quantity: 5, reason: 'Rat damage, bay 4 (inspected)', actor,
+    });
+    const posted = await transfers.decideWriteOff({ companyId: fixture.companyId, writeOffId: second.id, approve: true, actor: approver });
+    expect(posted.status).toBe('POSTED');
+    expect(await onHand(store.MAIN!)).toBe(995);
+    const row = await prisma.inventoryWriteOff.findUniqueOrThrow({ where: { id: second.id } });
+    expect(row.valueKobo).toBe(5n * 200_00n);
+    expect(row.journalEntryId).not.toBeNull();
+    await expect(prisma.inventoryWriteOff.update({ where: { id: second.id }, data: { reason: 'edited' } })).rejects.toThrow(/is POSTED; it cannot change/);
+  });
+
+
   it('issues to another store, receives it there, count-adjusts — and the stock ledger agrees with the GL throughout', async () => {
     const sent = await transfers.issueTransfer({
       companyId: fixture.companyId, branchId: fixture.branchId, itemId, fromWarehouseId: store.MAIN!, toWarehouseId: store.MILL!, quantity: 400, actor,
@@ -89,9 +125,12 @@ describe('Inventory control (UAT-006)', () => {
     await transfers.receiveTransfer({ transferId: sent.id, actor });
     expect(await onHand(store.MILL!)).toBe(400);
 
-    await transfers.writeOff({
+    const requested = await transfers.writeOff({
       companyId: fixture.companyId, branchId: fixture.branchId, itemId, warehouseId: store.MILL!, quantity: 10, reason: 'Count: 390 kg found, 10 kg spoilt', actor,
     });
+    expect(requested.status).toBe('PENDING');
+    expect(await onHand(store.MILL!)).toBe(400); // nothing leaves until it is approved (PCR-014)
+    await transfers.decideWriteOff({ companyId: fixture.companyId, writeOffId: requested.id, approve: true, actor: approver });
     expect(await onHand(store.MILL!)).toBe(390);
 
     const rows = await reconciliation.reconcile(fixture.companyId);

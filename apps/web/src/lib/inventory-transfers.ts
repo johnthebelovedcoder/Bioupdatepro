@@ -27,6 +27,10 @@ export interface InventoryWriteOff {
   quantity: string;
   valueKobo: string;
   reason: string;
+  /** PENDING until someone other than the requester approves or rejects it. */
+  status: 'PENDING' | 'POSTED' | 'REJECTED';
+  rejectionReason: string | null;
+  approvedAt: string | null;
   createdBy: string;
   createdAt: string;
 }
