@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import {
+  issueWithQuantities,
   confirmConversion,
   recordLoss,
   recordOutputs,
@@ -16,6 +17,41 @@ function Submit({ label, pendingLabel }: { label: string; pendingLabel: string }
     <button type="submit" className="btn btn-primary" disabled={pending}>
       {pending ? pendingLabel : label}
     </button>
+  );
+}
+
+/**
+ * APPROVED → RELEASED: issue each line. The standard quantity is filled in;
+ * change it to what actually left the store. WIP takes the standard either
+ * way, and the difference is a usage variance (PCR-052, POL-004).
+ */
+export function IssueMaterialsForm({
+  orderId,
+  lines,
+}: {
+  orderId: string;
+  lines: Array<{ id: string; label: string; standardQuantity: string }>;
+}) {
+  const [state, action] = useActionState<FlowState, FormData>(issueWithQuantities, { error: null, message: null });
+  return (
+    <form action={action} className="stack" style={{ gap: 'var(--sp-3)' }}>
+      <input type="hidden" name="productionOrderId" value={orderId} />
+      {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+      {lines.length > 0 ? (
+        <div className="grid-auto">
+          {lines.map((line) => (
+            <label key={line.id} className="field">
+              {line.label}
+              <input name={`qty:${line.id}`} type="number" step="0.001" min="0" defaultValue={Number(line.standardQuantity)} />
+              <span className="faint">Standard {Number(line.standardQuantity).toLocaleString()}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+      <div>
+        <Submit label="Issue materials" pendingLabel="Issuing…" />
+      </div>
+    </form>
   );
 }
 

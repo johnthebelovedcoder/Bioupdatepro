@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { RoutingService } from '../routing/routing.service';
 import { JointCostService } from './joint-cost.service';
+import { StandardCostService } from './standard-cost.service';
 import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
@@ -13,7 +14,7 @@ import { WorkflowActor } from '../workflow/workflow.types';
 import { RecipeService } from '../masters/recipe.service';
 import { PostingControlService, ResolvedRule } from '../posting-control/posting-control.service';
 import { StockMovementService } from '../inventory/stock-movement.service';
-import { CostAllocationService, AllocationOutput, CostAllocationMethod } from './cost-allocation.service';
+import { CostAllocationService, AllocationOutput, AllocatedOutput, CostAllocationMethod } from './cost-allocation.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo, Kobo } from '../common/money';
 
@@ -405,7 +406,16 @@ export class ProductionOrderService {
   // Issue — biological input + packaging
   // -------------------------------------------------------------------------
 
-  async issueMaterials(params: { productionOrderId: string; actor: WorkflowActor }) {
+  async issueMaterials(params: {
+    productionOrderId: string;
+    /**
+     * What was actually issued, per component line id, when it differs from
+     * the standard (BOM) quantity. WIP takes the standard either way; the
+     * difference is the material usage variance (PCR-052/075).
+     */
+    actualQuantities?: Record<string, Decimal.Value>;
+    actor: WorkflowActor;
+  }) {
     await this.syncOrderStatus(params.productionOrderId);
 
     const order = await this.prisma.productionOrder.findUniqueOrThrow({
@@ -453,6 +463,17 @@ export class ProductionOrderService {
      * Feed Mill has no biological-input rule at all (`issueRuleId: null`) —
      * its one issue rule (PCR-032) IS the packaging rule below.
      */
+    for (const [componentId, value] of Object.entries(params.actualQuantities ?? {})) {
+      if (!order.components.some((c) => c.id === componentId)) {
+        throw new AccountingRuleViolation('PCR-052 — Material issue', `${order.orderNumber} has no component line ${componentId}.`, { componentId });
+      }
+      if (value === '' || value === null || new Decimal(value).isNaN() || new Decimal(value).lt(0)) {
+        throw new AccountingRuleViolation('PCR-052 — Material issue', 'Give each issued quantity as zero or more.', { componentId });
+      }
+    }
+    const standardCosts = new StandardCostService(this.prisma, this.audit, this.recipes);
+    const varianceAccount = await this.resolvePostingKeyAccount(order.companyId, rules.settleDebitKey);
+
     const [issueRule, packagingRule, componentItems] = await Promise.all([
       rules.issueRuleId
         ? this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.issueRuleId, on: new Date() })
@@ -537,50 +558,91 @@ export class ProductionOrderService {
         : [];
 
     return this.prisma.$transaction(async (tx) => {
-      let packagingTotal = 0n;
+      // POL-001 / AC-MFG-002: the year's standard-cost policy, locked by the
+      // first production posting in it.
+      await standardCosts.requirePolicy(tx, order.companyId, new Date());
+
+      /*
+       * PCR-052/075/032: WIP takes each line at standard — BOM quantity ×
+       * approved standard rate, which is the line's planned cost. Inventory
+       * gives up what was actually issued at moving-average cost (POL-002).
+       * The difference is split: usage is the extra (or saved) quantity at
+       * the standard rate, price is the rest (500_Std_Cost).
+       */
+      let standardTotal = 0n;
+      let actualTotal = 0n;
+      let usageTotal = 0n;
+      let priceTotal = 0n;
       const packagingLines: typeof lines = [];
       for (const component of order.components) {
-        if (component.plannedQuantity.lessThanOrEqualTo(0)) continue;
-        const issued = await this.stockMovements.issueOut({
-          tx,
-          companyId: order.companyId,
-          branchId: order.branchId,
-          itemId: component.componentItemId,
-          warehouseId: warehouseByItem.get(component.componentItemId)!,
-          quantity: new Decimal(component.plannedQuantity.toString()),
-          sourceModule: 'production',
-          sourceDocumentType: 'ProductionOrder',
-          sourceDocumentId: order.id,
-          documentReference: order.orderNumber,
-          movementDate: new Date(),
-        });
+        const standardQty = new Decimal(component.plannedQuantity.toString());
+        const given = params.actualQuantities?.[component.id];
+        const actualQty = given === undefined ? standardQty : new Decimal(given);
+        if (standardQty.lte(0) && actualQty.lte(0)) continue;
+        const issued = actualQty.gt(0)
+          ? await this.stockMovements.issueOut({
+              tx,
+              companyId: order.companyId,
+              branchId: order.branchId,
+              itemId: component.componentItemId,
+              warehouseId: warehouseByItem.get(component.componentItemId)!,
+              quantity: actualQty,
+              sourceModule: 'production',
+              sourceDocumentType: 'ProductionOrder',
+              sourceDocumentId: order.id,
+              documentReference: order.orderNumber,
+              movementDate: new Date(),
+            })
+          : { valueKobo: 0n, stockMovementId: null };
+        const standard = component.plannedCostKobo;
+        const usage = standardQty.gt(0)
+          ? BigInt(actualQty.minus(standardQty).mul(standard.toString()).div(standardQty).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0))
+          : issued.valueKobo;
+        const price = issued.valueKobo - standard - usage;
         await tx.productionOrderComponent.update({
           where: { id: component.id },
           data: {
-            issuedQuantity: component.plannedQuantity,
+            issuedQuantity: new Prisma.Decimal(actualQty.toFixed(6)),
             issuedCostKobo: issued.valueKobo,
             stockMovementId: issued.stockMovementId,
+            usageVarianceKobo: usage,
+            priceVarianceKobo: price,
           },
         });
-        packagingTotal += issued.valueKobo;
+        standardTotal += standard;
+        actualTotal += issued.valueKobo;
+        usageTotal += usage;
+        priceTotal += price;
       }
 
-      if (packagingTotal > 0n) {
-        packagingLines.push(
-          {
-            glAccountId: this.requireSide(packagingRule.debit, rules.packagingRuleId, 'debit').glAccountId,
-            description: `${rules.packagingRuleId} — packaging issued to processing (${order.orderNumber})`,
-            debit: kobo(packagingTotal),
-            dimensions,
-          },
-          {
-            glAccountId: this.requireSide(packagingRule.credit, rules.packagingRuleId, 'credit').glAccountId,
-            description: `${rules.packagingRuleId} — packaging issued to processing (${order.orderNumber})`,
-            credit: kobo(packagingTotal),
-            dimensions,
-          },
-        );
+      const wipAccount = this.requireSide(packagingRule.debit, rules.packagingRuleId, 'debit').glAccountId;
+      const stockAccount = this.requireSide(packagingRule.credit, rules.packagingRuleId, 'credit').glAccountId;
+      if (standardTotal > 0n) {
+        packagingLines.push({
+          glAccountId: wipAccount,
+          description: `${rules.packagingRuleId} — materials issued at standard (${order.orderNumber})`,
+          debit: kobo(standardTotal),
+          dimensions,
+        });
       }
+      if (actualTotal > 0n) {
+        packagingLines.push({
+          glAccountId: stockAccount,
+          description: `${rules.packagingRuleId} — materials issued at moving average (${order.orderNumber})`,
+          credit: kobo(actualTotal),
+          dimensions,
+        });
+      }
+      for (const [label, amount] of [['usage', usageTotal], ['price', priceTotal]] as const) {
+        if (amount === 0n) continue;
+        packagingLines.push({
+          glAccountId: varianceAccount,
+          description: `Material ${label} variance, ${amount > 0n ? 'adverse' : 'favourable'} (${order.orderNumber})`,
+          ...(amount > 0n ? { debit: kobo(amount) } : { credit: kobo(-amount) }),
+          dimensions,
+        });
+      }
+      const packagingTotal = standardTotal;
 
       const result = await this.posting.post(
         {
@@ -615,6 +677,8 @@ export class ProductionOrderService {
         data: {
           status: ProductionOrderStatus.RELEASED,
           packagingCostKobo: packagingTotal,
+          materialUsageVarianceKobo: usageTotal,
+          materialPriceVarianceKobo: priceTotal,
           issueJournalEntryId: result.journalEntryId,
           issuedAt: new Date(),
         },
@@ -629,7 +693,7 @@ export class ProductionOrderService {
           status: ProductionOrderStatus.RELEASED,
           action: AuditAction.POST,
           userId: params.actor.userId,
-          comments: `Issued ${order.orderNumber}: biological input ${order.biologicalInputValueKobo} kobo, packaging ${packagingTotal} kobo.`,
+          comments: `Issued ${order.orderNumber}: biological input ${order.biologicalInputValueKobo} kobo, materials ${packagingTotal} kobo at standard (actual ${actualTotal}; usage variance ${usageTotal}, price variance ${priceTotal}).`,
         },
         tx,
       );
@@ -1168,10 +1232,14 @@ export class ProductionOrderService {
 
     const rules = this.cycleRules(order.processingCycle);
 
+    // --- PCR-034: a feed order's output is received at its released standard --
+    const feedAtStandard = order.processingCycle === ProductionOrderCycle.FEED_MILL;
+    const standardCosts = new StandardCostService(this.prisma, this.audit, this.recipes);
+
     // --- Handbook §62: one released method, approved prices, mass balance --
     const joint = new JointCostService(this.prisma, this.audit);
     const method = await joint.releasedMethod(order.companyId);
-    if (params.method && params.method !== method) {
+    if (!feedAtStandard && params.method && params.method !== method) {
       throw new AccountingRuleViolation(
         'JOINT_COST_ALLOCATION — one released method',
         `This company allocates joint cost by ${method} on every order; ${params.method} was asked for. The CFO changes the released method, not the order.`,
@@ -1179,7 +1247,7 @@ export class ProductionOrderService {
       );
     }
     let outputs = params.outputs;
-    if (method === 'NRV') {
+    if (method === 'NRV' && !feedAtStandard) {
       const prices = await joint.pricesOn(order.companyId, [...new Set(outputs.map((o) => o.itemId))], new Date());
       outputs = outputs.map((o) => ({
         ...o,
@@ -1227,11 +1295,38 @@ export class ProductionOrderService {
       );
     }
 
-    const allocated = this.costAllocation.allocate({
-      method,
-      totalKobo: kobo(totalToAllocate),
-      outputs,
-    });
+    /*
+     * Feed mill: each output at good quantity × its released standard cost a
+     * unit; whatever WIP holds beyond that is the yield variance, cleared to
+     * the order's variance account in the same journal so WIP ends at zero.
+     * Processing: the whole WIP is shared by the released joint-cost method.
+     */
+    let allocated: AllocatedOutput[];
+    let standardVersionId: string | null = null;
+    if (feedAtStandard) {
+      allocated = [];
+      for (const output of outputs) {
+        const version = await standardCosts.releasedFor(this.prisma, order.companyId, output.itemId, new Date());
+        if (output.outputType === 'MAIN' || !standardVersionId) standardVersionId = version.id;
+        const value = BigInt(new Decimal(output.quantity).mul(version.unitCostKobo.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+        allocated.push({
+          itemId: output.itemId,
+          outputType: output.outputType,
+          quantity: new Decimal(output.quantity).toFixed(6),
+          allocationWeightKobo: version.unitCostKobo.toString(),
+          allocatedCostKobo: value.toString(),
+        });
+      }
+    } else {
+      allocated = this.costAllocation.allocate({
+        method,
+        totalKobo: kobo(totalToAllocate),
+        outputs,
+      });
+    }
+    const finishedGoods = allocated.reduce((sum, o) => sum + BigInt(o.allocatedCostKobo), 0n);
+    const yieldVariance = totalToAllocate - finishedGoods;
+    const varianceAccount = yieldVariance !== 0n ? await this.resolvePostingKeyAccount(order.companyId, rules.settleDebitKey) : null;
 
     const context = await this.postingContext(order.companyId, new Date());
     if (!context) {
@@ -1243,6 +1338,7 @@ export class ProductionOrderService {
     const wipAccount = this.requireSide(rule.credit, rules.completionRuleId, 'credit').glAccountId;
 
     return this.prisma.$transaction(async (tx) => {
+      await standardCosts.requirePolicy(tx, order.companyId, new Date());
       for (const output of allocated) {
         const stockMovement = await this.stockMovements.receiveIn({
           tx,
@@ -1286,13 +1382,25 @@ export class ProductionOrderService {
           lines: [
             {
               glAccountId: fgAccount,
-              description: `${rules.completionRuleId} — joint outputs received (${order.orderNumber})`,
-              debit: kobo(totalToAllocate),
+              description: feedAtStandard
+                ? `${rules.completionRuleId} — good output at standard (${order.orderNumber})`
+                : `${rules.completionRuleId} — joint outputs received (${order.orderNumber})`,
+              debit: kobo(finishedGoods),
               dimensions,
             },
+            ...(yieldVariance !== 0n && varianceAccount
+              ? [
+                  {
+                    glAccountId: varianceAccount,
+                    description: `Yield variance, ${yieldVariance > 0n ? 'adverse' : 'favourable'} (${order.orderNumber})`,
+                    ...(yieldVariance > 0n ? { debit: kobo(yieldVariance) } : { credit: kobo(-yieldVariance) }),
+                    dimensions,
+                  },
+                ]
+              : []),
             {
               glAccountId: wipAccount,
-              description: `${rules.completionRuleId} — joint outputs received (${order.orderNumber})`,
+              description: `${rules.completionRuleId} — WIP cleared on completion (${order.orderNumber})`,
               credit: kobo(totalToAllocate),
               dimensions,
             },
@@ -1305,7 +1413,9 @@ export class ProductionOrderService {
         where: { id: order.id },
         data: {
           status: ProductionOrderStatus.COMPLETED,
-          finishedGoodsCostKobo: totalToAllocate,
+          finishedGoodsCostKobo: finishedGoods,
+          yieldVarianceKobo: yieldVariance,
+          standardCostVersionId: standardVersionId,
           completionJournalEntryId: result.journalEntryId,
           completedAt: new Date(),
         },
@@ -1320,7 +1430,9 @@ export class ProductionOrderService {
           status: ProductionOrderStatus.COMPLETED,
           action: AuditAction.POST,
           userId: params.actor.userId,
-          comments: `Completed ${order.orderNumber}: ${allocated.length} outputs, ${totalToAllocate} kobo allocated by ${params.method}.`,
+          comments: feedAtStandard
+            ? `Completed ${order.orderNumber}: ${allocated.length} outputs, ${finishedGoods} kobo at standard, yield variance ${yieldVariance}.`
+            : `Completed ${order.orderNumber}: ${allocated.length} outputs, ${totalToAllocate} kobo allocated by ${method}.`,
         },
         tx,
       );
@@ -1359,12 +1471,12 @@ export class ProductionOrderService {
       order.rearingCostKobo +
       order.packagingCostKobo +
       order.standardConversionCostKobo;
-    if (wipDebits !== order.finishedGoodsCostKobo + order.abnormalLossCostKobo) {
+    if (wipDebits !== order.finishedGoodsCostKobo + order.abnormalLossCostKobo + order.yieldVarianceKobo) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §9/Rule 7 — WIP identity',
         `${order.orderNumber} does not clear: WIP debits ${wipDebits} kobo, but finished goods ` +
-          `(${order.finishedGoodsCostKobo}) plus abnormal loss (${order.abnormalLossCostKobo}) is ` +
-          `${order.finishedGoodsCostKobo + order.abnormalLossCostKobo} kobo. Refusing to post a wrong figure.`,
+          `(${order.finishedGoodsCostKobo}) plus abnormal loss (${order.abnormalLossCostKobo}) plus yield variance (${order.yieldVarianceKobo}) is ` +
+          `${order.finishedGoodsCostKobo + order.abnormalLossCostKobo + order.yieldVarianceKobo} kobo. Refusing to post a wrong figure.`,
         { orderNumber: order.orderNumber },
       );
     }
@@ -1388,7 +1500,16 @@ export class ProductionOrderService {
      * of their own (their resource costs arrive through PCR-031 and payroll),
      * so they settle the variance against recovery as before.
      */
-    const clearsPools = rules.actualLabourRuleId !== null || rules.actualConversionRuleId !== null;
+    /*
+     * A feed order's actual labour, power and depreciation are posted at
+     * source to the feed-mill cost pool (623100 — payroll, PCR-031), not by
+     * the order. Settlement clears the order's share of that pool against the
+     * recovery the standard absorbed, so recovery ends at zero
+     * (FeedMill_Accounting: "WIP=0; recovery=0"). Until 2026-09-26 only the
+     * variance was posted, which left recovery holding the actual cost.
+     */
+    const feedPool = order.processingCycle === ProductionOrderCycle.FEED_MILL;
+    const clearsPools = rules.actualLabourRuleId !== null || rules.actualConversionRuleId !== null || feedPool;
     if (clearsPools ? order.standardConversionCostKobo === 0n && actualIncurred === 0n : variance === 0n) {
       await this.prisma.productionOrder.update({ where: { id: order.id }, data: { settledAt: new Date() } });
       return { journalEntryId: null, variance: '0' };
@@ -1412,7 +1533,9 @@ export class ProductionOrderService {
     // The pools the order's own conversion step charged, and how much to each.
     const pools: Array<{ account: string; amount: bigint }> = !clearsPools
       ? []
-      : rules.actualConversionRuleId
+      : feedPool
+        ? [{ account: await this.recoveryAccount(order.companyId, '623100'), amount: actualIncurred }]
+        : rules.actualConversionRuleId
         ? [{ account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`), amount: actualIncurred }]
         : [
             { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualLabourRuleId}-DR`), amount: order.actualLabourCostKobo },

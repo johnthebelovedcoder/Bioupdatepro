@@ -206,11 +206,20 @@ Stated here rather than discovered later.
   document when nobody else in the farm could — is a setting (Setup → Approval
   rules), OFF by default because the client's integrity matrix forbids it; a
   one-person farm's CFO can turn it on, and each use is recorded.
-- **Only weighted-average costing is built.** Feed and treatments absorbed by a
-  population leave it with each death, sale or harvest at weighted average,
-  the policy chosen on 2026-09-24. FIFO or standard costing would need their
-  own implementation. Relief is exact from that date; feed eaten by animals
-  that left before it stays spread over the survivors.
+- **Inventory at moving average, production at standard** — the client's
+  POL-001/002, so FIFO is deliberately not built. Stock is valued at
+  perpetual moving weighted average. Production posts at standard only: each
+  financial year's costing policy (Feed mill → Standard costs) is configured
+  before the year's first production posting and locked by it. Materials go
+  into WIP at BOM quantity × standard rate; the actual issue at moving average
+  is split into usage and price variances. A product's standard is rolled up
+  from its recipe and routing, prepared by one person and released by another;
+  a feed order's good output is received at good kg × that standard, and the
+  shortfall is a yield variance. Settlement clears WIP, recovery and the
+  feed-mill pool (623100) to zero. Feed and treatments absorbed by a population
+  leave it with each death, sale or harvest at weighted average; relief is
+  exact from 2026-09-24, and feed eaten by animals that left before then stays
+  spread over the survivors.
 - **Farm labour and overhead** (Books → Farm costing) are shared by
   animal-days or by timesheet hours × each person's pay for the month (Money →
   Timesheets); flocks take theirs into Work in Progress, snails to 612000. On

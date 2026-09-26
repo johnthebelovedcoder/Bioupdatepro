@@ -305,6 +305,12 @@ export async function seedFixture(prisma: PrismaClient): Promise<TestFixture> {
     },
   });
 
+  // POL-001: production posts at standard cost only, configured for the year
+  // before its first posting.
+  await prisma.costingPolicy.create({
+    data: { companyId: company.id, financialYearId: year.id, configuredById: financeUser.id },
+  });
+
   return {
     prisma,
     companyId: company.id,

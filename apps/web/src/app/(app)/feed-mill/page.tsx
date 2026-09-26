@@ -119,6 +119,7 @@ export default async function FeedMillPage() {
 
         <Card title="Also for the mill">
           <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+            <CardLink href="/production/standard-costs">Standard costs — what finished feed is received at, a kilo</CardLink>
             <CardLink href="/production/cost-pools">Cost pools — the milling overhead a run absorbs by machine hours</CardLink>
             <CardLink href="/inventory">Ingredient and finished-feed stock</CardLink>
             <CardLink href="/ledger/profit-loss">Feed mill segment in the profit and loss</CardLink>

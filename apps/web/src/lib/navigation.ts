@@ -297,6 +297,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['cost pool', 'overhead', 'abc', 'activity based costing', 'driver', 'absorption', 'routing'],
       },
       {
+        href: '/production/standard-costs',
+        label: 'Standard costs',
+        hint: 'The year’s costing policy, and each product’s standard rolled up from recipe and routing',
+        keywords: ['standard cost', 'costing policy', 'roll-up', 'rollup', 'variance', 'workbench', 'cost per kg'],
+      },
+      {
         href: '/production/joint-cost',
         label: 'Joint-cost prices',
         hint: 'The approved selling prices that share a processing order’s cost between its outputs',

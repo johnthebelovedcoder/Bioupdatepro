@@ -92,16 +92,29 @@ export async function submitOrder(id: string): Promise<FlowState> {
   return { error: null, message: 'Submitted for approval.' };
 }
 
-/** Issue the biological input and packaging components to WIP. */
-export async function issueOrder(id: string): Promise<FlowState> {
+/**
+ * Issue materials: each line goes into WIP at standard; what was actually
+ * issued, when it differs, is taken from stock and its difference shows as a
+ * usage variance (PCR-052).
+ */
+export async function issueWithQuantities(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const id = String(formData.get('productionOrderId') ?? '');
+  const actualQuantities: Record<string, string> = {};
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith('qty:')) continue;
+    const text = String(value).trim();
+    if (text === '') continue;
+    if (!Number.isFinite(Number(text)) || Number(text) < 0) return { error: 'Each issued quantity must be zero or more.', message: null };
+    actualQuantities[key.slice(4)] = text;
+  }
   try {
-    await api(`/production-orders/${id}/issue`, { method: 'POST' });
+    await api(`/production-orders/${id}/issue`, { method: 'POST', body: { actualQuantities } });
   } catch (caught) {
     return fail(caught, 'Could not issue materials for that order.');
   }
   revalidatePath(`/production/${id}`);
   revalidatePath('/production');
-  return { error: null, message: 'Materials issued to work-in-progress.' };
+  return { error: null, message: 'Materials issued: work-in-progress at standard, any difference as a variance.' };
 }
 
 /** Post standard absorption and the actual labour/overhead conversion cost. */

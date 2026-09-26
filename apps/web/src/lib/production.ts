@@ -44,6 +44,9 @@ export interface ProductionOrderComponent {
   plannedCostKobo: string;
   issuedQuantity: string | null;
   issuedCostKobo: string | null;
+  /** Issued at moving average less standard, split by quantity and rate. */
+  usageVarianceKobo: string | null;
+  priceVarianceKobo: string | null;
 }
 
 export interface ProductionOrderOutputRow {
@@ -74,6 +77,9 @@ export interface ProductionOrderDetail extends ProductionOrderRow {
   actualLabourCostKobo: string;
   actualOverheadCostKobo: string;
   abnormalLossCostKobo: string;
+  materialUsageVarianceKobo: string;
+  materialPriceVarianceKobo: string;
+  yieldVarianceKobo: string;
   components: ProductionOrderComponent[];
   outputs: ProductionOrderOutputRow[];
   lossEvents: ProductionOrderLossEvent[];

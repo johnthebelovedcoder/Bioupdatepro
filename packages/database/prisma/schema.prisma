@@ -2234,6 +2234,7 @@ model Item {
   @@index([companyId, itemType, active])
   @@map("items")
   jointOutputPrices JointOutputPrice[]
+  standardCostVersions StandardCostVersion[]
 }
 
 /// §5 "Standard Cost", effective-dated (Rule 8).
@@ -2391,6 +2392,73 @@ model CostPoolRate {
 
   @@index([poolId, effectiveFrom])
   @@map("cost_pool_rates")
+}
+
+/// POL-001 / DEC-004 / AC-MFG-002: production posts at STANDARD COST ONLY,
+/// configured for a financial year before its first production posting and
+/// locked from that posting on. One row per company and year.
+model CostingPolicy {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  financialYearId String    @map("financial_year_id") @db.Uuid
+  /// Always STANDARD — the only method the client's policy allows. Stored so
+  /// the policy report shows what was configured, and checked by the database.
+  method          String    @default("STANDARD")
+  /// POL-009: where settled variances go. COGS is the only disposition built.
+  varianceDisposition String @default("COGS") @map("variance_disposition")
+  /// FeedMill_Cost_Model: a variance above this share of standard good output
+  /// needs a reason at settlement.
+  varianceTolerancePercent Decimal @default(20) @map("variance_tolerance_percent") @db.Decimal(9, 4)
+  configuredById  String    @map("configured_by_id") @db.Uuid
+  configuredAt    DateTime  @default(now()) @map("configured_at")
+  /// Set by the first production posting in the year; the row is fixed after.
+  lockedAt        DateTime? @map("locked_at")
+
+  @@unique([companyId, financialYearId])
+  @@map("costing_policies")
+}
+
+/// POL-003 / SOP-050, the Standard Cost Workbench: a product's standard cost
+/// rolled up from its recipe (materials at approved standard rates) and
+/// routing (hours × approved pool rates), for one financial year, prepared by
+/// one person and released by another. Released versions never change; a
+/// revision is a new version that supersedes it.
+model StandardCostVersion {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  itemId          String   @map("item_id") @db.Uuid
+  recipeVersionId String   @map("recipe_version_id") @db.Uuid
+  financialYearId String   @map("financial_year_id") @db.Uuid
+  versionNumber   Int      @map("version_number")
+  effectiveFrom   DateTime @map("effective_from") @db.Date
+
+  /// QUANTITY the roll-up is for — the recipe's batch.
+  outputQuantity   Decimal @map("output_quantity") @db.Decimal(18, 6)
+  /// MONEY, integer kobo, for the whole batch.
+  materialKobo     BigInt  @map("material_kobo")
+  labourKobo       BigInt  @map("labour_kobo")
+  machineKobo      BigInt  @map("machine_kobo")
+  totalKobo        BigInt  @map("total_kobo")
+  /// MONEY. Per one unit of output: total ÷ output quantity, rounded once.
+  unitCostKobo     BigInt  @map("unit_cost_kobo")
+  /// The released unit cost this one replaces, for the comparison approval.
+  previousUnitCostKobo BigInt? @map("previous_unit_cost_kobo")
+  /// Each material and operation line the totals came from.
+  lines            Json
+
+  status          String    @default("PENDING") // PENDING | RELEASED | REJECTED | SUPERSEDED
+  preparedById    String    @map("prepared_by_id") @db.Uuid
+  approvedById    String?   @map("approved_by_id") @db.Uuid
+  approvedAt      DateTime? @map("approved_at")
+  rejectionReason String?   @map("rejection_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  item          Item                 @relation(fields: [itemId], references: [id])
+  recipeVersion ProductRecipeVersion @relation(fields: [recipeVersionId], references: [id])
+
+  @@unique([companyId, itemId, financialYearId, versionNumber])
+  @@index([companyId, itemId, status])
+  @@map("standard_cost_versions")
 }
 
 // ---------------------------------------------------------------------------
@@ -2710,6 +2778,7 @@ model ProductRecipeVersion {
   @@unique([recipeId, version])
   @@index([recipeId, status])
   @@map("product_recipe_versions")
+  standardCostVersions StandardCostVersion[]
 }
 
 model ProductRecipeComponent {
@@ -2867,6 +2936,19 @@ model ProductionOrder {
   /// MONEY. PCR-056/078 — abnormal processing loss written off WIP.
   abnormalLossCostKobo BigInt @default(0) @map("abnormal_loss_cost_kobo")
 
+  /// MONEY. POL-002/PCR-052: materials enter WIP at standard (BOM quantity ×
+  /// standard rate); what the issue actually cost at moving average, less
+  /// that, is this variance — positive adverse. Split into usage (quantity)
+  /// and price (rate) below.
+  materialUsageVarianceKobo BigInt @default(0) @map("material_usage_variance_kobo")
+  materialPriceVarianceKobo BigInt @default(0) @map("material_price_variance_kobo")
+  /// MONEY. PCR-034: a feed order's good output is received at good kg ×
+  /// released standard cost/kg; what WIP held beyond that (short yield, or
+  /// negative for a better-than-standard yield) is this variance.
+  yieldVarianceKobo BigInt @default(0) @map("yield_variance_kobo")
+  /// The released standard-cost version the output was received at (PCR-034).
+  standardCostVersionId String? @map("standard_cost_version_id") @db.Uuid
+
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
 
   /// Four posting moments, four journals — an order is not one transaction,
@@ -2926,6 +3008,11 @@ model ProductionOrderComponent {
   /// not yet issued has no actual to report.
   issuedQuantity Decimal? @map("issued_quantity") @db.Decimal(18, 6)
   issuedCostKobo BigInt?  @map("issued_cost_kobo")
+  /// MONEY. Issued cost at moving average less the line's standard
+  /// (plannedCostKobo): usage is (issued − standard quantity) × standard rate,
+  /// price is the rest.
+  usageVarianceKobo BigInt? @map("usage_variance_kobo")
+  priceVarianceKobo BigInt? @map("price_variance_kobo")
   stockMovementId String? @map("stock_movement_id") @db.Uuid
 
   productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)

@@ -92,11 +92,6 @@ const CAUSES = {
     why:
       'The workbook revalues the whole snail asset to 20,400 market snails × ₦3,000 and nets the ₦1,100,000 purchased breeders off the gain, so the 500 breeders vanish from its books. In the application they are still a live cohort carried at cost until they die, are sold or are revalued, so the fair-value gain is ₦1,100,000 higher and the asset still holds them.',
   },
-  usageVariance: {
-    amount: N(12_000),
-    why:
-      'The workbook issues 500 kg of packaging against a 480 kg standard and books the ₦12,000 excess as a material usage variance. The application issues the order’s planned 480 kg; the other 20 kg (₦12,000 at ₦600) stays in stock until someone issues or writes it off.',
-  },
   openingStock: {
     amount: N(500_000),
     why:
@@ -306,7 +301,14 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     const { id: orderId } = await orders.createFromHarvest({ harvestRecordId: harvest.id, recipeVersionId: version.id, warehouseId: cold.id, plannedOutputQuantity: meatKg.toFixed(3), actor: actor() });
     const submitted = await orders.submit({ productionOrderId: orderId, actor: actor() });
     await workflow.approve({ transactionId: submitted.transactionId, actor: approver() });
-    await orders.issueMaterials({ productionOrderId: orderId, actor: actor() });
+    // 500 kg issued against the 480 kg standard: WIP takes ₦288,000 at
+    // standard and the ₦12,000 excess is a material usage variance (500_Std_Cost).
+    const packLine = await prisma.productionOrderComponent.findFirstOrThrow({ where: { productionOrderId: orderId } });
+    await orders.issueMaterials({ productionOrderId: orderId, actualQuantities: { [packLine.id]: '500' }, actor: actor() });
+    const issuedOrder = await prisma.productionOrder.findUniqueOrThrow({ where: { id: orderId } });
+    expect(issuedOrder.packagingCostKobo).toBe(N(288_000));
+    expect(issuedOrder.materialUsageVarianceKobo).toBe(N(12_000));
+    expect(issuedOrder.materialPriceVarianceKobo).toBe(0n);
     await orders.confirmConversion({ productionOrderId: orderId, standardConversionCostKobo: N(550_000 + 850_000), actualLabourCostKobo: N(600_000), actualOverheadCostKobo: N(900_000), actor: actor() });
     await orders.recordOutputs({
       productionOrderId: orderId, warehouseId: cold.id, actor: actor(),
@@ -378,10 +380,10 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     const explained: Partial<Record<RepId, Array<[keyof typeof CAUSES, bigint]>>> = {
       'REP-010': [['overheadToPayables', CAUSES.overheadToPayables.amount]],
       'REP-013': [['breeders', CAUSES.breeders.amount]],
-      'REP-014': [['breeders', CAUSES.breeders.amount], ['usageVariance', CAUSES.usageVariance.amount], ['wacRounding', wacRounding]],
-      'REP-015': [['breeders', CAUSES.breeders.amount], ['usageVariance', CAUSES.usageVariance.amount], ['wacRounding', wacRounding], ['taxOnDifference', taxOnDifference]],
-      'REP-016': [['breeders', CAUSES.breeders.amount], ['usageVariance', CAUSES.usageVariance.amount], ['openingStock', CAUSES.openingStock.amount], ['wacRounding', wacRounding]],
-      'REP-017': [['breeders', CAUSES.breeders.amount], ['usageVariance', CAUSES.usageVariance.amount], ['openingStock', CAUSES.openingStock.amount], ['wacRounding', wacRounding]],
+      'REP-014': [['breeders', CAUSES.breeders.amount], ['wacRounding', wacRounding]],
+      'REP-015': [['breeders', CAUSES.breeders.amount], ['wacRounding', wacRounding], ['taxOnDifference', taxOnDifference]],
+      'REP-016': [['breeders', CAUSES.breeders.amount], ['openingStock', CAUSES.openingStock.amount], ['wacRounding', wacRounding]],
+      'REP-017': [['breeders', CAUSES.breeders.amount], ['openingStock', CAUSES.openingStock.amount], ['wacRounding', wacRounding]],
     };
 
     const rows = (Object.keys(EXPECTED) as RepId[]).map((id) => {

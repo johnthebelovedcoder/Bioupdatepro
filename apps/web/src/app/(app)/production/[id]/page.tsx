@@ -6,12 +6,11 @@ import { formatDate, formatNaira, formatQuantity } from '@/lib/money';
 import { Card, PageHeader } from '@/components/ui';
 import {
   submitOrder,
-  issueOrder,
   settleOrder,
   snapshotRouting,
 } from '@/app/(app)/production/actions';
 import { ProductionOrderActionButton } from '@/components/production-order-action-button';
-import { ConfirmConversionForm, RecordLossForm, RecordOutputsForm } from '@/components/production-order-forms';
+import { ConfirmConversionForm, IssueMaterialsForm, RecordLossForm, RecordOutputsForm } from '@/components/production-order-forms';
 
 export const metadata = { title: 'Processing order — BioAssetPro' };
 
@@ -90,6 +89,8 @@ export default async function ProductionOrderDetailPage({
                   <th className="right">Planned cost</th>
                   <th className="right">Issued qty</th>
                   <th className="right">Issued cost</th>
+                  <th className="right">Usage variance</th>
+                  <th className="right">Price variance</th>
                 </tr>
               </thead>
               <tbody>
@@ -102,6 +103,8 @@ export default async function ProductionOrderDetailPage({
                     <td className="num">{formatNaira(c.plannedCostKobo)}</td>
                     <td className="num">{c.issuedQuantity ? formatQuantity(c.issuedQuantity) : '—'}</td>
                     <td className="num">{c.issuedCostKobo ? formatNaira(c.issuedCostKobo) : '—'}</td>
+                    <td className="num">{c.usageVarianceKobo ? formatNaira(c.usageVarianceKobo) : '—'}</td>
+                    <td className="num">{c.priceVarianceKobo ? formatNaira(c.priceVarianceKobo) : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -275,11 +278,13 @@ function StageAction({
       );
     case 'APPROVED':
       return (
-        <ProductionOrderActionButton
-          action={issueOrder}
-          id={order.id}
-          label="Issue materials"
-          pendingLabel="Issuing…"
+        <IssueMaterialsForm
+          orderId={order.id}
+          lines={order.components.map((c) => ({
+            id: c.id,
+            label: `${c.componentItem.code} — ${c.componentItem.description}`,
+            standardQuantity: c.plannedQuantity,
+          }))}
         />
       );
     case 'RELEASED':

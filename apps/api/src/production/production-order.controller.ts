@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductionOrderService } from './production-order.service';
 import { JointCostService } from './joint-cost.service';
+import { StandardCostService } from './standard-cost.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { AnyRole, Roles } from '../auth/roles.guard';
 import { OwnedRecord } from '../auth/owned-record.guard';
@@ -20,6 +21,7 @@ export class ProductionOrderController {
     private readonly prisma: PrismaService,
     private readonly orders: ProductionOrderService,
     private readonly joint: JointCostService,
+    private readonly standards: StandardCostService,
   ) {}
 
   /**
@@ -112,6 +114,86 @@ export class ProductionOrderController {
     return { id: decided.id, status: decided.status };
   }
 
+  // --- Standard costing (POL-001, SOP-049/050) ------------------------------
+
+  @AnyRole('The costing policy and released standards are what every production posting is valued at.')
+  @Get('standard-costs')
+  async standardCosts(@CurrentCompany() companyId: string) {
+    const [policies, versions, recipes] = await Promise.all([
+      this.standards.policies(companyId),
+      this.standards.list(companyId),
+      this.prisma.productRecipeVersion.findMany({
+        where: { recipe: { companyId }, status: { not: 'DRAFT' } },
+        select: { id: true, version: true, status: true, batchSize: true, recipe: { select: { code: true, name: true } } },
+        orderBy: [{ recipe: { code: 'asc' } }, { version: 'desc' }],
+      }),
+    ]);
+    return {
+      policies,
+      versions,
+      recipeVersions: recipes.map((r) => ({
+        id: r.id,
+        label: `${r.recipe.code} v${r.version} — ${r.recipe.name}`,
+        status: r.status,
+        batchSize: r.batchSize.toString(),
+      })),
+    };
+  }
+
+  @Roles('CFO', 'FINANCE_CONTROLLER')
+  @Post('standard-costs/policy')
+  async configureCostingPolicy(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { financialYearId: string; varianceTolerancePercent?: string | number },
+  ) {
+    const policy = await this.standards.configurePolicy({
+      companyId,
+      financialYearId: String(body?.financialYearId ?? ''),
+      varianceTolerancePercent: body?.varianceTolerancePercent,
+      actor,
+    });
+    return { id: policy.id };
+  }
+
+  @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('standard-costs/roll-up')
+  async previewStandard(@CurrentCompany() companyId: string, @Body() body: { recipeVersionId: string; on?: string }) {
+    const rolled = await this.standards.rollUp(companyId, String(body?.recipeVersionId ?? ''), body?.on ? new Date(body.on) : new Date());
+    return {
+      ...rolled,
+      materialKobo: rolled.materialKobo.toString(),
+      labourKobo: rolled.labourKobo.toString(),
+      machineKobo: rolled.machineKobo.toString(),
+      totalKobo: rolled.totalKobo.toString(),
+      unitCostKobo: rolled.unitCostKobo.toString(),
+    };
+  }
+
+  @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('standard-costs')
+  async prepareStandard(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { recipeVersionId: string; effectiveFrom: string },
+  ) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body?.effectiveFrom ?? '')) throw new BadRequestException('effectiveFrom must be a date, YYYY-MM-DD.');
+    const version = await this.standards.prepare({ companyId, recipeVersionId: String(body.recipeVersionId ?? ''), effectiveFrom: new Date(body.effectiveFrom), actor });
+    return { id: version.id, versionNumber: version.versionNumber, unitCostKobo: version.unitCostKobo.toString() };
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('standard-costs/:versionId/decide')
+  async decideStandard(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('versionId') versionId: string,
+    @Body() body: { approve: boolean; reason?: string },
+  ) {
+    const decided = await this.standards.decide({ companyId, versionId, approve: body?.approve === true, reason: body?.reason, actor });
+    return { id: decided.id, status: decided.status };
+  }
+
   @AnyRole('One processing order in full.')
   /*
    * Every route addressed by an order id checks that the order is this
@@ -180,8 +262,12 @@ export class ProductionOrderController {
   @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
   @OwnedRecord('productionOrder', 'id')
   @Post(':id/issue')
-  async issue(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
-    return this.orders.issueMaterials({ productionOrderId: id, actor });
+  async issue(
+    @Param('id') id: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { actualQuantities?: Record<string, string | number> } = {},
+  ) {
+    return this.orders.issueMaterials({ productionOrderId: id, actualQuantities: body?.actualQuantities, actor });
   }
 
   @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
