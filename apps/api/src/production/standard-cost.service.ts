@@ -146,6 +146,12 @@ export class StandardCostService {
     return policy;
   }
 
+  /** The policy a date falls under, without locking it — for reading. */
+  async policyOn(client: Client, companyId: string, on: Date) {
+    const year = await this.yearOf(client, companyId, on);
+    return client.costingPolicy.findFirst({ where: { companyId, financialYearId: year.id } });
+  }
+
   // --- Workbench (SOP-050) --------------------------------------------------
 
   /**

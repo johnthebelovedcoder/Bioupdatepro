@@ -215,10 +215,15 @@ export async function recordOutputs(_previous: FlowState, formData: FormData): P
   return { error: null, message: 'Outputs received. The order is complete.' };
 }
 
-/** Close the order: compare actual conversion cost against standard and post the variance. */
-export async function settleOrder(id: string): Promise<FlowState> {
+/**
+ * Close the order: compare actual conversion cost against standard and post
+ * the variance. A total variance beyond the year's tolerance needs a reason.
+ */
+export async function settleWithReason(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const id = String(formData.get('productionOrderId') ?? '');
+  const varianceReason = String(formData.get('varianceReason') ?? '').trim();
   try {
-    await api(`/production-orders/${id}/settle`, { method: 'POST' });
+    await api(`/production-orders/${id}/settle`, { method: 'POST', body: varianceReason ? { varianceReason } : {} });
   } catch (caught) {
     return fail(caught, 'Could not settle that order.');
   }

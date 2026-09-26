@@ -260,6 +260,44 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     expect(await balanceOf('130110')).toBe(533_120_00n); // finished feed at standard
   });
 
+  it('settles a variance beyond the year’s tolerance only with a reason', async () => {
+    // Within the default 20%: the ₦26,375.50 is 4.95% of ₦533,120 and settles as it is.
+    await releasedStandard();
+    const first = await throughConversion();
+    await orders.recordOutputs({ productionOrderId: first, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: '980' }], warehouseId: feedStore, actor: maker });
+    const within = await orders.varianceCheck(first);
+    expect(within.totalKobo).toBe(26_375_50n.toString());
+    expect(within.percent).toBe('4.95');
+    expect(within.overTolerance).toBe(false);
+    await orders.settle({ productionOrderId: first, actor: maker });
+    expect((await prisma.productionOrder.findUniqueOrThrow({ where: { id: first } })).varianceReason).toBeNull();
+
+    // Next year's tighter tolerance, shown here by setting it before a fresh year's first posting.
+    const policy = await prisma.costingPolicy.findFirstOrThrow({ where: { companyId: fixture.companyId } });
+    await prisma.$executeRawUnsafe(`ALTER TABLE costing_policies DISABLE TRIGGER trg_costing_policy_locked`);
+    await prisma.costingPolicy.update({ where: { id: policy.id }, data: { varianceTolerancePercent: 3 } });
+    await prisma.$executeRawUnsafe(`ALTER TABLE costing_policies ENABLE TRIGGER trg_costing_policy_locked`);
+
+    const rawStore = await prisma.warehouse.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'SFM-RM' } });
+    await prisma.$transaction((tx) =>
+      new StockMovementService(prisma).receiveIn({
+        tx, companyId: fixture.companyId, branchId: fixture.branchId, itemId: item.RM!,
+        warehouseId: rawStore.id,
+        quantity: new Decimal(1050), valueKobo: 405_000_00n, sourceModule: 'test', sourceDocumentType: 'Receipt', sourceDocumentId: 'grn-2', documentReference: 'GRN-2', movementDate: new Date('2026-02-02'),
+      }),
+    );
+    const second = await throughConversion();
+    await orders.recordOutputs({ productionOrderId: second, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: '980' }], warehouseId: feedStore, actor: maker });
+    const beyond = await orders.varianceCheck(second);
+    expect(beyond.overTolerance).toBe(true);
+    await expect(orders.settle({ productionOrderId: second, actor: maker })).rejects.toThrow(/beyond the 3% tolerance. Say why/);
+    await orders.settle({ productionOrderId: second, varianceReason: 'Maize bran price rose; standard due for revision', actor: maker });
+    const settled = await prisma.productionOrder.findUniqueOrThrow({ where: { id: second } });
+    expect(settled.varianceReason).toBe('Maize bran price rose; standard due for revision');
+    expect(settled.varianceReasonById).toBe(fixture.makerId);
+    expect(settled.settledAt).not.toBeNull();
+  });
+
   it('refuses production in a year with no costing policy, and locks it at the first posting (AC-MFG-002)', async () => {
     await releasedStandard();
     const policy = await prisma.costingPolicy.findFirstOrThrow({ where: { companyId: fixture.companyId } });

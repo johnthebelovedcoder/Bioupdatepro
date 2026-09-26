@@ -2961,6 +2961,10 @@ model ProductionOrder {
   yieldVarianceKobo BigInt @default(0) @map("yield_variance_kobo")
   /// The released standard-cost version the output was received at (PCR-034).
   standardCostVersionId String? @map("standard_cost_version_id") @db.Uuid
+  /// The reason given for a total variance beyond the year's tolerance
+  /// (FeedMill_Cost_Model, PCR-036 "variance type; reason"), and who gave it.
+  varianceReason     String? @map("variance_reason")
+  varianceReasonById String? @map("variance_reason_by_id") @db.Uuid
 
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
 

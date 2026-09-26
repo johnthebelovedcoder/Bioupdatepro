@@ -361,7 +361,15 @@ export class ProductionOrderController {
   @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
   @OwnedRecord('productionOrder', 'id')
   @Post(':id/settle')
-  async settle(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
-    return this.orders.settle({ productionOrderId: id, actor });
+  async settle(@Param('id') id: string, @CurrentUser() actor: WorkflowActor, @Body() body: { varianceReason?: string } = {}) {
+    return this.orders.settle({ productionOrderId: id, varianceReason: body?.varianceReason, actor });
+  }
+
+  /** The order's variances against its standard, and the year's tolerance. */
+  @AnyRole('How far an order is from its standard, and whether settling it needs a reason.')
+  @OwnedRecord('productionOrder', 'id')
+  @Get(':id/variance')
+  async variance(@Param('id') id: string) {
+    return this.orders.varianceCheck(id);
   }
 }

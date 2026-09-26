@@ -1451,7 +1451,40 @@ export class ProductionOrderService {
    * not a hope — `recordOutputs()`'s residual-plug computation should
    * already guarantee it, and this refuses to post if it somehow does not.
    */
-  async settle(params: { productionOrderId: string; actor: WorkflowActor }) {
+  /**
+   * The order's total variance against its standard good output, and whether
+   * it is beyond the year's tolerance (FeedMill_Cost_Model: "Variance ÷
+   * standard good output … WITHIN 20%"). Material usage and price, yield, and
+   * conversion (actual less absorbed) together; a large favourable variance
+   * counts as much as an adverse one, since either says the standard is wrong.
+   */
+  async varianceCheck(productionOrderId: string) {
+    const order = await this.prisma.productionOrder.findUniqueOrThrow({ where: { id: productionOrderId } });
+    const policy = await new StandardCostService(this.prisma, this.audit, this.recipes).policyOn(this.prisma, order.companyId, new Date());
+    const conversion = order.actualLabourCostKobo + order.actualOverheadCostKobo - order.standardConversionCostKobo;
+    const total = order.materialUsageVarianceKobo + order.materialPriceVarianceKobo + order.yieldVarianceKobo + conversion;
+    const basis = order.finishedGoodsCostKobo;
+    const magnitude = total < 0n ? -total : total;
+    const percent = basis > 0n ? new Decimal(magnitude.toString()).div(basis.toString()).mul(100) : null;
+    const tolerance = policy ? new Decimal(policy.varianceTolerancePercent.toString()) : null;
+    const overTolerance =
+      tolerance === null ? false : percent === null ? total !== 0n : percent.gt(tolerance);
+    return {
+      orderNumber: order.orderNumber,
+      materialUsageKobo: order.materialUsageVarianceKobo.toString(),
+      materialPriceKobo: order.materialPriceVarianceKobo.toString(),
+      yieldKobo: order.yieldVarianceKobo.toString(),
+      conversionKobo: conversion.toString(),
+      totalKobo: total.toString(),
+      standardGoodOutputKobo: basis.toString(),
+      percent: percent?.toFixed(2) ?? null,
+      tolerancePercent: tolerance?.toString() ?? null,
+      overTolerance,
+      reason: order.varianceReason,
+    };
+  }
+
+  async settle(params: { productionOrderId: string; varianceReason?: string; actor: WorkflowActor }) {
     const order = await this.prisma.productionOrder.findUniqueOrThrow({
       where: { id: params.productionOrderId },
       include: { sourceGroup: true },
@@ -1510,8 +1543,25 @@ export class ProductionOrderService {
      */
     const feedPool = order.processingCycle === ProductionOrderCycle.FEED_MILL;
     const clearsPools = rules.actualLabourRuleId !== null || rules.actualConversionRuleId !== null || feedPool;
+
+    /*
+     * The year's tolerance (Costing_Policy_v2, FeedMill_Cost_Model): a total
+     * variance beyond it settles only with a reason, recorded on the order
+     * and in the audit trail (PCR-036 "variance type; reason").
+     */
+    const check = await this.varianceCheck(order.id);
+    const reason = params.varianceReason?.trim() || null;
+    if (check.overTolerance && !reason) {
+      throw new AccountingRuleViolation(
+        'Costing_Policy_v2 — Variance tolerance',
+        `${order.orderNumber}'s total variance is ${check.totalKobo} kobo${check.percent !== null ? `, ${check.percent}% of its standard good output` : ''} — beyond the ${check.tolerancePercent}% tolerance. Say why before it settles.`,
+        { ...check },
+      );
+    }
+    const reasonData = reason ? { varianceReason: reason, varianceReasonById: params.actor.userId } : {};
+
     if (clearsPools ? order.standardConversionCostKobo === 0n && actualIncurred === 0n : variance === 0n) {
-      await this.prisma.productionOrder.update({ where: { id: order.id }, data: { settledAt: new Date() } });
+      await this.prisma.productionOrder.update({ where: { id: order.id }, data: { settledAt: new Date(), ...reasonData } });
       return { journalEntryId: null, variance: '0' };
     }
 
@@ -1605,7 +1655,7 @@ export class ProductionOrderService {
 
       await tx.productionOrder.update({
         where: { id: order.id },
-        data: { settlementJournalEntryId: result.journalEntryId, settledAt: new Date() },
+        data: { settlementJournalEntryId: result.journalEntryId, settledAt: new Date(), ...reasonData },
       });
 
       await this.audit.write(

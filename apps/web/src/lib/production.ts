@@ -247,6 +247,29 @@ export interface ProductionRoutingLine {
 }
 
 /** The routing an order was costed against — snapshotted from its recipe. */
+/** An order's variances against its standard, and the year's tolerance. */
+export interface ProductionVariance {
+  orderNumber: string;
+  materialUsageKobo: string;
+  materialPriceKobo: string;
+  yieldKobo: string;
+  conversionKobo: string;
+  totalKobo: string;
+  standardGoodOutputKobo: string;
+  percent: string | null;
+  tolerancePercent: string | null;
+  overTolerance: boolean;
+  reason: string | null;
+}
+
+export async function getProductionVariance(orderId: string): Promise<ProductionVariance | null> {
+  try {
+    return await api<ProductionVariance>(`/production-orders/${orderId}/variance`);
+  } catch {
+    return null;
+  }
+}
+
 export async function getProductionRouting(orderId: string): Promise<ProductionRoutingLine[]> {
   try {
     return await api<ProductionRoutingLine[]>(`/production/orders/${orderId}/routing`);

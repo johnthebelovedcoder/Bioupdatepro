@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import {
+  settleWithReason,
   issueWithQuantities,
   confirmConversion,
   recordLoss,
@@ -50,6 +51,32 @@ export function IssueMaterialsForm({
       ) : null}
       <div>
         <Submit label="Issue materials" pendingLabel="Issuing…" />
+      </div>
+    </form>
+  );
+}
+
+/**
+ * COMPLETED → settled. Beyond the year's variance tolerance the order needs
+ * a reason, which is kept on the order and in the audit trail.
+ */
+export function SettleOrderForm({ orderId, needsReason, summary }: { orderId: string; needsReason: boolean; summary: string | null }) {
+  const [state, action] = useActionState<FlowState, FormData>(settleWithReason, { error: null, message: null });
+  return (
+    <form action={action} className="stack" style={{ gap: 'var(--sp-3)' }}>
+      <input type="hidden" name="productionOrderId" value={orderId} />
+      {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+      {needsReason ? (
+        <>
+          <div className="notice notice-warning">{summary}</div>
+          <label className="field">
+            Why is the variance this large?
+            <textarea name="varianceReason" rows={2} required placeholder="e.g. Maize price rose in June; standard due for revision" />
+          </label>
+        </>
+      ) : null}
+      <div>
+        <Submit label="Settle" pendingLabel="Settling…" />
       </div>
     </form>
   );

@@ -218,7 +218,9 @@ Stated here rather than discovered later.
   operation's resource) — prepared by one person and released by another;
   a feed order's good output is received at good kg × that standard, and the
   shortfall is a yield variance. Settlement clears WIP, recovery and the
-  feed-mill pool (623100) to zero. Feed and treatments absorbed by a population
+  feed-mill pool (623100) to zero; an order whose total variance is beyond
+  the year's tolerance (20% of standard good output by default) settles only
+  with a reason, kept on the order. Feed and treatments absorbed by a population
   leave it with each death, sale or harvest at weighted average; relief is
   exact from 2026-09-24, and feed eaten by animals that left before then stays
   spread over the survivors.

@@ -1,16 +1,15 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getProductionOrder, getProductionRouting } from '@/lib/production';
+import { getProductionOrder, getProductionRouting, getProductionVariance, type ProductionVariance } from '@/lib/production';
 import { getWarehouses, getStockItems } from '@/lib/masters';
 import { formatDate, formatNaira, formatQuantity } from '@/lib/money';
 import { Card, PageHeader } from '@/components/ui';
 import {
   submitOrder,
-  settleOrder,
   snapshotRouting,
 } from '@/app/(app)/production/actions';
 import { ProductionOrderActionButton } from '@/components/production-order-action-button';
-import { ConfirmConversionForm, IssueMaterialsForm, RecordLossForm, RecordOutputsForm } from '@/components/production-order-forms';
+import { ConfirmConversionForm, IssueMaterialsForm, RecordLossForm, RecordOutputsForm, SettleOrderForm } from '@/components/production-order-forms';
 
 export const metadata = { title: 'Processing order — BioAssetPro' };
 
@@ -29,6 +28,7 @@ export default async function ProductionOrderDetailPage({
   const order = await getProductionOrder(id);
   if (!order) notFound();
   const routing = await getProductionRouting(id);
+  const variance = order.status === 'COMPLETED' ? await getProductionVariance(id) : null;
   const routingCost = routing.reduce((sum, line) => sum + BigInt(line.standardCostKobo), 0n);
 
   return (
@@ -53,9 +53,44 @@ export default async function ProductionOrderDetailPage({
           </div>
 
           <div style={{ marginTop: 'var(--sp-4)' }}>
-            <StageAction order={order} routing={routing} />
+            <StageAction order={order} routing={routing} variance={variance} />
           </div>
         </Card>
+
+        {variance ? (
+          <Card
+            title="Variance against standard"
+            subtitle={
+              variance.tolerancePercent
+                ? `Tolerance ${Number(variance.tolerancePercent)}% of standard good output`
+                : 'No costing policy for this year'
+            }
+          >
+            <table className="data">
+              <tbody>
+                {[
+                  ['Material usage', variance.materialUsageKobo],
+                  ['Material price', variance.materialPriceKobo],
+                  ['Yield', variance.yieldKobo],
+                  ['Conversion', variance.conversionKobo],
+                ].map(([label, value]) => (
+                  <tr key={label}>
+                    <td style={{ textAlign: 'left' }}>{label}</td>
+                    <td className="num">{formatNaira(value!)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ textAlign: 'left', fontWeight: 600 }}>Total (positive is adverse)</td>
+                  <td className="num" style={{ fontWeight: 600 }}>
+                    {formatNaira(variance.totalKobo)}
+                    {variance.percent !== null ? ` · ${variance.percent}%` : ''}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            {variance.reason ? <p className="faint" style={{ marginTop: 'var(--sp-3)' }}>Reason given: {variance.reason}</p> : null}
+          </Card>
+        ) : null}
 
         <Card title="Cost so far">
           <div className="stat-grid">
@@ -254,9 +289,11 @@ function MoneyStat({ label, value }: { label: string; value: string }) {
 function StageAction({
   order,
   routing,
+  variance,
 }: {
   order: NonNullable<Awaited<ReturnType<typeof getProductionOrder>>>;
   routing: Awaited<ReturnType<typeof getProductionRouting>>;
+  variance: ProductionVariance | null;
 }) {
   switch (order.status) {
     case 'DRAFT':
@@ -304,11 +341,14 @@ function StageAction({
       );
     case 'COMPLETED':
       return (
-        <ProductionOrderActionButton
-          action={settleOrder}
-          id={order.id}
-          label="Settle"
-          pendingLabel="Settling…"
+        <SettleOrderForm
+          orderId={order.id}
+          needsReason={Boolean(variance?.overTolerance && !variance.reason)}
+          summary={
+            variance
+              ? `Total variance ${formatNaira(variance.totalKobo)}${variance.percent !== null ? ` is ${variance.percent}%` : ''} of standard good output — beyond the ${Number(variance.tolerancePercent)}% tolerance.`
+              : null
+          }
         />
       );
     case 'CANCELLED':
