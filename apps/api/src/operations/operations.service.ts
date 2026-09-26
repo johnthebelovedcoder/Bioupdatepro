@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { BatchProfileService, CARCASS_DISPOSALS } from './batch-profile.service';
 import { assertPenRoom } from './pen-capacity';
+import { assertNoWithdrawal, clearsOn, runningWithdrawal } from './withdrawal';
 import { AuditAction, Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
@@ -474,7 +475,10 @@ export class OperationsService {
           populationAtTime: payload.populationAtTime ?? group.population,
           productBatch: payload.productBatch ?? null,
           withdrawalDays: payload.withdrawalDays ?? 0,
-          safeToSellFrom: payload.safeToSellFrom ? asDate(payload.safeToSellFrom) : null,
+          // Always a day to check against: the one given, else given-on plus the days.
+          safeToSellFrom: payload.safeToSellFrom
+            ? asDate(payload.safeToSellFrom)
+            : clearsOn({ givenOn: asDate(payload.date), withdrawalDays: payload.withdrawalDays ?? 0, safeToSellFrom: null }),
           costKobo: payload.costKobo ? BigInt(payload.costKobo) : 0n,
           notes: payload.notes ?? null,
           recordedById: actor.userId,
@@ -635,6 +639,36 @@ export class OperationsService {
       const movedTo = payload.movedToGroup
         ? await this.resolveGroup(tx, companyId, payload.movedToGroup)
         : null;
+
+      /*
+       * Withdrawal (handbook §29, §59.5): a harvest for food waits until every
+       * treatment's withdrawal period has run. Animals moved to another
+       * population are not food yet — they may move, and the withdrawal goes
+       * with them so the receiving population cannot be sold early either.
+       */
+      if (!movedTo) {
+        await assertNoWithdrawal(tx, { companyId, groupId: group.id, groupCode: group.code, on: asDate(payload.date), doing: 'harvested' });
+      } else {
+        const running = await runningWithdrawal(tx, companyId, group.id, asDate(payload.date));
+        if (running) {
+          await tx.treatmentRecord.create({
+            data: {
+              companyId,
+              groupId: movedTo.id,
+              name: running.name,
+              givenOn: running.givenOn,
+              route: 'CARRIED',
+              givenBy: group.code,
+              treatedCount: payload.count,
+              populationAtTime: movedTo.population,
+              withdrawalDays: 0,
+              safeToSellFrom: running.until,
+              notes: `Withdrawal carried with ${payload.count} moved from ${group.code}.`,
+              recordedById: actor.userId,
+            },
+          });
+        }
+      }
 
       const record = await tx.harvestRecord.create({
         data: {

@@ -50,6 +50,8 @@ const ACCOUNTS: AccountSeed[] = [
   { number: '1302', name: 'Packaging & Consumables Inventory', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
   { number: '1305', name: 'By-product Inventory', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
   { number: '1401', name: 'Finished Goods Inventory', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  { number: '1402', name: 'Finished Goods - Capitalised Variance', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
+  { number: '1403', name: 'Work in Progress - Capitalised Variance', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
   // Cost centre mandatory: every production cost must be attributable (§10.5).
   { number: '1501', name: 'Work in Progress', type: AccountType.ASSET, normal: NormalBalance.DEBIT, requiresCostCentre: true },
   { number: '1601', name: 'Input VAT Recoverable', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
@@ -91,6 +93,7 @@ const ACCOUNTS: AccountSeed[] = [
   { number: '1701', name: 'Property, Plant & Equipment', type: AccountType.ASSET, normal: NormalBalance.DEBIT },
   { number: '1702', name: 'Accumulated Depreciation', type: AccountType.ASSET, normal: NormalBalance.CREDIT },
   { number: '5501', name: 'Depreciation Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
+  { number: '5502', name: 'Impairment Loss - Fixed Assets', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT },
 
   /*
    * The biological-asset lifecycle (§61/§67 — PCR-037 through PCR-071).

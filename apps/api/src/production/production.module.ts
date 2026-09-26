@@ -7,6 +7,10 @@ import { ProductionOrderAbnormalLossPostingHandler } from './production-order.ha
 import { MastersModule } from '../masters/masters.module';
 import { PostingControlModule } from '../posting-control/posting-control.module';
 import { WorkflowService } from '../workflow/workflow.service';
+import { FeedPlanService } from './feed-plan.service';
+import { FeedQualityService } from './feed-quality.service';
+import { FeedMillController } from './feed-mill.controller';
+import { VarianceProrationService } from './variance-proration.service';
 
 /**
  * Production orders — SnailPro (PCR-051–058) and PoultryPro (PCR-074–080)
@@ -15,10 +19,20 @@ import { WorkflowService } from '../workflow/workflow.service';
  */
 @Module({
   imports: [MastersModule, PostingControlModule],
-  providers: [ProductionOrderService, CostAllocationService, ProductionOrderAbnormalLossPostingHandler, JointCostService, StandardCostService],
+  providers: [
+    ProductionOrderService,
+    CostAllocationService,
+    ProductionOrderAbnormalLossPostingHandler,
+    JointCostService,
+    StandardCostService,
+    FeedPlanService,
+    FeedQualityService,
+    VarianceProrationService,
+  ],
+  controllers: [FeedMillController],
   // ProductionOrderController is registered in AppModule, matching every
   // other feature module's controller in this codebase.
-  exports: [ProductionOrderService, JointCostService, StandardCostService],
+  exports: [ProductionOrderService, JointCostService, StandardCostService, FeedPlanService, FeedQualityService, VarianceProrationService],
 })
 export class ProductionModule implements OnModuleInit {
   constructor(

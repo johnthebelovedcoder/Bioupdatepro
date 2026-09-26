@@ -63,3 +63,22 @@ export async function createBreed(_previous: FlowState, formData: FormData): Pro
   revalidatePath('/admin/breeds');
   return { error: null, message: `${name} added.` };
 }
+
+/** A stage's target live weight and feed per head per day, in grams. */
+export async function saveStageStandards(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const stageId = String(formData.get('stageId') ?? '');
+  const grams = (k: string) => {
+    const v = String(formData.get(k) ?? '').trim();
+    return v === '' ? null : Number(v);
+  };
+  try {
+    await api(`/masters/species-breeds/stages/${stageId}`, {
+      method: 'POST',
+      body: { targetWeightGrams: grams('targetWeightGrams'), dailyFeedGramsPerHead: grams('dailyFeedGramsPerHead') },
+    });
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not save those standards.', message: null };
+  }
+  revalidatePath('/admin/breeds');
+  return { error: null, message: 'Saved.' };
+}

@@ -10,6 +10,7 @@ import { WorkflowActor } from '../workflow/workflow.types';
 import { PostingControlService, ResolvedRule } from '../posting-control/posting-control.service';
 import { StockMovementService } from './stock-movement.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { allocateFefo } from './lots';
 import { kobo } from '../common/money';
 
 /**
@@ -82,6 +83,8 @@ export class InventoryTransferService {
 
     return this.prisma.$transaction(async (tx) => {
       const quantity = new Decimal(params.quantity);
+      // The lots it leaves in, earliest expiry first, so it arrives as the same lots.
+      const lots = await allocateFefo(tx, { companyId: params.companyId, itemId: params.itemId, warehouseId: params.fromWarehouseId, quantity, on: new Date() });
       const issued = await this.stockMovements.issueOut({
         tx,
         companyId: params.companyId,
@@ -137,6 +140,7 @@ export class InventoryTransferService {
           quantity: new Prisma.Decimal(quantity.toFixed(6)),
           valueKobo: issued.valueKobo,
           status: InventoryTransferStatus.IN_TRANSIT,
+          lotAllocation: lots && lots.some((l) => l.lotReference) ? lots : undefined,
           issueJournalEntryId: result.journalEntryId,
           issuedAt: new Date(),
           createdById: params.actor.userId,
@@ -186,21 +190,37 @@ export class InventoryTransferService {
 
     return this.prisma.$transaction(async (tx) => {
       // Received at PCR-013's own basis — "original transfer value" — never
-      // re-priced at the destination's current WAC.
-      await this.stockMovements.receiveIn({
-        tx,
-        companyId: transfer.companyId,
-        branchId: transfer.branchId,
-        itemId: transfer.itemId,
-        warehouseId: transfer.toWarehouseId,
-        quantity: new Decimal(transfer.quantity.toString()),
-        valueKobo: transfer.valueKobo,
-        sourceModule: 'inventory',
-        sourceDocumentType: 'InventoryTransfer',
-        sourceDocumentId: transfer.transferNumber,
-        documentReference: transfer.transferNumber,
-        movementDate: new Date(),
-      });
+      // re-priced at the destination's current WAC. Lot by lot where it left
+      // as lots, so expiry and quarantine travel with the stock.
+      const total = new Decimal(transfer.quantity.toString());
+      const pieces = Array.isArray(transfer.lotAllocation)
+        ? (transfer.lotAllocation as Array<{ lotReference: string | null; quantity: string }>)
+        : [{ lotReference: null, quantity: total.toFixed(6) }];
+      let valueLeft = transfer.valueKobo;
+      for (const [index, piece] of pieces.entries()) {
+        const qty = new Decimal(piece.quantity);
+        if (qty.lte(0)) continue;
+        const value =
+          index === pieces.length - 1
+            ? valueLeft
+            : BigInt(new Decimal(transfer.valueKobo.toString()).mul(qty).div(total).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+        valueLeft -= value;
+        await this.stockMovements.receiveIn({
+          tx,
+          companyId: transfer.companyId,
+          branchId: transfer.branchId,
+          itemId: transfer.itemId,
+          warehouseId: transfer.toWarehouseId,
+          quantity: qty,
+          valueKobo: value,
+          batchReference: piece.lotReference,
+          sourceModule: 'inventory',
+          sourceDocumentType: 'InventoryTransfer',
+          sourceDocumentId: transfer.transferNumber,
+          documentReference: transfer.transferNumber,
+          movementDate: new Date(),
+        });
+      }
 
       const result = await this.posting.post(
         {
@@ -270,6 +290,8 @@ export class InventoryTransferService {
     warehouseId: string;
     quantity: Decimal.Value;
     reason: string;
+    /** The lot being written off — an expired or rejected one — where there is one. */
+    lotReference?: string | null;
     actor: WorkflowActor;
   }): Promise<{ id: string; status: string; journalEntryId: string | null }> {
     if (!params.reason?.trim()) {
@@ -302,6 +324,7 @@ export class InventoryTransferService {
           quantity: new Prisma.Decimal(quantity.toFixed(6)),
           valueKobo: estimate,
           reason: params.reason.trim(),
+          lotReference: params.lotReference?.trim() || null,
           status: 'PENDING',
           createdById: params.actor.userId,
         },
@@ -379,6 +402,7 @@ export class InventoryTransferService {
         itemId: writeOff.itemId,
         warehouseId: writeOff.warehouseId,
         quantity: new Decimal(writeOff.quantity.toString()),
+        batchReference: writeOff.lotReference,
         sourceModule: 'inventory',
         sourceDocumentType: 'InventoryWriteOff',
         sourceDocumentId: writeOff.id,

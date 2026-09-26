@@ -41,8 +41,10 @@ describe('PostingControlProvisioningService', () => {
     expect(result.keys).toBe(172);
     // The workbook names 68 distinct six-digit accounts, plus the two it implies
     // (420210 egg gain, 623100 feed-mill overhead) and two the old chart had
-    // (125200 WHT receivable, 690100 operating expenses); 132 keys point at one.
-    expect(result.accountsCreated).toBe(72);
+    // (125200 WHT receivable, 690100 operating expenses), and three the chart
+    // lacks a number for (630200 impairment, 130590/130595 capitalised variance);
+    // 132 keys point at one.
+    expect(result.accountsCreated).toBe(75);
     expect(result.linked).toBe(132);
 
     expect(await provisioning.status(fixture.companyId)).toMatchObject({ loaded: true, rules: 86, keys: 172 });

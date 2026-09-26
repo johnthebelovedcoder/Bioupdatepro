@@ -18,6 +18,7 @@ import {
   FixedAssetDisposalPostingHandler,
 } from '../../src/fixed-assets/fixed-asset.handlers';
 import { DepreciationScheduleService } from '../../src/reporting/depreciation-schedule.service';
+import { AssetChangeService } from '../../src/fixed-assets/asset-change.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
@@ -145,5 +146,43 @@ describe('Fixed assets (UAT-007)', () => {
     await expect(
       assets.runDepreciation({ companyId: fixture.companyId, actor: maker, financialPeriodId: fixture.periodIds[0]! }),
     ).rejects.toThrow(/already exists for this period/);
+  });
+
+  it('impairs to the recoverable amount on another person’s approval, then depreciates what is left over the remaining life (IAS 36)', async () => {
+    fixture.accounts['5502'] = (
+      await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: '5502', name: 'Impairment Loss', accountType: 'EXPENSE', normalBalance: 'DEBIT' } })
+    ).id;
+    const audit = new AuditService(prisma);
+    const changes = new AssetChangeService(prisma, audit, new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma)));
+    const mixer = await capitalise('Feed mixer', '2026-01-05', 1_200_000_00n, 60);
+    const jan = await assets.runDepreciation({ companyId: fixture.companyId, actor: maker, financialPeriodId: fixture.periodIds[0]! });
+    await workflow.approve({ transactionId: jan.awaitingApproval, actor: approver });
+
+    // Carried at ₦1.18m; flood damage leaves ₦1m recoverable.
+    const raised = await changes.requestImpairment({
+      companyId: fixture.companyId, assetId: mixer, impairedOn: new Date('2026-02-10'), recoverableAmountKobo: 1_000_000_00n, reason: 'Flood damage', actor: maker,
+    });
+    expect(raised.amountKobo).toBe((180_000_00n).toString());
+    await expect(changes.decideImpairment({ companyId: fixture.companyId, impairmentId: raised.id, decision: 'APPROVE', actor: maker })).rejects.toThrow(/finance controller or the CFO/);
+    await changes.decideImpairment({ companyId: fixture.companyId, impairmentId: raised.id, decision: 'APPROVE', actor: { userId: fixture.checkerId, roles: ['FINANCE_CONTROLLER'] } });
+    expect(await balance('5502')).toBe(180_000_00n);
+    expect(await balance('1702')).toBe(-200_000_00n);
+
+    // February: ₦1m over the 59 months left, not ₦20,000.
+    const feb = await assets.runDepreciation({ companyId: fixture.companyId, actor: maker, financialPeriodId: fixture.periodIds[1]! });
+    await workflow.approve({ transactionId: feb.awaitingApproval, actor: approver });
+    expect(await balance('5501')).toBe(20_000_00n + 1_000_000_00n / 59n);
+
+    const schedule = await new DepreciationScheduleService(prisma).build({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, throughPeriodId: fixture.periodIds[1]! });
+    expect(schedule.totals.impairmentKobo).toBe((180_000_00n).toString());
+    expect(schedule.checks.accumulatedVsLedgerKobo).toBe('0');
+
+    // A move to another cost centre posts nothing and keeps the history.
+    const centre = await prisma.costCentre.create({ data: { companyId: fixture.companyId, code: 'CC-MILL', name: 'Feed mill', effectiveDate: new Date('2026-01-01') } });
+    const journals = await prisma.journalEntry.count({ where: { companyId: fixture.companyId } });
+    await changes.transfer({ companyId: fixture.companyId, assetId: mixer, toCostCentreId: centre.id, effectiveOn: new Date('2026-03-01'), reason: 'Moved to the mill', actor: maker });
+    expect(await prisma.journalEntry.count({ where: { companyId: fixture.companyId } })).toBe(journals);
+    expect((await prisma.fixedAsset.findUniqueOrThrow({ where: { id: mixer } })).costCentreId).toBe(centre.id);
+    expect((await changes.history(fixture.companyId, mixer)).transfers).toHaveLength(1);
   });
 });

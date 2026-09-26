@@ -79,6 +79,7 @@ export class StandardCostService {
               method: policy.method,
               varianceDisposition: policy.varianceDisposition,
               varianceTolerancePercent: policy.varianceTolerancePercent.toString(),
+              prorationThresholdKobo: policy.prorationThresholdKobo.toString(),
               configuredAt: policy.configuredAt.toISOString(),
               lockedAt: policy.lockedAt?.toISOString() ?? null,
             }
@@ -92,7 +93,15 @@ export class StandardCostService {
    * the tolerance above which a variance needs explaining. Changeable until
    * the year's first production posting locks it.
    */
-  async configurePolicy(params: { companyId: string; financialYearId: string; varianceTolerancePercent?: Decimal.Value; actor: WorkflowActor }) {
+  async configurePolicy(params: {
+    companyId: string;
+    financialYearId: string;
+    varianceTolerancePercent?: Decimal.Value;
+    /** POL-009: COGS (all to cost of sales) or PRORATE (spread above the threshold). */
+    varianceDisposition?: 'COGS' | 'PRORATE';
+    prorationThresholdKobo?: bigint;
+    actor: WorkflowActor;
+  }) {
     if (!params.actor.roles.some((r) => POLICY_ROLES.includes(r))) {
       throw new ForbiddenException('Only the CFO or finance controller configures the costing policy (POL-001).');
     }
@@ -109,7 +118,17 @@ export class StandardCostService {
         { financialYear: year.code },
       );
     }
-    const data = { varianceTolerancePercent: new Prisma.Decimal(tolerance.toString()), configuredById: params.actor.userId, configuredAt: new Date() };
+    const disposition = params.varianceDisposition ?? existing?.varianceDisposition ?? 'COGS';
+    if (disposition !== 'COGS' && disposition !== 'PRORATE') throw new BadRequestException('Variances go to cost of sales (COGS) or are prorated (PRORATE).');
+    const threshold = params.prorationThresholdKobo ?? existing?.prorationThresholdKobo ?? 0n;
+    if (threshold < 0n) throw new BadRequestException('The proration threshold cannot be negative.');
+    const data = {
+      varianceTolerancePercent: new Prisma.Decimal(tolerance.toString()),
+      varianceDisposition: disposition,
+      prorationThresholdKobo: threshold,
+      configuredById: params.actor.userId,
+      configuredAt: new Date(),
+    };
     const policy = existing
       ? await this.prisma.costingPolicy.update({ where: { id: existing.id }, data })
       : await this.prisma.costingPolicy.create({ data: { ...data, companyId: params.companyId, financialYearId: year.id } });
@@ -121,7 +140,7 @@ export class StandardCostService {
       status: 'ACTIVE',
       action: AuditAction.CONFIG_CHANGE,
       userId: params.actor.userId,
-      comments: `${year.code}: standard cost only, variances to cost of sales, tolerance ${tolerance.toString()}%.`,
+      comments: `${year.code}: standard cost only, variances ${disposition === 'PRORATE' ? `prorated over cost of sales, finished goods and WIP at ${threshold} kobo or more` : 'to cost of sales'}, tolerance ${tolerance.toString()}%.`,
     });
     return policy;
   }

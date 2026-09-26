@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ControlAccountReconciliationService } from '../reporting/control-account-reconciliation.service';
+import { LabourReconciliationService } from '../cost-allocation/labour-reconciliation.service';
 import { TrialBalanceService } from '../reporting/trial-balance.service';
 import { WorkflowService } from '../workflow/workflow.service';
 import { WorkflowActor } from '../workflow/workflow.types';
@@ -416,12 +417,16 @@ export class PeriodCloseService {
       select: {
         acceptedQuantity: true,
         invoicedQuantity: true,
+        returnedQuantity: true,
+        debitNotedQuantity: true,
         unitPriceKobo: true,
       },
     });
     const grniOutstanding = grni.reduce((sum, line) => {
       const uninvoiced =
-        Number(line.acceptedQuantity) - Number(line.invoicedQuantity);
+        Number(line.acceptedQuantity) -
+        Number(line.invoicedQuantity) -
+        (Number(line.returnedQuantity) - Number(line.debitNotedQuantity));
       return sum + BigInt(Math.round(Number(line.unitPriceKobo) * uninvoiced));
     }, 0n);
     findings.push({
@@ -452,6 +457,27 @@ export class PeriodCloseService {
           : differences
               .map((row) => `${row.accountNumber} ${row.accountName}: ledger ${row.glBalanceKobo}, subledger ${row.subledgerKobo} kobo (${row.source})`)
               .join('; ') + '. Resolve these before closing.',
+    });
+
+    // --- Hours reconcile to payroll and to allocation (AC-HR-002, CLOSE-07) --
+    const labour = await new LabourReconciliationService(this.prisma).reconcile(companyId, financialPeriodId);
+    const labourProblems = [
+      labour.checks.registerVsLedgerKobo !== '0' ? `payroll register and ledger differ by ${labour.checks.registerVsLedgerKobo} kobo` : null,
+      !labour.checks.allocatedWithinLedger ? 'more labour allocated to batches than payroll posted' : null,
+      labour.checks.pendingHours !== '0.00' ? `${labour.checks.pendingHours} hours still waiting for approval` : null,
+      labour.checks.hoursWithoutPay ? `${labour.checks.hoursWithoutPay} people with approved hours but no posted pay` : null,
+      labour.checks.hoursAllocatedVsApproved && labour.checks.hoursAllocatedVsApproved !== '0.00'
+        ? `hours allocated differ from approved batch hours by ${labour.checks.hoursAllocatedVsApproved}`
+        : null,
+    ].filter(Boolean);
+    findings.push({
+      code: 'LABOUR_RECONCILED',
+      name: 'Approved hours reconcile to payroll and allocation',
+      blocking: true,
+      passed: labour.reconciled,
+      detail: labour.reconciled
+        ? `Payroll ${labour.totals.ledgerCostKobo} kobo, of which ${labour.totals.allocatedKobo} allocated to batches; ${labour.totals.approvedHours} approved hours.`
+        : `${labourProblems.join('; ')}. See Payroll → Hours and pay.`,
     });
 
     // --- The checklist ------------------------------------------------------

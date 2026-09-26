@@ -31,6 +31,7 @@ BEGIN
        NEW.method IS DISTINCT FROM OLD.method
        OR NEW.variance_disposition IS DISTINCT FROM OLD.variance_disposition
        OR NEW.variance_tolerance_percent IS DISTINCT FROM OLD.variance_tolerance_percent
+       OR NEW.proration_threshold_kobo IS DISTINCT FROM OLD.proration_threshold_kobo
        OR NEW.locked_at IS DISTINCT FROM OLD.locked_at) THEN
     RAISE EXCEPTION 'The costing policy for this year is locked; a change takes effect from next year''s policy.'
       USING ERRCODE = 'restrict_violation';

@@ -487,6 +487,45 @@ export class FarmStructureService {
    * come back — the placement form wants only its own module, an admin screen
    * wants the lot.
    */
+  /**
+   * A stage's standards: the target live weight (harvest readiness and the
+   * weighing variance read it) and the feed per head per day (the feed plan's
+   * fallback where a batch has no feeding recorded).
+   */
+  async setStageStandards(params: {
+    companyId: string;
+    stageId: string;
+    targetWeightGrams: number | null;
+    dailyFeedGramsPerHead: number | null;
+    actor: WorkflowActor;
+  }) {
+    const stage = await this.prisma.speciesBreedStage.findFirst({
+      where: { id: params.stageId, speciesBreed: { companyId: params.companyId } },
+      include: { speciesBreed: { select: { code: true } } },
+    });
+    if (!stage) throw new NotFoundException('No such stage.');
+    for (const [label, value] of [['Target weight', params.targetWeightGrams], ['Feed per head', params.dailyFeedGramsPerHead]] as const) {
+      if (value !== null && (!Number.isInteger(value) || value <= 0)) throw new BadRequestException(`${label} is a whole number of grams above zero, or blank.`);
+    }
+    const updated = await this.prisma.speciesBreedStage.update({
+      where: { id: stage.id },
+      data: { targetWeightGrams: params.targetWeightGrams, dailyFeedGramsPerHead: params.dailyFeedGramsPerHead },
+    });
+    await this.audit.write({
+      transactionId: stage.speciesBreedId,
+      module: 'MASTERS',
+      entityType: 'SpeciesBreedStage',
+      entityId: stage.id,
+      status: 'ACTIVE',
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      oldValue: { targetWeightGrams: stage.targetWeightGrams, dailyFeedGramsPerHead: stage.dailyFeedGramsPerHead },
+      newValue: { targetWeightGrams: updated.targetWeightGrams, dailyFeedGramsPerHead: updated.dailyFeedGramsPerHead },
+      comments: `Standards for ${stage.speciesBreed.code} ${stage.stageName}.`,
+    });
+    return { id: updated.id };
+  }
+
   async listSpeciesBreeds(companyId: string, speciesKey?: string) {
     return this.prisma.speciesBreed.findMany({
       where: { companyId, active: true, ...(speciesKey ? { speciesKey } : {}) },

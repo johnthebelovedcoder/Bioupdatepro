@@ -13,24 +13,35 @@ export interface FlowState {
 export async function logHours(_previous: FlowState, formData: FormData): Promise<FlowState> {
   const employeeId = String(formData.get('employeeId') ?? '');
   const groupId = String(formData.get('groupId') ?? '');
+  const productionOrderId = String(formData.get('productionOrderId') ?? '');
   const workDate = String(formData.get('workDate') ?? '').trim();
   const hours = String(formData.get('hours') ?? '').trim();
   const notes = String(formData.get('notes') ?? '').trim();
+  const startsAt = String(formData.get('startsAt') ?? '').trim();
+  const endsAt = String(formData.get('endsAt') ?? '').trim();
   if (!employeeId) return { error: 'Choose who worked.', message: null };
-  if (!groupId) return { error: 'Choose the batch they worked on.', message: null };
+  if (!groupId && !productionOrderId) return { error: 'Choose the batch or order they worked on.', message: null };
   if (!workDate) return { error: 'Choose the day.', message: null };
-  if (!/^[0-9]+([.][0-9]{1,2})?$/.test(hours)) return { error: 'Enter the hours as a number, such as 7.5.', message: null };
+  if (!!startsAt !== !!endsAt) return { error: 'Give both the start and the end of the shift, or neither.', message: null };
+  if (!(startsAt && endsAt) && !/^[0-9]+([.][0-9]{1,2})?$/.test(hours)) return { error: 'Enter the hours as a number, such as 7.5.', message: null };
 
   try {
     await api('/cost-allocation/timesheets', {
       method: 'POST',
-      body: { employeeId, groupId, workDate, hours, ...(notes ? { notes } : {}) },
+      body: {
+        employeeId,
+        ...(groupId ? { groupId } : { productionOrderId }),
+        workDate,
+        ...(hours ? { hours } : {}),
+        ...(startsAt && endsAt ? { startsAt, endsAt } : {}),
+        ...(notes ? { notes } : {}),
+      },
     });
   } catch (caught) {
     return { error: caught instanceof ApiError ? caught.message : 'Could not save those hours.', message: null };
   }
   revalidatePath('/finance/timesheets');
-  return { error: null, message: `Saved ${hours} hours.` };
+  return { error: null, message: hours ? `Saved ${hours} hours.` : 'Saved the shift.' };
 }
 
 export async function removeHours(formData: FormData): Promise<void> {

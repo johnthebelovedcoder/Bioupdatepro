@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { AuditAction, Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { clearsOn } from './withdrawal';
 import { WorkflowActor } from '../workflow/workflow.types';
 
 export const DISPOSAL_METHODS = ['SOLD', 'SLAUGHTERED', 'CULLED', 'GIFTED', 'DESTROYED'] as const;
@@ -74,6 +75,32 @@ export interface BatchProfile {
    * eggs were recorded.
    */
   henDay: { percent: string; eggs: number; henDays: number; days: number } | null;
+  /**
+   * European Production Efficiency Factor (handbook §24, Farm Manager KPI):
+   * liveability % × live weight kg ÷ (age days × FCR) × 100, with the FCR
+   * here from placement — all feed issued ÷ the flock's live weight now.
+   * Poultry only; null until there is an approved weighing and feed issued.
+   */
+  epef: { value: string; liveabilityPercent: string; liveWeightKg: string; ageDays: number; fcrFromPlacement: string } | null;
+}
+
+export type ReadinessCheck = { status: 'PASS' | 'FAIL' | 'NO_DATA'; detail: string };
+
+export interface HarvestReadiness {
+  groupId: string;
+  code: string;
+  speciesKey: string;
+  breed: string;
+  farm: string;
+  pen: string;
+  stage: string;
+  population: number;
+  ageDays: number;
+  /** READY only when every check passes; a check with no data is not a pass. */
+  ready: boolean;
+  /** The day the last withdrawal period ends; null when none is running. */
+  safeToSellFrom: string | null;
+  checks: { age: ReadinessCheck; weight: ReadinessCheck; stage: ReadinessCheck; health: ReadinessCheck; withdrawal: ReadinessCheck };
 }
 
 /**
@@ -149,6 +176,111 @@ export class BatchProfileService {
       deaths: { total: mortality.reduce((s, m) => s + m.quantity, 0), byCarcassDisposal },
       fcr: await this.fcr(group.id, group.population, first, current),
       henDay: await this.henDay(companyId, group.id, group.population),
+      epef:
+        group.speciesKey === 'snail'
+          ? null
+          : await this.epef(group.id, group.openingPopulation, group.population, mortality.reduce((s, m) => s + m.quantity, 0), age.days, current),
+    };
+  }
+
+  /**
+   * Harvest/QA readiness (handbook §59.4, §59.5): for every active batch, as of
+   * a day, whether it passes age, weight, stage, health and withdrawal together.
+   * "Age alone cannot release stock" — each is shown separately, and the batch
+   * is ready only when all pass. Age: the batch has reached its breed's last
+   * stage. Weight: the current approved weighing meets that stage's target.
+   * Health: no programme event past due. Withdrawal: no treatment's withdrawal
+   * period still running (safeToSellFrom after the day).
+   */
+  async readiness(companyId: string, on = new Date(), farmId?: string): Promise<HarvestReadiness[]> {
+    const groups = await this.prisma.livestockGroup.findMany({
+      where: { companyId, status: 'ACTIVE', population: { gt: 0 }, ...(farmId ? { farmId } : {}) },
+      orderBy: { code: 'asc' },
+      include: {
+        farm: { select: { name: true } },
+        penHouse: { select: { name: true } },
+        weighings: { where: { isCurrent: true }, take: 1 },
+        healthEvents: { where: { status: { in: ['DUE', 'OVERDUE'] }, dueOn: { lt: on } }, select: { name: true, dueOn: true } },
+        treatments: { where: { OR: [{ withdrawalDays: { gt: 0 } }, { safeToSellFrom: { not: null } }] }, select: { name: true, givenOn: true, withdrawalDays: true, safeToSellFrom: true } },
+      },
+    });
+    const masters = new Map<string, Array<{ stageName: string; minDay: number; targetWeightGrams: number | null }>>();
+    const out: HarvestReadiness[] = [];
+    for (const group of groups) {
+      const key = `${group.speciesKey}|${group.breed}`;
+      if (!masters.has(key)) masters.set(key, await this.thresholds(companyId, group.speciesKey, group.breed));
+      const stages = masters.get(key)!;
+      const final = stages.length ? stages[stages.length - 1] : null;
+      const age = ageOf(group, on);
+      const current = group.weighings[0] ?? null;
+
+      const ageCheck: ReadinessCheck = !final
+        ? { status: 'NO_DATA', detail: 'No age thresholds set up for this breed.' }
+        : age.days >= final.minDay
+          ? { status: 'PASS', detail: `${age.days} days; ${final.stageName} from ${final.minDay}.` }
+          : { status: 'FAIL', detail: `${age.days} days; ${final.stageName} from ${final.minDay} (${final.minDay - age.days} to go).` };
+
+      const weightCheck: ReadinessCheck = !current
+        ? { status: 'NO_DATA', detail: 'No approved weighing.' }
+        : !final?.targetWeightGrams
+          ? { status: 'NO_DATA', detail: `Weighs ${current.averageWeightGrams} g; no target weight set for the last stage.` }
+          : current.averageWeightGrams >= final.targetWeightGrams
+            ? { status: 'PASS', detail: `${current.averageWeightGrams} g against ${final.targetWeightGrams} g target.` }
+            : { status: 'FAIL', detail: `${current.averageWeightGrams} g against ${final.targetWeightGrams} g target.` };
+
+      const suggested = suggestStage(stages, age.days);
+      const stageCheck: ReadinessCheck = !stages.length
+        ? { status: 'NO_DATA', detail: 'No age thresholds set up for this breed.' }
+        : suggested === group.stage
+          ? { status: 'PASS', detail: `${group.stage}, as its age suggests.` }
+          : { status: 'FAIL', detail: `Recorded as ${group.stage}; its age suggests ${suggested ?? 'an earlier stage'} (REVIEW).` };
+
+      const healthCheck: ReadinessCheck = group.healthEvents.length
+        ? { status: 'FAIL', detail: `Overdue: ${group.healthEvents.map((h) => `${h.name} (due ${day(h.dueOn)})`).join(', ')}.` }
+        : { status: 'PASS', detail: 'No programme event overdue.' };
+
+      const withdrawal = group.treatments
+        .map((t) => ({ name: t.name, until: clearsOn(t) }))
+        .filter((t): t is { name: string; until: Date } => !!t.until && t.until > on)
+        .sort((a, b) => b.until.getTime() - a.until.getTime())[0] ?? null;
+      const withdrawalCheck: ReadinessCheck = withdrawal
+        ? { status: 'FAIL', detail: `${withdrawal.name}: withdrawal until ${day(withdrawal.until)}.` }
+        : { status: 'PASS', detail: 'No withdrawal period running.' };
+
+      const checks = { age: ageCheck, weight: weightCheck, stage: stageCheck, health: healthCheck, withdrawal: withdrawalCheck };
+      out.push({
+        groupId: group.id,
+        code: group.code,
+        speciesKey: group.speciesKey,
+        breed: group.breed,
+        farm: group.farm.name,
+        pen: group.penHouse.name,
+        stage: group.stage,
+        population: group.population,
+        ageDays: age.days,
+        ready: Object.values(checks).every((c) => c.status === 'PASS'),
+        safeToSellFrom: withdrawal ? day(withdrawal.until) : null,
+        checks,
+      });
+    }
+    return out;
+  }
+
+  private async epef(groupId: string, placed: number, alive: number, deaths: number, ageDays: number, current: WeighingRow | null) {
+    if (!current || placed <= 0 || alive <= 0 || ageDays <= 0) return null;
+    const feed = await this.prisma.feedIssue.aggregate({ where: { dailyRecord: { groupId } }, _sum: { quantityKg: true } });
+    const feedKg = Number(feed._sum.quantityKg ?? 0);
+    const liveWeightKg = current.averageWeightGrams / 1000;
+    const flockWeightKg = liveWeightKg * alive;
+    if (feedKg <= 0 || flockWeightKg <= 0) return null;
+    const fcr = feedKg / flockWeightKg;
+    const liveability = ((placed - deaths) / placed) * 100;
+    return {
+      value: ((liveability * liveWeightKg) / (ageDays * fcr) * 100).toFixed(0),
+      liveabilityPercent: liveability.toFixed(1),
+      liveWeightKg: liveWeightKg.toFixed(3),
+      ageDays,
+      fcrFromPlacement: fcr.toFixed(2),
     };
   }
 

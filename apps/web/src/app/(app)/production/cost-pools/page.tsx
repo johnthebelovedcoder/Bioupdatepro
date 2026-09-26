@@ -5,6 +5,26 @@ import { Tabs } from '@/components/tabs';
 import { NewCostPoolButton } from '@/components/new-cost-pool-button';
 import { SetCostPoolRateButton } from '@/components/set-cost-pool-rate-button';
 import { IconChart } from '@/components/icons';
+import { PoolSourcesForm } from '@/components/pool-sources-form';
+import { api } from '@/lib/api';
+import { getGlAccounts } from '@/lib/trade';
+
+interface PoolReconciliation {
+  poolId: string;
+  code: string;
+  name: string;
+  sources: Array<{ glAccountId: string; costCentreId: string | null; account: string }>;
+  hasRate: boolean;
+  window?: { from: string; to: string };
+  ledgerKobo?: string;
+  absorbedKobo?: string;
+  notYetAbsorbedKobo?: string;
+  unusedCapacityKobo?: string;
+  differenceKobo?: string;
+  rateVsLedgerKobo?: string;
+  reconciled: boolean;
+  note: string | null;
+}
 
 export const metadata = { title: 'Cost pools — BioAssetPro' };
 
@@ -21,6 +41,13 @@ export default async function CostPoolsPage() {
   // Capacity paid for but not absorbed by any order — the cost ABC exists to
   // make visible, since it would otherwise sit silently inside the rate.
   const idle = await Promise.all(pools.map((pool) => getUnusedCapacity(pool.id)));
+  const [recon, accounts, dimensions] = await Promise.all([
+    api<PoolReconciliation[]>('/costing/cost-pools/reconciliation').catch(() => [] as PoolReconciliation[]),
+    getGlAccounts().catch(() => []),
+    api<{ costCentres: Array<{ id: string; code: string; name: string }> }>('/reporting/dimensions').catch(() => ({ costCentres: [] })),
+  ]);
+  const accountOptions = accounts.filter((a) => a.accountType === 'EXPENSE').map((a) => ({ id: a.id, label: `${a.accountNumber} ${a.name}` }));
+  const centreOptions = dimensions.costCentres.map((c) => ({ id: c.id, label: `${c.code} — ${c.name}` }));
 
   return (
     <>
@@ -104,6 +131,64 @@ export default async function CostPoolsPage() {
               </table>
             </div>
           )}
+        </Card>
+
+        <Card
+          title="Pools against the ledger"
+          subtitle="AC-MFG-004: each pool's ledger cost over its rate's window, against what orders absorbed and the capacity left unused"
+          padded={false}
+        >
+          <div className="table-wrap">
+            <table className="data wide">
+              <thead>
+                <tr>
+                  <th>Pool</th>
+                  <th className="right">Ledger cost</th>
+                  <th className="right">Absorbed</th>
+                  <th className="right">Unused capacity</th>
+                  <th className="right">Spending variance</th>
+                  <th className="right">Rate vs ledger</th>
+                  <th style={{ width: 150 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {recon.map((r) => (
+                  <tr key={r.poolId}>
+                    <td style={{ textAlign: 'left' }}>
+                      <span className="strong">{r.code}</span> {r.name}
+                      <div className="faint" style={{ fontSize: 12 }}>
+                        {r.sources.length ? r.sources.map((s) => s.account).join(', ') : r.note}
+                        {r.window ? ` · ${r.window.from} to ${r.window.to}` : ''}
+                      </div>
+                    </td>
+                    <td className="num right">{r.ledgerKobo ? formatNaira(r.ledgerKobo) : '—'}</td>
+                    <td className="num right">
+                      {r.absorbedKobo ? formatNaira(r.absorbedKobo) : '—'}
+                      {r.notYetAbsorbedKobo && r.notYetAbsorbedKobo !== '0' ? <div className="faint">+{formatNaira(r.notYetAbsorbedKobo)} to come</div> : null}
+                    </td>
+                    <td className="num right">{r.unusedCapacityKobo ? formatNaira(r.unusedCapacityKobo) : '—'}</td>
+                    <td className="num right">
+                      {r.differenceKobo !== undefined ? (
+                        <span className={`badge ${r.differenceKobo === '0' ? 'badge-success' : 'badge-warning'}`}>{formatNaira(r.differenceKobo)}</span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="num right">{r.rateVsLedgerKobo ? formatNaira(r.rateVsLedgerKobo) : '—'}</td>
+                    <td>
+                      <PoolSourcesForm
+                        poolId={r.poolId}
+                        poolCode={r.code}
+                        current={r.sources.map((s) => ({ glAccountId: s.glAccountId, costCentreId: s.costCentreId }))}
+                        accounts={accountOptions}
+                        costCentres={centreOptions}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       </div>
     </>

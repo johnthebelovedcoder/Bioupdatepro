@@ -1,5 +1,7 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ProcurementFlowService } from './procurement-flow.service';
+import { PurchaseOrderService } from './purchase-order.service';
+import { SupplierReturnService } from './supplier-return.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
 import { AnyRole, Roles } from '../auth/roles.guard';
@@ -14,7 +16,83 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  */
 @Controller('procurement')
 export class ProcurementController {
-  constructor(private readonly flow: ProcurementFlowService) {}
+  constructor(
+    private readonly flow: ProcurementFlowService,
+    private readonly purchaseOrders: PurchaseOrderService,
+    private readonly returns: SupplierReturnService,
+  ) {}
+
+  // --- Returns to suppliers and debit notes (handbook §35) -----------------
+
+  @AnyRole('What went back to a supplier is part of the buying record.')
+  @Get('returns')
+  async listReturns(@CurrentCompany() companyId: string) {
+    return this.returns.list(companyId);
+  }
+
+  @OwnedRecord('goodsReceiptNote', 'id')
+  @AnyRole('What can still go back on a receipt is part of the buying record.')
+  @Get('receipts/:id/returnable')
+  async returnable(@CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.returns.returnable(companyId, id);
+  }
+
+  @Roles('STOREKEEPER', 'PROCUREMENT_OFFICER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('returns')
+  async requestReturn(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { grnId: string; returnDate: string; reason: string; lines: Array<{ grnLineId: string; quantity: string }> },
+  ) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body?.returnDate ?? '')) throw new BadRequestException('returnDate must be a date, YYYY-MM-DD.');
+    if (!Array.isArray(body.lines)) throw new BadRequestException('lines is a list of receipt lines and quantities.');
+    return this.returns.request({
+      companyId,
+      grnId: String(body.grnId ?? ''),
+      returnDate: new Date(`${body.returnDate}T00:00:00.000Z`),
+      reason: String(body.reason ?? ''),
+      lines: body.lines.map((l) => ({ grnLineId: String(l.grnLineId), quantity: String(l.quantity ?? '') })),
+      actor,
+    });
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('returns/:id/decide')
+  async decideReturn(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: { decision: 'APPROVE' | 'REJECT'; note?: string },
+  ) {
+    if (body?.decision !== 'APPROVE' && body?.decision !== 'REJECT') throw new BadRequestException('decision is APPROVE or REJECT.');
+    return this.returns.decide({ companyId, returnId: id, decision: body.decision, note: body.note ?? null, actor });
+  }
+
+  // --- Purchase budgets (INT-002) ------------------------------------------
+
+  @AnyRole('A budget is what an order is checked against; anyone raising one needs to see it.')
+  @Get('budgets')
+  async budgets(@CurrentCompany() companyId: string, @Query('financialYearId') financialYearId: string) {
+    return this.purchaseOrders.budgets(companyId, String(financialYearId ?? ''));
+  }
+
+  @Roles('FINANCE_CONTROLLER', 'CFO', 'ADMINISTRATOR')
+  @Post('budgets')
+  async setBudget(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { financialYearId: string; costCentreId: string; amountKobo: string; note?: string },
+  ) {
+    const budget = await this.purchaseOrders.setBudget({
+      companyId,
+      financialYearId: String(body?.financialYearId ?? ''),
+      costCentreId: String(body?.costCentreId ?? ''),
+      amountKobo: BigInt(String(body?.amountKobo ?? '0')),
+      note: body?.note,
+      actor,
+    });
+    return { id: budget.id, amountKobo: budget.amountKobo.toString() };
+  }
 
   @AnyRole('Seeing what is on order is how anyone knows what to expect.')
   @Get('orders')
@@ -123,22 +201,32 @@ export class ProcurementController {
       purchaseOrderId: string;
       receiptDate?: string;
       deliveryNoteReference?: string | null;
+      quarantine?: boolean;
       lines: Array<{
         purchaseOrderLineId: string;
         receivedQuantity: string;
         rejectedQuantity?: string;
         batchReference?: string | null;
+        /** YYYY-MM-DD, from the pack. */
+        expiryDate?: string | null;
         warehouseId?: string | null;
       }>;
     },
   ) {
+    for (const line of body.lines ?? []) {
+      if (line.expiryDate && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(line.expiryDate)) throw new BadRequestException('expiryDate must be a date, YYYY-MM-DD.');
+    }
     return this.flow.receive({
       companyId,
       actor,
       purchaseOrderId: body.purchaseOrderId,
       receiptDate: body.receiptDate ? new Date(body.receiptDate) : new Date(),
       deliveryNoteReference: body.deliveryNoteReference ?? null,
-      lines: body.lines ?? [],
+      quarantine: body.quarantine === true,
+      lines: (body.lines ?? []).map((line) => ({
+        ...line,
+        expiryDate: line.expiryDate ? new Date(`${line.expiryDate}T00:00:00.000Z`) : null,
+      })),
     });
   }
 

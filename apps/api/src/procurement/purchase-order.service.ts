@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import {
@@ -40,6 +40,18 @@ export interface PurchaseOrderLineInput {
  * received or owed, so nothing has happened financially. The first GL entry in
  * this chain is the goods receipt.
  */
+/** Who sets purchase budgets (INT-002). */
+const BUDGET_ROLES = ['FINANCE_CONTROLLER', 'CFO', 'ADMINISTRATOR'];
+/** An order counts against its budget from submission until it is cancelled. */
+const COMMITTED_STATUSES: PurchaseOrderStatus[] = [
+  PurchaseOrderStatus.SUBMITTED,
+  PurchaseOrderStatus.UNDER_REVIEW,
+  PurchaseOrderStatus.APPROVED,
+  PurchaseOrderStatus.PARTIALLY_RECEIVED,
+  PurchaseOrderStatus.FULLY_RECEIVED,
+  PurchaseOrderStatus.CLOSED,
+];
+
 @Injectable()
 export class PurchaseOrderService {
   constructor(
@@ -632,6 +644,8 @@ export class PurchaseOrderService {
       );
     }
 
+    await this.assertWithinBudget(order);
+
     const result = await this.workflow.submit({
       companyId: order.companyId,
       transactionType: 'PURCHASE_ORDER',
@@ -657,6 +671,144 @@ export class PurchaseOrderService {
     });
 
     return result;
+  }
+
+  // -------------------------------------------------------------------------
+  // Purchase budgets (INT-002)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Set a cost centre's purchase budget for a financial year. Finance sets
+   * it; the change is audited with its reason. Setting it below what is
+   * already committed is allowed — it simply stops further orders — but it
+   * says so.
+   */
+  async setBudget(params: {
+    companyId: string;
+    financialYearId: string;
+    costCentreId: string;
+    amountKobo: bigint;
+    note?: string | null;
+    actor: WorkflowActor;
+  }) {
+    if (!params.actor.roles.some((r) => BUDGET_ROLES.includes(r))) {
+      throw new ForbiddenException('The finance controller or CFO sets purchase budgets.');
+    }
+    if (params.amountKobo < 0n) throw new AccountingRuleViolation('INT-002 — Purchase budget', 'A budget is zero or more.', {});
+    const [year, centre] = await Promise.all([
+      this.prisma.financialYear.findFirst({ where: { id: params.financialYearId, companyId: params.companyId }, select: { id: true, code: true } }),
+      this.prisma.costCentre.findFirst({ where: { id: params.costCentreId, companyId: params.companyId }, select: { id: true, code: true } }),
+    ]);
+    if (!year) throw new NotFoundException('No such financial year.');
+    if (!centre) throw new NotFoundException('No such cost centre.');
+    const previous = await this.prisma.purchaseBudget.findFirst({
+      where: { companyId: params.companyId, financialYearId: year.id, costCentreId: centre.id },
+      select: { amountKobo: true },
+    });
+    return this.prisma.$transaction(async (tx) => {
+      const budget = await tx.purchaseBudget.upsert({
+        where: { companyId_financialYearId_costCentreId: { companyId: params.companyId, financialYearId: year.id, costCentreId: centre.id } },
+        create: { companyId: params.companyId, financialYearId: year.id, costCentreId: centre.id, amountKobo: params.amountKobo, note: params.note?.trim() || null, setById: params.actor.userId },
+        update: { amountKobo: params.amountKobo, note: params.note?.trim() || null, setById: params.actor.userId },
+      });
+      await this.audit.write(
+        {
+          transactionId: budget.id,
+          module: 'procurement',
+          entityType: 'PurchaseBudget',
+          entityId: budget.id,
+          status: 'ACTIVE',
+          action: AuditAction.CONFIG_CHANGE,
+          userId: params.actor.userId,
+          comments: `${centre.code} ${year.code} purchase budget ${previous ? `from ${previous.amountKobo} ` : ''}to ${params.amountKobo} kobo${params.note?.trim() ? `: ${params.note.trim()}` : ''}.`,
+        },
+        tx,
+      );
+      return budget;
+    });
+  }
+
+  /** Each budget for a year, with what live orders have committed against it. */
+  async budgets(companyId: string, financialYearId: string) {
+    const year = await this.prisma.financialYear.findFirst({ where: { id: financialYearId, companyId }, select: { id: true, code: true, startDate: true, endDate: true } });
+    if (!year) throw new NotFoundException('No such financial year.');
+    const rows = await this.prisma.purchaseBudget.findMany({ where: { companyId, financialYearId: year.id } });
+    const centres = await this.prisma.costCentre.findMany({ where: { companyId, id: { in: rows.map((r) => r.costCentreId) } }, select: { id: true, code: true, name: true } });
+    const result = [];
+    for (const row of rows) {
+      const committed = await this.committed(companyId, row.costCentreId, year, null);
+      const centre = centres.find((c) => c.id === row.costCentreId);
+      result.push({
+        id: row.id,
+        costCentreId: row.costCentreId,
+        costCentre: centre ? `${centre.code} — ${centre.name}` : row.costCentreId,
+        amountKobo: row.amountKobo.toString(),
+        committedKobo: committed.toString(),
+        remainingKobo: (row.amountKobo - committed).toString(),
+        note: row.note,
+      });
+    }
+    return { financialYear: year.code, budgets: result };
+  }
+
+  /**
+   * What live purchase orders have committed against a cost centre in a
+   * year, at their net value in base currency — every order submitted or
+   * beyond, not cancelled, dated in the year.
+   */
+  private async committed(companyId: string, costCentreId: string, year: { startDate: Date; endDate: Date }, excludeOrderId: string | null) {
+    const orders = await this.prisma.purchaseOrder.findMany({
+      where: {
+        companyId,
+        costCentreId,
+        orderDate: { gte: year.startDate, lte: year.endDate },
+        status: { in: COMMITTED_STATUSES },
+        ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
+      },
+      select: { netAmountKobo: true, exchangeRate: true },
+    });
+    return orders.reduce(
+      (sum, o) => sum + BigInt(new Decimal(o.netAmountKobo.toString()).mul(o.exchangeRate.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0)),
+      0n,
+    );
+  }
+
+  /**
+   * INT-002 "budget check": an order is refused if it would take its cost
+   * centre past the year's purchase budget. Where the year has budgets at
+   * all, an order must name its cost centre; a cost centre with no budget
+   * of its own is not controlled.
+   */
+  private async assertWithinBudget(order: { id: string; companyId: string; orderNumber: string; costCentreId: string | null; orderDate: Date; netAmountKobo: bigint; exchangeRate: Prisma.Decimal }) {
+    const year = await this.prisma.financialYear.findFirst({
+      where: { companyId: order.companyId, startDate: { lte: order.orderDate }, endDate: { gte: order.orderDate } },
+      select: { id: true, code: true, startDate: true, endDate: true },
+    });
+    if (!year) return;
+    const anyBudget = await this.prisma.purchaseBudget.count({ where: { companyId: order.companyId, financialYearId: year.id } });
+    if (anyBudget === 0) return;
+    if (!order.costCentreId) {
+      throw new AccountingRuleViolation(
+        'INT-002 — Purchase budget',
+        `${year.code} has purchase budgets by cost centre; name ${order.orderNumber}'s cost centre so it can be checked against one.`,
+        { orderNumber: order.orderNumber },
+      );
+    }
+    const budget = await this.prisma.purchaseBudget.findFirst({
+      where: { companyId: order.companyId, financialYearId: year.id, costCentreId: order.costCentreId },
+      select: { amountKobo: true },
+    });
+    if (!budget) return;
+    const thisOrder = BigInt(new Decimal(order.netAmountKobo.toString()).mul(order.exchangeRate.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+    const committed = await this.committed(order.companyId, order.costCentreId, year, order.id);
+    if (committed + thisOrder > budget.amountKobo) {
+      const centre = await this.prisma.costCentre.findFirst({ where: { id: order.costCentreId, companyId: order.companyId }, select: { code: true } });
+      throw new AccountingRuleViolation(
+        'INT-002 — Purchase budget',
+        `${order.orderNumber} (${thisOrder} kobo) would take ${centre?.code ?? 'the cost centre'} past its ${year.code} purchase budget of ${budget.amountKobo} kobo: ${committed} kobo is already committed, leaving ${budget.amountKobo - committed > 0n ? budget.amountKobo - committed : 0n}. Reduce the order or have finance raise the budget.`,
+        { budgetKobo: budget.amountKobo.toString(), committedKobo: committed.toString(), orderKobo: thisOrder.toString() },
+      );
+    }
   }
 
   /** Keep the order status in line with its workflow and its receipts. */

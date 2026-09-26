@@ -144,6 +144,18 @@ const balanceOf = async (n: string) => {
   return (sums._sum.debitKobo ?? 0n) - (sums._sum.creditKobo ?? 0n);
 };
 
+/** Handbook §29: the plant intake — here, every bird caught arrives, none lost. */
+const intake = (productionOrderId: string) =>
+  orders.recordIntake({
+    productionOrderId, plantReceivedCount: 500, plantReceivedWeightKg: '90', deadOnArrivalCount: 0, deadOnArrivalWeightKg: '0',
+    condemnedCount: 0, condemnedWeightKg: '0', actor: maker,
+  });
+/** Cold-store detail for the two outputs (grade, use-by, temperature). */
+const coldStore = [
+  { grade: 'A', expiryDate: new Date(Date.now() + 30 * 86_400_000), storageTemperatureC: '-18' },
+  { grade: 'B', expiryDate: new Date(Date.now() + 30 * 86_400_000), storageTemperatureC: '-18' },
+];
+
 async function throughConversion() {
   const { id, orderNumber } = await orders.createFromHarvest({ harvestRecordId: harvestId, recipeVersionId: versionId, warehouseId: fgStore, plannedOutputQuantity: '90', actor: maker });
   expect(orderNumber).toMatch(/^PRO-/);
@@ -162,8 +174,9 @@ describe('Poultry processing and close (UAT-020)', () => {
     // In WIP: ₦1.5m of snails + ₦5,000 of packaging + ₦1.4m standard conversion.
     expect(await wip()).toBe(1_500_000_00n + 5_000_00n + 1_400_000_00n);
 
+    await intake(id);
     await orders.recordOutputs({
-      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38',
+      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38', details: coldStore,
       outputs: [
         { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
         { itemId: item.SHELL!, outputType: 'BY_PRODUCT', quantity: '16', weight: '16' },
@@ -197,8 +210,9 @@ describe('Poultry processing and close (UAT-020)', () => {
     await orders.issueMaterials({ productionOrderId: id, actor: maker });
     // Labour ₦220,000 + machine ₦160,000 + overhead ₦240,000 at standard; ₦235,000 + ₦170,000 + ₦255,000 actual.
     await orders.confirmConversion({ productionOrderId: id, standardConversionCostKobo: 620_000_00n, actualLabourCostKobo: 235_000_00n, actualOverheadCostKobo: 425_000_00n, actor: maker });
+    await intake(id);
     await orders.recordOutputs({
-      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38',
+      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38', details: coldStore,
       outputs: [
         { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
         { itemId: item.SHELL!, outputType: 'BY_PRODUCT', quantity: '16', weight: '16' },
@@ -221,5 +235,34 @@ describe('Poultry processing and close (UAT-020)', () => {
     await expect(orders.createFromHarvest({ harvestRecordId: harvestId, recipeVersionId: versionId, warehouseId: fgStore, plannedOutputQuantity: '90', actor: maker })).rejects.toThrow(
       /already has a processing order/,
     );
+  });
+
+  it('records the plant intake, and will not receive outputs until dead-on-arrival and condemned birds are claimed as abnormal loss (handbook §29)', async () => {
+    const id = await throughConversion();
+    const base = { productionOrderId: id, plantReceivedCount: 500, plantReceivedWeightKg: '89', deadOnArrivalCount: 5, deadOnArrivalWeightKg: '1', actor: maker };
+    await expect(orders.recordIntake({ ...base, plantReceivedCount: 501, condemnedCount: 0, condemnedWeightKg: '0' })).rejects.toThrow(/501 birds received, but the catch was 500/);
+    await expect(orders.recordIntake({ ...base, plantReceivedWeightKg: '91', condemnedCount: 0, condemnedWeightKg: '0' })).rejects.toThrow(/do not gain weight in transit/);
+    await expect(orders.recordIntake({ ...base, condemnedCount: 10, condemnedWeightKg: '2' })).rejects.toThrow(/reason and the vet or inspector/);
+    const recorded = await orders.recordIntake({ ...base, condemnedCount: 10, condemnedWeightKg: '2', condemnationReason: 'Septicaemia', inspectedBy: 'Dr Bello' });
+    expect(recorded).toMatchObject({ transitShrinkKg: '1.000', abnormalLossKgToClaim: '3.000' });
+
+    await expect(
+      orders.recordOutputs({
+        productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '35', details: coldStore,
+        outputs: [
+          { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
+          { itemId: item.SHELL!, outputType: 'BY_PRODUCT', quantity: '16', weight: '16' },
+        ],
+      }),
+    ).rejects.toThrow(/3.000 kg was dead on arrival or condemned, but only 0.000 kg of abnormal loss is recorded/);
+    await expect(
+      orders.recordOutputs({
+        productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '35', details: [{ grade: 'A' }, coldStore[1]!],
+        outputs: [
+          { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
+          { itemId: item.SHELL!, outputType: 'BY_PRODUCT', quantity: '16', weight: '16' },
+        ],
+      }),
+    ).rejects.toThrow(/./);
   });
 });

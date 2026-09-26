@@ -26,7 +26,7 @@ export default async function TimesheetsPage({ searchParams }: { searchParams: P
 
   const [entries, choices] = await Promise.all([
     getTimesheets(from, to).catch(() => []),
-    getTimesheetChoices().catch(() => ({ employees: [], groups: [] })),
+    getTimesheetChoices().catch(() => ({ employees: [], groups: [], orders: [] })),
   ]);
   const monthName = new Date(Date.UTC(year, mon - 1, 1)).toLocaleString('en-NG', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
@@ -45,7 +45,7 @@ export default async function TimesheetsPage({ searchParams }: { searchParams: P
       <PageHeader
         title="Timesheets"
         subtitle="Hours people worked on each batch — used to share wages by hours worked"
-        actions={<TimesheetForm employees={choices.employees} groups={choices.groups} today={today} />}
+        actions={<TimesheetForm employees={choices.employees} groups={choices.groups} orders={choices.orders ?? []} today={today} />}
       />
       <Tabs />
 
@@ -114,7 +114,7 @@ export default async function TimesheetsPage({ searchParams }: { searchParams: P
                 <tr>
                   <th>Day</th>
                   <th>Who</th>
-                  <th>Batch</th>
+                  <th>Batch or order</th>
                   <th className="right">Hours</th>
                   <th>Note</th>
                   <th>Status</th>

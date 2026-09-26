@@ -1144,6 +1144,8 @@ enum NotificationChannel {
   IN_APP
   EMAIL
   PUSH
+  /// AC-015: only for an approved event, to a verified number, with consent.
+  WHATSAPP
 }
 
 enum NotificationEvent {
@@ -1458,6 +1460,46 @@ model WorkflowNotification {
   @@index([recipientId, status])
   @@index([status, createdAt])
   @@map("workflow_notifications")
+}
+
+/// AC-015: which events a company allows out by each external channel.
+/// Email starts with the approval events it already sent; WhatsApp with none
+/// until an administrator approves them.
+model NotificationPolicy {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @unique @map("company_id") @db.Uuid
+  emailEvents    String[] @map("email_events")
+  whatsappEvents String[] @map("whatsapp_events")
+  updatedById    String?  @map("updated_by_id") @db.Uuid
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("notification_policies")
+}
+
+/// AC-015: a user's WhatsApp number — verified by a code sent to it, and
+/// messaged only with the user's recorded consent, which can be withdrawn.
+model NotificationContact {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  userId    String @unique @map("user_id") @db.Uuid
+
+  /// E.164, e.g. +2348031234567.
+  whatsappNumber     String?   @map("whatsapp_number")
+  whatsappVerifiedAt DateTime? @map("whatsapp_verified_at")
+  /// A hash of the one-time code, never the code itself.
+  codeHash           String?   @map("code_hash")
+  codeExpiresAt      DateTime? @map("code_expires_at")
+  codeAttempts       Int       @default(0) @map("code_attempts")
+
+  consentedAt DateTime? @map("consented_at")
+  withdrawnAt DateTime? @map("withdrawn_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@map("notification_contacts")
 }
 
 model WorkflowAttachment {
@@ -2028,6 +2070,15 @@ model Supplier {
   bankName      String? @map("bank_name")
   accountNumber String? @map("account_number")
   accountName   String? @map("account_name")
+  /// INT-001/INT-005: who entered or last changed the bank details, and who
+  /// verified them — someone else. A change clears the verification (the
+  /// database does it), and nothing is paid by transfer to an unverified
+  /// account.
+  bankSetById               String?   @map("bank_set_by_id") @db.Uuid
+  bankSetAt                 DateTime? @map("bank_set_at")
+  bankVerifiedById          String?   @map("bank_verified_by_id") @db.Uuid
+  bankVerifiedAt            DateTime? @map("bank_verified_at")
+  bankVerificationReference String?   @map("bank_verification_reference")
 
   // --- Commercial ---
   paymentTermId   String? @map("payment_term_id") @db.Uuid
@@ -2192,6 +2243,13 @@ model Item {
   /// Sales delivery still stays on standard cost (§6's own basis).
   weightedAverageCostKobo  BigInt?   @map("weighted_average_cost_kobo")
   weightedAverageCostSetAt DateTime? @map("weighted_average_cost_set_at")
+
+  /// Receipts of this item are held in quarantine until QA releases them
+  /// (handbook §26 "Quarantine until release", §34 GRN "accepts, quarantines
+  /// or rejects").
+  quarantineOnReceipt Boolean @default(false) @map("quarantine_on_receipt")
+  /// Days from receipt or production to expiry, where a lot does not carry its own date.
+  shelfLifeDays       Int?    @map("shelf_life_days")
 
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
@@ -2361,6 +2419,7 @@ model CostPool {
 
   company    Company            @relation(fields: [companyId], references: [id])
   rates      CostPoolRate[]
+  sources    CostPoolSource[]
   operations RoutingOperation[]
 
   @@unique([companyId, code])
@@ -2410,6 +2469,10 @@ model CostingPolicy {
   method          String    @default("STANDARD")
   /// POL-009: where settled variances go. COGS is the only disposition built.
   varianceDisposition String @default("COGS") @map("variance_disposition")
+  /// With PRORATE: a year's net production variance at or above this is spread
+  /// over cost of sales, finished goods and closing WIP; below it, it stays in
+  /// cost of sales.
+  prorationThresholdKobo BigInt @default(0) @map("proration_threshold_kobo")
   /// FeedMill_Cost_Model: a variance above this share of standard good output
   /// needs a reason at settlement.
   varianceTolerancePercent Decimal @default(20) @map("variance_tolerance_percent") @db.Decimal(9, 4)
@@ -3029,6 +3092,20 @@ model ProductionOrder {
   varianceReason     String? @map("variance_reason")
   varianceReasonById String? @map("variance_reason_by_id") @db.Uuid
 
+  /// Plant intake (handbook §29, FR-PRO-02): what reached the plant from the
+  /// catch — birds and live weight received, dead on arrival, and what the
+  /// vet condemned. The catch itself is the harvest record.
+  plantReceivedCount    Int?      @map("plant_received_count")
+  plantReceivedWeightKg Decimal?  @map("plant_received_weight_kg") @db.Decimal(18, 6)
+  deadOnArrivalCount    Int?      @map("dead_on_arrival_count")
+  deadOnArrivalWeightKg Decimal?  @map("dead_on_arrival_weight_kg") @db.Decimal(18, 6)
+  condemnedCount        Int?      @map("condemned_count")
+  condemnedWeightKg     Decimal?  @map("condemned_weight_kg") @db.Decimal(18, 6)
+  condemnationReason    String?   @map("condemnation_reason")
+  intakeInspectedBy     String?   @map("intake_inspected_by")
+  intakeRecordedById    String?   @map("intake_recorded_by_id") @db.Uuid
+  intakeRecordedAt      DateTime? @map("intake_recorded_at")
+
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
 
   /// Four posting moments, four journals — an order is not one transaction,
@@ -3063,6 +3140,7 @@ model ProductionOrder {
   completionJournalEntry JournalEntry? @relation("ProductionOrderCompletion", fields: [completionJournalEntryId], references: [id])
   settlementJournalEntry JournalEntry? @relation("ProductionOrderSettlement", fields: [settlementJournalEntryId], references: [id])
 
+  qualityTests FeedQualityTest[]
   components ProductionOrderComponent[]
   outputs    ProductionOrderOutput[]
   lossEvents ProductionOrderLossEvent[]
@@ -3116,6 +3194,12 @@ model ProductionOrderOutput {
   /// against, kept for audit — "why did meat get 70% and shell 5%".
   allocationWeightKobo BigInt @map("allocation_weight_kobo")
   allocatedCostKobo    BigInt @map("allocated_cost_kobo")
+
+  /// Cold store (handbook §29): grade, expiry and storage temperature of the
+  /// output lot. Required for poultry processing, optional elsewhere.
+  grade               String?
+  expiryDate          DateTime? @map("expiry_date") @db.Date
+  storageTemperatureC Decimal?  @map("storage_temperature_c") @db.Decimal(5, 1)
 
   stockMovementId String? @map("stock_movement_id") @db.Uuid
 
@@ -3196,6 +3280,9 @@ model InventoryTransfer {
   issuedAt   DateTime? @map("issued_at")
   receivedAt DateTime? @map("received_at")
 
+  /// Which lots the quantity left in, earliest expiry first, so they arrive as the same lots.
+  lotAllocation Json? @map("lot_allocation")
+
   createdById String   @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
 
@@ -3227,6 +3314,9 @@ model InventoryWriteOff {
 
   /// MONEY. WAC at the moment of write-off.
   valueKobo BigInt @map("value_kobo")
+
+  /// The lot written off, where one is named (an expired or rejected lot).
+  lotReference String? @map("lot_reference")
 
   reason         String
   journalEntryId String? @map("journal_entry_id") @db.Uuid
@@ -3947,6 +4037,9 @@ model PayrollPayment {
   workflowTransactionId String?       @map("workflow_transaction_id") @db.Uuid
   journalEntryId        String?       @map("journal_entry_id") @db.Uuid
 
+  /// The bank payment file these salaries went out in; null until exported.
+  paymentFileId String? @map("payment_file_id") @db.Uuid
+
   createdById String    @map("created_by_id") @db.Uuid
   postedAt    DateTime? @map("posted_at")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -3961,6 +4054,8 @@ model PayrollPayment {
   financialPeriod     FinancialPeriod      @relation(fields: [financialPeriodId], references: [id])
   journalEntry        JournalEntry?        @relation(fields: [journalEntryId], references: [id])
   createdBy           User                 @relation("PayrollPaymentCreator", fields: [createdById], references: [id])
+
+  paymentFile         PaymentFile?         @relation(fields: [paymentFileId], references: [id])
 
   @@unique([companyId, paymentNumber])
   @@map("payroll_payments")
@@ -5237,6 +5332,25 @@ model PurchaseOrderLine {
   @@map("purchase_order_lines")
 }
 
+/// INT-002 purchase budget: what a cost centre may commit on purchase orders
+/// in a financial year. An order that would take the cost centre past it is
+/// refused at submission.
+model PurchaseBudget {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  financialYearId String   @map("financial_year_id") @db.Uuid
+  costCentreId    String   @map("cost_centre_id") @db.Uuid
+  /// MONEY. Net of VAT, the same basis orders are committed at.
+  amountKobo      BigInt   @map("amount_kobo")
+  note            String?
+  setById         String   @map("set_by_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, financialYearId, costCentreId])
+  @@map("purchase_budgets")
+}
+
 // ---------------------------------------------------------------------------
 // §5 Goods Receipt Note
 // ---------------------------------------------------------------------------
@@ -5255,6 +5369,9 @@ model GoodsReceiptNote {
   deliveryNoteReference String?       @map("delivery_note_reference")
   qualityStatus         QualityStatus @default(PENDING) @map("quality_status")
   inspectedById         String?       @map("inspected_by_id") @db.Uuid
+
+  /// Hold everything on this receipt in quarantine until QA releases it.
+  quarantine Boolean @default(false)
 
   status GrnStatus @default(DRAFT)
 
@@ -5332,6 +5449,12 @@ model GoodsReceiptNoteLine {
   /// this line is (accepted - invoiced) x price, and it must reach zero.
   invoicedQuantity Decimal @default(0) @map("invoiced_quantity") @db.Decimal(18, 6)
 
+  /// Returned to the supplier (SupplierReturn). The part returned before it
+  /// was invoiced leaves GRNI and is no longer billable; the part returned
+  /// after, debitNotedQuantity, is credited against the invoice.
+  returnedQuantity   Decimal @default(0) @map("returned_quantity") @db.Decimal(18, 6)
+  debitNotedQuantity Decimal @default(0) @map("debit_noted_quantity") @db.Decimal(18, 6)
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -5340,6 +5463,8 @@ model GoodsReceiptNoteLine {
   item              Item                  @relation(fields: [itemId], references: [id])
   warehouse         Warehouse?            @relation(fields: [warehouseId], references: [id])
   invoiceLines      SupplierInvoiceLine[]
+
+  returnLines SupplierReturnLine[]
 
   @@unique([goodsReceiptNoteId, lineNumber])
   @@map("goods_receipt_note_lines")
@@ -5494,6 +5619,9 @@ model SupplierPayment {
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
   journalEntryId        String? @map("journal_entry_id") @db.Uuid
 
+  /// The bank payment file this transfer went out in; null until exported.
+  paymentFileId String? @map("payment_file_id") @db.Uuid
+
   createdById String    @map("created_by_id") @db.Uuid
   postedAt    DateTime? @map("posted_at")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -5510,6 +5638,8 @@ model SupplierPayment {
   journalEntry    JournalEntry?       @relation(fields: [journalEntryId], references: [id])
   createdBy       User                @relation("PaymentCreator", fields: [createdById], references: [id])
   allocations     PaymentAllocation[]
+
+  paymentFile     PaymentFile?        @relation(fields: [paymentFileId], references: [id])
 
   @@unique([companyId, paymentNumber])
   @@index([companyId, status])
@@ -5832,6 +5962,10 @@ model SpeciesBreedStage {
   /// The average weight the breed standard expects at this stage, in grams.
   /// Weighings are compared against it. Blank where no standard is set.
   targetWeightGrams Int? @map("target_weight_grams")
+
+  /// Standard feed per animal per day at this stage, in grams — the feed
+  /// plan's fallback where a batch has no recent feeding to go on.
+  dailyFeedGramsPerHead Int? @map("daily_feed_grams_per_head")
 
   speciesBreed SpeciesBreed @relation(fields: [speciesBreedId], references: [id], onDelete: Cascade)
 
@@ -6485,6 +6619,7 @@ model IncubationBatch {
   journalEntry JournalEntry?      @relation("IncubationJournal", fields: [journalEntryId], references: [id])
   recordedBy User               @relation("IncubationRecorder", fields: [recordedById], references: [id])
 
+  readings IncubationReading[]
   hatchEvent HatchEvent?
 
   @@unique([companyId, code])
@@ -7114,6 +7249,11 @@ model FixedAsset {
   /// same shared enum every other document type here uses. Whether the asset
   /// is currently in service is a separate question, answered by
   /// `disposedOn`: null means active, set means disposed.
+  /// Impairment posted to date (IAS 36), held inside accumulated depreciation
+  /// and impairment; after it, depreciation spreads the carrying amount over
+  /// the remaining life.
+  impairedKobo BigInt @default(0) @map("impaired_kobo")
+
   status     WorkflowStatus @default(DRAFT)
   disposedOn DateTime?      @map("disposed_on") @db.Date
 
@@ -7131,6 +7271,9 @@ model FixedAsset {
   journalEntry        JournalEntry?       @relation("FixedAssetCapitalisationJournal", fields: [journalEntryId], references: [id])
   createdBy           User                @relation("FixedAssetCapitaliser", fields: [createdById], references: [id])
   depreciationEntries DepreciationEntry[]
+
+  impairments         FixedAssetImpairment[]
+  transfers           FixedAssetTransfer[]
 
   @@unique([companyId, assetNumber])
   @@index([companyId, status])
@@ -7545,7 +7688,12 @@ model TimesheetEntry {
   id          String   @id @default(uuid()) @db.Uuid
   companyId   String   @map("company_id") @db.Uuid
   employeeId  String   @map("employee_id") @db.Uuid
-  groupId     String   @map("group_id") @db.Uuid
+  /// A batch, or a processing order — one of the two (INT-013).
+  groupId           String?  @map("group_id") @db.Uuid
+  productionOrderId String?  @map("production_order_id") @db.Uuid
+  /// The shift, where it is recorded: overlapping shifts for one person are refused.
+  startsAt          DateTime? @map("starts_at")
+  endsAt            DateTime? @map("ends_at")
   workDate    DateTime @map("work_date") @db.Date
   /// QUANTITY. Hours, to the quarter or finer.
   hours       Decimal  @db.Decimal(6, 2)
@@ -7561,6 +7709,7 @@ model TimesheetEntry {
   selfApproved Boolean   @default(false) @map("self_approved")
 
   @@unique([employeeId, groupId, workDate])
+  @@unique([employeeId, productionOrderId, workDate])
   @@index([companyId, workDate])
   @@map("timesheet_entries")
 }
@@ -7584,4 +7733,342 @@ model MachineHours {
   @@unique([assetId, financialPeriodId, processingCycle])
   @@index([companyId, financialPeriodId])
   @@map("machine_hours")
+}
+
+/// Feed quality plan (handbook §26, FR-FM-02): the limits a finished feed
+/// must meet. Where an item has one, a feed order's output of it is received
+/// into stock only after a sample passes and someone other than the tester
+/// releases it — quarantine until release.
+model FeedQualitySpec {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  itemId    String @map("item_id") @db.Uuid
+
+  minProteinPercent  Decimal? @map("min_protein_percent") @db.Decimal(6, 2)
+  maxMoisturePercent Decimal? @map("max_moisture_percent") @db.Decimal(6, 2)
+  maxAflatoxinPpb    Decimal? @map("max_aflatoxin_ppb") @db.Decimal(10, 2)
+  samplingNote       String?  @map("sampling_note")
+
+  setById   String   @map("set_by_id") @db.Uuid
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, itemId])
+  @@map("feed_quality_specs")
+}
+
+enum FeedQualityDisposition {
+  PENDING
+  RELEASED
+  REJECTED
+}
+
+model FeedQualityTest {
+  id                String @id @default(uuid()) @db.Uuid
+  companyId         String @map("company_id") @db.Uuid
+  productionOrderId String @map("production_order_id") @db.Uuid
+  itemId            String @map("item_id") @db.Uuid
+
+  sampledOn         DateTime @map("sampled_on") @db.Date
+  proteinPercent    Decimal? @map("protein_percent") @db.Decimal(6, 2)
+  moisturePercent   Decimal? @map("moisture_percent") @db.Decimal(6, 2)
+  aflatoxinPpb      Decimal? @map("aflatoxin_ppb") @db.Decimal(10, 2)
+  contaminationNote String?  @map("contamination_note")
+  /// Against the item's spec when the sample was recorded.
+  passed            Boolean
+  failures          String[]
+
+  disposition  FeedQualityDisposition @default(PENDING)
+  testedById   String                 @map("tested_by_id") @db.Uuid
+  decidedById  String?                @map("decided_by_id") @db.Uuid
+  decidedAt    DateTime?              @map("decided_at")
+  decisionNote String?                @map("decision_note")
+  createdAt    DateTime               @default(now()) @map("created_at")
+
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+
+  @@index([productionOrderId])
+  @@map("feed_quality_tests")
+}
+
+enum SupplierReturnStatus {
+  PENDING
+  POSTED
+  REJECTED
+}
+
+/// Goods sent back to the supplier from a posted receipt (handbook §35
+/// "Return"). Approved by someone other than whoever raised it; on approval
+/// the stock leaves, the uninvoiced part clears GRNI, and the invoiced part
+/// becomes a debit note against the supplier's invoice.
+model SupplierReturn {
+  id           String @id @default(uuid()) @db.Uuid
+  companyId    String @map("company_id") @db.Uuid
+  returnNumber String @map("return_number")
+  supplierId   String @map("supplier_id") @db.Uuid
+  grnId        String @map("grn_id") @db.Uuid
+
+  returnDate DateTime @map("return_date") @db.Date
+  reason     String
+
+  status SupplierReturnStatus @default(PENDING)
+
+  /// Value leaving stock, at the receipt (or invoice) price.
+  stockValueKobo     BigInt  @default(0) @map("stock_value_kobo")
+  /// The debit note against the invoice, VAT included; zero when nothing
+  /// returned had been invoiced.
+  debitNoteKobo      BigInt  @default(0) @map("debit_note_kobo")
+  debitNoteInvoiceId String? @map("debit_note_invoice_id") @db.Uuid
+
+  journalEntryId String? @map("journal_entry_id") @db.Uuid
+
+  requestedById String    @map("requested_by_id") @db.Uuid
+  decidedById   String?   @map("decided_by_id") @db.Uuid
+  decidedAt     DateTime? @map("decided_at")
+  decisionNote  String?   @map("decision_note")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  lines SupplierReturnLine[]
+
+  @@unique([companyId, returnNumber])
+  @@index([companyId, status])
+  @@map("supplier_returns")
+}
+
+model SupplierReturnLine {
+  id        String  @id @default(uuid()) @db.Uuid
+  returnId  String  @map("return_id") @db.Uuid
+  grnLineId String  @map("grn_line_id") @db.Uuid
+  quantity  Decimal @db.Decimal(18, 6)
+
+  supplierReturn SupplierReturn       @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  grnLine        GoodsReceiptNoteLine @relation(fields: [grnLineId], references: [id])
+
+  @@unique([returnId, grnLineId])
+  @@map("supplier_return_lines")
+}
+
+enum ImpairmentStatus {
+  PENDING
+  POSTED
+  REJECTED
+}
+
+/// An impairment of a fixed asset (IAS 36): Dr impairment loss / Cr
+/// accumulated depreciation and impairment, approved by someone other than
+/// whoever raised it.
+model FixedAssetImpairment {
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @map("company_id") @db.Uuid
+  assetId               String   @map("asset_id") @db.Uuid
+  impairedOn            DateTime @map("impaired_on") @db.Date
+  amountKobo            BigInt   @map("amount_kobo")
+  /// The recoverable amount the impairment brings the asset down to.
+  recoverableAmountKobo BigInt   @map("recoverable_amount_kobo")
+  reason                String
+  evidence              String?
+
+  status         ImpairmentStatus @default(PENDING)
+  journalEntryId String?          @map("journal_entry_id") @db.Uuid
+
+  requestedById String    @map("requested_by_id") @db.Uuid
+  decidedById   String?   @map("decided_by_id") @db.Uuid
+  decidedAt     DateTime? @map("decided_at")
+  decisionNote  String?   @map("decision_note")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  asset FixedAsset @relation(fields: [assetId], references: [id])
+
+  @@index([companyId, status])
+  @@map("fixed_asset_impairments")
+}
+
+/// A fixed asset moved to another cost centre. No journal — the asset stays
+/// in the same account (handbook §35 "no GL when same valuation owner");
+/// depreciation from the next run follows the new cost centre.
+model FixedAssetTransfer {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  assetId          String   @map("asset_id") @db.Uuid
+  fromCostCentreId String?  @map("from_cost_centre_id") @db.Uuid
+  toCostCentreId   String?  @map("to_cost_centre_id") @db.Uuid
+  effectiveOn      DateTime @map("effective_on") @db.Date
+  reason           String
+  movedById        String   @map("moved_by_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  asset FixedAsset @relation(fields: [assetId], references: [id])
+
+  @@index([assetId, effectiveOn])
+  @@map("fixed_asset_transfers")
+}
+
+enum PaymentFileKind {
+  SUPPLIER
+  SALARY
+}
+
+/// A bank payment file (SOP-P2P-05): the posted transfers it carries, their
+/// total, and a SHA-256 of the file as issued, so a file altered after it
+/// left the system can be recognised. A payment goes in one file only.
+model PaymentFile {
+  id          String          @id @default(uuid()) @db.Uuid
+  companyId   String          @map("company_id") @db.Uuid
+  reference   String
+  kind        PaymentFileKind
+  rowCount    Int             @map("row_count")
+  totalKobo   BigInt          @map("total_kobo")
+  sha256      String
+  createdById String          @map("created_by_id") @db.Uuid
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  supplierPayments SupplierPayment[]
+  payrollPayments  PayrollPayment[]
+
+  @@unique([companyId, reference])
+  @@map("payment_files")
+}
+
+enum StockLotStatus {
+  AVAILABLE
+  QUARANTINE
+  REJECTED
+}
+
+/// A lot of an item (handbook §35 "item, lot and location"; FR-FM-02): its
+/// expiry and whether it may be used. Issues without a named lot draw on the
+/// earliest-expiring usable lot first (FEFO); an expired, quarantined or
+/// rejected lot cannot be issued, only written off, returned or counted.
+model StockLot {
+  id           String         @id @default(uuid()) @db.Uuid
+  companyId    String         @map("company_id") @db.Uuid
+  itemId       String         @map("item_id") @db.Uuid
+  lotReference String         @map("lot_reference")
+  expiryDate   DateTime?      @map("expiry_date") @db.Date
+  receivedOn   DateTime       @map("received_on") @db.Date
+  status       StockLotStatus @default(AVAILABLE)
+  sourceType   String         @map("source_type")
+  sourceId     String         @map("source_id")
+  /// Who brought it in — someone else releases it from quarantine.
+  receivedById String?        @map("received_by_id") @db.Uuid
+  decidedById  String?        @map("decided_by_id") @db.Uuid
+  decidedAt    DateTime?      @map("decided_at")
+  decisionNote String?        @map("decision_note")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  @@unique([companyId, itemId, lotReference])
+  @@index([companyId, status])
+  @@map("stock_lots")
+}
+
+/// Incubation conditions the setters must hold (FR-LIFE-04, SOP-EGG-04).
+model IncubationStandard {
+  id                   String   @id @default(uuid()) @db.Uuid
+  companyId            String   @unique @map("company_id") @db.Uuid
+  minTemperatureC      Decimal  @map("min_temperature_c") @db.Decimal(5, 2)
+  maxTemperatureC      Decimal  @map("max_temperature_c") @db.Decimal(5, 2)
+  minHumidityPercent   Decimal  @map("min_humidity_percent") @db.Decimal(5, 2)
+  maxHumidityPercent   Decimal  @map("max_humidity_percent") @db.Decimal(5, 2)
+  readingIntervalHours Int      @map("reading_interval_hours")
+  setById              String   @map("set_by_id") @db.Uuid
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@map("incubation_standards")
+}
+
+enum IncubationReadingKind {
+  ENVIRONMENT
+  CANDLING
+}
+
+/// One incubator reading or candling (FR-LIFE-04, P-EGG-05). A reading
+/// outside the standard is an exception a supervisor acknowledges, with the
+/// action taken, before the batch can be hatched.
+model IncubationReading {
+  id                String                @id @default(uuid()) @db.Uuid
+  companyId         String                @map("company_id") @db.Uuid
+  incubationBatchId String                @map("incubation_batch_id") @db.Uuid
+  kind              IncubationReadingKind
+  readAt            DateTime              @map("read_at")
+
+  temperatureC    Decimal? @map("temperature_c") @db.Decimal(5, 2)
+  humidityPercent Decimal? @map("humidity_percent") @db.Decimal(5, 2)
+  turned          Boolean?
+
+  fertileCount     Int? @map("fertile_count")
+  clearCount       Int? @map("clear_count")
+  deadInShellCount Int? @map("dead_in_shell_count")
+
+  note       String?
+  exceptions String[]
+
+  recordedById     String    @map("recorded_by_id") @db.Uuid
+  acknowledgedById String?   @map("acknowledged_by_id") @db.Uuid
+  acknowledgedAt   DateTime? @map("acknowledged_at")
+  actionTaken      String?   @map("action_taken")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  incubationBatch IncubationBatch @relation(fields: [incubationBatchId], references: [id], onDelete: Cascade)
+
+  @@index([incubationBatchId, readAt])
+  @@index([companyId, acknowledgedAt])
+  @@map("incubation_readings")
+}
+
+/// An incubator and how many eggs it holds (INT-025, SOP-EGG-03 "capacity",
+/// §12.3 "set requires capacity"). Once a company registers any, every set
+/// names one and must fit in what it has free.
+model Incubator {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  code         String
+  name         String
+  capacityEggs Int      @map("capacity_eggs")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, code])
+  @@map("incubators")
+}
+
+/// Where a cost pool's cost comes from in the ledger (AC-MFG-004): the
+/// accounts (and, optionally, the cost centre) whose posted cost is the pool.
+model CostPoolSource {
+  id           String   @id @default(uuid()) @db.Uuid
+  poolId       String   @map("pool_id") @db.Uuid
+  glAccountId  String   @map("gl_account_id") @db.Uuid
+  costCentreId String?  @map("cost_centre_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  pool CostPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, glAccountId, costCentreId])
+  @@map("cost_pool_sources")
+}
+
+/// A year's production variance spread over cost of sales, finished goods and
+/// closing WIP (POL-009), and its reversal at the start of the next year.
+model VarianceProration {
+  id              String @id @default(uuid()) @db.Uuid
+  companyId       String @map("company_id") @db.Uuid
+  financialYearId String @map("financial_year_id") @db.Uuid
+
+  /// Net variance settled in the year: positive is adverse.
+  totalVarianceKobo BigInt @map("total_variance_kobo")
+  cogsBaseKobo      BigInt @map("cogs_base_kobo")
+  fgBaseKobo        BigInt @map("fg_base_kobo")
+  wipBaseKobo       BigInt @map("wip_base_kobo")
+  toCogsKobo        BigInt @map("to_cogs_kobo")
+  toFgKobo          BigInt @map("to_fg_kobo")
+  toWipKobo         BigInt @map("to_wip_kobo")
+
+  journalEntryId         String?   @map("journal_entry_id") @db.Uuid
+  reversalJournalEntryId String?   @map("reversal_journal_entry_id") @db.Uuid
+  reversedAt             DateTime? @map("reversed_at")
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([companyId, financialYearId])
+  @@map("variance_prorations")
 }

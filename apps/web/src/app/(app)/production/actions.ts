@@ -178,6 +178,90 @@ interface OutputLine {
   itemId: string;
   outputType: 'MAIN' | 'BY_PRODUCT';
   quantity: string;
+  grade?: string;
+  expiryDate?: string;
+  storageTemperatureC?: string;
+}
+
+/** Cold-store detail for one output, from its prefixed fields (handbook §29). */
+function coldStore(formData: FormData, prefix: string) {
+  const grade = String(formData.get(`${prefix}Grade`) ?? '').trim();
+  const expiryDate = String(formData.get(`${prefix}Expiry`) ?? '').trim();
+  const storageTemperatureC = String(formData.get(`${prefix}Temp`) ?? '').trim();
+  return {
+    ...(grade ? { grade } : {}),
+    ...(expiryDate ? { expiryDate } : {}),
+    ...(storageTemperatureC ? { storageTemperatureC } : {}),
+  };
+}
+
+/** Poultry plant intake: birds and weight received, dead on arrival, condemned. */
+export async function recordIntake(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const id = String(formData.get('productionOrderId') ?? '');
+  const n = (k: string) => String(formData.get(k) ?? '').trim();
+  if (!n('plantReceivedCount') || !n('plantReceivedWeightKg')) return { error: 'Enter the birds and the live weight received at the plant.', message: null };
+  let result: { transitShrinkKg: string; abnormalLossKgToClaim: string };
+  try {
+    result = await api(`/production-orders/${id}/intake`, {
+      method: 'POST',
+      body: {
+        plantReceivedCount: Number(n('plantReceivedCount')),
+        plantReceivedWeightKg: n('plantReceivedWeightKg'),
+        deadOnArrivalCount: Number(n('deadOnArrivalCount') || 0),
+        deadOnArrivalWeightKg: n('deadOnArrivalWeightKg') || '0',
+        condemnedCount: Number(n('condemnedCount') || 0),
+        condemnedWeightKg: n('condemnedWeightKg') || '0',
+        condemnationReason: n('condemnationReason'),
+        inspectedBy: n('inspectedBy'),
+      },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not record the intake.');
+  }
+  revalidatePath(`/production/${id}`);
+  return {
+    error: null,
+    message:
+      Number(result.abnormalLossKgToClaim) > 0
+        ? `Intake recorded. Record ${result.abnormalLossKgToClaim} kg of dead-on-arrival and condemned birds as abnormal loss before the outputs.`
+        : 'Intake recorded.',
+  };
+}
+
+/** A feed batch's quality sample, tested against the feed's limits. */
+export async function recordQualityTest(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const id = String(formData.get('productionOrderId') ?? '');
+  const v = (k: string) => String(formData.get(k) ?? '').trim();
+  let result: { passed: boolean; failures: string[] };
+  try {
+    result = await api(`/feed-mill/orders/${id}/quality`, {
+      method: 'POST',
+      body: {
+        sampledOn: v('sampledOn'),
+        proteinPercent: v('proteinPercent') || undefined,
+        moisturePercent: v('moisturePercent') || undefined,
+        aflatoxinPpb: v('aflatoxinPpb') || undefined,
+        contaminationNote: v('contaminationNote') || undefined,
+      },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not record that test.');
+  }
+  revalidatePath(`/production/${id}`);
+  return result.passed
+    ? { error: null, message: 'Sample passed. Someone other than you releases the batch.' }
+    : { error: null, message: `Sample failed: ${result.failures.join(' ')} The batch can only be rejected.` };
+}
+
+/** Release or reject a tested feed batch. */
+export async function decideQualityTest(orderId: string, testId: string, decision: 'RELEASE' | 'REJECT', note?: string): Promise<FlowState> {
+  try {
+    await api(`/feed-mill/quality/${testId}/decide`, { method: 'POST', body: { decision, note } });
+  } catch (caught) {
+    return fail(caught, 'Could not record that decision.');
+  }
+  revalidatePath(`/production/${orderId}`);
+  return { error: null, message: decision === 'RELEASE' ? 'Batch released; its output can be received.' : 'Batch rejected.' };
 }
 
 /**
@@ -195,11 +279,11 @@ export async function recordOutputs(_previous: FlowState, formData: FormData): P
   if (!warehouseId) return { error: 'Choose which store receives the output.', message: null };
   if (!mainQuantity || Number(mainQuantity) <= 0) return { error: 'Enter how many kilograms of the main output came out.', message: null };
 
-  const outputs: OutputLine[] = [{ itemId: mainItemId, outputType: 'MAIN', quantity: mainQuantity }];
+  const outputs: OutputLine[] = [{ itemId: mainItemId, outputType: 'MAIN', quantity: mainQuantity, ...coldStore(formData, 'main') }];
   for (let i = 1; i <= 2; i++) {
     const itemId = String(formData.get(`byProductItemId${i}`) ?? '');
     const quantity = String(formData.get(`byProductQuantity${i}`) ?? '').trim();
-    if (itemId && quantity && Number(quantity) > 0) outputs.push({ itemId, outputType: 'BY_PRODUCT', quantity });
+    if (itemId && quantity && Number(quantity) > 0) outputs.push({ itemId, outputType: 'BY_PRODUCT', quantity, ...coldStore(formData, `byProduct${i}`) });
   }
 
   try {

@@ -52,6 +52,7 @@ export interface BatchProfile {
   deaths: { total: number; byCarcassDisposal: Record<string, number> };
   fcr: { value: string; feedKg: string; gainKg: string; from: string; to: string } | null;
   henDay: { percent: string; eggs: number; henDays: number; days: number } | null;
+  epef?: { value: string; liveabilityPercent: string; liveWeightKg: string; ageDays: number; fcrFromPlacement: string } | null;
 }
 
 const CARCASS: Record<string, string> = {
@@ -164,6 +165,13 @@ export function GrowthCard({
               label="Hen-day"
               value={`${profile.henDay.percent}%`}
               hint={`${profile.henDay.eggs.toLocaleString('en-NG')} eggs over ${profile.henDay.days} days`}
+            />
+          ) : null}
+          {profile.epef ? (
+            <Figure
+              label="EPEF"
+              value={profile.epef.value}
+              hint={`${profile.epef.liveabilityPercent}% liveability, ${profile.epef.liveWeightKg} kg at ${profile.epef.ageDays} days, FCR ${profile.epef.fcrFromPlacement} from placement`}
             />
           ) : null}
           <Figure

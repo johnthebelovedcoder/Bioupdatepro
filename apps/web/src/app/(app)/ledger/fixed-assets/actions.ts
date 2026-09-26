@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { api, ApiError } from '@/lib/api';
+import { parseNairaToKobo } from '@/lib/money';
 
 export interface FlowState {
   error: string | null;
@@ -154,4 +155,58 @@ export async function setMachineHours(
   }
   revalidatePath('/ledger/fixed-assets');
   return { error: null, message: 'Saved. That period’s depreciation for this machine is split by these hours when the run posts.' };
+}
+
+/** Raise an impairment down to the recoverable amount (IAS 36). */
+export async function requestImpairment(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const assetId = String(formData.get('assetId') ?? '');
+  const recoverable = parseNairaToKobo(String(formData.get('recoverableAmount') ?? ''));
+  const reason = String(formData.get('reason') ?? '').trim();
+  if (recoverable === null) return { error: 'Enter the recoverable amount.', message: null };
+  if (!reason) return { error: 'Say what indicates the impairment.', message: null };
+  let result: { amountKobo: string };
+  try {
+    result = await api(`/fixed-assets/assets/${assetId}/impairments`, {
+      method: 'POST',
+      body: {
+        impairedOn: String(formData.get('impairedOn') ?? ''),
+        recoverableAmountKobo: recoverable.toString(),
+        reason,
+        evidence: String(formData.get('evidence') ?? '').trim() || undefined,
+      },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not raise that impairment.');
+  }
+  revalidatePath('/ledger/fixed-assets');
+  return { error: null, message: `Impairment of ₦${(Number(result.amountKobo) / 100).toLocaleString('en-NG')} raised; the controller or CFO approves it.` };
+}
+
+export async function decideImpairment(id: string, decision: 'APPROVE' | 'REJECT', note?: string): Promise<FlowState> {
+  try {
+    await api(`/fixed-assets/impairments/${id}/decide`, { method: 'POST', body: { decision, note } });
+  } catch (caught) {
+    return fail(caught, 'Could not record that decision.');
+  }
+  revalidatePath('/ledger/fixed-assets');
+  return { error: null, message: decision === 'APPROVE' ? 'Impairment posted.' : 'Impairment rejected.' };
+}
+
+/** Move an asset to another cost centre. */
+export async function transferAsset(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const assetId = String(formData.get('assetId') ?? '');
+  try {
+    await api(`/fixed-assets/assets/${assetId}/transfer`, {
+      method: 'POST',
+      body: {
+        toCostCentreId: String(formData.get('toCostCentreId') ?? '') || null,
+        effectiveOn: String(formData.get('effectiveOn') ?? ''),
+        reason: String(formData.get('reason') ?? '').trim(),
+      },
+    });
+  } catch (caught) {
+    return fail(caught, 'Could not move that asset.');
+  }
+  revalidatePath('/ledger/fixed-assets');
+  return { error: null, message: 'Moved.' };
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useState, useTransition } from 'react';
 import { useFormStatus } from 'react-dom';
 import {
   settleWithReason,
@@ -8,8 +8,11 @@ import {
   confirmConversion,
   recordLoss,
   recordOutputs,
+  recordIntake,
+  recordQualityTest,
+  decideQualityTest,
   type FlowState,
-} from '@/app/(app)/production/actions';
+} from '@/app/(app)/production/actions';
 import type { Warehouse } from '@/lib/masters';
 
 function Submit({ label, pendingLabel }: { label: string; pendingLabel: string }) {
@@ -175,12 +178,15 @@ export function RecordOutputsForm({
   mainItemLabel,
   warehouses,
   byProductItems,
+  coldStore = false,
 }: {
   orderId: string;
   mainItemId: string;
   mainItemLabel: string;
   warehouses: Warehouse[];
   byProductItems: Array<{ id: string; code: string; name: string }>;
+  /** Poultry processing: grade, expiry and cold-store temperature are required (handbook §29). */
+  coldStore?: boolean;
 }) {
   const [state, formAction] = useActionState<FlowState, FormData>(recordOutputs, {
     error: null,
@@ -220,6 +226,7 @@ export function RecordOutputsForm({
         {mainItemLabel} (kg)
         <input name="mainQuantity" type="number" step="0.001" min="0.001" required />
       </label>
+      <ColdStoreFields prefix="main" required={coldStore} />
 
       {[...Array(byProductCount)].map((_, index) => {
         const n = index + 1;
@@ -240,6 +247,7 @@ export function RecordOutputsForm({
               Kilograms
               <input name={`byProductQuantity${n}`} type="number" step="0.001" min="0" />
             </label>
+            <ColdStoreFields prefix={`byProduct${n}`} required={false} />
           </div>
         );
       })}
@@ -258,5 +266,166 @@ export function RecordOutputsForm({
 
       <Submit label="Record outputs" pendingLabel="Recording…" />
     </form>
+  );
+}
+
+/** Grade, expiry and cold-store temperature of an output lot (handbook §29). */
+function ColdStoreFields({ prefix, required }: { prefix: string; required: boolean }) {
+  return (
+    <div className="grid-auto">
+      <label className="field">
+        Grade{required ? '' : ' (optional)'}
+        <input name={`${prefix}Grade`} placeholder="A" required={required} />
+      </label>
+      <label className="field">
+        Use by{required ? '' : ' (optional)'}
+        <input name={`${prefix}Expiry`} type="date" required={required} />
+      </label>
+      <label className="field">
+        Stored at °C{required ? '' : ' (optional)'}
+        <input name={`${prefix}Temp`} type="number" step="0.1" placeholder="-18" required={required} />
+      </label>
+    </div>
+  );
+}
+
+/**
+ * Poultry plant intake (handbook §29): what reached the plant from the catch.
+ * Dead-on-arrival and condemned birds then need an abnormal-loss claim.
+ */
+export function PlantIntakeForm({
+  orderId,
+  caught,
+  current,
+}: {
+  orderId: string;
+  caught: { count: number; weightKg: string };
+  current: {
+    plantReceivedCount: number | null;
+    plantReceivedWeightKg: string | null;
+    deadOnArrivalCount: number | null;
+    deadOnArrivalWeightKg: string | null;
+    condemnedCount: number | null;
+    condemnedWeightKg: string | null;
+    condemnationReason: string | null;
+    intakeInspectedBy: string | null;
+  };
+}) {
+  const [state, action] = useActionState<FlowState, FormData>(recordIntake, { error: null, message: null });
+  const num = (v: string | number | null) => (v === null ? undefined : Number(v));
+  return (
+    <form action={action} className="stack" style={{ gap: 'var(--sp-3)' }}>
+      <input type="hidden" name="productionOrderId" value={orderId} />
+      {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+      {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+      <p className="faint" style={{ fontSize: 13 }}>
+        The catch was {caught.count.toLocaleString('en-NG')} birds, {Number(caught.weightKg).toLocaleString('en-NG')} kg live.
+      </p>
+      <div className="grid-auto">
+        <label className="field">
+          Birds received
+          <input name="plantReceivedCount" type="number" min="0" step="1" max={caught.count} defaultValue={num(current.plantReceivedCount) ?? caught.count} required />
+        </label>
+        <label className="field">
+          Live weight received (kg)
+          <input name="plantReceivedWeightKg" type="number" min="0" step="0.001" defaultValue={num(current.plantReceivedWeightKg) ?? Number(caught.weightKg)} required />
+        </label>
+      </div>
+      <div className="grid-auto">
+        <label className="field">
+          Dead on arrival
+          <input name="deadOnArrivalCount" type="number" min="0" step="1" defaultValue={num(current.deadOnArrivalCount) ?? 0} />
+        </label>
+        <label className="field">
+          Their weight (kg)
+          <input name="deadOnArrivalWeightKg" type="number" min="0" step="0.001" defaultValue={num(current.deadOnArrivalWeightKg) ?? 0} />
+        </label>
+      </div>
+      <div className="grid-auto">
+        <label className="field">
+          Condemned by the vet
+          <input name="condemnedCount" type="number" min="0" step="1" defaultValue={num(current.condemnedCount) ?? 0} />
+        </label>
+        <label className="field">
+          Their weight (kg)
+          <input name="condemnedWeightKg" type="number" min="0" step="0.001" defaultValue={num(current.condemnedWeightKg) ?? 0} />
+        </label>
+      </div>
+      <div className="grid-auto">
+        <label className="field">
+          Why condemned
+          <input name="condemnationReason" defaultValue={current.condemnationReason ?? ''} placeholder="Septicaemia, bruising, ascites" />
+        </label>
+        <label className="field">
+          Vet or inspector
+          <input name="inspectedBy" defaultValue={current.intakeInspectedBy ?? ''} />
+        </label>
+      </div>
+      <div>
+        <Submit label={current.plantReceivedCount === null ? 'Record intake' : 'Correct intake'} pendingLabel="Recording…" />
+      </div>
+    </form>
+  );
+}
+
+/** A feed batch's sample against its quality limits (handbook §26). */
+export function QualityTestForm({ orderId }: { orderId: string }) {
+  const [state, action] = useActionState<FlowState, FormData>(recordQualityTest, { error: null, message: null });
+  return (
+    <form action={action} className="stack" style={{ gap: 'var(--sp-3)' }}>
+      <input type="hidden" name="productionOrderId" value={orderId} />
+      {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+      {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+      <div className="grid-auto">
+        <label className="field">
+          Sampled on
+          <input name="sampledOn" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required />
+        </label>
+        <label className="field">
+          Protein %
+          <input name="proteinPercent" type="number" step="0.01" min="0" />
+        </label>
+        <label className="field">
+          Moisture %
+          <input name="moisturePercent" type="number" step="0.01" min="0" />
+        </label>
+        <label className="field">
+          Aflatoxin ppb
+          <input name="aflatoxinPpb" type="number" step="0.01" min="0" />
+        </label>
+      </div>
+      <label className="field">
+        Contamination seen (leave blank if none)
+        <input name="contaminationNote" placeholder="Mould, insects, foreign matter" />
+      </label>
+      <div>
+        <Submit label="Record test" pendingLabel="Recording…" />
+      </div>
+    </form>
+  );
+}
+
+/** Release or reject a tested batch — someone other than the tester. */
+export function QualityDecision({ orderId, testId, passed }: { orderId: string; testId: string; passed: boolean }) {
+  const [pending, start] = useTransition();
+  const [state, setState] = useState<FlowState>({ error: null, message: null });
+  const [note, setNote] = useState('');
+  const decide = (decision: 'RELEASE' | 'REJECT') => start(async () => setState(await decideQualityTest(orderId, testId, decision, note || undefined)));
+  return (
+    <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+      {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+      {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={passed ? 'Note (optional)' : 'Why rejected'} aria-label="Decision note" />
+      <div className="row" style={{ gap: 'var(--sp-2)' }}>
+        {passed ? (
+          <button type="button" className="btn btn-primary btn-sm" disabled={pending} onClick={() => decide('RELEASE')}>
+            Release batch
+          </button>
+        ) : null}
+        <button type="button" className="btn btn-sm" disabled={pending} onClick={() => decide('REJECT')}>
+          Reject batch
+        </button>
+      </div>
+    </div>
   );
 }

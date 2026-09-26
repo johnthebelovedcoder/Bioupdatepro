@@ -62,6 +62,7 @@ export async function writeOffStock(_previous: FlowState, formData: FormData): P
   const warehouseId = String(formData.get('warehouseId') ?? '');
   const quantity = String(formData.get('quantity') ?? '');
   const reason = String(formData.get('reason') ?? '').trim();
+  const lotReference = String(formData.get('lotReference') ?? '').trim();
 
   if (!itemId) return { error: 'Choose an item.', message: null };
   if (!warehouseId) return { error: 'Choose which store it is coming out of.', message: null };
@@ -75,9 +76,10 @@ export async function writeOffStock(_previous: FlowState, formData: FormData): P
   try {
     await api('/inventory/write-offs', {
       method: 'POST',
-      body: { branchId: branch.id, itemId, warehouseId, quantity, reason },
+      body: { branchId: branch.id, itemId, warehouseId, quantity, reason, ...(lotReference ? { lotReference } : {}) },
     });
     revalidatePath('/inventory/transfers');
+    revalidatePath('/inventory/lots');
     return { error: null, message: 'Requested. Nothing leaves the store until someone else approves it.' };
   } catch (caught) {
     return fail(caught, 'Could not write that off.');

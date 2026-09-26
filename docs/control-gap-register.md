@@ -19,16 +19,14 @@ Tests are in `apps/api/test/integration/`. Run them with
 | Status | Rows |
 |---|---|
 | Built | 63 |
-| Built 26 Sep | 14 |
-| Partial | 10 |
+| Built 26 Sep | 23 |
+| Partial | 1 |
 | Not built | 0 |
 
 88 rows; AC-001, a check on the workbook itself rather than the application, is not counted.
 
 **Not built:** none. **Missing parts of partial rows**, the larger ones:
-multi-factor sign-in
-(INT-034), purchase budgets (INT-002), bank verification before paying
-(INT-005 / INT-015) and WhatsApp with consent (AC-015).
+multi-factor sign-in (INT-034).
 
 ## Built 26 Sep
 
@@ -48,6 +46,12 @@ rows marked Built above):
 | AC-HR-003 | Leave on the Nigerian Labour Act minimums (s.18 annual 6 days after 12 months, carried a year then lapsing; s.16 sick 12 days with a certificate; s.54 maternity 12 weeks at 50% after 6 months); requests checked for balance and overlap and approved by someone else; balances and liability (RPT-HR-007); unpaid days off gross before PAYE, shown on the payslip | leave.spec; payroll.spec: "takes approved unpaid leave off gross before PAYE" |
 | AC-ENT-001 / AC-013 | The direct-method cash flow: every bank movement classified by the other side of its journal (customers, suppliers, employees, taxes, investing, financing), beside the indirect method, with the checks direct = bank, indirect = bank, direct operating = indirect operating. It found the indirect method leaving VAT and withholding out of working capital, now fixed | cash-flow.spec; case-500-snail.spec (REP-019) |
 | AC-MFG-009 / POL-010 | The depreciation schedule: per asset, cost, opening and closing accumulated depreciation, the charge split between depreciation expense and each processing line (read from the posted journals), disposal write-offs and net book value; checks that the charge equals expensed plus absorbed, and that accumulated depreciation and cost agree with the ledger | fixed-assets.spec: "schedules depreciation per asset, expensed and absorbed" |
+| INT-025 | Incubators are registered with their capacity and a set that would overfill one is refused; setter readings outside the standard must be acknowledged before a hatch; the hatch reconciles to candling; eggs from a flock in withdrawal cannot be table eggs | poultry-egg.spec (to be written with the joint test) |
+| AC-HR-002 | Approved hours reconcile to the payroll register, payroll expense to what was allocated to batches, and nobody with approved hours goes unpaid; the period cannot close until it agrees | labour-reconciliation.spec (to be written with the joint test) |
+| AC-MFG-004 | A cost pool is tied to its ledger accounts, and its ledger cost reconciles to absorbed cost plus unused capacity, with the spending variance shown | costing.spec (to be written with the joint test) |
+| POL-009 | Variances can be prorated at year end over cost of sales, finished goods and WIP, and reversed into the next year | standard-costing.spec (to be written with the joint test) |
+| INT-013 | Overlapping shifts and time on closed orders or batches are refused, at entry and again at approval | farm-costing.spec (to be written with the joint test) |
+| AC-015 | Email and WhatsApp notices go only for events approved for that channel, to active users, and by WhatsApp only to a number verified by a 6-digit code (10 minutes, five tries) with consent not withdrawn; the gate runs again when the message is sent, and a blocked message is kept as failed with its reason | notifications.spec (to be written with the joint test) |
 | AC-PAY-002 | Neither the preparer nor the approver of a payroll run can pay it | payroll.spec: "is paid by neither whoever prepared the run nor whoever approved it" |
 | POL-001 tolerance | A total variance beyond the year's tolerance settles only with a reason | standard-costing.spec: "settles a variance beyond the year's tolerance only with a reason" |
 | POL-003 | Standards carry six parts: material, packaging, labour, machine, overhead, depreciation | standard-costing.spec: "reports the six parts of POL-003" |
@@ -61,7 +65,7 @@ other approval does.
 | ID | Requirement | Status | Evidence / what is missing |
 |---|---|---|---|
 | AC-HR-001 | Duplicate identity/bank or unapproved change blocked | Built 26 Sep | Duplicates refused; pay changes need a second person's approval (masters.spec: "pays nothing until someone else approves the change") |
-| AC-HR-002 | Approved hours reconcile to payroll and cost-object allocation | Partial | Only approved hours allocate to cost objects (farm-costing.spec: "counts only approved hours"). There is no report reconciling hours to the payroll run. |
+| AC-HR-002 | Approved hours reconcile to payroll and cost-object allocation | Built 26 Sep | Payroll → Hours and pay: the posted register against payroll expense, labour allocated to batches within it, every person's approved and pending hours against their pay; a blocking period-close check |
 | AC-HR-003 | Leave balance roll-forward and payroll effect | Built 26 Sep | People → Leave on the Labour Act defaults; balances roll forward and lapse; unpaid days come off gross before PAYE (leave.spec, payroll.spec) |
 | AC-PAY-001 | Gross = earnings; net = gross − deductions; journal = approved payroll | Built | payroll.spec: "calculates EMP001 exactly", "posts the §7 accrual" |
 | AC-PAY-002 | Preparer cannot approve or pay the same run | Built 26 Sep | Maker ≠ approver (workflow, and a database trigger); payment by preparer or approver refused |
@@ -69,7 +73,7 @@ other approval does.
 | AC-MFG-001 | Only released effective BOM/routing versions used | Built | masters.spec: "refuses to explode a draft version"; standards roll up from released rates only |
 | AC-MFG-002 | Costing method Standard only, locked after setup | Built | standard-costing.spec: "locks it at the first posting (AC-MFG-002)" |
 | AC-MFG-003 | Setup once per order; run time × approved driver | Built | production-order.spec: "works out standard conversion from the routing" |
-| AC-MFG-004 | Pool source GL = allocated + unused capacity | Partial | Unused capacity is shown for each pool. A pool's cost is entered with its rate, not read from the GL, so the pool is not tied to the GL. |
+| AC-MFG-004 | Pool source GL = allocated + unused capacity | Built 26 Sep | Each pool names its source ledger accounts; its ledger cost over the rate's window is set against cost absorbed plus unused capacity, the difference shown as spending variance, and the rate's pool cost against the ledger |
 | AC-MFG-005 | Input = good output + by-product + normal + abnormal loss | Built | production-order.spec: "only when the quantities balance" |
 | AC-MFG-006 | Completed order WIP = 0 | Built | settlement asserts the WIP identity; processing specs check 130410/130420/130430 = 0 |
 | AC-MFG-007 | S_Recovery and P_Recovery reconcile separately | Built | poultry-processing.spec: Controls reconciliation of 1304/2198 |
@@ -95,7 +99,7 @@ other approval does.
 | AC-012 | Reports tie to subledger, journal and GL | Built | reports.spec; Controls reconciliation |
 | AC-013 | Direct and indirect cash flow agree with SOFP | Built 26 Sep | as AC-ENT-001 |
 | AC-014 | Posted records immutable; correction by reversal | Built | posting.spec: "reversal is the only correction path" |
-| AC-015 | Email/WhatsApp to verified, consenting recipients | Partial | Email notifications and invitations exist. WhatsApp and the consent/verified-recipient control are not built. |
+| AC-015 | Email/WhatsApp to verified, consenting recipients | Built 26 Sep | My notifications: a WhatsApp number verified by code, consent given and withdrawn by the person, events approved per channel by an administrator or the CFO, checked again at send; blocked sends recorded as failed with the reason |
 
 ## Costing_Policy_v2
 
@@ -109,7 +113,7 @@ other approval does.
 | POL-006 | Abnormal loss expensed, not hidden in FG | Built | abnormal loss approval and posting (production-order.spec) |
 | POL-007 | Joint cost by approved driver | Built | production-order.spec: joint-cost tests |
 | POL-008 | Separate recovery GL per species | Built | 219810 / 219820 / 219830 |
-| POL-009 | Variance disposition: COGS / FG / closing WIP | Partial | Variances go to cost of sales, the only disposition the policy offers. Proration to finished goods or closing WIP is not built. |
+| POL-009 | Variance disposition: COGS / FG / closing WIP | Built 26 Sep | A year's policy sends variances to cost of sales, or prorates a net variance at or above a threshold over cost of sales, finished goods and closing WIP at standard, held in capitalised-variance accounts and reversed into the next year |
 | POL-010 | FA schedule = P&L + absorbed depreciation | Built 26 Sep | as AC-MFG-009 |
 
 ## STANDARD_COST_CHECKS
@@ -123,11 +127,11 @@ recovery close to zero for both species.
 
 | ID | Area | Status | Evidence / what is missing |
 |---|---|---|---|
-| INT-001 | Supplier/customer master | Built 26 Sep | Duplicate TIN or bank account refused. A supplier's bank change does not yet need a second person's approval. |
-| INT-002 | Purchase order | Partial | Approval, dimensions and blocked suppliers are enforced; budget checks are not built |
+| INT-001 | Supplier/customer master | Built 26 Sep | Duplicate TIN or bank account refused; a supplier's bank change is recorded, clears its verification, and needs someone else to verify it |
+| INT-002 | Purchase order | Built 26 Sep | Approval, dimensions, blocked suppliers, and purchase budgets by cost centre checked at submission |
 | INT-003 | Goods receipt | Built | Receipt against an open PO; over-tolerance goes to exception approval |
 | INT-004 | Supplier invoice | Built | Unique supplier invoice number; three-way match |
-| INT-005 | Supplier payment | Partial | Over-allocation refused and maker ≠ checker; no bank verification before payment |
+| INT-005 | Supplier payment | Built 26 Sep | Over-allocation refused, maker ≠ checker, and no transfer to an unverified bank account |
 | INT-006 | Stock receipt | Built | inventory.spec |
 | INT-007 | Stock issue | Built | Per-store availability; moving average frozen at posting |
 | INT-008 | Stock transfer | Built | Source and destination move together (inventory.spec); lots as AC-011 |
@@ -135,9 +139,9 @@ recovery close to zero for both species.
 | INT-010 | Asset capitalisation | Built | fixed-assets.spec |
 | INT-011 | Depreciation/disposal | Built | fixed-assets.spec: "never depreciates an asset before it is in service" |
 | INT-012 | Employee activation | Built 26 Sep | Employee_Master_Checks; duplicates refused; activation by a second person |
-| INT-013 | Time capture | Partial | Approved hours, at most 24 a day; overlapping shifts and time on closed orders are not checked |
+| INT-013 | Time capture | Built 26 Sep | Approved hours, at most 24 a day; a shift overlapping another of the same person is refused; no time on a completed or cancelled processing order, or on a batch after it closed |
 | INT-014 | Payroll calculation | Built | One run per month; negative net pay refused; approved pay only |
-| INT-015 | Payroll payment/remittance | Partial | Paid per liability bucket, never beyond what is owed, by someone other than preparer and approver; no bank verification |
+| INT-015 | Payroll payment/remittance | Built 26 Sep | Paid per liability bucket, never beyond what is owed, by someone other than preparer and approver; salaries go by transfer only to verified employee accounts |
 | INT-016 | Configure annual standard | Built | Costing policy and standard-cost workbench |
 | INT-017 | Capture actual resources | Built | Actual cost tied to source (payroll, depreciation, pools) |
 | INT-018 | Absorb/settle production | Built | Recovery clears; variances classified; tolerance enforced |
@@ -147,7 +151,7 @@ recovery close to zero for both species.
 | INT-022 | Snail processing | Built | Mass balance, WIP and recovery zero |
 | INT-023 | Poultry placement | Built | placement.spec: duplicate batch code, pen capacity |
 | INT-024 | Feed/mortality/weight | Built | Feed at most the stock in store; mortality at most live birds; weighings approved |
-| INT-025 | Egg collection/incubation | Partial | Eggs valued and carried by flock; incubator capacity is not checked |
+| INT-025 | Egg collection/incubation | Built 26 Sep | Eggs valued and carried by flock; once incubators are registered, a set must name one with room for the eggs; the incubation log records readings and candling, and a hatch waits for every out-of-range reading to be acknowledged and reconciles to candling; eggs laid during a withdrawal cannot be table eggs |
 | INT-026 | Poultry processing | Built | poultry-processing.spec |
 | INT-027 | Feed mill | Built | Released formula; stock availability; yield at standard |
 | INT-028 | Customer invoice | Built | Unique invoice numbers; credit control; tax |

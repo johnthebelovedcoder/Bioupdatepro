@@ -23,6 +23,7 @@ interface ScheduleRow {
   toProfitAndLossKobo: string;
   absorbedKobo: Record<string, string>;
   disposalWriteOffKobo: string;
+  impairmentKobo?: string;
   closingAccumulatedKobo: string;
   netBookValueKobo: string;
 }
@@ -39,6 +40,7 @@ interface Schedule {
     absorbedKobo: Record<string, string>;
     absorbedTotalKobo: string;
     disposalWriteOffKobo: string;
+    impairmentKobo?: string;
     closingAccumulatedKobo: string;
     netBookValueKobo: string;
   };
@@ -103,6 +105,7 @@ export default async function DepreciationSchedulePage({ searchParams }: { searc
                       </th>
                     ))}
                     <th className="right">Disposal write-off</th>
+                    <th className="right">Impairment</th>
                     <th className="right">Closing acc.</th>
                     <th className="right">Net book value</th>
                   </tr>
@@ -110,7 +113,7 @@ export default async function DepreciationSchedulePage({ searchParams }: { searc
                 <tbody>
                   {schedule.rows.length === 0 ? (
                     <tr>
-                      <td colSpan={8 + lines.length} className="faint">
+                      <td colSpan={9 + lines.length} className="faint">
                         No fixed assets in service in this year.
                       </td>
                     </tr>
@@ -135,6 +138,7 @@ export default async function DepreciationSchedulePage({ searchParams }: { searc
                           </td>
                         ))}
                         <td className="num right">{formatNaira(r.disposalWriteOffKobo)}</td>
+                        <td className="num right">{formatNaira(r.impairmentKobo ?? '0')}</td>
                         <td className="num right">{formatNaira(r.closingAccumulatedKobo)}</td>
                         <td className="num right">{formatNaira(r.netBookValueKobo)}</td>
                       </tr>
@@ -152,6 +156,7 @@ export default async function DepreciationSchedulePage({ searchParams }: { searc
                       </td>
                     ))}
                     <td className="num right">{formatNaira(schedule.totals.disposalWriteOffKobo)}</td>
+                    <td className="num right">{formatNaira(schedule.totals.impairmentKobo ?? '0')}</td>
                     <td className="num right">{formatNaira(schedule.totals.closingAccumulatedKobo)}</td>
                     <td className="num right">{formatNaira(schedule.totals.netBookValueKobo)}</td>
                   </tr>

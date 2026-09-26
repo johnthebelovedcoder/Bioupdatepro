@@ -3,6 +3,7 @@ import Decimal from 'decimal.js';
 import { Prisma, StockDirection } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { assertUsableStock } from './lots';
 
 export interface StockPosition {
   /** QUANTITY on hand, summed across every warehouse — company-wide, the
@@ -251,6 +252,31 @@ export class StockMovementService {
     }
   }
 
+  /** No expired, quarantined or rejected lot goes out except to be got rid of (lots.ts). */
+  private async assertUsable(params: {
+    tx: Prisma.TransactionClient;
+    companyId: string;
+    itemId: string;
+    warehouseId: string;
+    quantity: Decimal;
+    batchReference?: string | null;
+    movementDate: Date;
+    documentReference: string;
+    sourceDocumentType: string;
+    perStore?: boolean;
+  }) {
+    await assertUsableStock(params.tx, {
+      companyId: params.companyId,
+      itemId: params.itemId,
+      warehouseId: params.perStore ? params.warehouseId : null,
+      quantity: params.quantity,
+      batchReference: params.batchReference,
+      on: params.movementDate,
+      documentReference: params.documentReference,
+      sourceDocumentType: params.sourceDocumentType,
+    });
+  }
+
   async storeQuantity(tx: Prisma.TransactionClient, companyId: string, itemId: string, warehouseId: string): Promise<Decimal> {
     const rows = await tx.stockMovement.groupBy({
       by: ['direction'],
@@ -306,6 +332,7 @@ export class StockMovementService {
     await this.assertNotFrozen(params);
     const before = await this.currentPosition(params.tx, params.companyId, params.itemId);
     if (params.perStore) await this.assertStoreHolds(params);
+    await this.assertUsable(params);
     if (before.quantity.lessThan(params.quantity) || before.valueKobo < params.valueKobo) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §14 — Inventory issue',
@@ -364,6 +391,7 @@ export class StockMovementService {
     await this.assertNotFrozen(params);
     const before = await this.currentPosition(params.tx, params.companyId, params.itemId);
     if (params.perStore) await this.assertStoreHolds(params);
+    await this.assertUsable(params);
 
     if (before.wacKobo === null) {
       throw new AccountingRuleViolation(

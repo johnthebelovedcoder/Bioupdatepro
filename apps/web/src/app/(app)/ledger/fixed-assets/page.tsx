@@ -12,6 +12,20 @@ import { DisposeAssetForm } from '@/components/dispose-asset-form';
 import { PROCESSING_LINES, ProcessingLineForm } from '@/components/processing-line-form';
 import { MachineHoursForm } from '@/components/machine-hours-form';
 import { TableSearch } from '@/components/table-search';
+import { ImpairAssetForm, ImpairmentDecision, TransferAssetForm } from '@/components/asset-change-forms';
+import type { SessionUser } from '@/lib/session';
+
+interface PendingImpairment {
+  id: string;
+  assetNumber: string;
+  name: string;
+  impairedOn: string;
+  amountKobo: string;
+  recoverableAmountKobo: string;
+  reason: string;
+  evidence: string | null;
+  requestedById: string;
+}
 
 export const metadata = { title: 'Fixed assets — BioAssetPro' };
 
@@ -26,13 +40,16 @@ export const metadata = { title: 'Fixed assets — BioAssetPro' };
  * keys and the approval-ladder thresholds.
  */
 export default async function FixedAssetsPage() {
-  const [assets, context, dimensions] = await Promise.all([
+  const [assets, context, dimensions, pendingImpairments, me] = await Promise.all([
     getFixedAssets(),
     getContext(),
     api<{ costCentres: Array<{ id: string; code: string; name: string }> }>(
       '/reporting/dimensions',
     ),
+    api<PendingImpairment[]>('/fixed-assets/impairments/pending').catch(() => [] as PendingImpairment[]),
+    api<SessionUser>('/auth/me'),
   ]);
+  const canDecideImpairment = me.roles.some((r) => r === 'FINANCE_CONTROLLER' || r === 'CFO');
 
   const year = defaultYear(context);
   const today = new Date().toISOString().slice(0, 10);
@@ -53,6 +70,41 @@ export default async function FixedAssetsPage() {
           Nothing has posted for {awaiting.length === 1 ? 'it' : 'them'} yet —{' '}
           <Link href="/approvals">the approvals queue</Link> is where that happens.
         </div>
+      ) : null}
+
+      {pendingImpairments.length > 0 ? (
+        <Card title="Impairments awaiting a decision" subtitle="Approved by the finance controller or CFO, not whoever raised it" padded={false}>
+          <div className="table-wrap">
+            <table className="data wide">
+              <thead>
+                <tr>
+                  <th style={{ width: 110 }}>Asset</th>
+                  <th>Why</th>
+                  <th className="right" style={{ width: 140 }}>Recoverable</th>
+                  <th className="right" style={{ width: 140 }}>Impairment</th>
+                  <th style={{ width: 220 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {pendingImpairments.map((p) => (
+                  <tr key={p.id}>
+                    <td className="num strong" style={{ textAlign: 'left' }}>
+                      {p.assetNumber}
+                      <div className="faint">{p.impairedOn}</div>
+                    </td>
+                    <td style={{ whiteSpace: 'normal' }}>
+                      {p.name}: {p.reason}
+                      {p.evidence ? <div className="faint">{p.evidence}</div> : null}
+                    </td>
+                    <td className="num right">{formatNaira(p.recoverableAmountKobo)}</td>
+                    <td className="num right">{formatNaira(p.amountKobo)}</td>
+                    <td>{canDecideImpairment && p.requestedById !== me.userId ? <ImpairmentDecision id={p.id} /> : <span className="faint">waiting</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       ) : null}
 
       <TableSearch
@@ -132,6 +184,18 @@ export default async function FixedAssetsPage() {
                           <>
                             <ProcessingLineForm assetId={asset.id} assetNumber={asset.assetNumber} current={asset.processingCycle} />
                             <MachineHoursForm assetId={asset.id} assetNumber={asset.assetNumber} periods={year?.periods ?? []} />
+                          </>
+                        ) : null}
+                        {asset.status === 'POSTED' && !asset.disposedOn ? (
+                          <>
+                            <ImpairAssetForm assetId={asset.id} assetNumber={asset.assetNumber} netBookValueKobo={asset.netBookValueKobo} today={today} />
+                            <TransferAssetForm
+                              assetId={asset.id}
+                              assetNumber={asset.assetNumber}
+                              current={asset.costCentre}
+                              costCentres={dimensions.costCentres}
+                              today={today}
+                            />
                           </>
                         ) : null}
                         {asset.status === 'POSTED' && !asset.disposedOn && !asset.pendingTransactionId ? (

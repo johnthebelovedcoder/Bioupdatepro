@@ -8,6 +8,7 @@ import { SalesOrderService } from '../sales/sales-order.service';
 import { PurchaseOrderService } from '../procurement/purchase-order.service';
 import { BiologicalAssetService } from '../biological-assets/biological-asset.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
+import { assertNoWithdrawal } from './withdrawal';
 
 /**
  * Sales and purchases arriving from the phone.
@@ -94,6 +95,19 @@ export class TradeService {
 
         if (lines.length === 0) {
           throw new BadRequestException('A sale needs at least one line.');
+        }
+
+        // No live animals leave for food while a withdrawal period runs —
+        // checked before anything is ordered, so a refused sale leaves nothing behind.
+        for (const line of payload.lines) {
+          if (!line.batchId || !line.animalsRemoved) continue;
+          const group = await this.prisma.livestockGroup.findFirst({
+            where: { companyId, OR: [...(isUuid(line.batchId) ? [{ id: line.batchId }] : []), { code: line.batchId }] },
+            select: { id: true, code: true },
+          });
+          if (group) {
+            await assertNoWithdrawal(this.prisma, { companyId, groupId: group.id, groupCode: group.code, on: new Date(payload.date), doing: 'sold' });
+          }
         }
 
 

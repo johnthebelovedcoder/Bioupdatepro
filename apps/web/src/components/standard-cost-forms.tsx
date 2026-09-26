@@ -7,6 +7,8 @@ import {
   configurePolicy,
   decideStandard,
   prepareStandard,
+  prorateVariance,
+  reverseProration,
   type StandardState,
 } from '@/app/(app)/production/standard-costs/actions';
 
@@ -33,8 +35,19 @@ function Submit({ label }: { label: string }) {
 }
 
 /** Configure a year's policy while it is still unlocked. */
-export function PolicyForm({ financialYearId, tolerance }: { financialYearId: string; tolerance: string }) {
+export function PolicyForm({
+  financialYearId,
+  tolerance,
+  disposition = 'COGS',
+  thresholdKobo = '0',
+}: {
+  financialYearId: string;
+  tolerance: string;
+  disposition?: string;
+  thresholdKobo?: string;
+}) {
   const [state, action] = useActionState(configurePolicy, EMPTY);
+  const [mode, setMode] = useState(disposition);
   return (
     <form action={action} className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
       <input type="hidden" name="financialYearId" value={financialYearId} />
@@ -42,6 +55,19 @@ export function PolicyForm({ financialYearId, tolerance }: { financialYearId: st
         Variance tolerance (%)
         <input name="varianceTolerancePercent" type="number" step="0.01" min="0.01" max="100" defaultValue={tolerance} />
       </label>
+      <label className="field" style={{ maxWidth: 240 }}>
+        Variances go to
+        <select name="varianceDisposition" value={mode} onChange={(e) => setMode(e.target.value)}>
+          <option value="COGS">Cost of sales</option>
+          <option value="PRORATE">Prorated at year end</option>
+        </select>
+      </label>
+      {mode === 'PRORATE' ? (
+        <label className="field" style={{ maxWidth: 200 }}>
+          Prorate from (₦)
+          <input name="prorationThreshold" type="number" step="0.01" min="0" defaultValue={Number(thresholdKobo) / 100} />
+        </label>
+      ) : null}
       <Submit label="Save policy" />
       <div style={{ width: '100%' }}>
         <Notices state={state} />
@@ -105,5 +131,28 @@ export function DecideStandard({ versionId }: { versionId: string }) {
       </button>
       {outcome.error ? <span style={{ color: 'var(--danger, #b42318)', fontSize: 12 }}>{outcome.error}</span> : null}
     </span>
+  );
+}
+
+/** POL-009: prorate a year's variance, or reverse it into the next year. */
+export function ProrationAction({ financialYearId, prorationId, reversed }: { financialYearId: string; prorationId: string | null; reversed: boolean }) {
+  const [pending, start] = useTransition();
+  const [state, setState] = useState<StandardState>(EMPTY);
+  if (state.message) return <span className="faint">{state.message}</span>;
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+      {!prorationId ? (
+        <button type="button" className="btn btn-sm btn-primary" disabled={pending} onClick={() => start(async () => setState(await prorateVariance(financialYearId)))}>
+          Prorate the year&rsquo;s variance
+        </button>
+      ) : !reversed ? (
+        <button type="button" className="btn btn-sm" disabled={pending} onClick={() => start(async () => setState(await reverseProration(prorationId)))}>
+          Reverse into next year
+        </button>
+      ) : (
+        <span className="badge badge-success">prorated and reversed</span>
+      )}
+    </div>
   );
 }

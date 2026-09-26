@@ -64,6 +64,10 @@ export function WriteOffForm({ items, warehouses }: { items: StockItem[]; wareho
             Reason
             <input name="reason" placeholder="Count evidence, damage, obsolescence" required />
           </label>
+          <label className="field">
+            Lot (optional)
+            <input name="lotReference" placeholder="The expired or rejected lot, as shown under Lots and expiry" />
+          </label>
 
           <Submit />
         </form>

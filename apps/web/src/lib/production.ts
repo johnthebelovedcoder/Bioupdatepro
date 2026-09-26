@@ -55,6 +55,9 @@ export interface ProductionOrderOutputRow {
   outputType: 'MAIN' | 'BY_PRODUCT';
   quantity: string;
   allocatedCostKobo: string;
+  grade: string | null;
+  expiryDate: string | null;
+  storageTemperatureC: string | null;
 }
 
 export interface ProductionOrderLossEvent {
@@ -85,6 +88,40 @@ export interface ProductionOrderDetail extends ProductionOrderRow {
   lossEvents: ProductionOrderLossEvent[];
   sourceGroup: { code: string; speciesKey: string } | null;
   harvestRecord: { harvestedOn: string; count: number; weightKg: string } | null;
+  /** Poultry plant intake (handbook §29). */
+  plantReceivedCount: number | null;
+  plantReceivedWeightKg: string | null;
+  deadOnArrivalCount: number | null;
+  deadOnArrivalWeightKg: string | null;
+  condemnedCount: number | null;
+  condemnedWeightKg: string | null;
+  condemnationReason: string | null;
+  intakeInspectedBy: string | null;
+  intakeRecordedAt: string | null;
+}
+
+export interface FeedQuality {
+  spec: { minProteinPercent: string | null; maxMoisturePercent: string | null; maxAflatoxinPpb: string | null; samplingNote: string | null } | null;
+  tests: Array<{
+    id: string;
+    sampledOn: string;
+    proteinPercent: string | null;
+    moisturePercent: string | null;
+    aflatoxinPpb: string | null;
+    contaminationNote: string | null;
+    passed: boolean;
+    failures: string[];
+    disposition: 'PENDING' | 'RELEASED' | 'REJECTED';
+    decisionNote: string | null;
+  }>;
+}
+
+export async function getFeedQuality(id: string): Promise<FeedQuality> {
+  try {
+    return await api<FeedQuality>(`/feed-mill/orders/${id}/quality`);
+  } catch {
+    return { spec: null, tests: [] };
+  }
 }
 
 export async function getProductionOrders(): Promise<ProductionOrderRow[]> {

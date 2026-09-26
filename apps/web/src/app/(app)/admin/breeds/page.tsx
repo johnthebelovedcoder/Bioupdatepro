@@ -4,6 +4,7 @@ import { subscribedModules } from '@/lib/modules';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { BreedForm } from '@/components/breed-form';
+import { StageStandardsForm } from '@/components/stage-standards';
 
 export const metadata = { title: 'Breeds — BioAssetPro' };
 
@@ -14,7 +15,7 @@ interface Breed {
   name: string;
   classification: string | null;
   openingStage: string;
-  stages: Array<{ stageName: string; minDay: number }>;
+  stages: Array<{ id: string; stageName: string; minDay: number; targetWeightGrams: number | null; dailyFeedGramsPerHead: number | null }>;
 }
 
 /**
@@ -83,8 +84,24 @@ export default async function BreedsPage() {
                             ) : null}
                           </td>
                           <td>{breed.openingStage}</td>
-                          <td className="faint" style={{ textAlign: 'left', whiteSpace: 'normal' }}>
-                            {breed.stages.map((s) => `${s.stageName} ${s.minDay}`).join(' · ') || '—'}
+                          <td style={{ textAlign: 'left', whiteSpace: 'normal' }}>
+                            {breed.stages.length === 0 ? (
+                              '—'
+                            ) : (
+                              <details>
+                                <summary className="faint">
+                                  {breed.stages.map((s) => `${s.stageName} ${s.minDay}`).join(' · ')}
+                                </summary>
+                                <div className="stack" style={{ gap: 'var(--sp-2)', marginTop: 'var(--sp-2)' }}>
+                                  <span className="faint" style={{ fontSize: 12 }}>
+                                    Target live weight and feed per head per day, in grams — harvest readiness and the feed plan use them.
+                                  </span>
+                                  {breed.stages.map((s) => (
+                                    <StageStandardsForm key={s.id} stage={s} />
+                                  ))}
+                                </div>
+                              </details>
+                            )}
                           </td>
                         </tr>
                       ))}

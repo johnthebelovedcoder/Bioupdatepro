@@ -6,8 +6,11 @@ import {
   Prisma,
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
+import { policyFor } from '../notifications/notification-rules';
 
 export interface NotificationRequest {
+  /** The document's company — whose notification policy applies (AC-015). */
+  companyId: string;
   transactionId: string;
   recipientIds: string[];
   event: NotificationEvent;
@@ -41,15 +44,35 @@ export class NotificationService {
     const recipients = [...new Set(request.recipientIds)].filter(Boolean);
     if (recipients.length === 0) return;
 
-    const channels = request.channels ?? [
-      NotificationChannel.IN_APP,
-      NotificationChannel.EMAIL,
-    ];
     const client = tx ?? this.prisma;
+
+    /*
+     * AC-015: email only for events the company sends by email; WhatsApp only
+     * for events it sends by WhatsApp, and only to someone who has a number
+     * on file. Whether that number is verified and consented is checked again
+     * at the moment of sending, so consent withdrawn in between still stops it.
+     */
+    const policy = await policyFor(client, request.companyId);
+    const withWhatsApp = policy.whatsappEvents.includes(request.event)
+      ? new Set(
+          (
+            await client.notificationContact.findMany({
+              where: { companyId: request.companyId, userId: { in: recipients }, whatsappNumber: { not: null } },
+              select: { userId: true },
+            })
+          ).map((c) => c.userId),
+        )
+      : new Set<string>();
+    const channelsFor = (recipientId: string) =>
+      request.channels ?? [
+        NotificationChannel.IN_APP,
+        ...(policy.emailEvents.includes(request.event) ? [NotificationChannel.EMAIL] : []),
+        ...(withWhatsApp.has(recipientId) ? [NotificationChannel.WHATSAPP] : []),
+      ];
 
     await client.workflowNotification.createMany({
       data: recipients.flatMap((recipientId) =>
-        channels.map((channel) => ({
+        channelsFor(recipientId).map((channel) => ({
           transactionId: request.transactionId,
           recipientId,
           channel,

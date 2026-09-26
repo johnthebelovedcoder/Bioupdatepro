@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '
 import Decimal from 'decimal.js';
 import type { ProductionOrderCycle } from '@bioassetpro/database';
 import { FixedAssetService } from './fixed-asset.service';
+import { AssetChangeService } from './asset-change.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
 import { AnyRole, Roles } from '../auth/roles.guard';
@@ -16,7 +17,80 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  */
 @Controller('fixed-assets')
 export class FixedAssetsController {
-  constructor(private readonly assets: FixedAssetService) {}
+  constructor(
+    private readonly assets: FixedAssetService,
+    private readonly changes: AssetChangeService,
+  ) {}
+
+  /** An asset's impairments and cost-centre moves. */
+  @AnyRole('An asset’s history is part of the register anyone reconciling PPE reads.')
+  @OwnedRecord('fixedAsset', 'id')
+  @Get('assets/:id/history')
+  async history(@CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.changes.history(companyId, id);
+  }
+
+  @AnyRole('Impairments awaiting a decision are part of the register.')
+  @Get('impairments/pending')
+  async pendingImpairments(@CurrentCompany() companyId: string) {
+    return this.changes.pendingImpairments(companyId);
+  }
+
+  /** Raise an impairment (IAS 36) down to the recoverable amount; the controller or CFO approves. */
+  @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @OwnedRecord('fixedAsset', 'id')
+  @Post('assets/:id/impairments')
+  async requestImpairment(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { impairedOn: string; recoverableAmountKobo: string; reason: string; evidence?: string },
+  ) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body?.impairedOn ?? '')) throw new BadRequestException('impairedOn must be a date, YYYY-MM-DD.');
+    if (!/^[0-9]+$/.test(String(body?.recoverableAmountKobo ?? ''))) throw new BadRequestException('recoverableAmountKobo is a whole number of kobo.');
+    return this.changes.requestImpairment({
+      companyId,
+      assetId: id,
+      impairedOn: new Date(`${body.impairedOn}T00:00:00.000Z`),
+      recoverableAmountKobo: BigInt(body.recoverableAmountKobo),
+      reason: String(body.reason ?? ''),
+      evidence: body.evidence ?? null,
+      actor,
+    });
+  }
+
+  @Roles('FINANCE_CONTROLLER', 'CFO')
+  @Post('impairments/:impairmentId/decide')
+  async decideImpairment(
+    @Param('impairmentId') impairmentId: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { decision: 'APPROVE' | 'REJECT'; note?: string },
+  ) {
+    if (body?.decision !== 'APPROVE' && body?.decision !== 'REJECT') throw new BadRequestException('decision is APPROVE or REJECT.');
+    return this.changes.decideImpairment({ companyId, impairmentId, decision: body.decision, note: body.note ?? null, actor });
+  }
+
+  /** Move an asset to another cost centre (no journal; depreciation follows it). */
+  @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @OwnedRecord('fixedAsset', 'id')
+  @Post('assets/:id/transfer')
+  async transfer(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { toCostCentreId: string | null; effectiveOn: string; reason: string },
+  ) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body?.effectiveOn ?? '')) throw new BadRequestException('effectiveOn must be a date, YYYY-MM-DD.');
+    return this.changes.transfer({
+      companyId,
+      assetId: id,
+      toCostCentreId: body.toCostCentreId || null,
+      effectiveOn: new Date(`${body.effectiveOn}T00:00:00.000Z`),
+      reason: String(body.reason ?? ''),
+      actor,
+    });
+  }
 
   @AnyRole('The register is what anyone reconciling PPE needs to see.')
   @Get('assets')

@@ -108,7 +108,40 @@ export class MasterDataController {
       paymentTerm: s.paymentTerm?.code ?? null,
       netDays: s.paymentTerm?.netDays ?? null,
       creditLimitKobo: s.creditLimitSet ? s.creditLimitKobo.toString() : null,
+      bankName: s.bankName,
+      // Only the last four digits leave the server in a list (INT-034).
+      accountNumberLast4: s.accountNumber ? s.accountNumber.slice(-4) : null,
+      accountName: s.accountName,
+      bankVerified: Boolean(s.bankVerifiedAt),
+      bankVerifiedAt: s.bankVerifiedAt,
     }));
+  }
+
+  /** INT-001: change a supplier's bank details — clears their verification. */
+  @OwnedRecord('supplier', 'id')
+  @Post('suppliers/:id/bank')
+  async setSupplierBank(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { bankName: string; accountNumber: string; accountName: string; reason: string },
+  ) {
+    const supplier = await this.parties.setSupplierBank({ companyId, supplierId: id, ...body, actorId: actor.userId });
+    return { id: supplier.id, bankVerified: false };
+  }
+
+  /** INT-005: verify a supplier's bank details — by someone other than whoever entered them. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @OwnedRecord('supplier', 'id')
+  @Post('suppliers/:id/verify-bank')
+  async verifySupplierBank(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { reference: string },
+  ) {
+    const supplier = await this.parties.verifySupplierBank({ companyId, supplierId: id, reference: String(body?.reference ?? ''), actorId: actor.userId });
+    return { id: supplier.id, bankVerified: true };
   }
 
   /*
@@ -766,6 +799,25 @@ export class MasterDataController {
     @Query('speciesKey') speciesKey?: string,
   ) {
     return this.structure.listSpeciesBreeds(companyId, speciesKey);
+  }
+
+  /** A stage's target weight and feed per head per day. */
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('species-breeds/stages/:stageId')
+  async setStageStandards(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('stageId') stageId: string,
+    @Body() body: { targetWeightGrams?: number | null; dailyFeedGramsPerHead?: number | null },
+  ) {
+    const n = (v: unknown) => (v === undefined || v === null || v === '' ? null : Number(v));
+    return this.structure.setStageStandards({
+      companyId,
+      stageId,
+      targetWeightGrams: n(body?.targetWeightGrams),
+      dailyFeedGramsPerHead: n(body?.dailyFeedGramsPerHead),
+      actor,
+    });
   }
 
   @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')

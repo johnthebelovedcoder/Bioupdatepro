@@ -48,10 +48,6 @@
     "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
   },
   {
-    "key": "cost-allocation/timesheet.service.ts livestockGroup.findMany { id: { in: [...new Set(entries.map((e) => e.groupId))] } }",
-    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
-  },
-  {
     "key": "demo/demo.controller.ts journalEntry.findMany <no where>",
     "reason": "Developer demo panel: DemoController is only registered when NODE_ENV is not production (app.module.ts)."
   },
@@ -246,10 +242,6 @@
   {
     "key": "cost-allocation/farm-cost-allocation.service.ts livestockRearingRelief.findMany { groupId: { in: ids }, eventType: 'DISPOSAL', occurredOn: { gt: start } }",
     "reason": "ids are this company’s populations, loaded with companyId just above."
-  },
-  {
-    "key": "cost-allocation/timesheet.service.ts timesheetEntry.findMany { employeeId: params.employeeId, workDate: params.workDate, groupId: { not: params.groupId } }",
-    "reason": "The employee and population were both checked to be this company’s at the top of the same method."
   },
   {
     "key": "fixed-assets/fixed-asset.service.ts machineHours.findMany { assetId: { in: run.entries.map((e) => e.assetId) }, financialPeriodId: run.financialPeriodId }",

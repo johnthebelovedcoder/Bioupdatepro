@@ -30,6 +30,8 @@ import { GoodsReceiptService } from '../../src/procurement/goods-receipt.service
 import { StockMovementService } from '../../src/inventory/stock-movement.service';
 import { SupplierInvoiceService } from '../../src/procurement/supplier-invoice.service';
 import { SupplierPaymentService } from '../../src/procurement/supplier-payment.service';
+import { SupplierReturnService } from '../../src/procurement/supplier-return.service';
+import { PaymentFileService } from '../../src/banking/payment-file.service';
 import {
   GoodsReceiptExceptionPostingHandler,
   GoodsReceiptPostingHandler,
@@ -388,9 +390,14 @@ describe('Procure-to-Pay (§5)', () => {
       tin: 'TIN-SUP-001',
       paymentTermCode: 'NET30',
       defaultCurrencyId: fixture.currencyId,
+      bankName: 'First Bank',
+      accountNumber: '3012345678',
+      accountName: 'Shell Supplies Ltd',
       actorId: fixture.makerId,
     });
     supplierId = supplier.id;
+    // INT-005: a transfer goes only to an account someone else has verified.
+    await parties.verifySupplierBank({ companyId: fixture.companyId, supplierId, reference: 'Bank letter ref. SS/01', actorId: fixture.checkerId });
   }
 
   // -- helpers --------------------------------------------------------------
@@ -1412,6 +1419,116 @@ describe('Procure-to-Pay (§5)', () => {
       expect(comparison[0]!.supplierCode).toBe('SUP-002');
       expect(comparison[0]!.varianceToCheapestKobo).toBe('0');
       expect(comparison[1]!.varianceToCheapestKobo).toBe('1000000');
+    });
+  });
+  describe('returns, budgets, verified banks and payment files (26 Sep)', () => {
+    const finance = () => ({ userId: fixture.financeUserId, roles: ['FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'TREASURY_OFFICER'] });
+    const services = () => {
+      const audit = new AuditService(prisma);
+      const posting = new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma));
+      return {
+        returns: new SupplierReturnService(prisma, audit, posting, new StockMovementService(prisma), new TaxEngineService(prisma), new ProcurementConfigService(prisma)),
+        files: new PaymentFileService(prisma, audit),
+      };
+    };
+    const returnTen = async (grnId: string) => {
+      const { returns } = services();
+      const grn = await prisma.goodsReceiptNote.findUniqueOrThrow({ where: { id: grnId }, include: { lines: true } });
+      const raised = await returns.request({
+        companyId: fixture.companyId, grnId, returnDate: JAN, reason: 'Ten bags damp', lines: [{ grnLineId: grn.lines[0]!.id, quantity: 10 }], actor: maker,
+      });
+      await expect(returns.decide({ companyId: fixture.companyId, returnId: raised.id, decision: 'APPROVE', actor: { ...maker, roles: ['FINANCE_MANAGER'] } })).rejects.toThrow(
+        /so someone else approves it/,
+      );
+      return returns.decide({ companyId: fixture.companyId, returnId: raised.id, decision: 'APPROVE', actor: finance() });
+    };
+
+    it('takes goods returned before invoicing off GRNI, and they can no longer be billed', async () => {
+      const order = await approvedOrder();
+      const grn = await receiveAll(order.id);
+      const posted = await returnTen(grn.id);
+      expect(posted.debitNoteKobo).toBe('0');
+      expect(posted.stockValueKobo).toBe((10n * UNIT_PRICE).toString());
+      expect(await accountBalance('2140')).toBe(-(90n * UNIT_PRICE));
+      expect(await accountBalance('1301')).toBe(90n * UNIT_PRICE);
+
+      await expect(invoiceFromGrn(order.id, grn.id, 'SI-100', { quantity: 100 })).rejects.toThrow();
+      await invoiceFromGrn(order.id, grn.id, 'SI-090', { quantity: 90 });
+      expect(await accountBalance('2140')).toBe(0n);
+      const tb = await trialBalance.build({ companyId: fixture.companyId });
+      expect(tb.balanced).toBe(true);
+    });
+
+    it('turns goods returned after invoicing into a debit note against the invoice, VAT included', async () => {
+      const order = await approvedOrder();
+      const grn = await receiveAll(order.id);
+      const { invoice } = await invoiceFromGrn(order.id, grn.id);
+      expect(invoice.grossAmountKobo).toBe(6_450_000n);
+      const posted = await returnTen(grn.id);
+      expect(posted.debitNoteKobo).toBe('645000'); // 10 × ₦600 + 7.5% VAT
+      expect(await accountBalance('2201')).toBe(-6_450_000n + 645_000n);
+      expect(await accountBalance('1301')).toBe(90n * UNIT_PRICE);
+      const after = await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      expect(after.settledAmountKobo).toBe(645_000n);
+      expect(after.status).toBe(SupplierInvoiceStatus.PART_PAID);
+      const tb = await trialBalance.build({ companyId: fixture.companyId });
+      expect(tb.balanced).toBe(true);
+    });
+
+    it('refuses an order that would take its cost centre past the year\'s purchase budget', async () => {
+      await orders.setBudget({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, costCentreId: fixture.costCentreId, amountKobo: 50_000_00n, actor: finance() });
+      await expect(approvedOrder()).rejects.toThrow(/past its .* purchase budget of 5000000 kobo/);
+      await orders.setBudget({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, costCentreId: fixture.costCentreId, amountKobo: 100_000_00n, actor: finance() });
+      await approvedOrder();
+    });
+
+    it('pays by transfer only to a bank account someone else verified, and a change clears it', async () => {
+      await expect(parties.verifySupplierBank({ companyId: fixture.companyId, supplierId, reference: 'x', actorId: fixture.makerId })).rejects.toThrow();
+      await parties.setSupplierBank({
+        companyId: fixture.companyId, supplierId, bankName: 'GTBank', accountNumber: '0123456789', accountName: 'Shell Supplies Ltd', reason: 'Supplier letter', actorId: fixture.makerId,
+      });
+      const supplier = await prisma.supplier.findUniqueOrThrow({ where: { id: supplierId } });
+      expect(supplier.bankVerifiedAt).toBeNull();
+      const order = await approvedOrder();
+      const grn = await receiveAll(order.id);
+      const { invoice } = await invoiceFromGrn(order.id, grn.id);
+      await expect(
+        payments.create({
+          companyId: fixture.companyId, paymentNumber: 'PAY-UNVER', supplierId, paymentDate: JAN, method: PaymentMethod.BANK_TRANSFER,
+          bankGlAccountId: fixture.accounts['1101']!, branchId: fixture.branchId, currencyId: fixture.currencyId, ...period(),
+          allocations: [{ invoiceId: invoice.id, amountKobo: invoice.grossAmountKobo }], actor: maker,
+        }),
+      ).rejects.toThrow(/have not been verified/);
+    });
+
+    it('issues each posted transfer in one bank file, with its hash, and notices a changed account', async () => {
+      const order = await approvedOrder();
+      const grn = await receiveAll(order.id);
+      const { invoice } = await invoiceFromGrn(order.id, grn.id);
+      const payment = await payments.create({
+        companyId: fixture.companyId, paymentNumber: 'PAY-FILE', supplierId, paymentDate: JAN, method: PaymentMethod.BANK_TRANSFER,
+        bankGlAccountId: fixture.accounts['1101']!, branchId: fixture.branchId, currencyId: fixture.currencyId, ...period(),
+        allocations: [{ invoiceId: invoice.id, amountKobo: invoice.grossAmountKobo }], actor: maker,
+      });
+      const submitted = await payments.submit({ paymentId: payment.id, actor: maker });
+      await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+
+      const { files } = services();
+      const pending = await files.pending(fixture.companyId, 'SUPPLIER');
+      expect(pending.map((p) => p.paymentNumber)).toEqual(['PAY-FILE']);
+      expect(pending[0]!.problem).toBeNull();
+      await expect(files.create({ companyId: fixture.companyId, kind: 'SUPPLIER', paymentIds: [payment.id], actor: maker })).rejects.toThrow(/treasury and finance issue them/);
+      const file = await files.create({ companyId: fixture.companyId, kind: 'SUPPLIER', paymentIds: [payment.id], actor: finance() });
+      expect(file.csv.split('\r\n')[1]).toContain('3012345678');
+      expect(file.csv).toContain('64500.00');
+      expect(file.sha256).toMatch(/^[0-9a-f]{64}$/);
+      await expect(files.create({ companyId: fixture.companyId, kind: 'SUPPLIER', paymentIds: [payment.id], actor: finance() })).rejects.toThrow(/not a posted bank transfer waiting/);
+      expect((await files.download({ companyId: fixture.companyId, fileId: file.id, actor: finance() })).matchesIssued).toBe(true);
+
+      await parties.setSupplierBank({
+        companyId: fixture.companyId, supplierId, bankName: 'GTBank', accountNumber: '0123456789', accountName: 'Shell Supplies Ltd', reason: 'Changed', actorId: fixture.makerId,
+      });
+      expect((await files.download({ companyId: fixture.companyId, fileId: file.id, actor: finance() })).matchesIssued).toBe(false);
     });
   });
 });

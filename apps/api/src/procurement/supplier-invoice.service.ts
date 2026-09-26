@@ -377,8 +377,11 @@ export class SupplierInvoiceService {
       // --- Quantity: invoice against what was RECEIVED, not ordered --------
       // Billing for goods that never arrived is the failure this catches, and
       // the ordered quantity cannot catch it.
+      // Less anything sent back before it was billed (SupplierReturn).
       const receivedQuantity = line.goodsReceiptLine
-        ? new Decimal(line.goodsReceiptLine.acceptedQuantity.toString())
+        ? new Decimal(line.goodsReceiptLine.acceptedQuantity.toString()).minus(
+            new Decimal(line.goodsReceiptLine.returnedQuantity.toString()).minus(line.goodsReceiptLine.debitNotedQuantity.toString()),
+          )
         : new Decimal(orderLine.receivedQuantity.toString());
       const invoicedQuantity = new Decimal(line.quantity.toString());
 
@@ -753,9 +756,9 @@ export class SupplierInvoiceService {
         costGlAccountId: clearsGrni ? grniGlAccountId : grnLine.item.expenseGlAccountId!,
         clearsGrni,
         defaultTaxCode: grnLine.item.vatTaxCode?.code ?? null,
-        availableQuantity: new Decimal(grnLine.acceptedQuantity.toString()).minus(
-          new Decimal(grnLine.invoicedQuantity.toString()),
-        ),
+        availableQuantity: new Decimal(grnLine.acceptedQuantity.toString())
+          .minus(new Decimal(grnLine.invoicedQuantity.toString()))
+          .minus(new Decimal(grnLine.returnedQuantity.toString()).minus(grnLine.debitNotedQuantity.toString())),
       };
     }
 

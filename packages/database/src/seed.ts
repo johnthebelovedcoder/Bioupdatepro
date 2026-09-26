@@ -50,6 +50,10 @@ const ACCOUNTS: AccountSeed[] = [
     source: 'SnailPro GL_Journal JRN-SN-0003 / TB_WIP_Control R6' },
   { number: '1401', name: 'Finished Goods Inventory', type: AccountType.ASSET, normal: NormalBalance.DEBIT,
     source: 'SnailPro Masters I5 / TB_WIP_Control R7' },
+  { number: '1402', name: 'Finished Goods - Capitalised Variance', type: AccountType.ASSET, normal: NormalBalance.DEBIT,
+    source: 'POL-009 variance proration, provisional numbering' },
+  { number: '1403', name: 'Work in Progress - Capitalised Variance', type: AccountType.ASSET, normal: NormalBalance.DEBIT,
+    source: 'POL-009 variance proration, provisional numbering' },
   // Cost centre is mandatory on WIP: every production cost must be attributable.
   // SnailPro TDD §10.5 — "Require cost centre on every production GL line."
   { number: '1501', name: 'Work in Progress', type: AccountType.ASSET, normal: NormalBalance.DEBIT,
@@ -111,6 +115,8 @@ const ACCOUNTS: AccountSeed[] = [
     source: 'Posting-control PCR-030, provisional numbering' },
   { number: '5501', name: 'Depreciation Expense', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT,
     source: 'Posting-control PCR-030, provisional numbering' },
+  { number: '5502', name: 'Impairment Loss - Fixed Assets', type: AccountType.EXPENSE, normal: NormalBalance.DEBIT,
+    source: 'IAS 36 impairment, provisional numbering' },
 ];
 
 /** Consolidated Reference §1.2 hierarchy, then the workbook's own codes. */

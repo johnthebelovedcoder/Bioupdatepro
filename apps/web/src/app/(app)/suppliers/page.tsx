@@ -7,6 +7,7 @@ import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
 import { IconCart } from '@/components/icons';
 import { PartyStatusForm } from '@/components/master-row-actions';
+import { SupplierBank } from '@/components/supplier-bank';
 
 export const metadata = { title: 'Vendors — BioAssetPro' };
 
@@ -20,6 +21,10 @@ interface ApiSupplier {
   paymentTerm: string | null;
   netDays: number | null;
   creditLimitKobo: string | null;
+  bankName: string | null;
+  accountNumberLast4: string | null;
+  accountName: string | null;
+  bankVerified: boolean;
 }
 
 /**
@@ -75,6 +80,7 @@ export default async function SuppliersPage() {
                       <th className="right" style={{ width: 140 }}>
                         Credit limit
                       </th>
+                      <th style={{ width: 220 }}>Bank</th>
                       <th style={{ width: 100 }}>Status</th>
                       <th style={{ width: 90 }} />
                     </tr>
@@ -99,6 +105,16 @@ export default async function SuppliersPage() {
                           {supplier.creditLimitKobo
                             ? formatNaira(supplier.creditLimitKobo)
                             : '—'}
+                        </td>
+                        <td>
+                          <SupplierBank
+                            id={supplier.id}
+                            name={supplier.name}
+                            bankName={supplier.bankName}
+                            accountNumberLast4={supplier.accountNumberLast4}
+                            accountName={supplier.accountName}
+                            verified={supplier.bankVerified}
+                          />
                         </td>
                         <td>
                           <span

@@ -445,6 +445,7 @@ export class WorkflowService {
 
       await this.notifications.queue(
         {
+          companyId: transaction.companyId,
           transactionId: transaction.id,
           recipientIds: [transaction.makerId],
           event: journalEntryId
@@ -633,6 +634,7 @@ export class WorkflowService {
 
       await this.notifications.queue(
         {
+          companyId: transaction.companyId,
           transactionId: transaction.id,
           recipientIds: [transaction.makerId],
           event: config.event,
@@ -1034,6 +1036,7 @@ export class WorkflowService {
 
     await this.notifications.queue(
       {
+        companyId: options.companyId,
         transactionId,
         recipientIds: recipients,
         event: options.event,

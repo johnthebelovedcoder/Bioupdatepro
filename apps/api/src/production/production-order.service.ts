@@ -16,6 +16,7 @@ import { PostingControlService, ResolvedRule } from '../posting-control/posting-
 import { StockMovementService } from '../inventory/stock-movement.service';
 import { CostAllocationService, AllocationOutput, AllocatedOutput, CostAllocationMethod } from './cost-allocation.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { expiryFromShelfLife, registerLot } from '../inventory/lots';
 import { kobo, Kobo } from '../common/money';
 
 /**
@@ -1183,6 +1184,119 @@ export class ProductionOrderService {
    * WIP debits, because FG *is* whatever WIP debits minus the other two
    * leaves.
    */
+  /**
+   * Plant intake for a poultry processing order (handbook §29, FR-PRO-02):
+   * the birds and live weight that reached the plant from the catch, the dead
+   * on arrival, and what the vet condemned. Recorded before outputs, and
+   * correctable until then (every change audited). Dead-on-arrival and
+   * condemned weight are abnormal loss: outputs are refused until claims
+   * covering them have been recorded (and so expensed, not carried in FG).
+   */
+  async recordIntake(params: {
+    productionOrderId: string;
+    plantReceivedCount: number;
+    plantReceivedWeightKg: Decimal.Value;
+    deadOnArrivalCount: number;
+    deadOnArrivalWeightKg: Decimal.Value;
+    condemnedCount: number;
+    condemnedWeightKg: Decimal.Value;
+    condemnationReason?: string | null;
+    inspectedBy?: string | null;
+    actor: WorkflowActor;
+  }) {
+    const order = await this.prisma.productionOrder.findUniqueOrThrow({
+      where: { id: params.productionOrderId },
+      include: { harvestRecord: { select: { count: true, weightKg: true } } },
+    });
+    const rule = 'Handbook §29 — Poultry plant intake';
+    if (order.processingCycle !== ProductionOrderCycle.POULTRYPRO || !order.harvestRecord) {
+      throw new AccountingRuleViolation(rule, `${order.orderNumber} is not a poultry processing order from a harvest.`, { orderNumber: order.orderNumber });
+    }
+    const open: ProductionOrderStatus[] = [
+      ProductionOrderStatus.DRAFT,
+      ProductionOrderStatus.SUBMITTED,
+      ProductionOrderStatus.APPROVED,
+      ProductionOrderStatus.RELEASED,
+      ProductionOrderStatus.IN_PRODUCTION,
+    ];
+    if (!open.includes(order.status)) {
+      throw new AccountingRuleViolation(rule, `${order.orderNumber} is ${order.status}; intake is recorded before outputs are received.`, { orderNumber: order.orderNumber });
+    }
+    const counts = [params.plantReceivedCount, params.deadOnArrivalCount, params.condemnedCount];
+    if (counts.some((c) => !Number.isInteger(c) || c < 0)) {
+      throw new AccountingRuleViolation(rule, 'Bird counts are whole numbers, zero or more.', {});
+    }
+    const received = new Decimal(params.plantReceivedWeightKg);
+    const doaKg = new Decimal(params.deadOnArrivalWeightKg);
+    const condemnedKg = new Decimal(params.condemnedWeightKg);
+    if ([received, doaKg, condemnedKg].some((w) => w.isNaN() || w.lt(0))) {
+      throw new AccountingRuleViolation(rule, 'Weights are kilograms, zero or more.', {});
+    }
+    const caught = order.harvestRecord.count;
+    const caughtKg = new Decimal(order.harvestRecord.weightKg.toString());
+    if (params.plantReceivedCount > caught) {
+      throw new AccountingRuleViolation(rule, `${params.plantReceivedCount} birds received, but the catch was ${caught}.`, { caught });
+    }
+    if (received.gt(caughtKg.plus('0.001'))) {
+      throw new AccountingRuleViolation(rule, `${received.toFixed(3)} kg received is more than the ${caughtKg.toFixed(3)} kg caught; birds do not gain weight in transit.`, {});
+    }
+    if (params.deadOnArrivalCount + params.condemnedCount > params.plantReceivedCount) {
+      throw new AccountingRuleViolation(
+        rule,
+        `${params.deadOnArrivalCount} dead on arrival and ${params.condemnedCount} condemned is more than the ${params.plantReceivedCount} birds received.`,
+        {},
+      );
+    }
+    if (doaKg.plus(condemnedKg).gt(received.plus('0.001'))) {
+      throw new AccountingRuleViolation(rule, 'Dead-on-arrival and condemned weight together cannot exceed the weight received.', {});
+    }
+    if ((params.deadOnArrivalCount > 0) !== doaKg.gt(0) || (params.condemnedCount > 0) !== condemnedKg.gt(0)) {
+      throw new AccountingRuleViolation(rule, 'Give both the count and the weight for dead-on-arrival and condemned birds, or neither.', {});
+    }
+    if (params.condemnedCount > 0 && (!params.condemnationReason?.trim() || !params.inspectedBy?.trim())) {
+      throw new AccountingRuleViolation(rule, 'A condemnation needs its reason and the vet or inspector who made it.', {});
+    }
+
+    const before = {
+      plantReceivedCount: order.plantReceivedCount,
+      plantReceivedWeightKg: order.plantReceivedWeightKg?.toString() ?? null,
+      deadOnArrivalCount: order.deadOnArrivalCount,
+      deadOnArrivalWeightKg: order.deadOnArrivalWeightKg?.toString() ?? null,
+      condemnedCount: order.condemnedCount,
+      condemnedWeightKg: order.condemnedWeightKg?.toString() ?? null,
+    };
+    const data = {
+      plantReceivedCount: params.plantReceivedCount,
+      plantReceivedWeightKg: new Prisma.Decimal(received.toFixed(6)),
+      deadOnArrivalCount: params.deadOnArrivalCount,
+      deadOnArrivalWeightKg: new Prisma.Decimal(doaKg.toFixed(6)),
+      condemnedCount: params.condemnedCount,
+      condemnedWeightKg: new Prisma.Decimal(condemnedKg.toFixed(6)),
+      condemnationReason: params.condemnationReason?.trim() || null,
+      intakeInspectedBy: params.inspectedBy?.trim() || null,
+      intakeRecordedById: params.actor.userId,
+      intakeRecordedAt: new Date(),
+    };
+    await this.prisma.productionOrder.update({ where: { id: order.id }, data });
+    await this.audit.write({
+      transactionId: order.id,
+      module: 'production',
+      entityType: 'ProductionOrderIntake',
+      entityId: order.id,
+      status: order.status,
+      action: order.intakeRecordedAt ? AuditAction.UPDATE : AuditAction.CREATE,
+      userId: params.actor.userId,
+      oldValue: order.intakeRecordedAt ? before : undefined,
+      newValue: { ...data, plantReceivedWeightKg: received.toFixed(3), deadOnArrivalWeightKg: doaKg.toFixed(3), condemnedWeightKg: condemnedKg.toFixed(3) },
+      comments: `Plant intake for ${order.orderNumber}: ${params.plantReceivedCount} of ${caught} birds, ${params.deadOnArrivalCount} dead on arrival, ${params.condemnedCount} condemned.`,
+    });
+    return {
+      id: order.id,
+      transitShrinkKg: caughtKg.minus(received).toFixed(3),
+      abnormalLossKgToClaim: doaKg.plus(condemnedKg).toFixed(3),
+    };
+  }
+
   async recordOutputs(params: {
     productionOrderId: string;
     /** Optional: the company's released method is used; naming another is refused (handbook §62). */
@@ -1196,12 +1310,15 @@ export class ProductionOrderService {
      */
     normalLossQuantity?: Decimal.Value;
     warehouseId: string;
+    /** Per output, in the same order: cold-store detail (handbook §29). */
+    details?: Array<{ grade?: string | null; expiryDate?: Date | null; storageTemperatureC?: Decimal.Value | null }>;
     actor: WorkflowActor;
   }) {
     const order = await this.prisma.productionOrder.findUniqueOrThrow({
       where: { id: params.productionOrderId },
       include: { sourceGroup: true },
     });
+    const details = params.outputs.map((_, i) => params.details?.[i] ?? {});
 
     if (order.status !== ProductionOrderStatus.IN_PRODUCTION) {
       throw new AccountingRuleViolation(
@@ -1231,6 +1348,62 @@ export class ProductionOrderService {
     }
 
     const rules = this.cycleRules(order.processingCycle);
+
+    /*
+     * Handbook §29: poultry processing records its plant intake first, claims
+     * dead-on-arrival and condemned birds as abnormal loss, and stores every
+     * output lot with its grade, expiry and cold-store temperature.
+     */
+    if (order.processingCycle === ProductionOrderCycle.POULTRYPRO && order.harvestRecordId) {
+      const rule = 'Handbook §29 — Poultry processing';
+      if (!order.intakeRecordedAt) {
+        throw new AccountingRuleViolation(rule, `Record the plant intake for ${order.orderNumber} — birds received, dead on arrival and condemned — before its outputs.`, { orderNumber: order.orderNumber });
+      }
+      const lostKg = new Decimal(order.deadOnArrivalWeightKg?.toString() ?? '0').plus(order.condemnedWeightKg?.toString() ?? '0');
+      if (lostKg.gt(0)) {
+        const claimed = (
+          await this.prisma.productionOrderLossEvent.findMany({ where: { productionOrderId: order.id, classification: 'ABNORMAL' }, select: { quantity: true } })
+        ).reduce((sum, l) => sum.plus(l.quantity.toString()), new Decimal(0));
+        if (claimed.lt(lostKg.minus('0.001'))) {
+          throw new AccountingRuleViolation(
+            rule,
+            `${lostKg.toFixed(3)} kg was dead on arrival or condemned, but only ${claimed.toFixed(3)} kg of abnormal loss is recorded. Record the rest as abnormal loss so it is expensed, not carried in finished goods.`,
+            { lostKg: lostKg.toFixed(3), claimedKg: claimed.toFixed(3) },
+          );
+        }
+      }
+      const missing = details.findIndex((d) => !d.grade?.trim() || !d.expiryDate || d.storageTemperatureC === undefined || d.storageTemperatureC === null || d.storageTemperatureC === '');
+      if (missing >= 0) {
+        throw new AccountingRuleViolation(rule, `Output ${missing + 1} needs its grade, expiry date and cold-store temperature.`, { output: missing + 1 });
+      }
+    }
+    /*
+     * Handbook §26 "Quarantine until release": a feed with a quality spec is
+     * received into stock only once a sample from this order has passed and
+     * someone other than the tester has released it (FeedQualityService).
+     */
+    if (order.processingCycle === ProductionOrderCycle.FEED_MILL) {
+      const itemIds = [...new Set(params.outputs.map((o) => o.itemId))];
+      const specs = await this.prisma.feedQualitySpec.findMany({ where: { companyId: order.companyId, itemId: { in: itemIds } }, select: { itemId: true } });
+      for (const spec of specs) {
+        const released = await this.prisma.feedQualityTest.findFirst({
+          where: { companyId: order.companyId, productionOrderId: order.id, itemId: spec.itemId, disposition: 'RELEASED' },
+          select: { id: true },
+        });
+        if (!released) {
+          throw new AccountingRuleViolation(
+            'Handbook §26 — Feed quality plan',
+            `${order.orderNumber}'s feed is in quarantine until a sample passes its quality limits and QA releases it. Test the batch first; a rejected batch goes out as abnormal loss, not into stock.`,
+            { orderNumber: order.orderNumber, itemId: spec.itemId },
+          );
+        }
+      }
+    }
+    for (const [i, d] of details.entries()) {
+      if (d.expiryDate && d.expiryDate.getTime() <= Date.now() - 24 * 60 * 60 * 1000) {
+        throw new AccountingRuleViolation('Handbook §29 — Cold store', `Output ${i + 1} would be received already expired.`, { output: i + 1 });
+      }
+    }
 
     // --- PCR-034: a feed order's output is received at its released standard --
     const feedAtStandard = order.processingCycle === ProductionOrderCycle.FEED_MILL;
@@ -1360,7 +1533,27 @@ export class ProductionOrderService {
 
     return this.prisma.$transaction(async (tx) => {
       await standardCosts.requirePolicy(tx, order.companyId, new Date());
-      for (const output of allocated) {
+      const outputItems = await tx.item.findMany({
+        where: { companyId: order.companyId, id: { in: allocated.map((o) => o.itemId) } },
+        select: { id: true, shelfLifeDays: true },
+      });
+      for (const [index, output] of allocated.entries()) {
+        const detail = details[index] ?? {};
+        // A dated output is a lot, named by the order (FR-FM-02, §29 cold store).
+        const expiry = detail.expiryDate ?? expiryFromShelfLife(new Date(), outputItems.find((i) => i.id === output.itemId)?.shelfLifeDays);
+        if (expiry) {
+          await registerLot(tx, {
+            companyId: order.companyId,
+            itemId: output.itemId,
+            lotReference: order.orderNumber,
+            expiryDate: expiry,
+            receivedOn: new Date(),
+            quarantine: false,
+            sourceType: 'ProductionOrder',
+            sourceId: order.id,
+            receivedById: params.actor.userId,
+          });
+        }
         const stockMovement = await this.stockMovements.receiveIn({
           tx,
           companyId: order.companyId,
@@ -1369,6 +1562,7 @@ export class ProductionOrderService {
           warehouseId: params.warehouseId,
           quantity: new Decimal(output.quantity),
           valueKobo: BigInt(output.allocatedCostKobo),
+          batchReference: expiry ? order.orderNumber : null,
           sourceModule: 'production',
           sourceDocumentType: 'ProductionOrder',
           sourceDocumentId: order.id,
@@ -1385,6 +1579,12 @@ export class ProductionOrderService {
             allocationWeightKobo: BigInt(output.allocationWeightKobo),
             allocatedCostKobo: BigInt(output.allocatedCostKobo),
             stockMovementId: stockMovement.stockMovementId,
+            grade: detail.grade?.trim() || null,
+            expiryDate: expiry,
+            storageTemperatureC:
+              detail.storageTemperatureC === undefined || detail.storageTemperatureC === null || detail.storageTemperatureC === ''
+                ? null
+                : new Prisma.Decimal(new Decimal(detail.storageTemperatureC).toFixed(1)),
           },
         });
       }

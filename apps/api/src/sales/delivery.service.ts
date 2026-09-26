@@ -11,6 +11,7 @@ import {
   SalesOrderStatus,
   StockDirection,
 } from '@bioassetpro/database';
+import { assertUsableStock } from '../inventory/lots';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -378,6 +379,20 @@ export class DeliveryService {
       // delivery produces no GL entry. It is still APPROVED work — the stock
       // movements below record that the goods physically left.
       journalEntryId = null;
+    }
+
+    // Nothing expired, quarantined or rejected leaves on a delivery (FR-FM-02).
+    for (const line of delivery.lines) {
+      await assertUsableStock(params.tx, {
+        companyId: delivery.companyId,
+        itemId: line.itemId,
+        warehouseId: null,
+        quantity: new Decimal(line.quantity.toString()),
+        batchReference: line.batchReference,
+        on: delivery.deliveryDate,
+        documentReference: delivery.deliveryNumber,
+        sourceDocumentType: 'DeliveryNote',
+      });
     }
 
     // Stock movements are written whether or not COGS was recognised: the goods

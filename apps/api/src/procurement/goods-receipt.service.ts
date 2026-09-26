@@ -18,6 +18,7 @@ import { WorkflowActor } from '../workflow/workflow.types';
 import { ProcurementConfigService } from './procurement-config.service';
 import { StockMovementService } from '../inventory/stock-movement.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { expiryFromShelfLife, registerLot } from '../inventory/lots';
 import { kobo } from '../common/money';
 
 export interface GrnLineInput {
@@ -69,6 +70,8 @@ export class GoodsReceiptService {
     financialPeriodId: string;
     deliveryNoteReference?: string | null;
     qualityStatus?: QualityStatus;
+    /** Hold everything received in quarantine until QA releases it. */
+    quarantine?: boolean;
     lines: GrnLineInput[];
     actor: WorkflowActor;
   }) {
@@ -190,6 +193,7 @@ export class GoodsReceiptService {
           branchId: order.branchId,
           deliveryNoteReference: input.deliveryNoteReference ?? null,
           qualityStatus: input.qualityStatus ?? QualityStatus.PENDING,
+          quarantine: input.quarantine === true,
           totalValueKobo: totalValue,
           overTolerance: toleranceFindings.length > 0,
           toleranceNote: toleranceFindings.length > 0 ? toleranceFindings.join(' ') : null,
@@ -415,6 +419,33 @@ export class GoodsReceiptService {
       const accepted = new Decimal(line.acceptedQuantity.toString());
       if (accepted.lessThanOrEqualTo(0)) continue;
 
+      /*
+       * The lot (handbook §35, FR-FM-02): a line with a lot number, an expiry,
+       * a shelf life or a quarantine becomes a lot the issue check knows.
+       * Quarantined goods are in the books from now but cannot be issued
+       * until QA releases them (Store → Lots and expiry).
+       */
+      const quarantined = grn.quarantine || line.item.quarantineOnReceipt;
+      const expiry = line.expiryDate ?? expiryFromShelfLife(grn.receiptDate, line.item.shelfLifeDays);
+      let lotReference = line.batchReference;
+      if (lotReference || expiry || quarantined) {
+        lotReference = lotReference ?? `${grn.grnNumber}/${line.lineNumber}`;
+        await registerLot(params.tx, {
+          companyId: grn.companyId,
+          itemId: line.itemId,
+          lotReference,
+          expiryDate: expiry,
+          receivedOn: grn.receiptDate,
+          quarantine: quarantined,
+          sourceType: 'GoodsReceiptNote',
+          sourceId: grn.id,
+          receivedById: grn.createdById,
+        });
+        if (!line.batchReference) {
+          await params.tx.goodsReceiptNoteLine.update({ where: { id: line.id }, data: { batchReference: lotReference } });
+        }
+      }
+
       // The moving weighted-average cost, from on-hand quantity/value just
       // before this receipt lands — before the movement below is created, or
       // this receipt would be averaged against itself.
@@ -438,7 +469,7 @@ export class GoodsReceiptService {
           quantity: line.acceptedQuantity,
           unitCostKobo: line.unitPriceKobo,
           valueKobo: line.valueKobo,
-          batchReference: line.batchReference,
+          batchReference: lotReference,
           sourceModule: 'procurement',
           sourceDocumentType: 'GoodsReceiptNote',
           sourceDocumentId: grn.id,
@@ -538,9 +569,10 @@ export class GoodsReceiptService {
 
     let outstanding = 0n;
     const detail = lines.map((line) => {
-      const uninvoiced = new Decimal(line.acceptedQuantity.toString()).minus(
-        new Decimal(line.invoicedQuantity.toString()),
-      );
+      // Goods returned before invoicing left GRNI with the return.
+      const uninvoiced = new Decimal(line.acceptedQuantity.toString())
+        .minus(new Decimal(line.invoicedQuantity.toString()))
+        .minus(new Decimal(line.returnedQuantity.toString()).minus(line.debitNotedQuantity.toString()));
       const value = BigInt(
         new Decimal(line.unitPriceKobo.toString())
           .mul(uninvoiced)

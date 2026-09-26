@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { listIncubators } from '@/app/(app)/farm/incubation/actions';
 import { enqueue, flush } from '@/lib/sync-queue';
 import { formatDate } from '@/lib/money';
 import { Card, EmptyState, Stat } from './ui';
@@ -517,7 +518,8 @@ function IncubationSheet({
 
         <label className="field">
           Incubator
-          <input value={incubator} onChange={(e) => setIncubator(e.target.value)} placeholder="Optional" />
+          <input value={incubator} onChange={(e) => setIncubator(e.target.value)} placeholder="Code, e.g. INC-01" list="registered-incubators" />
+          <IncubatorOptions />
         </label>
 
         <label className="field">
@@ -685,5 +687,30 @@ function HatchSheet({
         )}
       </div>
     </Sheet>
+  );
+}
+
+/** The registered incubators, as suggestions for the set form. */
+function IncubatorOptions() {
+  const [options, setOptions] = useState<Array<{ code: string; name: string; free: number }>>([]);
+  useEffect(() => {
+    let live = true;
+    listIncubators()
+      .then((rows) => {
+        if (live) setOptions(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  return (
+    <datalist id="registered-incubators">
+      {options.map((o) => (
+        <option key={o.code} value={o.code}>
+          {o.name} — room for {o.free}
+        </option>
+      ))}
+    </datalist>
   );
 }

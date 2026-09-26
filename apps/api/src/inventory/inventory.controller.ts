@@ -1,9 +1,10 @@
-import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InventoryTransferService } from './inventory-transfer.service';
 import { StockCountService } from './stock-count.service';
+import { LotService } from './lot.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
-import { Roles } from '../auth/roles.guard';
+import { AnyRole, Roles } from '../auth/roles.guard';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
 /**
@@ -23,7 +24,45 @@ export class InventoryController {
     private readonly prisma: PrismaService,
     private readonly transfers: InventoryTransferService,
     private readonly counts: StockCountService,
+    private readonly lots: LotService,
   ) {}
+
+  // --- Lots, expiry and quarantine (FR-FM-02, §59.3) -----------------------
+
+  /** Every lot with stock, soonest to expire first; `within` days narrows to what expires soon. */
+  @AnyRole('What is expiring or held in quarantine is store information everyone who issues stock needs.')
+  @Get('lots')
+  async lotReport(@CurrentCompany() companyId: string, @Query('asOf') asOf?: string, @Query('within') within?: string) {
+    if (asOf && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(asOf)) throw new BadRequestException('asOf must be a date, YYYY-MM-DD.');
+    const days = within === undefined || within === '' ? undefined : Number(within);
+    if (days !== undefined && (!Number.isInteger(days) || days < 0)) throw new BadRequestException('within is a number of days.');
+    return this.lots.report(companyId, asOf ? new Date(`${asOf}T00:00:00.000Z`) : new Date(), days);
+  }
+
+  @Roles('QA_OFFICER', 'FARM_MANAGER', 'PRODUCTION_LEAD', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('lots/:id/decide')
+  async decideLot(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: { decision: 'RELEASE' | 'REJECT'; note?: string },
+  ) {
+    if (body?.decision !== 'RELEASE' && body?.decision !== 'REJECT') throw new BadRequestException('decision is RELEASE or REJECT.');
+    return this.lots.decide({ companyId, lotId: id, decision: body.decision, note: body.note ?? null, actor });
+  }
+
+  /** Quarantine on receipt and shelf life for an item. */
+  @Roles('STOREKEEPER', 'FARM_MANAGER', 'QA_OFFICER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('items/:id/controls')
+  async itemControls(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: { quarantineOnReceipt?: boolean; shelfLifeDays?: number | string | null },
+  ) {
+    const days = body?.shelfLifeDays === undefined || body.shelfLifeDays === null || body.shelfLifeDays === '' ? null : Number(body.shelfLifeDays);
+    return this.lots.setItemControls({ companyId, itemId: id, quarantineOnReceipt: body?.quarantineOnReceipt === true, shelfLifeDays: days, actor });
+  }
 
   // --- Stock counts (INT-009) ---------------------------------------------
 
@@ -180,6 +219,8 @@ export class InventoryController {
       warehouseId: string;
       quantity: string;
       reason: string;
+      /** An expired or rejected lot being written off. */
+      lotReference?: string;
     },
   ) {
     return this.transfers.writeOff({ ...body, companyId, actor });

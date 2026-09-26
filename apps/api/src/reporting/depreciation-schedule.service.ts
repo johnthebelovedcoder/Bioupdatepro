@@ -30,6 +30,8 @@ export interface DepreciationScheduleRow {
   absorbedKobo: Record<string, string>;
   /** Net book value written off to depreciation expense on disposal. */
   disposalWriteOffKobo: string;
+  /** Impairment posted in the range (IAS 36), in accumulated depreciation and impairment. */
+  impairmentKobo: string;
   closingAccumulatedKobo: string;
   netBookValueKobo: string;
 }
@@ -72,6 +74,11 @@ export class DepreciationScheduleService {
       select: { assetId: true, amountKobo: true, run: { select: { financialPeriodId: true, financialPeriod: { select: { startDate: true } } } } },
     });
 
+    const impairments = await this.prisma.fixedAssetImpairment.findMany({
+      where: { companyId: params.companyId, status: 'POSTED', assetId: { in: assets.map((a) => a.id) }, impairedOn: { lte: rangeEnd } },
+      select: { assetId: true, amountKobo: true, impairedOn: true },
+    });
+
     // What was posted: the depreciation-run and disposal journals in the range.
     const expenseNumbers = allNumbersFor('depreciationExpense');
     const accumulatedNumbers = allNumbersFor('accumulatedDepreciation');
@@ -96,10 +103,13 @@ export class DepreciationScheduleService {
     const assetNumberIn = (description: string | null) => description?.match(/— ([^\s(]+)/)?.[1] ?? null;
 
     const rows: DepreciationScheduleRow[] = [];
-    const totals = { cost: 0n, opening: 0n, charge: 0n, toPl: 0n, absorbed: {} as Record<string, bigint>, disposal: 0n, closing: 0n, nbv: 0n };
+    const totals = { cost: 0n, opening: 0n, charge: 0n, toPl: 0n, absorbed: {} as Record<string, bigint>, disposal: 0n, impairment: 0n, closing: 0n, nbv: 0n };
     for (const asset of assets) {
       const mine = entries.filter((e) => e.assetId === asset.id);
-      const opening = mine.filter((e) => e.run.financialPeriod.startDate < rangeStart).reduce((s, e) => s + e.amountKobo, 0n);
+      const myImpairments = impairments.filter((i) => i.assetId === asset.id);
+      const impairedBefore = myImpairments.filter((i) => i.impairedOn < rangeStart).reduce((s, i) => s + i.amountKobo, 0n);
+      const impairment = myImpairments.filter((i) => i.impairedOn >= rangeStart).reduce((s, i) => s + i.amountKobo, 0n);
+      const opening = mine.filter((e) => e.run.financialPeriod.startDate < rangeStart).reduce((s, e) => s + e.amountKobo, 0n) + impairedBefore;
       const charge = mine.filter((e) => rangeIds.has(e.run.financialPeriodId)).reduce((s, e) => s + e.amountKobo, 0n);
       const debits = postedLines.filter((l) => l.debitKobo > 0n && assetNumberIn(l.description) === asset.assetNumber);
       let toPl = 0n;
@@ -117,7 +127,7 @@ export class DepreciationScheduleService {
         else if (expenseNumbers.includes(number)) toPl += line.debitKobo;
       }
       const disposedInOrBefore = asset.disposedOn && asset.disposedOn <= rangeEnd;
-      const closing = disposedInOrBefore ? 0n : opening + charge;
+      const closing = disposedInOrBefore ? 0n : opening + charge + impairment;
       const cost = disposedInOrBefore ? 0n : asset.costKobo;
       const nbv = cost - closing;
 
@@ -126,6 +136,7 @@ export class DepreciationScheduleService {
       totals.charge += charge;
       totals.toPl += toPl;
       totals.disposal += disposal;
+      totals.impairment += impairment;
       totals.closing += closing;
       totals.nbv += nbv;
       for (const [cycle, amount] of Object.entries(absorbed)) totals.absorbed[cycle] = (totals.absorbed[cycle] ?? 0n) + amount;
@@ -146,6 +157,7 @@ export class DepreciationScheduleService {
         toProfitAndLossKobo: toPl.toString(),
         absorbedKobo: Object.fromEntries(Object.entries(absorbed).map(([k, v]) => [LINE_LABEL[k as ProductionOrderCycle], v.toString()])),
         disposalWriteOffKobo: disposal.toString(),
+        impairmentKobo: impairment.toString(),
         closingAccumulatedKobo: closing.toString(),
         netBookValueKobo: nbv.toString(),
       });
@@ -181,6 +193,7 @@ export class DepreciationScheduleService {
         absorbedKobo: Object.fromEntries(Object.entries(totals.absorbed).map(([k, v]) => [LINE_LABEL[k as ProductionOrderCycle], v.toString()])),
         absorbedTotalKobo: absorbedTotal.toString(),
         disposalWriteOffKobo: totals.disposal.toString(),
+        impairmentKobo: totals.impairment.toString(),
         closingAccumulatedKobo: totals.closing.toString(),
         netBookValueKobo: totals.nbv.toString(),
       },

@@ -96,6 +96,18 @@ export const SECTIONS: NavSection[] = [
         keywords: ['greenhouse', 'coop', 'house', 'pen', 'structure'],
       },
       {
+        href: '/farm/incubation',
+        label: 'Incubation log',
+        hint: 'Setter temperature, humidity and candling, and exceptions to acknowledge',
+        keywords: ['incubation', 'incubator', 'setter', 'hatchery', 'candling', 'temperature', 'humidity'],
+      },
+      {
+        href: '/farm/readiness',
+        label: 'Ready to harvest',
+        hint: 'Age, weight, stage, health and withdrawal for every batch',
+        keywords: ['harvest', 'readiness', 'withdrawal', 'market ready', 'qa'],
+      },
+      {
         href: '/farm/activity',
         label: "What's happened",
         hint: 'Everything recorded on the farm, newest first',
@@ -130,10 +142,22 @@ export const SECTIONS: NavSection[] = [
         keywords: ['requisition', 'pr', 'request', 'need'],
       },
       {
+        href: '/procurement/budgets',
+        label: 'Budgets',
+        hint: 'What each cost centre may commit on purchase orders this year',
+        keywords: ['budget', 'purchase budget', 'commitment', 'spend limit', 'cost centre'],
+      },
+      {
         href: '/suppliers',
         label: 'Vendors',
         hint: 'Everyone the farm buys from',
         keywords: ['supplier', 'vendor', 'seller'],
+      },
+      {
+        href: '/procurement/returns',
+        label: 'Returns',
+        hint: 'Goods sent back to a supplier, and the debit notes',
+        keywords: ['return', 'debit note', 'send back', 'reject', 'supplier return'],
       },
       {
         href: '/procurement/invoices',
@@ -244,6 +268,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['trace', 'traceability', 'recall', 'lot', 'batch', 'genealogy', 'origin', 'audit trail'],
       },
       {
+        href: '/inventory/lots',
+        label: 'Lots and expiry',
+        hint: 'What each lot holds, its use-by date, and what is in quarantine',
+        keywords: ['lot', 'batch', 'expiry', 'expired', 'fefo', 'quarantine', 'shelf life', 'ageing', 'use by'],
+      },
+      {
         href: '/inventory/counts',
         label: 'Stock counts',
         hint: 'Count a store against its book; differences post once someone else approves',
@@ -289,6 +319,18 @@ export const SECTIONS: NavSection[] = [
         label: 'Feed mill',
         hint: 'Milling runs, what they cost a kilo, and what is still in production',
         keywords: ['feed mill', 'mill', 'milling', 'feed', 'ration', 'formulation'],
+      },
+      {
+        href: '/feed-mill/plan',
+        label: 'Feed plan',
+        hint: 'What the flocks will eat, against feed in store and being milled',
+        keywords: ['feed plan', 'demand', 'mrp', 'shortfall', 'forecast', 'feed order'],
+      },
+      {
+        href: '/feed-mill/quality',
+        label: 'Feed quality',
+        hint: 'Protein, moisture and aflatoxin limits a milled feed must meet',
+        keywords: ['quality', 'qa', 'qc', 'protein', 'moisture', 'aflatoxin', 'quarantine', 'release'],
       },
       {
         href: '/production',
@@ -371,6 +413,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['bank', 'reconciliation', 'statement', 'cash', 'account', 'recon'],
       },
       {
+        href: '/finance/payment-files',
+        label: 'Bank payment files',
+        hint: 'Posted transfers gathered into one file for the bank',
+        keywords: ['bank file', 'bulk payment', 'payment run', 'nibss', 'transfer', 'upload', 'salary file'],
+      },
+      {
         href: '/finance/batches',
         label: 'What each population made',
         hint: 'Profit and cost per flock or cohort',
@@ -394,6 +442,12 @@ export const SECTIONS: NavSection[] = [
         label: 'Payroll setup',
         hint: 'Turn on the current PAYE, pension, NHF, NSITF and ITF rates',
         keywords: ['payroll', 'paye', 'nhf', 'nsitf', 'itf', 'pension', 'statutory', 'tax'],
+      },
+      {
+        href: '/finance/payroll/hours',
+        label: 'Hours and pay',
+        hint: 'Approved hours against the payroll run, and payroll against what batches were charged',
+        keywords: ['hours', 'timesheet', 'reconcile', 'payroll', 'labour', 'allocation'],
       },
       {
         href: '/finance/payroll/runs',
@@ -707,7 +761,15 @@ export const HOME: NavSection = {
   icon: IconDashboard,
   section: 'dashboard',
   href: '/',
-  children: [{ href: '/', label: 'Home', hint: 'What needs attention today' }],
+  children: [
+    { href: '/', label: 'Home', hint: 'What needs attention today' },
+    {
+      href: '/notifications',
+      label: 'My notifications',
+      hint: 'Email and WhatsApp notices, and your consent',
+      keywords: ['notification', 'whatsapp', 'email', 'consent', 'alerts', 'messages'],
+    },
+  ],
 };
 
 /**

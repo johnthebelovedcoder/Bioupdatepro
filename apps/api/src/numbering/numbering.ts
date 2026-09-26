@@ -38,6 +38,7 @@ export const DOCUMENT_TYPES = {
   JV: 'Journal voucher',
   VAL: 'Valuation event',
   WGT: 'Weighing',
+  SRN: 'Supplier return',
 } as const;
 
 export type DocumentType = keyof typeof DOCUMENT_TYPES;

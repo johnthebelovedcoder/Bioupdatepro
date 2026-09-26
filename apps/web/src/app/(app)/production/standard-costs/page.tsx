@@ -2,7 +2,7 @@ import { api } from '@/lib/api';
 import { formatNaira } from '@/lib/money';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
-import { DecideStandard, PolicyForm, PrepareStandardForm } from '@/components/standard-cost-forms';
+import { DecideStandard, PolicyForm, PrepareStandardForm, ProrationAction } from '@/components/standard-cost-forms';
 
 export const metadata = { title: 'Standard costs — BioAssetPro' };
 
@@ -22,7 +22,14 @@ interface StandardCosts {
     code: string;
     startDate: string;
     endDate: string;
-    policy: { method: string; varianceDisposition: string; varianceTolerancePercent: string; configuredAt: string; lockedAt: string | null } | null;
+    policy: {
+      method: string;
+      varianceDisposition: string;
+      varianceTolerancePercent: string;
+      prorationThresholdKobo?: string;
+      configuredAt: string;
+      lockedAt: string | null;
+    } | null;
   }>;
   versions: Array<{
     id: string;
@@ -59,7 +66,10 @@ const TONE: Record<string, string> = { RELEASED: 'badge-success', PENDING: 'badg
  * prepared by one person and released by another.
  */
 export default async function StandardCostsPage() {
-  const data = await api<StandardCosts>('/production-orders/standard-costs');
+  const [data, prorations] = await Promise.all([
+    api<StandardCosts>('/production-orders/standard-costs'),
+    api<Array<{ id: string; financialYear: string; reversed: boolean; toFgKobo: string; toWipKobo: string }>>('/production-orders/standard-costs/variance-prorations').catch(() => []),
+  ]);
   const today = new Date().toISOString().slice(0, 10);
 
   return (
@@ -74,7 +84,7 @@ export default async function StandardCostsPage() {
                 <tr>
                   <th style={{ width: 110 }}>Year</th>
                   <th>Method</th>
-                  <th style={{ width: 150 }}>Variances go to</th>
+                  <th style={{ width: 220 }}>Variances go to</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -100,12 +110,30 @@ export default async function StandardCostsPage() {
                           <span className="faint">Not configured — production cannot post in this year until it is.</span>
                         )}
                       </td>
-                      <td>{year.policy ? 'Cost of sales' : '—'}</td>
+                      <td>
+                        {year.policy
+                          ? year.policy.varianceDisposition === 'PRORATE'
+                            ? `Prorated from ₦${(Number(year.policy.prorationThresholdKobo ?? '0') / 100).toLocaleString('en-NG')}`
+                            : 'Cost of sales'
+                          : '—'}
+                        {year.policy?.varianceDisposition === 'PRORATE' ? (
+                          <ProrationAction
+                            financialYearId={year.financialYearId}
+                            prorationId={prorations.find((p) => p.financialYear === year.code)?.id ?? null}
+                            reversed={prorations.find((p) => p.financialYear === year.code)?.reversed ?? false}
+                          />
+                        ) : null}
+                      </td>
                       <td style={{ textAlign: 'left' }}>
                         {year.policy?.lockedAt ? (
                           <span className="badge badge-success">locked {year.policy.lockedAt.slice(0, 10)}</span>
                         ) : (
-                          <PolicyForm financialYearId={year.financialYearId} tolerance={year.policy?.varianceTolerancePercent ?? '20'} />
+                          <PolicyForm
+                            financialYearId={year.financialYearId}
+                            tolerance={year.policy?.varianceTolerancePercent ?? '20'}
+                            disposition={year.policy?.varianceDisposition ?? 'COGS'}
+                            thresholdKobo={year.policy?.prorationThresholdKobo ?? '0'}
+                          />
                         )}
                       </td>
                     </tr>

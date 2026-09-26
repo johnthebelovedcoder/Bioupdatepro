@@ -269,6 +269,100 @@ Stated here rather than discovered later.
   company can be more generous, never less. Working days are Monday to Friday
   — public holidays are not deducted. Unpaid days come off the month's gross
   before PAYE. The leave liability is reported, not posted.
+- **Bank accounts are verified before money goes to them.** A supplier's
+  bank details are confirmed by someone other than whoever entered or last
+  changed them (Buying → Vendors), and a change clears the verification;
+  a transfer to an unverified supplier is refused, as is a salary payment by
+  transfer while any employee paid lacks a verified bank check. Suppliers
+  created before 2026-09-26 start unverified, so each needs verifying once
+  before its next transfer; cash and cheque payments are unaffected.
+- **WhatsApp is by consent** (My notifications). Approval notices go by
+  WhatsApp only when Meta's Cloud API is configured (see `.env.example`), the
+  event is one an administrator or the CFO has approved for WhatsApp, and the
+  recipient has verified their number with a code and agreed — and not since
+  withdrawn. The check is made again at the moment of sending; a blocked
+  message is kept as failed with the reason. Messages are sent as approved
+  templates, so both templates must first be approved in Meta's WhatsApp
+  Manager. Email keeps sending every event unless the policy narrows it.
+- **Poultry processing records its plant intake.** Birds and live weight
+  received, dead on arrival, and condemned (with the reason and the vet) are
+  entered before outputs; dead-on-arrival and condemned weight must be covered
+  by an abnormal-loss claim, and every poultry output lot carries its grade,
+  use-by date and cold-store temperature. Existing poultry orders still in
+  production need their intake recorded before their outputs.
+- **Milled feed can be held in quarantine** (Feed mill → Feed quality). A feed
+  with protein, moisture or aflatoxin limits is received into stock only once a
+  sample from the order passes and someone other than the tester releases it.
+  A feed with no limits set is unaffected.
+- **The feed plan is a guide, not an order** (Feed mill → Feed plan). Each
+  batch's daily feed is what it was fed over the last week, or its stage's
+  grams per head (Setup → Breeds) where none is recorded; the shortfall can be
+  raised as a draft milling order.
+- **Harvest readiness** (Farm → Ready to harvest) shows age, weight, stage,
+  health and withdrawal for every active batch; it reports, it does not yet
+  block a sale. Target weights per stage are set under Setup → Breeds.
+- **Returns to suppliers** (Buying → Returns). Goods not yet invoiced come off
+  GRNI at the receipt price and can no longer be billed; goods already
+  invoiced become a debit note against the invoice, VAT included. A debit note
+  larger than what is still open on the invoice is refused — a refund of money
+  already paid is recorded as a receipt.
+- **Impairment posts to 5502 / 630200.** Impairment loss has no number in the
+  client's chart, so 5502 is added to legacy charts and 630200 is proposed for
+  the spec chart, where it must be added by hand before the first impairment.
+  After an impairment, depreciation spreads the remaining carrying amount over
+  the remaining life. Reversals of impairment are not recorded.
+- **Bank payment files are a plain CSV** (Finance → Bank payment files):
+  reference, beneficiary, account number, bank, amount, narration. Each bank's
+  bulk-upload template maps from it; there is no direct bank connection. A
+  salary payment must be the run's whole net pay to be split by employee.
+- **No animal leaves for food during a withdrawal period.** A harvest for
+  sale or processing, or a live sale, is refused until every treatment's
+  withdrawal has run (its safe-to-sell date, else given-on plus the withdrawal
+  days). Animals moved to another population take the withdrawal with them.
+  Culls and deaths are not stopped. Eggs laid during a withdrawal cannot be
+  recorded as table eggs — they are set for hatching or recorded as rejects.
+- **Stock is issued by lot, earliest expiry first** (Store → Lots and expiry).
+  A receipt line with a lot number, a use-by date, a shelf life on the item,
+  or a quarantine becomes a lot; so does a dated processing output. An issue
+  that names no lot draws on the earliest-expiring usable lot, and nothing
+  expired, in quarantine or rejected can be issued, delivered or transferred —
+  only written off, returned to the supplier or counted. Items with no lots
+  behave exactly as before. The stock ledger is append-only, so receipts made
+  before this change that had a use-by date but no lot number are matched to
+  their lot through the receipt.
+- **Quarantine on receipt.** A delivery can be held in quarantine as it is
+  received, and an item can be set to be held every time; someone other than
+  whoever received it releases or rejects the lot. A rejected lot is returned
+  (Buying → Returns) or written off.
+- **The incubation log** (Farm → Incubation log). With a standard set,
+  readings outside it are exceptions a supervisor acknowledges with the action
+  taken, and a batch cannot be hatched while one is open; a reading due and not
+  taken shows as overdue. The hatch's unhatched and damaged eggs must cover the
+  clear and dead-in-shell eggs found at the last candling. Reading times are
+  taken from the recording device's own clock. Once any incubator is
+  registered with its capacity, every set must name one with room for the
+  eggs; with none registered, the incubator stays free text and unchecked.
+- **Hours reconcile to pay before a period closes** (Payroll → Hours and
+  pay). The posted payroll register must equal what payroll posted to expense,
+  labour allocated to batches cannot exceed it, no hours may be waiting for
+  approval, and nobody with approved hours may be missing from the run.
+- **Timesheets can carry the shift and a processing order.** A shift that
+  overlaps another of the same person is refused, as is time on a completed or
+  cancelled order or on a batch after it closed. Time on orders is conversion
+  labour and is not shared among batches.
+- **Cost pools are tied to the ledger** (Feed mill → Cost pools). Name each
+  pool's source accounts; the page sets their posted cost against what orders
+  absorbed and the unused capacity, and shows the spending variance.
+- **Variance proration is a year-end choice** (Feed mill → Standard costs).
+  A year's policy can prorate a net variance at or above a threshold over cost
+  of sales, finished goods and closing WIP. The finished-goods and WIP shares
+  are held in 1402 and 1403 (legacy chart; 130590 and 130595 are proposed for
+  the spec chart and added by hand) so the stock ledger still agrees with its
+  control accounts, and are reversed on the first day of the next year.
+- **Purchase budgets by cost centre** (Buying → Budgets). An order that would
+  take its cost centre past the year's budget, net of VAT, is refused at
+  submission; once any budget exists for the year every order must name a
+  cost centre. A cost centre with no budget is not controlled.
 - **References are the system's.** Documents and journals are numbered
   TYPE-ENTITY-SITE-YYYY-000001 by an atomic sequence; the API ignores a number
   sent by a caller. Journals posted before 2026-09-25 keep only their source

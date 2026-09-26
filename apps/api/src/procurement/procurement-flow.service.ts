@@ -311,11 +311,14 @@ export class ProcurementFlowService {
     purchaseOrderId: string;
     receiptDate: Date;
     deliveryNoteReference?: string | null;
+    /** Hold the whole receipt in quarantine until QA releases it. */
+    quarantine?: boolean;
     lines: Array<{
       purchaseOrderLineId: string;
       receivedQuantity: string;
       rejectedQuantity?: string;
       batchReference?: string | null;
+      expiryDate?: Date | null;
       warehouseId?: string | null;
     }>;
   }) {
@@ -373,11 +376,13 @@ export class ProcurementFlowService {
       financialPeriodId: period.id,
       deliveryNoteReference: params.deliveryNoteReference ?? null,
       qualityStatus,
+      quarantine: params.quarantine === true,
       lines: receivable.map((line) => ({
         purchaseOrderLineId: line.purchaseOrderLineId,
         receivedQuantity: line.receivedQuantity,
         ...(line.rejectedQuantity ? { rejectedQuantity: line.rejectedQuantity } : {}),
         ...(line.batchReference ? { batchReference: line.batchReference } : {}),
+        ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
         ...(line.warehouseId ? { warehouseId: line.warehouseId } : {}),
       })),
       actor: params.actor,
@@ -440,7 +445,12 @@ export class ProcurementFlowService {
         description: line.item.description,
         acceptedQuantity: line.acceptedQuantity.toString(),
         invoicedQuantity: line.invoicedQuantity.toString(),
-        outstandingQuantity: line.acceptedQuantity.minus(line.invoicedQuantity).toString(),
+        returnedQuantity: line.returnedQuantity.toString(),
+        // Returned before billing is no longer billable (SupplierReturn).
+        outstandingQuantity: line.acceptedQuantity
+          .minus(line.invoicedQuantity)
+          .minus(line.returnedQuantity.minus(line.debitNotedQuantity))
+          .toString(),
         unitPriceKobo: line.unitPriceKobo.toString(),
         // US-897-007. Null means "the GRN's own header warehouse above" —
         // this line landed nowhere else.

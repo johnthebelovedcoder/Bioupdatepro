@@ -243,6 +243,14 @@ export class OperationsController {
     });
   }
 
+  /** Harvest/QA readiness: age, weight, stage, health and withdrawal for every active batch. */
+  @AnyRole('Whether a batch is ready to harvest is farm information everyone on the farm uses.')
+  @Get('harvest-readiness')
+  async harvestReadiness(@CurrentCompany() companyId: string, @Query('on') on?: string, @Query('farmId') farmId?: string) {
+    if (on && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(on)) throw new BadRequestException('on must be a date, YYYY-MM-DD.');
+    return this.profiles.readiness(companyId, on ? new Date(`${on}T00:00:00.000Z`) : new Date(), farmId || undefined);
+  }
+
   /** Age, weighings, live weight and how animals left — for the group page. */
   @AnyRole('How a batch is growing is farm information everyone on the farm uses.')
   @Get('groups/:code/profile')

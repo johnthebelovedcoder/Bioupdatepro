@@ -45,7 +45,12 @@ export type AccountRole =
   | 'nsitfExpense'
   | 'itfExpense'
   | 'operatingExpenses'
-  | 'depreciationExpense';
+  | 'depreciationExpense'
+  /** IAS 36 impairment of fixed assets; the spec chart has no approved number, so 630200 is proposed. */
+  | 'impairmentLoss'
+  /** POL-009 prorated variance held against finished goods and WIP; no spec number, 130590/130595 proposed. */
+  | 'fgCapitalisedVariance'
+  | 'wipCapitalisedVariance';
 
 /** [LEGACY, SPEC] account numbers for each purpose that does not depend on species. */
 export const ROLE_ACCOUNTS: Record<AccountRole, [legacy: string, spec: string]> = {
@@ -76,6 +81,9 @@ export const ROLE_ACCOUNTS: Record<AccountRole, [legacy: string, spec: string]> 
   itfExpense: ['5104', '620300'],
   operatingExpenses: ['5401', '690100'],
   depreciationExpense: ['5501', '630100'],
+  impairmentLoss: ['5502', '630200'],
+  fgCapitalisedVariance: ['1402', '130590'],
+  wipCapitalisedVariance: ['1403', '130595'],
 };
 
 export type SpeciesRole =

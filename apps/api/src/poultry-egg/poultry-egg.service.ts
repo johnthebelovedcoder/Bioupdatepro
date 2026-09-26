@@ -2,6 +2,8 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdempotencyService } from '../idempotency/idempotency.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { assertReadyToHatch, assertIncubatorRoom } from './incubation-log.service';
+import { runningWithdrawal } from '../operations/withdrawal';
 
 /**
  * PoultryPro egg production, incubation and hatching — Poultry_Egg_Production
@@ -67,6 +69,18 @@ export class PoultryEggService {
         throw new BadRequestException('Egg collection is a PoultryPro event — the source group is not poultry.');
       }
 
+      // Eggs laid while a treatment's withdrawal runs are not food: they may
+      // be set for hatching or discarded, never kept as table eggs.
+      if (params.tableCount > 0) {
+        const running = await runningWithdrawal(tx, params.companyId, group.id, params.collectedOn);
+        if (running) {
+          const day = (d: Date) => d.toISOString().slice(0, 10);
+          throw new BadRequestException(
+            `${group.code} was given ${running.name} on ${day(running.givenOn)} and its withdrawal runs until ${day(running.until)}. Its eggs cannot be table eggs until then — record them as rejects (discarded), or as hatching eggs.`,
+          );
+        }
+      }
+
       const batch = await tx.eggCollectionBatch.create({
         data: {
           companyId: params.companyId,
@@ -124,6 +138,9 @@ export class PoultryEggService {
         );
       }
 
+      // INT-025: a registered incubator, with room for this set.
+      const incubator = await assertIncubatorRoom(tx, { companyId: params.companyId, incubator: params.incubator ?? null, setQuantity: params.setQuantity });
+
       const batch = await tx.incubationBatch.create({
         data: {
           companyId: params.companyId,
@@ -131,7 +148,7 @@ export class PoultryEggService {
           code: params.code.trim(),
           setOn: params.setOn,
           setQuantity: params.setQuantity,
-          incubator: params.incubator ?? null,
+          incubator,
           notes: params.notes ?? null,
           recordedById: params.recordedById,
         },
@@ -189,6 +206,14 @@ export class PoultryEggService {
           { incubationBatchId: incubation.id },
         );
       }
+
+      await assertReadyToHatch(tx, {
+        companyId: params.companyId,
+        incubationBatchId: incubation.id,
+        code: incubation.code,
+        unhatchedCount: params.unhatchedCount,
+        damagedCount: params.damagedCount,
+      });
 
       const total = params.hatchedCount + params.unhatchedCount + params.damagedCount;
       if (total !== incubation.setQuantity) {

@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { NotificationChannel, NotificationStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../auth/email.service';
+import { WhatsAppService } from '../notifications/whatsapp.service';
+import { gate } from '../notifications/notification-rules';
 
 /** How often queued emails are sent. Approvals are not urgent to the second. */
 const EVERY_MS = 2 * 60 * 1000;
@@ -20,11 +22,18 @@ const BATCH = 50;
  * With no provider configured it does nothing and the rows stay PENDING —
  * visibly unsent, never marked sent. A refused send is marked FAILED with the
  * reason, not retried forever.
+ *
+ * WhatsApp rows go the same way, through Meta's Cloud API. Every row, email
+ * or WhatsApp, passes AC-015's gate at the moment it would be sent — an
+ * approved event, an active recipient, and for WhatsApp a verified number
+ * with consent not withdrawn. A blocked row is marked FAILED with the reason:
+ * the record that an unauthorised or unverified send did not happen.
  */
 @Injectable()
 export class NotificationDispatcherService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NotificationDispatcherService.name);
   private readonly email = new EmailService();
+  private readonly whatsapp = new WhatsAppService();
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
@@ -32,7 +41,7 @@ export class NotificationDispatcherService implements OnModuleInit, OnModuleDest
 
   onModuleInit(): void {
     // Not in tests, and not where nothing could be sent anyway.
-    if (process.env.NODE_ENV === 'test' || process.env.VITEST || !this.email.isConfigured()) return;
+    if (process.env.NODE_ENV === 'test' || process.env.VITEST || !this.anyConfigured()) return;
     this.timer = setInterval(() => void this.dispatch(), EVERY_MS);
     this.timer.unref();
   }
@@ -41,20 +50,28 @@ export class NotificationDispatcherService implements OnModuleInit, OnModuleDest
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** One pass over queued emails. Returns how many were sent and how many failed. */
+  private anyConfigured(): boolean {
+    return this.email.isConfigured() || this.whatsapp.isConfigured();
+  }
+
+  /** One pass over queued emails and WhatsApp messages. Returns how many were sent and how many failed. */
   async dispatch(): Promise<{ sent: number; failed: number }> {
-    if (this.running || !this.email.isConfigured()) return { sent: 0, failed: 0 };
+    if (this.running || !this.anyConfigured()) return { sent: 0, failed: 0 };
+    const channels = [
+      ...(this.email.isConfigured() ? [NotificationChannel.EMAIL] : []),
+      ...(this.whatsapp.isConfigured() ? [NotificationChannel.WHATSAPP] : []),
+    ];
     this.running = true;
     let sent = 0;
     let failed = 0;
     try {
       const queued = await this.prisma.workflowNotification.findMany({
-        where: { channel: NotificationChannel.EMAIL, status: NotificationStatus.PENDING },
+        where: { channel: { in: channels }, status: NotificationStatus.PENDING },
         orderBy: { createdAt: 'asc' },
         take: BATCH,
         include: {
           recipient: { select: { email: true, fullName: true, active: true } },
-          transaction: { select: { status: true } },
+          transaction: { select: { status: true, companyId: true } },
         },
       });
       const stale = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -71,17 +88,23 @@ export class NotificationDispatcherService implements OnModuleInit, OnModuleDest
           failed += 1;
           continue;
         }
-        if (!row.recipient.active || !row.recipient.email) {
-          await this.mark(row.id, false, 'Recipient has no active email address.');
+        // AC-015: approved event, verified recipient, consent where required.
+        const allowed = await gate(this.prisma, {
+          companyId: row.transaction.companyId,
+          channel: row.channel,
+          event: row.event,
+          recipientId: row.recipientId,
+        });
+        if (!allowed.ok || !allowed.to) {
+          await this.mark(row.id, false, allowed.reason ?? 'Blocked.');
           failed += 1;
           continue;
         }
-        const ok = await this.email.send({
-          to: row.recipient.email,
-          subject: row.subject,
-          html: render(row.recipient.fullName, row.body),
-        });
-        await this.mark(row.id, ok, ok ? null : 'The email provider refused it.');
+        const ok =
+          row.channel === NotificationChannel.WHATSAPP
+            ? await this.whatsapp.sendNotice(allowed.to, `${row.subject}: ${row.body}`)
+            : await this.email.send({ to: allowed.to, subject: row.subject, html: render(row.recipient.fullName, row.body) });
+        await this.mark(row.id, ok, ok ? null : `The ${row.channel === NotificationChannel.WHATSAPP ? 'WhatsApp' : 'email'} provider refused it.`);
         if (ok) sent += 1;
         else failed += 1;
       }
@@ -90,7 +113,7 @@ export class NotificationDispatcherService implements OnModuleInit, OnModuleDest
     } finally {
       this.running = false;
     }
-    if (sent + failed > 0) this.logger.log(`Approval emails: ${sent} sent, ${failed} failed.`);
+    if (sent + failed > 0) this.logger.log(`Approval notices: ${sent} sent, ${failed} failed or blocked.`);
     return { sent, failed };
   }
 

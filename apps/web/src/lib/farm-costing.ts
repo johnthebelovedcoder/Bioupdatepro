@@ -87,6 +87,7 @@ export async function getTimesheets(from: string, to: string): Promise<Timesheet
 export async function getTimesheetChoices(): Promise<{
   employees: Array<{ id: string; name: string; number: string }>;
   groups: Array<{ id: string; code: string; speciesKey: string }>;
+  orders?: Array<{ id: string; orderNumber: string; processingCycle: string }>;
 }> {
   return api('/cost-allocation/timesheets/choices');
 }

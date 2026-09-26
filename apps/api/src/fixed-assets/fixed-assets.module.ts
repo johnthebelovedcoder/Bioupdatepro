@@ -1,5 +1,6 @@
 import { Module, OnModuleInit } from '@nestjs/common';
 import { FixedAssetService } from './fixed-asset.service';
+import { AssetChangeService } from './asset-change.service';
 import {
   FixedAssetCapitalisationPostingHandler,
   DepreciationRunPostingHandler,
@@ -11,11 +12,13 @@ import { WorkflowService } from '../workflow/workflow.service';
 @Module({
   providers: [
     FixedAssetService,
+    AssetChangeService,
     FixedAssetCapitalisationPostingHandler,
     DepreciationRunPostingHandler,
     FixedAssetDisposalPostingHandler,
   ],
-  exports: [FixedAssetService],
+  // Exported because FixedAssetsController is registered in AppModule.
+  exports: [FixedAssetService, AssetChangeService],
 })
 export class FixedAssetsModule implements OnModuleInit {
   constructor(

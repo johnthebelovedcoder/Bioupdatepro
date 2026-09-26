@@ -57,6 +57,7 @@ export class FixedAssetService {
       assetClass: asset.assetClass,
       acquisitionDate: asset.acquisitionDate,
       costKobo: asset.costKobo.toString(),
+      impairedKobo: asset.impairedKobo.toString(),
       usefulLifeMonths: asset.usefulLifeMonths,
       costCentre: asset.costCentre ? `${asset.costCentre.code} — ${asset.costCentre.name}` : null,
       processingCycle: asset.processingCycle,
@@ -282,9 +283,24 @@ export class FixedAssetService {
       where: { companyId: params.companyId, status: WorkflowStatus.POSTED, disposedOn: null, acquisitionDate: { lte: period.endDate } },
     });
 
+    // After an impairment (IAS 36) the carrying amount left is spread over
+    // the months of life that remain, not the original cost over the whole.
+    const impaired = assets.filter((asset) => asset.impairedKobo > 0n);
+    const monthsDone = impaired.length
+      ? await this.prisma.depreciationEntry.groupBy({
+          by: ['assetId'],
+          where: { assetId: { in: impaired.map((a) => a.id) }, run: { companyId: params.companyId } },
+          _count: { _all: true },
+        })
+      : [];
+
     const lines = assets
       .map((asset) => {
-        const monthly = asset.costKobo / BigInt(asset.usefulLifeMonths);
+        const done = monthsDone.find((m) => m.assetId === asset.id)?._count._all ?? 0;
+        const monthly =
+          asset.impairedKobo > 0n
+            ? (asset.costKobo - asset.accumulatedDepreciationKobo) / BigInt(Math.max(1, asset.usefulLifeMonths - done))
+            : asset.costKobo / BigInt(asset.usefulLifeMonths);
         const remaining = asset.costKobo - asset.accumulatedDepreciationKobo;
         const amount = monthly < remaining ? monthly : remaining;
         return { assetId: asset.id, amountKobo: amount };

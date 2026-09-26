@@ -61,6 +61,7 @@ export function GoodsReceiptForm({ order, today }: { order: PurchaseOrder; today
                 <th style={{ width: 130 }}>Received</th>
                 <th style={{ width: 130 }}>Rejected</th>
                 <th style={{ width: 150 }}>Batch</th>
+                <th style={{ width: 150 }}>Use by</th>
               </tr>
             </thead>
             <tbody>
@@ -70,6 +71,14 @@ export function GoodsReceiptForm({ order, today }: { order: PurchaseOrder; today
             </tbody>
           </table>
         </div>
+
+        <label className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center' }}>
+          <input type="checkbox" name="quarantine" />
+          Hold this delivery in quarantine until QA releases it
+        </label>
+        <p className="muted" style={{ fontSize: 14 }}>
+          Items set to quarantine on receipt are held whatever this says. Stock past its use-by date cannot be issued.
+        </p>
 
         <p className="muted" style={{ fontSize: 14 }}>
           Rejected goods stay off the books entirely — they are counted as arrived and sent
@@ -133,6 +142,9 @@ function LineRow({ line }: { line: PurchaseOrder['lines'][number] }) {
           placeholder="optional"
           style={{ minHeight: 0 }}
         />
+      </td>
+      <td>
+        <input name={`expiry:${line.id}`} type="date" aria-label={`Use-by date for ${line.itemCode}`} style={{ minHeight: 0 }} />
       </td>
     </tr>
   );

@@ -99,6 +99,24 @@ export class SupplierPaymentService {
       );
     }
 
+    // INT-005: never a transfer to a bank account nobody has verified.
+    if (input.method === 'BANK_TRANSFER') {
+      if (!supplier.accountNumber) {
+        throw new AccountingRuleViolation(
+          'INT-005 — Verified bank',
+          `Supplier ${supplier.code} has no bank account on file to transfer to.`,
+          { supplierCode: supplier.code },
+        );
+      }
+      if (!supplier.bankVerifiedAt) {
+        throw new AccountingRuleViolation(
+          'INT-005 — Verified bank',
+          `Supplier ${supplier.code}'s bank details have not been verified. Someone other than whoever entered them confirms the account before it is paid by transfer.`,
+          { supplierCode: supplier.code },
+        );
+      }
+    }
+
     if (input.allocations.length === 0) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §5 — Supplier payment',

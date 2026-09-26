@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { api, ApiError } from '@/lib/api';
+import { parseNairaToKobo } from '@/lib/money';
 
 export interface StandardState {
   error: string | null;
@@ -17,9 +18,19 @@ const failed = (caught: unknown, fallback: string): StandardState => ({
 export async function configurePolicy(_previous: StandardState, formData: FormData): Promise<StandardState> {
   const financialYearId = String(formData.get('financialYearId') ?? '');
   const tolerance = String(formData.get('varianceTolerancePercent') ?? '').trim();
+  const disposition = String(formData.get('varianceDisposition') ?? 'COGS');
+  const threshold = parseNairaToKobo(String(formData.get('prorationThreshold') ?? ''));
   if (!financialYearId) return { error: 'Choose the financial year.', message: null };
   try {
-    await api('/production-orders/standard-costs/policy', { method: 'POST', body: { financialYearId, varianceTolerancePercent: tolerance || undefined } });
+    await api('/production-orders/standard-costs/policy', {
+      method: 'POST',
+      body: {
+        financialYearId,
+        varianceTolerancePercent: tolerance || undefined,
+        varianceDisposition: disposition === 'PRORATE' ? 'PRORATE' : 'COGS',
+        prorationThresholdKobo: (threshold ?? 0n).toString(),
+      },
+    });
   } catch (caught) {
     return failed(caught, 'Could not configure that policy.');
   }
@@ -53,4 +64,28 @@ export async function decideStandard(versionId: string, approve: boolean, reason
   }
   revalidatePath('/production/standard-costs');
   return { error: null, message: approve ? 'Released.' : 'Rejected.' };
+}
+
+/** POL-009: spread the year's variance over cost of sales, finished goods and WIP. */
+export async function prorateVariance(financialYearId: string): Promise<StandardState> {
+  try {
+    const r = await api<{ toCogsKobo: string; toFgKobo: string; toWipKobo: string }>('/production-orders/standard-costs/variance-proration', {
+      method: 'POST',
+      body: { financialYearId },
+    });
+    revalidatePath('/production/standard-costs');
+    return { error: null, message: `Prorated: ₦${(Number(r.toFgKobo) / 100).toLocaleString('en-NG')} to finished goods, ₦${(Number(r.toWipKobo) / 100).toLocaleString('en-NG')} to WIP; the rest stays in cost of sales.` };
+  } catch (caught) {
+    return failed(caught, 'Could not prorate the variance.');
+  }
+}
+
+export async function reverseProration(id: string): Promise<StandardState> {
+  try {
+    await api(`/production-orders/standard-costs/variance-prorations/${id}/reverse`, { method: 'POST', body: {} });
+    revalidatePath('/production/standard-costs');
+    return { error: null, message: 'Reversed into the new year.' };
+  } catch (caught) {
+    return failed(caught, 'Could not reverse it.');
+  }
 }

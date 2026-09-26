@@ -306,6 +306,22 @@ describe('Processing and production-order close (UAT-015 / UAT-024)', () => {
     expect(line.absorbedCostKobo).toBe(1_400_000_00n);
     // The pool's capacity is fully used by those 100 hours: nothing idle.
     expect((await routing.unusedCapacity(pool.id)).unusedCapacity).toBe('0.00');
+
+    // AC-MFG-004: untied, the pool says so; tied to its ledger account, ledger = absorbed + unused + spending variance.
+    const untied = (await routing.reconcilePools(fixture.companyId))[0]!;
+    expect(untied.reconciled).toBe(false);
+    expect(untied.note).toMatch(/not tied to the ledger/);
+    const overhead = await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '621200' } });
+    await routing.setPoolSources({ companyId: fixture.companyId, poolId: pool.id, sources: [{ glAccountId: overhead.id }], actorId: fixture.makerId });
+    const sums = await prisma.journalLine.aggregate({ where: { glAccountId: overhead.id, journalEntry: { status: 'POSTED' } }, _sum: { debitKobo: true, creditKobo: true } });
+    const ledger = (sums._sum.debitKobo ?? 0n) - (sums._sum.creditKobo ?? 0n);
+    const tied = (await routing.reconcilePools(fixture.companyId))[0]!;
+    expect(tied.reconciled).toBe(true);
+    expect(tied.ledgerKobo).toBe(ledger.toString());
+    expect(tied.absorbedKobo).toBe(1_400_000_00n.toString());
+    expect(tied.unusedCapacityKobo).toBe('0');
+    expect(tied.differenceKobo).toBe((ledger - 1_400_000_00n).toString());
+    expect(tied.rateVsLedgerKobo).toBe((1_400_000_00n - ledger).toString());
   });
 
   it('refuses a second order against the same harvest', async () => {

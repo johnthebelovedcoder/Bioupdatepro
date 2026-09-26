@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import {
   AuditAction,
   PartyStatus,
@@ -62,19 +62,20 @@ export class PartyService {
    * and one bank account belongs to one supplier. A second record for the
    * same business is how a payment gets made twice or diverted.
    */
-  private async assertUniqueParty(kind: 'supplier' | 'customer', companyId: string, tin?: string | null, accountNumber?: string | null) {
+  private async assertUniqueParty(kind: 'supplier' | 'customer', companyId: string, tin?: string | null, accountNumber?: string | null, excludeId?: string) {
+    const notSelf = excludeId ? { id: { not: excludeId } } : {};
     const label = kind === 'supplier' ? 'supplier' : 'customer';
     const model = (kind === 'supplier' ? this.prisma.supplier : this.prisma.customer) as unknown as {
       findFirst: (args: unknown) => Promise<{ code: string; name: string } | null>;
     };
     if (tin?.trim()) {
-      const clash = await model.findFirst({ where: { companyId, tin: tin.trim() }, select: { code: true, name: true } });
+      const clash = await model.findFirst({ where: { companyId, ...notSelf, tin: tin.trim() }, select: { code: true, name: true } });
       if (clash) {
         throw new AccountingRuleViolation('INT-001 — Duplicate TIN', `TIN ${tin.trim()} is already ${label} ${clash.code} (${clash.name}).`, { code: clash.code });
       }
     }
     if (accountNumber?.trim()) {
-      const clash = await model.findFirst({ where: { companyId, accountNumber: accountNumber.trim() }, select: { code: true, name: true } });
+      const clash = await model.findFirst({ where: { companyId, ...notSelf, accountNumber: accountNumber.trim() }, select: { code: true, name: true } });
       if (clash) {
         throw new AccountingRuleViolation('INT-001 — Duplicate bank account', `Account ${accountNumber.trim()} is already ${label} ${clash.code}'s (${clash.name}).`, { code: clash.code });
       }
@@ -129,6 +130,7 @@ export class PartyService {
           bankName: input.bankName ?? null,
           accountNumber: input.accountNumber ?? null,
           accountName: input.accountName ?? null,
+          ...(input.accountNumber?.trim() ? { bankSetById: input.actorId, bankSetAt: new Date() } : {}),
           paymentTermId,
           creditLimitKobo: input.creditLimit ?? 0n,
           creditLimitSet: input.creditLimit !== undefined && input.creditLimit !== null,
@@ -189,6 +191,85 @@ export class PartyService {
       });
 
       return supplier;
+    }, TRANSACTION_OPTIONS);
+  }
+
+  /**
+   * Change a supplier's bank details (INT-001). The change is recorded
+   * against whoever made it, and clears the verification — the database
+   * does too — so nothing is paid by transfer until someone else checks the
+   * new account.
+   */
+  async setSupplierBank(params: {
+    companyId: string;
+    supplierId: string;
+    bankName: string;
+    accountNumber: string;
+    accountName: string;
+    reason: string;
+    actorId: string;
+  }) {
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: params.supplierId, companyId: params.companyId } });
+    if (!supplier) throw new NotFoundException('No such supplier.');
+    const bankName = params.bankName?.trim();
+    const accountNumber = params.accountNumber?.trim();
+    const accountName = params.accountName?.trim();
+    if (!bankName || !accountNumber || !accountName) {
+      throw new AccountingRuleViolation('INT-001 — Bank details', 'Give the bank, the account number and the account name.', {});
+    }
+    if (!params.reason?.trim()) {
+      throw new AccountingRuleViolation('INT-001 — Bank change', 'Say why the bank details are changing, and on whose instruction.', {});
+    }
+    await this.assertUniqueParty('supplier', params.companyId, null, accountNumber, supplier.id);
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.supplier.update({
+        where: { id: supplier.id },
+        data: { bankName, accountNumber, accountName, bankSetById: params.actorId, bankSetAt: new Date() },
+      });
+      await this.writeAudit(tx, {
+        entityType: 'Supplier',
+        entityId: supplier.id,
+        action: AuditAction.UPDATE,
+        userId: params.actorId,
+        status: 'BANK_UNVERIFIED',
+        comments: `Bank details changed from ${supplier.bankName ?? '—'} ${maskAccount(supplier.accountNumber)} to ${bankName} ${maskAccount(accountNumber)}: ${params.reason.trim()}. Awaiting verification.`,
+      });
+      return updated;
+    }, TRANSACTION_OPTIONS);
+  }
+
+  /**
+   * Verify a supplier's bank details (INT-005): confirmed with the supplier
+   * by someone other than whoever entered them, with a record of how.
+   */
+  async verifySupplierBank(params: { companyId: string; supplierId: string; reference: string; actorId: string }) {
+    const supplier = await this.prisma.supplier.findFirst({ where: { id: params.supplierId, companyId: params.companyId } });
+    if (!supplier) throw new NotFoundException('No such supplier.');
+    if (!supplier.accountNumber) throw new AccountingRuleViolation('INT-005 — Bank verification', `${supplier.code} has no bank account to verify.`, {});
+    if (supplier.bankVerifiedAt) throw new AccountingRuleViolation('INT-005 — Bank verification', `${supplier.code}'s bank details are already verified.`, {});
+    if (!params.reference?.trim()) {
+      throw new AccountingRuleViolation('INT-005 — Bank verification', 'Say how the account was confirmed — a call-back to a known number, a bank letter, a test transfer.', {});
+    }
+    if (supplier.bankSetById === params.actorId) {
+      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: params.companyId }, select: { allowSelfApproval: true } });
+      if (!company.allowSelfApproval) {
+        throw new ForbiddenException('You entered these bank details, so someone else verifies them.');
+      }
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.supplier.update({
+        where: { id: supplier.id },
+        data: { bankVerifiedById: params.actorId, bankVerifiedAt: new Date(), bankVerificationReference: params.reference.trim() },
+      });
+      await this.writeAudit(tx, {
+        entityType: 'Supplier',
+        entityId: supplier.id,
+        action: AuditAction.APPROVE,
+        userId: params.actorId,
+        status: 'BANK_VERIFIED',
+        comments: `Bank details ${supplier.bankName ?? ''} ${maskAccount(supplier.accountNumber)} verified: ${params.reference.trim()}.`,
+      });
+      return updated;
     }, TRANSACTION_OPTIONS);
   }
 
@@ -472,4 +553,10 @@ export class PartyService {
       tx,
     );
   }
+}
+
+/** Only the last four digits of an account number go into the audit trail. */
+function maskAccount(accountNumber: string | null | undefined): string {
+  if (!accountNumber) return '—';
+  return accountNumber.length <= 4 ? accountNumber : `••••${accountNumber.slice(-4)}`;
 }

@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { AuditAction, RoutingResourceType } from '@bioassetpro/database';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { AuditAction, JournalStatus, RoutingResourceType } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
@@ -296,6 +296,122 @@ export class RoutingService {
       include: { routingOperation: { include: { costCentre: true, costPool: true } } },
       orderBy: { routingOperation: { sequence: 'asc' } },
     });
+  }
+
+  /**
+   * The ledger accounts a pool's cost comes from (AC-MFG-004), replacing what
+   * was set before. A cost centre narrows an account to that centre's cost.
+   */
+  async setPoolSources(params: { companyId: string; poolId: string; sources: Array<{ glAccountId: string; costCentreId?: string | null }>; actorId: string }) {
+    const pool = await this.prisma.costPool.findFirst({ where: { id: params.poolId, companyId: params.companyId } });
+    if (!pool) throw new NotFoundException('No such cost pool.');
+    const accountIds = [...new Set(params.sources.map((s) => s.glAccountId))];
+    const accounts = await this.prisma.gLAccount.findMany({ where: { companyId: params.companyId, id: { in: accountIds }, isPostingAccount: true } });
+    if (accounts.length !== accountIds.length) throw new BadRequestException('Every source must be a posting account of this company.');
+    const centreIds = [...new Set(params.sources.map((s) => s.costCentreId).filter((id): id is string => !!id))];
+    if (centreIds.length) {
+      const centres = await this.prisma.costCentre.count({ where: { companyId: params.companyId, id: { in: centreIds } } });
+      if (centres !== centreIds.length) throw new BadRequestException('A cost centre is not this company\'s.');
+    }
+    const unique = new Map(params.sources.map((s) => [`${s.glAccountId}|${s.costCentreId ?? ''}`, s]));
+    await this.prisma.$transaction([
+      this.prisma.costPoolSource.deleteMany({ where: { poolId: pool.id, pool: { companyId: params.companyId } } }),
+      this.prisma.costPoolSource.createMany({
+        data: [...unique.values()].map((s) => ({ poolId: pool.id, glAccountId: s.glAccountId, costCentreId: s.costCentreId ?? null })),
+      }),
+    ]);
+    await this.audit.write({
+      transactionId: pool.id,
+      module: 'costing',
+      entityType: 'CostPoolSource',
+      entityId: pool.id,
+      status: 'ACTIVE',
+      action: AuditAction.UPDATE,
+      userId: params.actorId,
+      newValue: { sources: [...unique.values()] },
+      comments: `Ledger sources for pool ${pool.code}.`,
+    });
+    return { poolId: pool.id, sources: unique.size };
+  }
+
+  /**
+   * AC-MFG-004 "Pool source GL = allocated + unused capacity": for each pool,
+   * over its current rate's window to the day asked, the cost its source
+   * accounts carry in the ledger, against what orders absorbed at the rate and
+   * the cost of the capacity left unused. What remains is the pool's spending
+   * variance, shown rather than hidden; and the rate's own pool cost is set
+   * against the ledger so a rate out of line with its ledger is flagged.
+   */
+  async reconcilePools(companyId: string, asOf: Date = new Date()) {
+    const pools = await this.prisma.costPool.findMany({
+      where: { companyId, active: true },
+      orderBy: { code: 'asc' },
+      include: { sources: true },
+    });
+    const accountIds = [...new Set(pools.flatMap((p) => p.sources.map((s) => s.glAccountId)))];
+    const accounts = await this.prisma.gLAccount.findMany({ where: { companyId, id: { in: accountIds } }, select: { id: true, accountNumber: true, name: true } });
+    const rows = [];
+    for (const pool of pools) {
+      const rate = await this.prisma.costPoolRate.findFirst({
+        where: { poolId: pool.id, effectiveFrom: { lte: asOf }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: asOf } }] },
+        orderBy: { effectiveFrom: 'desc' },
+      });
+      const sources = pool.sources.map((s) => {
+        const a = accounts.find((x) => x.id === s.glAccountId);
+        return { glAccountId: s.glAccountId, costCentreId: s.costCentreId, account: a ? `${a.accountNumber} ${a.name}` : '' };
+      });
+      if (!rate) {
+        rows.push({ poolId: pool.id, code: pool.code, name: pool.name, sources, hasRate: false as const, reconciled: false, note: 'No rate in force.' });
+        continue;
+      }
+      const from = rate.effectiveFrom;
+      const to = rate.effectiveTo && rate.effectiveTo < asOf ? rate.effectiveTo : asOf;
+      let ledgerKobo = 0n;
+      if (pool.sources.length) {
+        const lines = await this.prisma.journalLine.findMany({
+          where: {
+            companyId,
+            journalEntry: { status: JournalStatus.POSTED, journalDate: { gte: from, lte: to } },
+            OR: pool.sources.map((s) => ({ glAccountId: s.glAccountId, ...(s.costCentreId ? { costCentreId: s.costCentreId } : {}) })),
+          },
+          select: { debitKobo: true, creditKobo: true },
+        });
+        ledgerKobo = lines.reduce((sum, l) => sum + l.debitKobo - l.creditKobo, 0n);
+      }
+      const absorbedLines = await this.prisma.productionOrderRoutingLine.findMany({
+        where: {
+          routingOperation: { costPoolId: pool.id },
+          productionOrder: { companyId, createdAt: { gte: from, lte: new Date(to.getTime() + 86_400_000) } },
+        },
+        select: { absorbedCostKobo: true, standardCostKobo: true, actualHours: true, standardHours: true },
+      });
+      const absorbedKobo = absorbedLines.reduce((sum, l) => sum + (l.absorbedCostKobo ?? 0n), 0n);
+      const plannedKobo = absorbedLines.filter((l) => l.absorbedCostKobo === null).reduce((sum, l) => sum + l.standardCostKobo, 0n);
+      const unused = await this.unusedCapacity(pool.id, asOf);
+      const unusedKobo = unused.hasRate ? BigInt(unused.unusedCapacityCostKobo) : 0n;
+      const differenceKobo = ledgerKobo - absorbedKobo - unusedKobo;
+      rows.push({
+        poolId: pool.id,
+        code: pool.code,
+        name: pool.name,
+        sources,
+        hasRate: true as const,
+        window: { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) },
+        rate: { poolCostKobo: rate.poolCostKobo.toString(), practicalCapacity: rate.practicalCapacity.toString(), ratePerUnitKobo: rate.ratePerUnitKobo.toString() },
+        ledgerKobo: ledgerKobo.toString(),
+        absorbedKobo: absorbedKobo.toString(),
+        /** Standard on orders not yet confirmed — to be absorbed. */
+        notYetAbsorbedKobo: plannedKobo.toString(),
+        unusedCapacityKobo: unusedKobo.toString(),
+        /** Ledger less absorbed less unused capacity: the pool's spending variance. */
+        differenceKobo: differenceKobo.toString(),
+        /** The rate's pool cost less the ledger cost. */
+        rateVsLedgerKobo: (rate.poolCostKobo - ledgerKobo).toString(),
+        reconciled: pool.sources.length > 0,
+        note: pool.sources.length === 0 ? 'No ledger accounts linked; the pool is not tied to the ledger.' : null,
+      });
+    }
+    return rows;
   }
 
   async listCostPools(companyId: string, asOf: Date = new Date()) {

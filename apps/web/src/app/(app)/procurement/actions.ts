@@ -148,6 +148,7 @@ export async function receiveGoods(_previous: FlowState, formData: FormData): Pr
       receivedQuantity: String(formData.get(`received:${purchaseOrderLineId}`) ?? '').trim(),
       rejectedQuantity: String(formData.get(`rejected:${purchaseOrderLineId}`) ?? '').trim(),
       batchReference: String(formData.get(`batch:${purchaseOrderLineId}`) ?? '').trim(),
+      expiryDate: String(formData.get(`expiry:${purchaseOrderLineId}`) ?? '').trim(),
     }))
     .filter((line) => line.receivedQuantity !== '' && Number(line.receivedQuantity) > 0)
     .map((line) => ({
@@ -157,6 +158,7 @@ export async function receiveGoods(_previous: FlowState, formData: FormData): Pr
         ? { rejectedQuantity: line.rejectedQuantity }
         : {}),
       ...(line.batchReference ? { batchReference: line.batchReference } : {}),
+      ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
     }));
 
   if (lines.length === 0) {
@@ -173,6 +175,7 @@ export async function receiveGoods(_previous: FlowState, formData: FormData): Pr
         purchaseOrderId,
         ...(receiptDate ? { receiptDate: new Date(receiptDate).toISOString() } : {}),
         ...(deliveryNoteReference ? { deliveryNoteReference } : {}),
+        quarantine: formData.get('quarantine') === 'on',
         lines,
       },
     });

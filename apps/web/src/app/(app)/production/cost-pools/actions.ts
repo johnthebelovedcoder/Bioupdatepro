@@ -79,3 +79,25 @@ export async function setCostPoolRate(
   revalidatePath('/production/cost-pools');
   return { error: null };
 }
+
+export interface PoolSourceState {
+  error: string | null;
+  message: string | null;
+}
+
+/** The ledger accounts a pool's cost comes from (AC-MFG-004). */
+export async function setPoolSources(_previous: PoolSourceState, formData: FormData): Promise<PoolSourceState> {
+  const poolId = String(formData.get('poolId') ?? '');
+  const accounts = formData.getAll('glAccountId').map(String);
+  const centres = formData.getAll('costCentreId').map(String);
+  const sources = accounts
+    .map((glAccountId, i) => ({ glAccountId, costCentreId: centres[i] || null }))
+    .filter((s) => s.glAccountId);
+  try {
+    await api(`/costing/cost-pools/${poolId}/sources`, { method: 'POST', body: { sources } });
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not save those sources.', message: null };
+  }
+  revalidatePath('/production/cost-pools');
+  return { error: null, message: `${sources.length} source${sources.length === 1 ? '' : 's'} saved.` };
+}

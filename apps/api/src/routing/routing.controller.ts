@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { RoutingResourceType } from '@bioassetpro/database';
 import { RoutingService } from './routing.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
@@ -30,6 +30,25 @@ export class RoutingController {
   @Get('costing/cost-pools')
   async listCostPools(@CurrentCompany() companyId: string) {
     return this.routing.listCostPools(companyId);
+  }
+
+  /** AC-MFG-004: each pool's ledger cost against absorbed plus unused capacity. */
+  @Get('costing/cost-pools/reconciliation')
+  async reconcilePools(@CurrentCompany() companyId: string, @Query('asOf') asOf?: string) {
+    if (asOf && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(asOf)) throw new BadRequestException('asOf must be a date, YYYY-MM-DD.');
+    return this.routing.reconcilePools(companyId, asOf ? new Date(`${asOf}T00:00:00.000Z`) : new Date());
+  }
+
+  @OwnedRecord('costPool', 'id')
+  @Post('costing/cost-pools/:id/sources')
+  async setPoolSources(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') id: string,
+    @Body() body: { sources: Array<{ glAccountId: string; costCentreId?: string | null }> },
+  ) {
+    if (!Array.isArray(body?.sources)) throw new BadRequestException('sources is a list of ledger accounts.');
+    return this.routing.setPoolSources({ companyId, poolId: id, sources: body.sources, actorId: actor.userId });
   }
 
   @OwnedRecord('costPool', 'id')

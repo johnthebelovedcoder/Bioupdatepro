@@ -230,6 +230,7 @@ export class EscalationService {
     });
     await this.notifications.queue(
       {
+        companyId: transaction.companyId,
         transactionId,
         recipientIds: holders.map((h) => h.id),
         event: message.event,

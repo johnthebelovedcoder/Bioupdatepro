@@ -20,6 +20,12 @@ import { DelegationService } from '../../src/workflow/delegation.service';
 import { NotificationService } from '../../src/workflow/notification.service';
 import { RoutingService } from '../../src/routing/routing.service';
 import { kobo } from '../../src/common/money';
+import { FeedQualityService } from '../../src/production/feed-quality.service';
+import { VarianceProrationService } from '../../src/production/variance-proration.service';
+import { PostingService } from '../../src/posting/posting.service';
+import { IdempotencyService } from '../../src/idempotency/idempotency.service';
+import { PeriodService } from '../../src/periods/period.service';
+import { DimensionValidatorService } from '../../src/enterprise-dimensions/dimension-validator.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
@@ -336,5 +342,56 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     expect(issued.priceVarianceKobo).toBe(issued.issuedCostKobo! - 399_000_00n + 19_000_00n);
     const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id } });
     expect(order.packagingCostKobo).toBe(399_000_00n);
+  });
+
+  it('holds milled feed in quarantine until a sample passes and someone other than the tester releases it (handbook §26)', async () => {
+    await releasedStandard();
+    const id = await throughConversion();
+    const quality = new FeedQualityService(prisma, new AuditService(prisma));
+    const qa = { userId: fixture.checkerId, roles: ['QA_OFFICER'] };
+    await quality.setSpec({ companyId: fixture.companyId, itemId: item.FEED!, minProteinPercent: '18', maxMoisturePercent: '12', actor: qa });
+    const receive = () => orders.recordOutputs({ productionOrderId: id, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: '980' }], warehouseId: feedStore, actor: maker });
+    await expect(receive()).rejects.toThrow(/in quarantine until a sample passes its quality limits/);
+
+    const bad = await quality.recordTest({ companyId: fixture.companyId, productionOrderId: id, sampledOn: new Date('2026-01-20'), proteinPercent: '17', moisturePercent: '11', actor: maker });
+    expect(bad.failures).toEqual(['Protein 17% is below 18%.']);
+    await expect(quality.decide({ companyId: fixture.companyId, testId: bad.id, decision: 'RELEASE', actor: qa })).rejects.toThrow(/can only be rejected/);
+    await quality.decide({ companyId: fixture.companyId, testId: bad.id, decision: 'REJECT', note: 'Re-milled with more soya', actor: qa });
+    await expect(receive()).rejects.toThrow(/in quarantine/);
+
+    const good = await quality.recordTest({ companyId: fixture.companyId, productionOrderId: id, sampledOn: new Date('2026-01-21'), proteinPercent: '19.5', moisturePercent: '11', actor: maker });
+    expect(good.passed).toBe(true);
+    await expect(quality.decide({ companyId: fixture.companyId, testId: good.id, decision: 'RELEASE', actor: { ...maker, roles: ['QA_OFFICER'] } })).rejects.toThrow(/other than the tester/);
+    await quality.decide({ companyId: fixture.companyId, testId: good.id, decision: 'RELEASE', actor: qa });
+    await receive();
+    expect((await prisma.productionOrder.findUniqueOrThrow({ where: { id } })).status).toBe('COMPLETED');
+  });
+
+  it('prorates the year’s variance over cost of sales, finished goods and WIP when the policy says so (POL-009)', async () => {
+    await standards.configurePolicy({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, varianceDisposition: 'PRORATE', prorationThresholdKobo: 1_000_00n, actor: finance });
+    await releasedStandard();
+    const id = await throughConversion();
+    await orders.recordOutputs({ productionOrderId: id, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: '980' }], warehouseId: feedStore, actor: maker });
+    await orders.settle({ productionOrderId: id, actor: maker });
+    expect(await balanceOf('520500')).toBe(26_375_50n);
+
+    const audit = new AuditService(prisma);
+    const prorations = new VarianceProrationService(prisma, audit, new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma)));
+    // All 980 kg is still in store and nothing was sold or left in WIP: the whole variance belongs to finished goods.
+    const preview = await prorations.preview(fixture.companyId, fixture.financialYearId);
+    expect(preview).toMatchObject({ disposition: 'PRORATE', totalVarianceKobo: '2637550', applies: true });
+    expect(preview.lines[0]).toMatchObject({ cycle: 'FEED_MILL', fgBaseKobo: '53312000', toFgKobo: '2637550', toCogsKobo: '0', toWipKobo: '0' });
+    await expect(prorations.prorate({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, actor: maker })).rejects.toThrow(/finance controller or CFO/);
+
+    // The year's last period must be open to post in.
+    const year = await prisma.financialYear.findUniqueOrThrow({ where: { id: fixture.financialYearId }, include: { periods: { orderBy: { periodNumber: 'desc' }, take: 1 } } });
+    const last = year.periods[0]!;
+    if (last.status !== 'OPEN') await prisma.financialPeriod.update({ where: { id: last.id }, data: { status: 'OPEN' } });
+    await prorations.prorate({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, actor: finance });
+    expect(await balanceOf('130590')).toBe(26_375_50n);
+    expect(await balanceOf('520500')).toBe(0n);
+    await expect(prorations.prorate({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, actor: finance })).rejects.toThrow(/already prorated/);
+    const [row] = await prorations.list(fixture.companyId);
+    await expect(prorations.reverse({ companyId: fixture.companyId, prorationId: row!.id, actor: finance })).rejects.toThrow(/next year has no open period/);
   });
 });

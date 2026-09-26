@@ -1,8 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductionOrderService } from './production-order.service';
 import { JointCostService } from './joint-cost.service';
 import { StandardCostService } from './standard-cost.service';
+import { VarianceProrationService } from './variance-proration.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { AnyRole, Roles } from '../auth/roles.guard';
 import { OwnedRecord } from '../auth/owned-record.guard';
@@ -22,7 +23,35 @@ export class ProductionOrderController {
     private readonly orders: ProductionOrderService,
     private readonly joint: JointCostService,
     private readonly standards: StandardCostService,
+    private readonly prorations: VarianceProrationService,
   ) {}
+
+  // --- POL-009 variance proration -------------------------------------------
+
+  @AnyRole('Where a year’s variance went is part of the costing record.')
+  @Get('standard-costs/variance-prorations')
+  async listProrations(@CurrentCompany() companyId: string) {
+    return this.prorations.list(companyId);
+  }
+
+  @AnyRole('What proration would do is part of the costing record.')
+  @Get('standard-costs/variance-proration')
+  async previewProration(@CurrentCompany() companyId: string, @Query('financialYearId') financialYearId: string) {
+    if (!financialYearId) throw new BadRequestException('financialYearId is required.');
+    return this.prorations.preview(companyId, financialYearId);
+  }
+
+  @Roles('FINANCE_CONTROLLER', 'CFO')
+  @Post('standard-costs/variance-proration')
+  async prorate(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Body() body: { financialYearId: string }) {
+    return this.prorations.prorate({ companyId, financialYearId: String(body?.financialYearId ?? ''), actor });
+  }
+
+  @Roles('FINANCE_CONTROLLER', 'CFO')
+  @Post('standard-costs/variance-prorations/:id/reverse')
+  async reverseProration(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Param('id') id: string) {
+    return this.prorations.reverse({ companyId, prorationId: id, actor });
+  }
 
   /**
    * Harvests with no processing order against them yet — what a "raise an
@@ -145,12 +174,23 @@ export class ProductionOrderController {
   async configureCostingPolicy(
     @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
-    @Body() body: { financialYearId: string; varianceTolerancePercent?: string | number },
+    @Body()
+    body: {
+      financialYearId: string;
+      varianceTolerancePercent?: string | number;
+      varianceDisposition?: 'COGS' | 'PRORATE';
+      prorationThresholdKobo?: string;
+    },
   ) {
+    if (body?.prorationThresholdKobo !== undefined && !/^[0-9]+$/.test(String(body.prorationThresholdKobo))) {
+      throw new BadRequestException('prorationThresholdKobo is a whole number of kobo.');
+    }
     const policy = await this.standards.configurePolicy({
       companyId,
       financialYearId: String(body?.financialYearId ?? ''),
       varianceTolerancePercent: body?.varianceTolerancePercent,
+      varianceDisposition: body?.varianceDisposition,
+      prorationThresholdKobo: body?.prorationThresholdKobo !== undefined ? BigInt(body.prorationThresholdKobo) : undefined,
       actor,
     });
     return { id: policy.id };
@@ -316,6 +356,39 @@ export class ProductionOrderController {
     });
   }
 
+  /** Poultry plant intake: received, dead on arrival and condemned (handbook §29). */
+  @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT', 'QA_OFFICER')
+  @OwnedRecord('productionOrder', 'id')
+  @Post(':id/intake')
+  async recordIntake(
+    @Param('id') id: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: {
+      plantReceivedCount: number;
+      plantReceivedWeightKg: string;
+      deadOnArrivalCount?: number;
+      deadOnArrivalWeightKg?: string;
+      condemnedCount?: number;
+      condemnedWeightKg?: string;
+      condemnationReason?: string;
+      inspectedBy?: string;
+    },
+  ) {
+    return this.orders.recordIntake({
+      productionOrderId: id,
+      plantReceivedCount: Number(body.plantReceivedCount),
+      plantReceivedWeightKg: body.plantReceivedWeightKg,
+      deadOnArrivalCount: Number(body.deadOnArrivalCount ?? 0),
+      deadOnArrivalWeightKg: body.deadOnArrivalWeightKg || '0',
+      condemnedCount: Number(body.condemnedCount ?? 0),
+      condemnedWeightKg: body.condemnedWeightKg || '0',
+      condemnationReason: body.condemnationReason ?? null,
+      inspectedBy: body.inspectedBy ?? null,
+      actor,
+    });
+  }
+
   @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
   @OwnedRecord('productionOrder', 'id')
   @Post(':id/outputs')
@@ -336,9 +409,18 @@ export class ProductionOrderController {
         salePricePerUnitKobo?: string;
         costsToSellPerUnitKobo?: string;
         weight?: string;
+        grade?: string;
+        /** YYYY-MM-DD. */
+        expiryDate?: string;
+        storageTemperatureC?: string;
       }>;
     },
   ) {
+    for (const o of body.outputs) {
+      if (o.expiryDate && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(o.expiryDate)) {
+        throw new BadRequestException('expiryDate must be a date, YYYY-MM-DD.');
+      }
+    }
     const outputs: AllocationOutput[] = body.outputs.map((o) => ({
       itemId: o.itemId,
       outputType: o.outputType,
@@ -354,6 +436,11 @@ export class ProductionOrderController {
       normalLossQuantity: body.normalLossQuantity,
       outputs,
       warehouseId: body.warehouseId,
+      details: body.outputs.map((o) => ({
+        grade: o.grade ?? null,
+        expiryDate: o.expiryDate ? new Date(`${o.expiryDate}T00:00:00.000Z`) : null,
+        storageTemperatureC: o.storageTemperatureC ?? null,
+      })),
       actor,
     });
   }

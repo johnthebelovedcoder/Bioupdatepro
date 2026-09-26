@@ -73,3 +73,34 @@ export async function createSupplier(
   revalidatePath('/suppliers');
   return { error: null, created: name };
 }
+
+export interface BankState {
+  error: string | null;
+  message: string | null;
+}
+
+/** INT-001: change a vendor's bank details — they need verifying again before a transfer. */
+export async function changeSupplierBank(id: string, _previous: BankState, formData: FormData): Promise<BankState> {
+  const value = (key: string) => String(formData.get(key) ?? '').trim();
+  try {
+    await api(`/masters/suppliers/${id}/bank`, {
+      method: 'POST',
+      body: { bankName: value('bankName'), accountNumber: value('accountNumber'), accountName: value('accountName'), reason: value('reason') },
+    });
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not change the bank details.', message: null };
+  }
+  revalidatePath('/suppliers');
+  return { error: null, message: 'Changed. Someone else verifies the new account before it can be paid by transfer.' };
+}
+
+/** INT-005: verify a vendor's bank details. */
+export async function verifySupplierBank(id: string, reference: string): Promise<BankState> {
+  try {
+    await api(`/masters/suppliers/${id}/verify-bank`, { method: 'POST', body: { reference } });
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not verify the bank details.', message: null };
+  }
+  revalidatePath('/suppliers');
+  return { error: null, message: 'Verified.' };
+}

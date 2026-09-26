@@ -148,6 +148,31 @@ export class PayrollPaymentService {
       }
     }
 
+    /*
+     * INT-015: "net pay paid to verified accounts". Salaries go by transfer
+     * only once every employee being paid has a verified bank check
+     * (Employee_Documents) — a changed account clears it.
+     */
+    if (input.bucket === 'SALARY' && input.method === 'BANK_TRANSFER') {
+      const paid = await this.prisma.payrollRunLine.findMany({
+        where: { payrollRunId: run.id, payrollRun: { companyId: input.companyId }, netPayKobo: { gt: 0n } },
+        select: { employeeId: true, employee: { select: { employeeNumber: true } } },
+      });
+      const verified = await this.prisma.employeeVerification.findMany({
+        where: { companyId: input.companyId, employeeId: { in: paid.map((p) => p.employeeId) }, checkType: 'BANK', status: 'VERIFIED' },
+        select: { employeeId: true },
+      });
+      const ok = new Set(verified.map((v) => v.employeeId));
+      const unverified = paid.filter((p) => !ok.has(p.employeeId)).map((p) => p.employee.employeeNumber);
+      if (unverified.length > 0) {
+        throw new AccountingRuleViolation(
+          'INT-015 — Verified bank',
+          `Salaries cannot go by transfer while ${unverified.join(', ')} ${unverified.length === 1 ? 'has' : 'have'} no verified bank account. Verify it on their record (Documents step) first.`,
+          { unverified },
+        );
+      }
+    }
+
     if (input.amountKobo <= 0n) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §7 — Payroll payment',

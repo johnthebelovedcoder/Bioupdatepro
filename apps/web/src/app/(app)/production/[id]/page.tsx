@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getProductionOrder, getProductionRouting, getProductionVariance, type ProductionVariance } from '@/lib/production';
+import { getFeedQuality, getProductionOrder, getProductionRouting, getProductionVariance, type ProductionVariance } from '@/lib/production';
 import { getWarehouses, getStockItems } from '@/lib/masters';
 import { formatDate, formatNaira, formatQuantity } from '@/lib/money';
 import { Card, PageHeader } from '@/components/ui';
@@ -9,7 +9,16 @@ import {
   snapshotRouting,
 } from '@/app/(app)/production/actions';
 import { ProductionOrderActionButton } from '@/components/production-order-action-button';
-import { ConfirmConversionForm, IssueMaterialsForm, RecordLossForm, RecordOutputsForm, SettleOrderForm } from '@/components/production-order-forms';
+import {
+  ConfirmConversionForm,
+  IssueMaterialsForm,
+  PlantIntakeForm,
+  QualityDecision,
+  QualityTestForm,
+  RecordLossForm,
+  RecordOutputsForm,
+  SettleOrderForm,
+} from '@/components/production-order-forms';
 
 export const metadata = { title: 'Processing order — BioAssetPro' };
 
@@ -30,6 +39,10 @@ export default async function ProductionOrderDetailPage({
   const routing = await getProductionRouting(id);
   const variance = order.status === 'COMPLETED' ? await getProductionVariance(id) : null;
   const routingCost = routing.reduce((sum, line) => sum + BigInt(line.standardCostKobo), 0n);
+  const isPoultry = order.processingCycle === 'POULTRYPRO' && !!order.harvestRecord;
+  const quality = order.processingCycle === 'FEED_MILL' ? await getFeedQuality(id) : null;
+  const intakeOpen = !['COMPLETED', 'CANCELLED'].includes(order.status);
+  const mainKg = order.outputs.filter((o) => o.outputType === 'MAIN').reduce((s, o) => s + Number(o.quantity), 0);
 
   return (
     <>
@@ -111,6 +124,85 @@ export default async function ProductionOrderDetailPage({
               {order.sourceGroup?.code} — {order.harvestRecord.count} animals,{' '}
               {order.harvestRecord.weightKg} kg, harvested {formatDate(order.harvestRecord.harvestedOn)}
             </p>
+          </Card>
+        ) : null}
+
+        {isPoultry ? (
+          <Card
+            title="Plant intake"
+            subtitle="Birds and weight from the catch to the plant; dead on arrival and condemned birds are abnormal loss"
+          >
+            {order.intakeRecordedAt ? (
+              <div className="stat-grid" style={{ marginBottom: 'var(--sp-4)' }}>
+                <PlainStat label="Received" value={`${order.plantReceivedCount} birds, ${Number(order.plantReceivedWeightKg).toFixed(1)} kg`} />
+                <PlainStat
+                  label="Lost in transit"
+                  value={`${(Number(order.harvestRecord!.weightKg) - Number(order.plantReceivedWeightKg)).toFixed(1)} kg`}
+                />
+                <PlainStat label="Dead on arrival" value={`${order.deadOnArrivalCount} (${Number(order.deadOnArrivalWeightKg).toFixed(1)} kg)`} />
+                <PlainStat
+                  label="Condemned"
+                  value={`${order.condemnedCount} (${Number(order.condemnedWeightKg).toFixed(1)} kg)`}
+                  hint={order.condemnationReason ? `${order.condemnationReason}${order.intakeInspectedBy ? `, ${order.intakeInspectedBy}` : ''}` : undefined}
+                />
+                {mainKg > 0 ? (
+                  <PlainStat label="Dressed yield" value={`${((mainKg / Number(order.harvestRecord!.weightKg)) * 100).toFixed(1)}%`} hint="of live catch weight" />
+                ) : null}
+              </div>
+            ) : null}
+            {intakeOpen ? (
+              <PlantIntakeForm
+                orderId={order.id}
+                caught={{ count: order.harvestRecord!.count, weightKg: order.harvestRecord!.weightKg }}
+                current={order}
+              />
+            ) : null}
+          </Card>
+        ) : null}
+
+        {quality ? (
+          <Card
+            title="Quality"
+            subtitle={
+              quality.spec
+                ? `Limits: ${[
+                    quality.spec.minProteinPercent ? `protein at least ${quality.spec.minProteinPercent}%` : null,
+                    quality.spec.maxMoisturePercent ? `moisture at most ${quality.spec.maxMoisturePercent}%` : null,
+                    quality.spec.maxAflatoxinPpb ? `aflatoxin at most ${quality.spec.maxAflatoxinPpb} ppb` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(', ')}. The batch stays in quarantine until a sample passes and is released.`
+                : 'This feed has no quality limits set; set them under Feed mill → Quality.'
+            }
+          >
+            <div className="stack">
+              {quality.tests.map((t) => (
+                <div key={t.id} className="stack" style={{ gap: 'var(--sp-2)', borderBottom: '1px solid var(--border)', paddingBottom: 'var(--sp-3)' }}>
+                  <div className="row" style={{ gap: 'var(--sp-3)', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span className="num">{t.sampledOn}</span>
+                    <span className={`badge ${t.passed ? 'badge-success' : 'badge-danger'}`}>{t.passed ? 'passed' : 'failed'}</span>
+                    <span className={`badge ${t.disposition === 'RELEASED' ? 'badge-success' : t.disposition === 'REJECTED' ? 'badge-danger' : 'badge-warning'}`}>
+                      {t.disposition.toLowerCase()}
+                    </span>
+                    <span className="faint">
+                      {[
+                        t.proteinPercent ? `protein ${t.proteinPercent}%` : null,
+                        t.moisturePercent ? `moisture ${t.moisturePercent}%` : null,
+                        t.aflatoxinPpb ? `aflatoxin ${t.aflatoxinPpb} ppb` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </div>
+                  {t.failures.length ? <div className="faint">{t.failures.join(' ')}</div> : null}
+                  {t.decisionNote ? <div className="faint">{t.decisionNote}</div> : null}
+                  {t.disposition === 'PENDING' ? <QualityDecision orderId={order.id} testId={t.id} passed={t.passed} /> : null}
+                </div>
+              ))}
+              {quality.spec && order.status === 'IN_PRODUCTION' && !quality.tests.some((t) => t.disposition === 'RELEASED') ? (
+                <QualityTestForm orderId={order.id} />
+              ) : null}
+            </div>
           </Card>
         ) : null}
 
@@ -219,6 +311,9 @@ export default async function ProductionOrderDetailPage({
                     <th style={{ width: 120 }}>Type</th>
                     <th className="right">Quantity</th>
                     <th className="right">Allocated cost</th>
+                    <th>Grade</th>
+                    <th>Use by</th>
+                    <th className="right">°C</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -230,6 +325,9 @@ export default async function ProductionOrderDetailPage({
                       <td>{o.outputType === 'MAIN' ? 'Main' : 'By-product'}</td>
                       <td className="num">{formatQuantity(o.quantity)}</td>
                       <td className="num">{formatNaira(o.allocatedCostKobo)}</td>
+                      <td>{o.grade ?? '—'}</td>
+                      <td className="num">{o.expiryDate ? o.expiryDate.slice(0, 10) : '—'}</td>
+                      <td className="num">{o.storageTemperatureC ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -274,6 +372,16 @@ export default async function ProductionOrderDetailPage({
         ) : null}
       </div>
     </>
+  );
+}
+
+function PlainStat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="stat">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
+      {hint ? <div className="faint" style={{ fontSize: 12 }}>{hint}</div> : null}
+    </div>
   );
 }
 
@@ -376,6 +484,7 @@ async function RecordOutputsFormLoader({
       mainItemLabel={`${order.recipeVersion.recipe.outputItem.code} — ${order.recipeVersion.recipe.outputItem.description}`}
       warehouses={warehouses}
       byProductItems={byProductItems}
+      coldStore={order.processingCycle === 'POULTRYPRO' && !!order.harvestRecord}
     />
   );
 }

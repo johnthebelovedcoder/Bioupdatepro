@@ -302,6 +302,9 @@ const EXTRA_ACCOUNTS: Array<[string, string]> = [
   ['623100', 'Feed Mill Overhead Expense'], // PCR-031-DR "Processing/Feed-mill OH Expense"
   ['125200', 'WHT Receivable'], // the old chart's 1602, which the spec chart lacks
   ['690100', 'Operating Expenses'], // the old chart's 5401, which the spec chart lacks
+  ['630200', 'Impairment Loss - Fixed Assets'], // IAS 36; the spec chart names no impairment account
+  ['130590', 'Finished Goods - Capitalised Variance'], // POL-009 proration; no spec number
+  ['130595', 'Work in Progress - Capitalised Variance'], // POL-009 proration; no spec number
 ];
 
 function derive(code: string): { type: AccountType; normal: NormalBalance } {
