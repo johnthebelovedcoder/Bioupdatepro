@@ -40,6 +40,12 @@ export default async function PayslipPage({
           <div className="table-wrap">
             <table className="data">
               <tbody>
+                {slip.leaveDeductionKobo && slip.leaveDeductionKobo !== '0' ? (
+                  <>
+                    <Row label="Salary for the month" value={String(BigInt(slip.grossKobo) + BigInt(slip.leaveDeductionKobo))} />
+                    <Row label="Unpaid leave" value={slip.leaveDeductionKobo} minus />
+                  </>
+                ) : null}
                 <Row label="Gross pay" value={slip.grossKobo} strong />
                 <Row label="PAYE" value={slip.payeKobo} minus />
                 <Row label="Pension (employee)" value={slip.employeePensionKobo} minus />

@@ -1,3 +1,5 @@
+import { leavePayReduction } from '../leave/leave-rules';
+import Decimal from 'decimal.js';
 import { Injectable, Logger } from '@nestjs/common';
 import {
   AccountType,
@@ -279,10 +281,24 @@ export class PayrollRunService {
         where: { employeeId_taxYear: { employeeId: employee.id, taxYear: run.year } },
       });
 
-      const grossKobo = BigInt(salary.grossPayKobo);
-      const taxableKobo = BigInt(salary.taxableGrossKobo);
-      const pensionableKobo = BigInt(salary.pensionableEmolumentsKobo);
-      const nhfBaseKobo = BigInt(salary.nhfBaseKobo);
+      /*
+       * AC-HR-003: approved leave paid below 100% in this month — unpaid
+       * leave, and the unpaid share of maternity leave — is pay not earned.
+       * Its share of the month's working days comes off gross and, in the
+       * same proportion, off the taxable, pensionable and NHF bases, so PAYE
+       * and the statutory deductions are worked on what was earned.
+       */
+      const leave = await leavePayReduction(this.prisma, run.companyId, employee.id, run.year, run.month);
+      const kept = (amount: bigint) =>
+        leave.fraction.isZero()
+          ? amount
+          : amount - BigInt(new Decimal(amount.toString()).mul(leave.fraction).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+      const fullGrossKobo = BigInt(salary.grossPayKobo);
+      const grossKobo = kept(fullGrossKobo);
+      const leaveDeductionKobo = fullGrossKobo - grossKobo;
+      const taxableKobo = kept(BigInt(salary.taxableGrossKobo));
+      const pensionableKobo = kept(BigInt(salary.pensionableEmolumentsKobo));
+      const nhfBaseKobo = kept(BigInt(salary.nhfBaseKobo));
 
       const payeResult = await this.paye.calculate({
         companyId: run.companyId,
@@ -366,11 +382,13 @@ export class PayrollRunService {
         nsitfKobo: BigInt(statutoryResult.nsitfKobo),
         itfKobo: BigInt(statutoryResult.itfKobo),
         netPayKobo: net,
+        leaveDeductionKobo,
         // §7.1: store the full calculation, not just its answer.
         calculationSnapshot: {
           paye: payeResult,
           statutory: statutoryResult,
           salary: salary.components,
+          leave: { ...leave, fraction: leave.fraction.toString(), fullGrossKobo: fullGrossKobo.toString(), leaveDeductionKobo: leaveDeductionKobo.toString() },
           headcount,
         } as unknown as Prisma.InputJsonValue,
       });
@@ -708,6 +726,7 @@ export class PayrollRunService {
       employeeNumber: line.employee.employeeNumber,
       name: `${line.employee.firstName} ${line.employee.surname}`,
       grossKobo: line.monthlyGrossKobo.toString(),
+      leaveDeductionKobo: line.leaveDeductionKobo.toString(),
       payeKobo: line.monthlyPayeKobo.toString(),
       employeePensionKobo: line.employeePensionKobo.toString(),
       nhfKobo: line.nhfKobo.toString(),

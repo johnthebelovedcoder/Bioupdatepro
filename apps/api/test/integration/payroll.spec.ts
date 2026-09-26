@@ -21,6 +21,7 @@ import { WorkflowActor } from '../../src/workflow/workflow.types';
 import { kobo } from '../../src/common/money';
 import { completeDocumentPack, setApprovedPay } from '../helpers/employee';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { LeaveService } from '../../src/leave/leave.service';
 
 /**
  * Phase 9 — HR & Payroll (§7, §7.1, §7.2).
@@ -864,6 +865,37 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
 
       // PAYE workbook column AC: net before other deductions = 262,153.30
       expect(line.netPayKobo).toBe(26_215_330n);
+    });
+
+    it('takes approved unpaid leave off gross before PAYE, and keeps it on the payslip (AC-HR-003)', async () => {
+      const amina = await makeEmployee({
+        number: 'EMP001', firstName: 'Amina', surname: 'Yusuf',
+        basic: 180_000_00n, housing: 72_000_00n, transport: 45_000_00n, other: 30_000_00n,
+      });
+      await makeEmployee({ number: 'EMP002', firstName: 'Chinedu', surname: 'Okafor', basic: 220_000_00n, housing: 88_000_00n, transport: 55_000_00n, other: 35_000_00n });
+      await makeEmployee({ number: 'EMP003', firstName: 'Bola', surname: 'Adeyemi', basic: 250_000_00n, housing: 100_000_00n, transport: 62_500_00n, other: 40_000_00n, nhfEnrolled: false });
+
+      // Five working days unpaid, 12–16 January; January 2026 has 22.
+      const leave = new LeaveService(prisma, new AuditService(prisma));
+      const request = await leave.request({
+        companyId: fixture.companyId, employeeId: amina.id, type: 'UNPAID', startDate: new Date('2026-01-12'), endDate: new Date('2026-01-16'),
+        reason: 'Family matter', actor: maker,
+      });
+      await leave.decide({ companyId: fixture.companyId, leaveId: request.id, approve: true, actor: approver });
+
+      const run = await newRun();
+      await payroll.calculate({ payrollRunId: run.id, actorId: fixture.makerId });
+      const line = await prisma.payrollRunLine.findFirstOrThrow({ where: { payrollRunId: run.id, employee: { employeeNumber: 'EMP001' } } });
+      expect(line.leaveDeductionKobo).toBe(7_431_818n); // ₦327,000 × 5/22
+      expect(line.monthlyGrossKobo).toBe(32_700_000n - 7_431_818n);
+      expect(line.monthlyPayeKobo).toBeLessThan(3_291_170n); // PAYE on what was earned
+      expect(line.netPayKobo).toBe(line.monthlyGrossKobo - line.monthlyPayeKobo - line.employeePensionKobo - line.nhfKobo);
+
+      // Cancelling it now would change pay the run has already worked out, so once posted it is refused.
+      await prisma.payrollRun.update({ where: { id: run.id }, data: { status: 'POSTED' } });
+      await expect(leave.cancel({ companyId: fixture.companyId, leaveId: request.id, note: 'Came back early', actor: approver })).rejects.toThrow(
+        /reduced pay on .*, which has posted/,
+      );
     });
 
     it('posts the §7 accrual and leaves the trial balance balanced', async () => {

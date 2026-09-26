@@ -65,6 +65,8 @@ export interface Payslip {
   employeeNumber: string;
   name: string;
   grossKobo: string;
+  /** Pay not earned for unpaid leave this month, already out of gross. */
+  leaveDeductionKobo?: string;
   payeKobo: string;
   employeePensionKobo: string;
   nhfKobo: string;

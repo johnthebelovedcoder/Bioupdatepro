@@ -20,6 +20,7 @@ import { FixedAssetsModule } from './fixed-assets/fixed-assets.module';
 import { ProductionModule } from './production/production.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { TraceabilityModule } from './traceability/traceability.module';
+import { LeaveModule } from './leave/leave.module';
 import { PoultryEggModule } from './poultry-egg/poultry-egg.module';
 import { CostAllocationModule } from './cost-allocation/cost-allocation.module';
 import { RoutingModule } from './routing/routing.module';
@@ -81,6 +82,7 @@ const developmentOnlyControllers =
     RoutingModule,
     FarmConfigModule,
     TraceabilityModule,
+    LeaveModule,
   ],
   providers: [KpiService],
   controllers: [

@@ -262,6 +262,13 @@ Stated here rather than discovered later.
   account or TIN clears its verification. Employees on payroll before
   2026-09-25 keep being paid with document gaps shown as warnings; everyone
   else needs a complete pack before activation.
+- **Leave starts on the Nigerian Labour Act minimums** (People → Leave): 6
+  working days' annual leave after 12 months' service (s.18), carried one year
+  and then lapsing; 12 paid sick days a year with a medical certificate
+  (s.16); 12 weeks' maternity leave at 50% pay after 6 months (s.54). A
+  company can be more generous, never less. Working days are Monday to Friday
+  — public holidays are not deducted. Unpaid days come off the month's gross
+  before PAYE. The leave liability is reported, not posted.
 - **References are the system's.** Documents and journals are numbered
   TYPE-ENTITY-SITE-YYYY-000001 by an atomic sequence; the API ignores a number
   sent by a caller. Journals posted before 2026-09-25 keep only their source

@@ -19,13 +19,13 @@ Tests are in `apps/api/test/integration/`. Run them with
 | Status | Rows |
 |---|---|
 | Built | 63 |
-| Built 26 Sep | 9 |
+| Built 26 Sep | 10 |
 | Partial | 14 |
-| Not built | 1 |
+| Not built | 0 |
 
 88 rows; AC-001, a check on the workbook itself rather than the application, is not counted.
 
-**Not built:** leave (AC-HR-003). **Missing parts of partial rows**, the larger ones:
+**Not built:** none. **Missing parts of partial rows**, the larger ones:
 the direct-method cash flow (AC-013 / AC-ENT-001), multi-factor sign-in
 (INT-034), purchase budgets (INT-002), bank verification before paying
 (INT-005 / INT-015), WhatsApp with consent (AC-015), and a single
@@ -46,6 +46,7 @@ rows marked Built above):
 | INT-009 | Stock counts: the store frozen while counted, a recount beyond the threshold, a reason for every difference, and approval by someone other than the counter before anything posts (Dr/Cr 640100 and inventory, PCR-014) | stock-count.spec |
 | PCR-014 | A write-off is requested, then approved (stock issued, PCR-014 posted) or rejected by someone other than the requester; decided once, then fixed in the database | inventory.spec: "writes off only once someone other than the requester approves it" |
 | AC-011 | A delivery, invoice, lot, production order or population traced back through transfers, production, harvest, the population and its breeders or hatch, its feed and treatments, to the goods receipts and suppliers of every input — one search and one CSV | traceability.spec |
+| AC-HR-003 | Leave on the Nigerian Labour Act minimums (s.18 annual 6 days after 12 months, carried a year then lapsing; s.16 sick 12 days with a certificate; s.54 maternity 12 weeks at 50% after 6 months); requests checked for balance and overlap and approved by someone else; balances and liability (RPT-HR-007); unpaid days off gross before PAYE, shown on the payslip | leave.spec; payroll.spec: "takes approved unpaid leave off gross before PAYE" |
 | AC-PAY-002 | Neither the preparer nor the approver of a payroll run can pay it | payroll.spec: "is paid by neither whoever prepared the run nor whoever approved it" |
 | POL-001 tolerance | A total variance beyond the year's tolerance settles only with a reason | standard-costing.spec: "settles a variance beyond the year's tolerance only with a reason" |
 | POL-003 | Standards carry six parts: material, packaging, labour, machine, overhead, depreciation | standard-costing.spec: "reports the six parts of POL-003" |
@@ -60,7 +61,7 @@ other approval does.
 |---|---|---|---|
 | AC-HR-001 | Duplicate identity/bank or unapproved change blocked | Built 26 Sep | Duplicates refused; pay changes need a second person's approval (masters.spec: "pays nothing until someone else approves the change") |
 | AC-HR-002 | Approved hours reconcile to payroll and cost-object allocation | Partial | Only approved hours allocate to cost objects (farm-costing.spec: "counts only approved hours"). There is no report reconciling hours to the payroll run. |
-| AC-HR-003 | Leave balance roll-forward and payroll effect | **Not built** | No leave module |
+| AC-HR-003 | Leave balance roll-forward and payroll effect | Built 26 Sep | People → Leave on the Labour Act defaults; balances roll forward and lapse; unpaid days come off gross before PAYE (leave.spec, payroll.spec) |
 | AC-PAY-001 | Gross = earnings; net = gross − deductions; journal = approved payroll | Built | payroll.spec: "calculates EMP001 exactly", "posts the §7 accrual" |
 | AC-PAY-002 | Preparer cannot approve or pay the same run | Built 26 Sep | Maker ≠ approver (workflow, and a database trigger); payment by preparer or approver refused |
 | AC-PAY-003 | Payroll liabilities clear to remittance | Built | payroll.spec: "clears the salary payable", "clears the PAYE payable separately" |

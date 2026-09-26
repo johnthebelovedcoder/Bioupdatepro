@@ -342,6 +342,12 @@ export const SECTIONS: NavSection[] = [
         hint: 'Onboarding in four steps, and what still blocks each person from payroll',
         keywords: ['employee', 'payroll', 'salary', 'bank', 'pension', 'nhf', 'tax', 'onboarding', 'documents', 'promotion', 'transfer'],
       },
+      {
+        href: '/staff/leave',
+        label: 'Leave',
+        hint: 'Requests and approvals, balances rolled forward, and what they are worth',
+        keywords: ['leave', 'annual leave', 'holiday', 'vacation', 'sick', 'maternity', 'unpaid', 'absence', 'balance'],
+      },
     ],
   },
 
