@@ -152,6 +152,13 @@ export default async function CostPoolsPage() {
                 </tr>
               </thead>
               <tbody>
+                {recon.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="faint">
+                      No pools yet.
+                    </td>
+                  </tr>
+                ) : null}
                 {recon.map((r) => (
                   <tr key={r.poolId}>
                     <td style={{ textAlign: 'left' }}>

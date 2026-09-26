@@ -70,7 +70,9 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   }
 
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  // A handler that returns nothing (null) sends 200 with an empty body.
+  const body = await response.text();
+  return (body ? JSON.parse(body) : null) as T;
 }
 
 async function safeJson(response: Response): Promise<unknown> {
