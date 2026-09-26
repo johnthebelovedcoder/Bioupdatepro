@@ -847,7 +847,7 @@ export class FixedAssetService {
 }
 
 /** PCR-031-DR "Processing/Feed-mill OH Expense", per line. */
-const PROCESSING_OVERHEAD: Record<ProductionOrderCycle, { number: string; name: string }> = {
+export const PROCESSING_OVERHEAD: Record<ProductionOrderCycle, { number: string; name: string }> = {
   SNAILPRO: { number: '621200', name: 'Snail Processing Overhead Expense' },
   POULTRYPRO: { number: '622100', name: 'Poultry Processing Conversion Expense' },
   FEED_MILL: { number: '623100', name: 'Feed Mill Overhead Expense' },

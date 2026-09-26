@@ -460,7 +460,13 @@ export const SECTIONS: NavSection[] = [
         href: '/ledger/cash-flow',
         label: 'Cash flow',
         hint: 'Where the cash moved, for one period',
-        keywords: ['cash flow', 'cash', 'operating', 'investing', 'indirect method'],
+        keywords: ['cash flow', 'cash', 'operating', 'investing', 'indirect method', 'direct method', 'financing'],
+      },
+      {
+        href: '/ledger/depreciation',
+        label: 'Depreciation schedule',
+        hint: 'Each asset’s depreciation for the year, expensed or absorbed, against the ledger',
+        keywords: ['depreciation', 'fixed assets', 'schedule', 'net book value', 'nbv', 'accumulated depreciation', 'absorbed'],
       },
       {
         href: '/ledger/kpis',

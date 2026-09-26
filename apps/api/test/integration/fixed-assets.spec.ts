@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import Decimal from 'decimal.js';
 import { PrismaClient } from '@bioassetpro/database';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { AuditService } from '../../src/audit/audit.service';
@@ -16,6 +17,7 @@ import {
   FixedAssetCapitalisationPostingHandler,
   FixedAssetDisposalPostingHandler,
 } from '../../src/fixed-assets/fixed-asset.handlers';
+import { DepreciationScheduleService } from '../../src/reporting/depreciation-schedule.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
@@ -101,6 +103,36 @@ describe('Fixed assets (UAT-007)', () => {
     expect(await balance('1701')).toBe(0n);
     expect(await balance('1702')).toBe(0n);
     await expect(assets.dispose({ assetId: mixer, actor: maker, disposedOn: new Date('2026-02-11') })).rejects.toThrow(/already disposed/);
+  });
+
+  it('schedules depreciation per asset, expensed and absorbed, and ties it to the ledger (POL-010, AC-MFG-009)', async () => {
+    for (const [number, name] of [['622100', 'Poultry Processing Conversion Expense'], ['623100', 'Feed Mill Overhead Expense']] as const) {
+      await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType: 'EXPENSE', normalBalance: 'DEBIT' } });
+    }
+    const pickup = await capitalise('Office pickup', '2026-01-05', 600_000_00n, 60); // ₦10,000 a month, general expense
+    const mixer = await capitalise('Feed mixer', '2026-01-05', 1_200_000_00n, 60); // ₦20,000 a month, the feed mill's
+    const plucker = await capitalise('Plucker', '2026-01-05', 1_200_000_00n, 60); // ₦20,000 a month, split by hours
+    await assets.setProcessingCycle({ companyId: fixture.companyId, assetId: mixer, processingCycle: 'FEED_MILL', actor: approver });
+    for (const month of [0, 1]) {
+      // 30 hours plucking poultry, 10 in the mill: 3 to 1.
+      await assets.setMachineHours({ companyId: fixture.companyId, assetId: plucker, financialPeriodId: fixture.periodIds[month]!, hours: { POULTRYPRO: new Decimal(30), FEED_MILL: new Decimal(10) }, actor: approver });
+      const run = await assets.runDepreciation({ companyId: fixture.companyId, actor: maker, financialPeriodId: fixture.periodIds[month]! });
+      await workflow.approve({ transactionId: run.awaitingApproval, actor: approver });
+    }
+    const disposal = await assets.dispose({ assetId: pickup, actor: maker, disposedOn: new Date('2026-03-10') });
+    await workflow.approve({ transactionId: disposal.awaitingApproval, actor: approver });
+
+    const schedule = await new DepreciationScheduleService(prisma).build({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, throughPeriodId: fixture.periodIds[2]! });
+    const row = (id: string) => schedule.rows.find((r) => r.assetId === id)!;
+    expect(row(pickup)).toMatchObject({
+      status: 'DISPOSED', chargeKobo: '2000000', toProfitAndLossKobo: '2000000', absorbedKobo: {},
+      disposalWriteOffKobo: '58000000', closingAccumulatedKobo: '0', netBookValueKobo: '0',
+    });
+    expect(row(mixer)).toMatchObject({ processingLine: 'Feed mill', chargeKobo: '4000000', toProfitAndLossKobo: '0', absorbedKobo: { 'Feed mill': '4000000' } });
+    expect(row(plucker)).toMatchObject({ chargeKobo: '4000000', absorbedKobo: { 'Poultry processing': '3000000', 'Feed mill': '1000000' } });
+    expect(schedule.totals).toMatchObject({ chargeKobo: '10000000', toProfitAndLossKobo: '2000000', absorbedTotalKobo: '8000000', closingAccumulatedKobo: '8000000', netBookValueKobo: '232000000' });
+    // Charge = expensed + absorbed; register = ledger, for accumulated depreciation and for cost.
+    expect(schedule.checks).toEqual({ chargeVsPostedKobo: '0', accumulatedVsLedgerKobo: '0', costVsLedgerKobo: '0' });
   });
 
   it('never depreciates an asset before it is in service, nor the same month twice', async () => {

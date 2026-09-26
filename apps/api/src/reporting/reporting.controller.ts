@@ -6,6 +6,7 @@ import { ProfitLossService } from './profit-loss.service';
 import { SegmentProfitLossService } from './segment-profit-loss.service';
 import { BalanceSheetService } from './balance-sheet.service';
 import { CashFlowService } from './cash-flow.service';
+import { DepreciationScheduleService } from './depreciation-schedule.service';
 import { KpiService } from './kpi.service';
 import { ControlAccountReconciliationService } from './control-account-reconciliation.service';
 import { CustomerReceiptService } from '../sales/customer-receipt.service';
@@ -41,6 +42,7 @@ export class ReportingController {
     private readonly segmentProfitLoss: SegmentProfitLossService,
     private readonly balanceSheet: BalanceSheetService,
     private readonly cashFlow: CashFlowService,
+    private readonly depreciationSchedule: DepreciationScheduleService,
     private readonly kpis: KpiService,
     private readonly customerReceipts: CustomerReceiptService,
     private readonly supplierPayments: SupplierPaymentService,
@@ -391,6 +393,24 @@ export class ReportingController {
    * CSV is one label/value row per figure, in the same order the statement
    * presents them, rather than the multi-section shape the other exports use. */
   @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  /** The depreciation schedule (POL-010, AC-MFG-009), with its checks against the ledger. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('depreciation-schedule')
+  async depreciationScheduleReport(
+    @CurrentCompany() companyId: string,
+    @Query('financialYearId') financialYearId?: string,
+    @Query('financialPeriodId') financialPeriodId?: string,
+  ) {
+    let yearId = financialYearId;
+    if (!yearId) {
+      const periodId = financialPeriodId ?? (await currentFinancialPeriodId(this.prisma, companyId));
+      const period = periodId ? await this.prisma.financialPeriod.findFirst({ where: { id: periodId, financialYear: { companyId } }, select: { financialYearId: true } }) : null;
+      if (!period) return { error: 'No financial period covers today for this company.' };
+      yearId = period.financialYearId;
+    }
+    return this.depreciationSchedule.build({ companyId, financialYearId: yearId, throughPeriodId: financialPeriodId });
+  }
+
   @Get('cash-flow/export')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="cash-flow.csv"')

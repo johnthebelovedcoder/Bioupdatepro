@@ -12,6 +12,7 @@ import { ProfitLossService } from './reporting/profit-loss.service';
 import { SegmentProfitLossService } from './reporting/segment-profit-loss.service';
 import { BalanceSheetService } from './reporting/balance-sheet.service';
 import { CashFlowService } from './reporting/cash-flow.service';
+import { DepreciationScheduleService } from './reporting/depreciation-schedule.service';
 import { ControlAccountReconciliationService } from './reporting/control-account-reconciliation.service';
 
 /**
@@ -38,6 +39,7 @@ import { ControlAccountReconciliationService } from './reporting/control-account
     SegmentProfitLossService,
     BalanceSheetService,
     CashFlowService,
+    DepreciationScheduleService,
     ControlAccountReconciliationService,
   ],
   exports: [
@@ -54,6 +56,7 @@ import { ControlAccountReconciliationService } from './reporting/control-account
     SegmentProfitLossService,
     BalanceSheetService,
     CashFlowService,
+    DepreciationScheduleService,
     ControlAccountReconciliationService,
   ],
 })
