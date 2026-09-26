@@ -19,14 +19,14 @@ Tests are in `apps/api/test/integration/`. Run them with
 | Status | Rows |
 |---|---|
 | Built | 63 |
-| Built 26 Sep | 10 |
-| Partial | 14 |
+| Built 26 Sep | 12 |
+| Partial | 12 |
 | Not built | 0 |
 
 88 rows; AC-001, a check on the workbook itself rather than the application, is not counted.
 
 **Not built:** none. **Missing parts of partial rows**, the larger ones:
-the direct-method cash flow (AC-013 / AC-ENT-001), multi-factor sign-in
+multi-factor sign-in
 (INT-034), purchase budgets (INT-002), bank verification before paying
 (INT-005 / INT-015), WhatsApp with consent (AC-015), and a single
 depreciation schedule report (AC-MFG-009 / POL-010).
@@ -47,6 +47,7 @@ rows marked Built above):
 | PCR-014 | A write-off is requested, then approved (stock issued, PCR-014 posted) or rejected by someone other than the requester; decided once, then fixed in the database | inventory.spec: "writes off only once someone other than the requester approves it" |
 | AC-011 | A delivery, invoice, lot, production order or population traced back through transfers, production, harvest, the population and its breeders or hatch, its feed and treatments, to the goods receipts and suppliers of every input — one search and one CSV | traceability.spec |
 | AC-HR-003 | Leave on the Nigerian Labour Act minimums (s.18 annual 6 days after 12 months, carried a year then lapsing; s.16 sick 12 days with a certificate; s.54 maternity 12 weeks at 50% after 6 months); requests checked for balance and overlap and approved by someone else; balances and liability (RPT-HR-007); unpaid days off gross before PAYE, shown on the payslip | leave.spec; payroll.spec: "takes approved unpaid leave off gross before PAYE" |
+| AC-ENT-001 / AC-013 | The direct-method cash flow: every bank movement classified by the other side of its journal (customers, suppliers, employees, taxes, investing, financing), beside the indirect method, with the checks direct = bank, indirect = bank, direct operating = indirect operating. It found the indirect method leaving VAT and withholding out of working capital, now fixed | cash-flow.spec; case-500-snail.spec (REP-019) |
 | AC-PAY-002 | Neither the preparer nor the approver of a payroll run can pay it | payroll.spec: "is paid by neither whoever prepared the run nor whoever approved it" |
 | POL-001 tolerance | A total variance beyond the year's tolerance settles only with a reason | standard-costing.spec: "settles a variance beyond the year's tolerance only with a reason" |
 | POL-003 | Standards carry six parts: material, packaging, labour, machine, overhead, depreciation | standard-costing.spec: "reports the six parts of POL-003" |
@@ -74,7 +75,7 @@ other approval does.
 | AC-MFG-007 | S_Recovery and P_Recovery reconcile separately | Built | poultry-processing.spec: Controls reconciliation of 1304/2198 |
 | AC-MFG-008 | Snail ₦26,000 and poultry ₦40,000 variances | Built 26 Sep | see above |
 | AC-MFG-009 | FA depreciation = P&L + absorbed manufacturing depreciation | Partial | Depreciation splits to processing lines by machine hours, and the register agrees with the ledger (fixed-assets.spec). There is no single report showing the three figures side by side. |
-| AC-ENT-001 | Direct and indirect cash flow both equal SOFP cash | Partial | Indirect method ends at the bank balance (cash-flow.spec); the direct method is not built |
+| AC-ENT-001 | Direct and indirect cash flow both equal SOFP cash | Built 26 Sep | Both methods side by side with the workbook's three checks; the 500-snail replay reproduces 500_Cash_Flow's direct lines (cash-flow.spec, case-500-snail.spec REP-019) |
 
 ## Acceptance_Criteria
 
@@ -92,7 +93,7 @@ other approval does.
 | AC-010 | Recovery GLs reconcile by order and period | Built | as AC-MFG-007 |
 | AC-011 | Sale lot traces to harvest, cohort, GRN and inputs in one query | Built 26 Sep | Store → Trace a lot, and a CSV of the same chain. Issues are matched to receipts first in first out within each store (a named lot first), since stock is valued at moving average (traceability.spec) |
 | AC-012 | Reports tie to subledger, journal and GL | Built | reports.spec; Controls reconciliation |
-| AC-013 | Direct and indirect cash flow agree with SOFP | Partial | as AC-ENT-001 |
+| AC-013 | Direct and indirect cash flow agree with SOFP | Built 26 Sep | as AC-ENT-001 |
 | AC-014 | Posted records immutable; correction by reversal | Built | posting.spec: "reversal is the only correction path" |
 | AC-015 | Email/WhatsApp to verified, consenting recipients | Partial | Email notifications and invitations exist. WhatsApp and the consent/verified-recipient control are not built. |
 

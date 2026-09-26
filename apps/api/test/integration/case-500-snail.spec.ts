@@ -77,6 +77,7 @@ const EXPECTED = {
   'REP-016': { what: 'Total assets', value: N(63_317_950), money: true },
   'REP-017': { what: 'Total liabilities and equity', value: N(63_317_950), money: true },
   'REP-018': { what: 'Closing cash', value: N(45_498_360), money: true },
+  'REP-019': { what: 'Direct cash flow check (closing cash − bank)', value: 0n, money: true },
   'REP-020': { what: 'Indirect cash flow check (closing cash − bank)', value: 0n, money: true },
 } as const;
 type RepId = keyof typeof EXPECTED;
@@ -353,6 +354,12 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     const pl = await services.pl.build({ companyId: fixture.companyId, financialYearId: fixture.financialYearId });
     const bs = await services.bs.build({ companyId: fixture.companyId });
     const cf = await services.cf.build({ companyId: fixture.companyId, financialPeriodId: fixture.periodIds[5]! });
+    // 500_Cash_Flow's direct method, line by line: customers, suppliers, staff.
+    expect(cf.direct.customerReceiptsKobo).toBe(N(55_278_360).toString());
+    expect(cf.direct.supplierPaymentsKobo).toBe((-N(6_480_000)).toString());
+    expect(cf.direct.employeePaymentsKobo).toBe((-N(3_300_000)).toString());
+    expect(cf.direct.netCashFromOperationsKobo).toBe(N(45_498_360).toString());
+    expect(cf.checks.directVsIndirectOperatingKobo).toBe('0');
     const fvGain = -(await balance('420100'));
     const actual: Record<RepId, bigint> = {
       'REP-005': BigInt(available),
@@ -369,6 +376,7 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
       'REP-016': BigInt(bs.totalAssetsKobo),
       'REP-017': BigInt(bs.totalLiabilitiesAndEquityKobo),
       'REP-018': await balance('110100'),
+      'REP-019': BigInt(cf.checks.directKobo),
       'REP-020': BigInt(cf.closingCashKobo) - BigInt(cf.bankAccountClosingKobo),
     };
 
@@ -408,7 +416,7 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
         '',
         'Customer and supplier documents are posted as their journals (identical double entry), so AR and AP are compared to the workbook’s ageing (REP-010/011) rather than to open invoices; stock, WIP and recovery are reconciled to their subledgers.',
         '',
-        'REP-001–004 (gross ledger and trial-balance totals) are not compared: they count journal lines and account structure (the application keeps snails in stage accounts and posts more, smaller journals), not results. REP-019 (direct cash flow) is not produced; the indirect statement is (REP-020).',
+        'REP-001–004 (gross ledger and trial-balance totals) are not compared: they count journal lines and account structure (the application keeps snails in stage accounts and posts more, smaller journals), not results. REP-019 and REP-020 are the direct and indirect cash-flow checks.',
         '',
         '## Causes',
         '',

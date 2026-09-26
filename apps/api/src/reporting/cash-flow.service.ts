@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { assertReportFilter } from './report-filter';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProfitLossService } from './profit-loss.service';
+import { allNumbersFor } from '../chart/chart';
 
 export interface CashFlow {
   openingCashKobo: string;
@@ -20,13 +21,48 @@ export interface CashFlow {
   netCashFromOperationsKobo: string;
   fixedAssetAcquisitionsKobo: string;
   netCashFromInvestingKobo: string;
+  /** Capital and loans — the same figure under both methods (IAS 7). */
+  netCashFromFinancingKobo: string;
   netChangeInCashKobo: string;
   closingCashKobo: string;
   /** The Bank account's own trial-balance closing figure, for the one check
    * this statement exists to pass: closing CF cash equals BS cash. */
   bankAccountClosingKobo: string;
   reconciled: boolean;
+  /**
+   * The direct method (500_Cash_Flow, S_CONSOLIDATED_CF, AC-ENT-001 / AC-013):
+   * the bank's own movements this period, each classified by what the other
+   * side of its journal was.
+   */
+  direct: DirectCashFlow;
+  /** The workbook's checks, each zero when the statements agree. */
+  checks: {
+    /** Direct closing cash less the bank's closing balance. */
+    directKobo: string;
+    /** Indirect closing cash less the bank's closing balance. */
+    indirectKobo: string;
+    /** Direct less indirect net cash from operating activities. */
+    directVsIndirectOperatingKobo: string;
+  };
 }
+
+export interface DirectCashFlow {
+  customerReceiptsKobo: string;
+  supplierPaymentsKobo: string;
+  employeePaymentsKobo: string;
+  taxesPaidKobo: string;
+  otherOperatingKobo: string;
+  netCashFromOperationsKobo: string;
+  investingKobo: string;
+  financingKobo: string;
+  netChangeInCashKobo: string;
+  openingCashKobo: string;
+  closingCashKobo: string;
+  /** How many journals moved the bank this period. */
+  journals: number;
+}
+
+type DirectLine = 'customers' | 'suppliers' | 'employees' | 'taxes' | 'otherOperating' | 'investing' | 'financing';
 
 // Every account below was confirmed by tracing this session's own journal
 // lines to see what actually posts where — not assumed from account naming
@@ -47,6 +83,15 @@ export interface CashFlow {
 // has moved charts has nothing left on the old numbers, and one that has not
 // has nothing on the new.
 const RECEIVABLE_ACCOUNTS = ['1201', '120100'];
+/**
+ * VAT and withholding tax recoverable, and VAT and withholding owed: working
+ * capital like any receivable or payable. Missing until 2026-09-26, so a
+ * receipt with withholding deducted left the indirect statement's operating
+ * cash above the bank's by the tax withheld — the direct method, reading the
+ * bank itself, is what showed it.
+ */
+const TAX_RECEIVABLE_ACCOUNTS = ['1601', '125100', '1602', '125200'];
+const TAX_PAYABLE_ACCOUNTS = ['2120', '226100', '2130', '225100'];
 const INVENTORY_ACCOUNTS = [
   '1301', '1302', '1305', '1401', '1501',
   '130100', '130110', '130199', '130410', '130420', '130430', '130510', '130520',
@@ -73,6 +118,15 @@ const PAYABLE_ACCOUNTS = [
   '227100',
 ];
 const BANK_ACCOUNTS = ['1101', '110100'];
+/** Salary and statutory payroll payables and costs: paid to or for employees. */
+const EMPLOYEE_ACCOUNTS = allNumbersFor(
+  'salaryPayable', 'pensionPayable', 'nhfPayable', 'nsitfPayable', 'itfPayable',
+  'salaryExpense', 'employerPensionExpense', 'nsitfExpense', 'itfExpense',
+);
+/** PAYE, VAT, withholding and income tax. */
+const TAX_ACCOUNTS = [...allNumbersFor('payePayable', 'outputVat', 'whtPayable', 'inputVat', 'whtReceivable'), '227100', '650100'];
+/** What the farm owes suppliers for goods and services. */
+const SUPPLIER_ACCOUNTS = allNumbersFor('tradePayables', 'grni');
 const PPE_ACCOUNTS = ['1701', '140100'];
 const DEPRECIATION_ACCOUNTS = ['5501', '630100'];
 /** Fair-value gain/loss on snails and poultry, and the gain on eggs at collection. */
@@ -164,9 +218,18 @@ export class CashFlowService {
     const fixedAssetAcquisitionsKobo = -(closing.ppe - opening.ppe);
     const netCashFromInvestingKobo = fixedAssetAcquisitionsKobo;
 
-    const netChangeInCashKobo = netCashFromOperationsKobo + netCashFromInvestingKobo;
+    // Financing is the same under both methods (IAS 7): taken from the bank's
+    // own movements against equity and loans.
+    const direct = await this.direct(params.companyId, params.financialPeriodId);
+    const netCashFromFinancingKobo = direct.financing;
+
+    const netChangeInCashKobo = netCashFromOperationsKobo + netCashFromInvestingKobo + netCashFromFinancingKobo;
     const openingCashKobo = opening.bank;
     const closingCashKobo = openingCashKobo + netChangeInCashKobo;
+
+    const directOperating = direct.customers + direct.suppliers + direct.employees + direct.taxes + direct.otherOperating;
+    const directChange = directOperating + direct.investing + direct.financing;
+    const directClosing = openingCashKobo + directChange;
 
     return {
       openingCashKobo: openingCashKobo.toString(),
@@ -179,11 +242,132 @@ export class CashFlowService {
       netCashFromOperationsKobo: netCashFromOperationsKobo.toString(),
       fixedAssetAcquisitionsKobo: fixedAssetAcquisitionsKobo.toString(),
       netCashFromInvestingKobo: netCashFromInvestingKobo.toString(),
+      netCashFromFinancingKobo: netCashFromFinancingKobo.toString(),
       netChangeInCashKobo: netChangeInCashKobo.toString(),
       closingCashKobo: closingCashKobo.toString(),
       bankAccountClosingKobo: closing.bank.toString(),
       reconciled: closingCashKobo === closing.bank,
+      direct: {
+        customerReceiptsKobo: direct.customers.toString(),
+        supplierPaymentsKobo: direct.suppliers.toString(),
+        employeePaymentsKobo: direct.employees.toString(),
+        taxesPaidKobo: direct.taxes.toString(),
+        otherOperatingKobo: direct.otherOperating.toString(),
+        netCashFromOperationsKobo: directOperating.toString(),
+        investingKobo: direct.investing.toString(),
+        financingKobo: direct.financing.toString(),
+        netChangeInCashKobo: directChange.toString(),
+        openingCashKobo: openingCashKobo.toString(),
+        closingCashKobo: directClosing.toString(),
+        journals: direct.journals,
+      },
+      checks: {
+        directKobo: (directClosing - closing.bank).toString(),
+        indirectKobo: (closingCashKobo - closing.bank).toString(),
+        directVsIndirectOperatingKobo: (directOperating - netCashFromOperationsKobo).toString(),
+      },
     };
+  }
+
+  /**
+   * The direct method, from the bank's own journal lines this period.
+   *
+   * Every posted journal that moved a bank account is classified by the
+   * other side of it: receivables and revenue are customers; payables,
+   * goods-received, stock, biological assets and expenses are suppliers;
+   * salary and statutory payroll payables and costs are employees; PAYE,
+   * VAT, withholding and income tax are taxes; fixed assets are investing;
+   * equity and other long-term funding are financing. Where a journal has
+   * several such lines its cash is shared across those moving the same way
+   * as the cash, in proportion — so a receipt with withholding deducted
+   * shows what the customer actually paid, not a phantom tax payment. A
+   * journal touching a fixed asset is investing throughout, so a disposal's
+   * gain is not mistaken for a sale. A transfer between bank accounts moves
+   * nothing and is left out.
+   */
+  private async direct(companyId: string, financialPeriodId: string) {
+    const totals: Record<DirectLine, bigint> = {
+      customers: 0n, suppliers: 0n, employees: 0n, taxes: 0n, otherOperating: 0n, investing: 0n, financing: 0n,
+    };
+    const bank = await this.prisma.gLAccount.findMany({
+      where: { companyId, accountNumber: { in: BANK_ACCOUNTS } },
+      select: { id: true },
+    });
+    const bankIds = new Set(bank.map((b) => b.id));
+    if (bankIds.size === 0) return { ...totals, journals: 0 };
+
+    const lines = await this.prisma.journalLine.findMany({
+      where: {
+        companyId,
+        financialPeriodId,
+        journalEntry: { status: 'POSTED', lines: { some: { glAccountId: { in: [...bankIds] } } } },
+      },
+      select: { journalEntryId: true, glAccountId: true, debitKobo: true, creditKobo: true },
+    });
+    const accountIds = [...new Set(lines.map((l) => l.glAccountId))];
+    const accounts = new Map(
+      (
+        await this.prisma.gLAccount.findMany({
+          where: { companyId, id: { in: accountIds } },
+          select: { id: true, accountNumber: true, accountType: true },
+        })
+      ).map((a) => [a.id, a]),
+    );
+    const bioAccounts = new Set(
+      (await this.prisma.biologicalAssetStageAccount.findMany({ where: { companyId }, select: { glAccountId: true } })).map((r) => r.glAccountId),
+    );
+
+    const classify = (accountId: string): DirectLine => {
+      const account = accounts.get(accountId);
+      if (!account) return 'otherOperating';
+      const n = account.accountNumber;
+      if (PPE_ACCOUNTS.includes(n) || allNumbersFor('accumulatedDepreciation').includes(n)) return 'investing';
+      if (EMPLOYEE_ACCOUNTS.includes(n)) return 'employees';
+      if (TAX_ACCOUNTS.includes(n)) return 'taxes';
+      if (RECEIVABLE_ACCOUNTS.includes(n) || account.accountType === 'REVENUE') return 'customers';
+      if (account.accountType === 'EQUITY') return 'financing';
+      if (
+        SUPPLIER_ACCOUNTS.includes(n) ||
+        INVENTORY_ACCOUNTS.includes(n) ||
+        bioAccounts.has(accountId) ||
+        account.accountType === 'EXPENSE'
+      ) return 'suppliers';
+      return 'otherOperating';
+    };
+
+    const byJournal = new Map<string, typeof lines>();
+    for (const line of lines) byJournal.set(line.journalEntryId, [...(byJournal.get(line.journalEntryId) ?? []), line]);
+
+    let journals = 0;
+    for (const journalLines of byJournal.values()) {
+      const cash = journalLines.filter((l) => bankIds.has(l.glAccountId)).reduce((sum, l) => sum + l.debitKobo - l.creditKobo, 0n);
+      if (cash === 0n) continue; // between bank accounts, or cash in and straight out
+      journals += 1;
+      const others = journalLines.filter((l) => !bankIds.has(l.glAccountId));
+      if (others.some((l) => classify(l.glAccountId) === 'investing')) {
+        totals.investing += cash;
+        continue;
+      }
+      // Lines moving the same way as the cash: credits fund a receipt, debits a payment.
+      const weights = others
+        .map((l) => ({ line: classify(l.glAccountId), weight: cash > 0n ? l.creditKobo - l.debitKobo : l.debitKobo - l.creditKobo }))
+        .filter((w) => w.weight > 0n);
+      const total = weights.reduce((sum, w) => sum + w.weight, 0n);
+      if (total === 0n) {
+        totals.otherOperating += cash;
+        continue;
+      }
+      // Proportional shares, the rounding remainder to the largest, so the parts equal the cash exactly.
+      let allocated = 0n;
+      const shares = weights.map((w) => {
+        const share = (cash * w.weight) / total;
+        allocated += share;
+        return { ...w, share };
+      });
+      shares.sort((a, b) => (a.weight > b.weight ? -1 : a.weight < b.weight ? 1 : 0))[0]!.share += cash - allocated;
+      for (const share of shares) totals[share.line] += share.share;
+    }
+    return { ...totals, journals };
   }
 
   private async balancesAsOf(companyId: string, financialPeriodId: string) {
@@ -231,7 +415,7 @@ export class CashFlowService {
       where: {
         companyId,
         OR: [
-          { accountNumber: { in: [...RECEIVABLE_ACCOUNTS, ...INVENTORY_ACCOUNTS, ...PAYABLE_ACCOUNTS, ...BANK_ACCOUNTS, ...PPE_ACCOUNTS] } },
+          { accountNumber: { in: [...RECEIVABLE_ACCOUNTS, ...TAX_RECEIVABLE_ACCOUNTS, ...INVENTORY_ACCOUNTS, ...PAYABLE_ACCOUNTS, ...TAX_PAYABLE_ACCOUNTS, ...BANK_ACCOUNTS, ...PPE_ACCOUNTS] } },
           { id: { in: biologicalAssetAccountIds } },
         ],
       },
@@ -256,9 +440,9 @@ export class CashFlowService {
         }, 0n);
 
     return {
-      receivables: netFor(RECEIVABLE_ACCOUNTS),
+      receivables: netFor([...RECEIVABLE_ACCOUNTS, ...TAX_RECEIVABLE_ACCOUNTS]),
       inventory: netFor(INVENTORY_ACCOUNTS) + netForIds(biologicalAssetAccountIds),
-      payables: netFor(PAYABLE_ACCOUNTS),
+      payables: netFor([...PAYABLE_ACCOUNTS, ...TAX_PAYABLE_ACCOUNTS]),
       bank: netFor(BANK_ACCOUNTS),
       ppe: netFor(PPE_ACCOUNTS),
     };

@@ -59,6 +59,57 @@ async function journal(number: string, period: number, lines: Array<[string, 'de
   });
 }
 
+describe('CashFlowService — direct method (AC-ENT-001, 500_Cash_Flow)', () => {
+  it('classifies every bank movement by what it paid for, and agrees with the indirect method and the bank', async () => {
+    const extra: Record<string, string> = {};
+    for (const [number, name, type, normal] of [
+      ['1201', 'Trade Receivables', 'ASSET', 'DEBIT'],
+      ['1701', 'Property, Plant & Equipment', 'ASSET', 'DEBIT'],
+      ['110100', 'Bank — second account', 'ASSET', 'DEBIT'],
+      ['2201', 'Trade Payables', 'LIABILITY', 'CREDIT'],
+      ['2101', 'Salaries Payable', 'LIABILITY', 'CREDIT'],
+      ['3100', 'Share Capital', 'EQUITY', 'CREDIT'],
+      ['5401', 'Operating Expenses', 'EXPENSE', 'DEBIT'],
+    ] as const) {
+      extra[number] = (await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType: type, normalBalance: normal } })).id;
+    }
+    const a = { ...fixture.accounts, ...extra };
+    // March.
+    await journal('CAPITAL', 2, [[a['1101']!, 'debit', 10_000_000n], [a['3100']!, 'credit', 10_000_000n]]);
+    await journal('INVOICE', 2, [[a['1201']!, 'debit', 1_000_000n], [a['4101']!, 'credit', 1_000_000n]]);
+    // The customer pays ₦9,000 and deducts ₦1,000 withholding.
+    await journal('RECEIPT', 2, [[a['1101']!, 'debit', 900_000n], [a['1602']!, 'debit', 100_000n], [a['1201']!, 'credit', 1_000_000n]]);
+    await journal('TRACTOR', 2, [[a['1701']!, 'debit', 3_000_000n], [a['1101']!, 'credit', 3_000_000n]]);
+    await journal('FEED-BILL', 2, [[a['1301']!, 'debit', 400_000n], [a['2201']!, 'credit', 400_000n]]);
+    await journal('FEED-PAY', 2, [[a['2201']!, 'debit', 400_000n], [a['1101']!, 'credit', 400_000n]]);
+    await journal('WAGES', 2, [[a['5401']!, 'debit', 250_000n], [a['2101']!, 'credit', 250_000n]]);
+    await journal('WAGES-PAY', 2, [[a['2101']!, 'debit', 250_000n], [a['1101']!, 'credit', 250_000n]]);
+    await journal('VAT-DUE', 2, [[a['5401']!, 'debit', 75_000n], [a['2120']!, 'credit', 75_000n]]);
+    await journal('VAT-PAY', 2, [[a['2120']!, 'debit', 75_000n], [a['1101']!, 'credit', 75_000n]]);
+    await journal('SWEEP', 2, [[a['110100']!, 'debit', 500_000n], [a['1101']!, 'credit', 500_000n]]);
+
+    const march = await cashFlow.build({ companyId: fixture.companyId, financialPeriodId: fixture.periodIds[2]! });
+    expect(march.direct).toMatchObject({
+      customerReceiptsKobo: '900000', // what the customer actually paid, not the invoice
+      supplierPaymentsKobo: '-400000',
+      employeePaymentsKobo: '-250000',
+      taxesPaidKobo: '-75000',
+      otherOperatingKobo: '0',
+      netCashFromOperationsKobo: '175000',
+      investingKobo: '-3000000',
+      financingKobo: '10000000',
+      netChangeInCashKobo: '7175000',
+      closingCashKobo: '7175000',
+      journals: 6, // the sweep between banks moves no cash
+    });
+    expect(march.bankAccountClosingKobo).toBe('7175000');
+    // The workbook's three checks.
+    expect(march.checks).toEqual({ directKobo: '0', indirectKobo: '0', directVsIndirectOperatingKobo: '0' });
+    expect(march.netCashFromFinancingKobo).toBe('10000000');
+    expect(march.reconciled).toBe(true);
+  });
+});
+
 describe('CashFlowService — biological assets', () => {
   it('shows fair-value and egg gains as non-cash, and still ends at the bank balance', async () => {
     // January: the flock bought for cash.

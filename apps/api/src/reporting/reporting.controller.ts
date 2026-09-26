@@ -414,10 +414,24 @@ export class ReportingController {
       ['Net Cash From Operations', cf.netCashFromOperationsKobo],
       ['Fixed Asset Acquisitions', cf.fixedAssetAcquisitionsKobo],
       ['Net Cash From Investing', cf.netCashFromInvestingKobo],
+      ['Net Cash From Financing', cf.netCashFromFinancingKobo],
       ['Net Change In Cash', cf.netChangeInCashKobo],
       ['Closing Cash', cf.closingCashKobo],
       ['Bank Account Closing Balance', cf.bankAccountClosingKobo],
       ['Reconciled', cf.reconciled ? 'true' : 'false'],
+      // The direct method (500_Cash_Flow), and the workbook's checks.
+      ['Direct: Received From Customers', cf.direct.customerReceiptsKobo],
+      ['Direct: Paid To Suppliers', cf.direct.supplierPaymentsKobo],
+      ['Direct: Paid To And For Employees', cf.direct.employeePaymentsKobo],
+      ['Direct: Taxes Paid', cf.direct.taxesPaidKobo],
+      ['Direct: Other Operating', cf.direct.otherOperatingKobo],
+      ['Direct: Net Cash From Operations', cf.direct.netCashFromOperationsKobo],
+      ['Direct: Investing', cf.direct.investingKobo],
+      ['Direct: Financing', cf.direct.financingKobo],
+      ['Direct: Closing Cash', cf.direct.closingCashKobo],
+      ['Check: Direct Closing Less Bank', cf.checks.directKobo],
+      ['Check: Indirect Closing Less Bank', cf.checks.indirectKobo],
+      ['Check: Direct Less Indirect Operating', cf.checks.directVsIndirectOperatingKobo],
     ];
     return [header, ...rows].map((row) => row.join(',')).join('\r\n');
   }
