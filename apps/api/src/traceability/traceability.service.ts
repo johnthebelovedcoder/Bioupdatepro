@@ -412,22 +412,27 @@ class TraceRun {
     // What it ate: feed issued, by item, back to the receipts it came from.
     const feeds = await this.prisma.feedIssue.findMany({
       where: { dailyRecord: { groupId: group.id, companyId: this.companyId }, itemId: { not: null } },
-      select: { id: true, itemId: true },
+      select: { id: true, itemId: true, quantityKg: true },
     });
-    const byItem = new Map<string, string[]>();
-    for (const f of feeds) byItem.set(f.itemId!, [...(byItem.get(f.itemId!) ?? []), f.id]);
-    for (const [itemId, issueIds] of byItem) {
+    const byItem = new Map<string, Array<{ id: string; quantityKg: Decimal }>>();
+    for (const f of feeds) byItem.set(f.itemId!, [...(byItem.get(f.itemId!) ?? []), { id: f.id, quantityKg: new Decimal(f.quantityKg.toString()) }]);
+    for (const [itemId, records] of byItem) {
       const item = await this.item(itemId);
       const outs = await this.prisma.stockMovement.findMany({
-        where: { companyId: this.companyId, sourceDocumentType: 'FEED_ISSUE', sourceDocumentId: { in: issueIds }, direction: StockDirection.OUT },
+        where: { companyId: this.companyId, sourceDocumentType: 'FEED_ISSUE', sourceDocumentId: { in: records.map((r) => r.id) }, direction: StockDirection.OUT },
       });
-      const total = outs.reduce((sum, o) => sum.plus(o.quantity.toString()), new Decimal(0));
+      // What the rounds recorded, and how much of it actually left a store.
+      const recorded = records.reduce((sum, r) => sum.plus(r.quantityKg), new Decimal(0));
+      const issued = outs.reduce((sum, o) => sum.plus(o.quantity.toString()), new Decimal(0));
       const feedNode: TraceNode = {
         kind: 'FEED',
-        title: `Fed ${qty(total)} ${item.unit} ${item.code} — ${item.description} (${outs.length} issue${outs.length === 1 ? '' : 's'})`,
-        quantity: qty(total),
+        title: `Fed ${qty(recorded)} ${item.unit} ${item.code} — ${item.description} (${records.length} record${records.length === 1 ? '' : 's'})`,
+        quantity: qty(recorded),
         children: [],
       };
+      if (issued.lt(recorded)) {
+        feedNode.children.push(gap(`${qty(recorded.minus(issued))} ${item.unit} was recorded on the rounds but never issued from a store, so it has no receipt to trace to.`));
+      }
       // Sources summed across every issue of this feed.
       const sources = new Map<string, { source: Movement; quantity: Decimal }>();
       for (const out of outs) {

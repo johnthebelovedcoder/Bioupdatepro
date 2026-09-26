@@ -226,7 +226,7 @@ describe('Lot traceability (AC-011)', () => {
       /^BREEDING: Hatched 30000 of 40000 eggs in breeding cycle CYC-1/,
       /^POPULATION: Cohort BRD-1/,
       /^OTHER: Placed from Agro Farms Ltd, Ibadan/,
-      /^FEED: Fed 30 KG FEED — Snail grower mash/,
+      /^FEED: Fed 30 KG FEED — Snail grower mash \(1 record\)/,
       /^RECEIPT: 30 KG FEED received on GRN-FEED-1 from FeedCo Nigeria/,
       /^LINE: 10 KG PACK — Packaging tubs/,
       /^RECEIPT: 10 KG PACK received on GRN-PACK-1 from PackRight Ltd/,
