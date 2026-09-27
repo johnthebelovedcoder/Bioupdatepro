@@ -26,11 +26,18 @@ const DETAIL_KEYS = [
   'nextOfKinName', 'nextOfKinRelationship', 'nextOfKinPhone', 'nextOfKinAddress',
 ];
 
+/** Stored encrypted and shown masked: a blank box means "keep what is saved", not "clear it". */
+const SENSITIVE_KEYS = new Set(['accountNumber', 'tin', 'nhfNumber', 'pensionRsaNumber']);
+
 /** Step 1 — personal, bank and statutory details. */
 export async function saveDetails(_previous: StepState, formData: FormData): Promise<StepState> {
   const employeeId = text(formData, 'employeeId');
   const body: Record<string, string | boolean | null> = {};
-  for (const key of DETAIL_KEYS) body[key] = text(formData, key) || null;
+  for (const key of DETAIL_KEYS) {
+    const value = text(formData, key);
+    if (SENSITIVE_KEYS.has(key) && !value) continue;
+    body[key] = value || null;
+  }
   body.dateOfBirth = text(formData, 'dateOfBirth') || null;
   body.pensionEnrolled = formData.get('pensionEnrolled') === 'on';
   body.nhfEnrolled = formData.get('nhfEnrolled') === 'on';
@@ -41,6 +48,21 @@ export async function saveDetails(_previous: StepState, formData: FormData): Pro
   }
   refresh(employeeId);
   return { error: null, message: 'Saved. A changed bank account, TIN, RSA or NHF number needs verifying again.' };
+}
+
+export interface RevealState {
+  error: string | null;
+  numbers: Record<string, string | null> | null;
+}
+
+/** The bank and statutory numbers in the clear. The API records every look in the audit trail. */
+export async function revealNumbers(employeeId: string): Promise<RevealState> {
+  try {
+    const numbers = await api<Record<string, string | null>>(`/masters/employees/${employeeId}/sensitive`);
+    return { error: null, numbers };
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not show those numbers.', numbers: null };
+  }
 }
 
 /** Step 2 — a job change from a date. */

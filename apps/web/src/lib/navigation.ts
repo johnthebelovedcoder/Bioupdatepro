@@ -726,6 +726,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['gl account', 'chart of accounts', 'fs category', 'classification', 'coa'],
       },
       {
+        href: '/admin/retention',
+        label: 'Record retention',
+        hint: 'How long each kind of record is kept',
+        keywords: ['retention', 'archive', 'records', 'keep', 'delete', 'years'],
+      },
+      {
         href: '/settings',
         label: 'Preferences',
         hint: 'Language, units, feed lead times and thresholds',

@@ -1075,8 +1075,8 @@ describe('Master Data (§5, §6, §7, §10)', () => {
 
     it('refuses a ghost employee: a bank account or TIN already on someone else (INT-012, AC-HR-001)', async () => {
       const first = await makeEmployee({ accountNumber: '2222222222', tin: 'TIN-E1' });
-      await expect(makeEmployee({ accountNumber: '2222222222' })).rejects.toThrow(/Account 2222222222 is already EMP-/);
-      await expect(makeEmployee({ accountNumber: '3333333333', tin: 'TIN-E1' })).rejects.toThrow(/TIN TIN-E1 is already EMP-/);
+      await expect(makeEmployee({ accountNumber: '2222222222' })).rejects.toThrow(/Account ••••2222 is already EMP-/);
+      await expect(makeEmployee({ accountNumber: '3333333333', tin: 'TIN-E1' })).rejects.toThrow(/TIN ••••N-E1 is already EMP-/);
       const second = await makeEmployee({ accountNumber: '4444444444' });
       await expect(
         onboarding.updateDetails({ companyId: fixture.companyId, employeeId: second.id, details: { accountNumber: '2222222222' }, actorId: fixture.makerId }),

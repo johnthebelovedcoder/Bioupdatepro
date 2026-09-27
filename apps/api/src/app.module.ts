@@ -13,6 +13,7 @@ import { SalesModule } from './sales/sales.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { ClosingModule } from './closing/closing.module';
 import { OperationsModule } from './operations/operations.module';
+import { RetentionModule } from './retention/retention.module';
 import { SearchModule } from './search/search.module';
 import { PostingControlModule } from './posting-control/posting-control.module';
 import { BiologicalAssetModule } from './biological-assets/biological-asset.module';
@@ -72,6 +73,7 @@ const developmentOnlyControllers =
     ProcurementModule,
     ClosingModule,
     OperationsModule,
+    RetentionModule,
     SearchModule,
     PostingControlModule,
     BiologicalAssetModule,

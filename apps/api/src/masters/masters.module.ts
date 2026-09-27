@@ -3,6 +3,7 @@ import { PartyService } from './party.service';
 import { ItemService } from './item.service';
 import { EmployeeService } from './employee.service';
 import { EmployeeOnboardingService } from './employee-onboarding.service';
+import { EmployeeSealService } from './employee-seal.service';
 import { RecipeService } from './recipe.service';
 import { FarmStructureService } from './farm-structure.service';
 
@@ -15,7 +16,7 @@ import { FarmStructureService } from './farm-structure.service';
  */
 @Global()
 @Module({
-  providers: [PartyService, ItemService, EmployeeService, EmployeeOnboardingService, RecipeService, FarmStructureService],
+  providers: [PartyService, ItemService, EmployeeService, EmployeeOnboardingService, EmployeeSealService, RecipeService, FarmStructureService],
   exports: [PartyService, ItemService, EmployeeService, EmployeeOnboardingService, RecipeService, FarmStructureService],
 })
 export class MastersModule {}

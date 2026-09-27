@@ -13,6 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { Kobo } from '../common/money';
 import { documentPackGaps } from './employee-onboarding';
+import { fingerprint, mask, sealEmployeeFields } from '../common/sensitive';
 
 export interface PayrollReadiness {
   ready: boolean;
@@ -151,11 +152,14 @@ export class EmployeeService {
           jobCategory: (input.jobCategory as string) ?? null,
           reportingManagerId: input.reportingManagerId ?? null,
           bankName: (input.bankName as string) ?? null,
-          accountNumber: (input.accountNumber as string) ?? null,
           accountName: (input.accountName as string) ?? null,
-          tin: (input.tin as string) ?? null,
-          nhfNumber: (input.nhfNumber as string) ?? null,
-          pensionRsaNumber: (input.pensionRsaNumber as string) ?? null,
+          // Encrypted at rest, with fingerprints for the duplicate checks.
+          ...sealEmployeeFields({
+            accountNumber: (input.accountNumber as string) || null,
+            tin: (input.tin as string) || null,
+            nhfNumber: (input.nhfNumber as string) || null,
+            pensionRsaNumber: (input.pensionRsaNumber as string) || null,
+          }),
           pensionAdministrator: (input.pensionAdministrator as string) ?? null,
           taxState: input.taxState ?? null,
           pensionEnrolled: (input.pensionEnrolled as boolean) ?? false,
@@ -672,24 +676,33 @@ export class EmployeeService {
     const account = identity.accountNumber?.trim();
     if (account) {
       const clash = await this.prisma.employee.findFirst({
-        where: { companyId, ...others, accountNumber: account, ...(identity.bankName?.trim() ? { bankName: identity.bankName.trim() } : {}) },
+        where: {
+          companyId,
+          ...others,
+          // The fingerprint for encrypted records; the number itself for any written before encryption was set up.
+          OR: [{ accountNumber: account }, ...(fingerprint(account) ? [{ accountNumberHash: fingerprint(account) }] : [])],
+          ...(identity.bankName?.trim() ? { bankName: identity.bankName.trim() } : {}),
+        },
         select: { employeeNumber: true },
       });
       if (clash) {
         throw new AccountingRuleViolation(
           'INT-012 — One employee, one bank account',
-          `Account ${account} is already ${clash.employeeNumber}'s. Two employees cannot be paid into one account.`,
+          `Account ${mask(account)} is already ${clash.employeeNumber}'s. Two employees cannot be paid into one account.`,
           { employeeNumber: clash.employeeNumber },
         );
       }
     }
     const tin = identity.tin?.trim();
     if (tin) {
-      const clash = await this.prisma.employee.findFirst({ where: { companyId, ...others, tin }, select: { employeeNumber: true } });
+      const clash = await this.prisma.employee.findFirst({
+        where: { companyId, ...others, OR: [{ tin }, ...(fingerprint(tin) ? [{ tinHash: fingerprint(tin) }] : [])] },
+        select: { employeeNumber: true },
+      });
       if (clash) {
         throw new AccountingRuleViolation(
           'INT-012 — One employee, one identity',
-          `TIN ${tin} is already ${clash.employeeNumber}'s.`,
+          `TIN ${mask(tin)} is already ${clash.employeeNumber}'s.`,
           { employeeNumber: clash.employeeNumber },
         );
       }

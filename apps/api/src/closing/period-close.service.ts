@@ -7,6 +7,7 @@ import {
   Prisma,
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
+import { recordClosePack } from './close-pack';
 import { AuditService } from '../audit/audit.service';
 import { ControlAccountReconciliationService } from '../reporting/control-account-reconciliation.service';
 import { LabourReconciliationService } from '../cost-allocation/labour-reconciliation.service';
@@ -759,6 +760,17 @@ export class PeriodCloseService {
           workflowTransactionId: params.workflowTransactionId ?? null,
         },
       });
+
+      // The close pack: the trial balance as closed, fingerprinted, so it can be checked later.
+      if (params.action === CloseAction.CLOSE) {
+        await recordClosePack(tx, {
+          companyId,
+          financialYearId: period.financialYearId,
+          financialPeriodId: period.id,
+          tb,
+          createdById: params.actor.userId,
+        });
+      }
 
       await this.audit.write(
         {

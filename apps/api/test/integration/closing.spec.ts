@@ -17,6 +17,7 @@ import { DelegationService } from '../../src/workflow/delegation.service';
 import { NotificationService } from '../../src/workflow/notification.service';
 import { PeriodCloseService } from '../../src/closing/period-close.service';
 import { YearEndService } from '../../src/closing/year-end.service';
+import { ClosePackService } from '../../src/closing/close-pack.service';
 import { WorkflowActor } from '../../src/workflow/workflow.types';
 import { kobo } from '../../src/common/money';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
@@ -495,6 +496,42 @@ describe('Period-End & Year-End Closing (§8)', () => {
       expect(log.totalDebitKobo).toBe(140_000_000n);
     });
 
+    it('keeps a fingerprinted close pack that cannot be altered, and says when the ledger moves after close', async () => {
+      await tradeInPeriod(0, 1_000_000_00n, 400_000_00n, 'JAN');
+      await periods.close({ financialPeriodId: fixture.periodIds[0]!, actor: approver });
+
+      const packs = new ClosePackService(prisma, trialBalance);
+      const [listed] = await packs.list(fixture.companyId, fixture.financialYearId);
+      expect(listed).toMatchObject({ scope: 'PERIOD', report: 'TRIAL_BALANCE' });
+      expect(listed!.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(await packs.verify(fixture.companyId, listed!.id)).toMatchObject({ intact: true, matches: true, changes: [] });
+
+      // The stored pack cannot be edited or deleted, from any connection.
+      await expect(prisma.$executeRawUnsafe(`UPDATE close_packs SET sha256 = repeat('0', 64) WHERE id = '${listed!.id}'`)).rejects.toThrow(/append-only/);
+      await expect(prisma.$executeRawUnsafe(`DELETE FROM close_packs WHERE id = '${listed!.id}'`)).rejects.toThrow(/append-only/);
+
+      // Reopen, post a late sale, and the pack no longer matches: account by account.
+      await prisma.workflowDefinition.create({
+        data: {
+          companyId: fixture.companyId,
+          transactionType: 'PERIOD_REOPEN',
+          name: 'Reopen route',
+          effectiveFrom: new Date('2026-01-01'),
+          steps: { create: [{ level: 1, roleCode: 'FINANCE_CONTROLLER', name: 'Controller', maxAmountKobo: null }] },
+        },
+      });
+      const { request } = await periods.requestReopen({ financialPeriodId: fixture.periodIds[0]!, reason: 'Late sale', actor: maker });
+      await periods.approveReopenRequest({ reopenRequestId: request.id, actor: approver });
+      await periods.reopen({ reopenRequestId: request.id, actor: approver });
+      await tradeInPeriod(0, 50_000_00n, 0n, 'LATE');
+
+      const moved = await packs.verify(fixture.companyId, listed!.id);
+      expect(moved).toMatchObject({ intact: true, matches: false });
+      expect(moved.currentSha256).not.toBe(moved.sha256);
+      expect(moved.changes.map((c) => c.accountNumber)).toEqual(['1101', '4101']);
+      expect(moved.changes.find((c) => c.accountNumber === '4101')).toMatchObject({ atCloseKobo: '-100000000', nowKobo: '-105000000' });
+    });
+
     it('refuses to reopen without an approved request', async () => {
       await periods.close({
         financialPeriodId: fixture.periodIds[0]!,
@@ -617,6 +654,12 @@ describe('Period-End & Year-End Closing (§8)', () => {
 
       // The bank balance carried forward: 1,000,000 - 400,000 = 600,000.
       expect(await accountBalance('1101')).toBe(60_000_000n);
+
+      // The year's close pack: the trial balance after the closing entries, and it verifies.
+      const packs = new ClosePackService(prisma, trialBalance);
+      const yearPack = (await packs.list(fixture.companyId, fixture.financialYearId)).find((p) => p.scope === 'YEAR');
+      expect(yearPack).toBeTruthy();
+      expect(await packs.verify(fixture.companyId, yearPack!.id)).toMatchObject({ intact: true, matches: true });
     });
 
     it('opens the new year balanced, with revenue at zero', async () => {

@@ -4,6 +4,18 @@ import { formatDate } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { IconClipboard } from '@/components/icons';
+import { ClosePackCheck } from '@/components/close-pack-check';
+import { api } from '@/lib/api';
+
+interface ClosePack {
+  id: string;
+  scope: 'PERIOD' | 'YEAR';
+  period: string | null;
+  year: string | null;
+  sha256: string;
+  closedAt: string;
+  closedBy: string | null;
+}
 
 export const metadata = { title: 'Period close — BioAssetPro' };
 
@@ -22,6 +34,8 @@ const STATUS_TONE: Record<string, string> = {
 export default async function PeriodClosePage() {
   const context = await getContext();
   const year = defaultYear(context);
+  // Not every role that sees this page may read the packs; they simply do not see the card.
+  const packs = year ? await api<ClosePack[]>(`/close-packs?financialYearId=${year.id}`).catch(() => null) : null;
 
   return (
     <>
@@ -81,6 +95,49 @@ export default async function PeriodClosePage() {
             </div>
           </Card>
         )}
+
+        {packs ? (
+          <Card
+            title="Close packs"
+            subtitle="The trial balance stored at each close, with its SHA-256 fingerprint. Check one to see it is unaltered and still agrees with the ledger."
+            padded={false}
+          >
+            {packs.length === 0 ? (
+              <div style={{ padding: 'var(--sp-5)' }}>
+                <span className="faint">None yet. A pack is stored when a period is closed, and at year end.</span>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Closed</th>
+                      <th>Period</th>
+                      <th>By</th>
+                      <th>Fingerprint</th>
+                      <th style={{ width: 260 }}>Check</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {packs.map((p) => (
+                      <tr key={p.id}>
+                        <td>{formatDate(p.closedAt.slice(0, 10))}</td>
+                        <td className="strong">{p.scope === 'YEAR' ? `Year ${p.year ?? ''}` : p.period}</td>
+                        <td>{p.closedBy ?? '—'}</td>
+                        <td>
+                          <code title={p.sha256} style={{ fontSize: 12 }}>{p.sha256.slice(0, 16)}…</code>
+                        </td>
+                        <td>
+                          <ClosePackCheck packId={p.id} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        ) : null}
       </div>
     </>
   );

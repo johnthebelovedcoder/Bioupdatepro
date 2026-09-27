@@ -81,6 +81,14 @@ services:
       #     https://bioassetpro-web.onrender.com
       - key: WEB_ORIGIN
         sync: false
+      # Encrypts employees' bank account, TIN, RSA and NHF numbers at rest.
+      # Entered by hand, and kept in the company's password manager as well:
+      # a restored database cannot show those numbers without it (see
+      # docs/backup-and-recovery.md). Until it is set the numbers are stored
+      # unencrypted and the API logs a warning at start-up; once set, existing
+      # records are encrypted on the next start. Never change it once set.
+      - key: PII_ENCRYPTION_KEY
+        sync: false
 
   # ---------------------------------------------------------------------------
   # Web — Next.js. The farm-facing application.

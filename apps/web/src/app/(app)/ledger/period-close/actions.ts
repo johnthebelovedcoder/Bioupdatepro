@@ -95,3 +95,20 @@ export async function reopenPeriod(periodId: string, requestId: string): Promise
   revalidatePath('/ledger/period-close');
   return { error: null, message: 'Period reopened.' };
 }
+
+export interface PackCheck {
+  error: string | null;
+  intact?: boolean;
+  matches?: boolean;
+  currentSha256?: string;
+  changes?: Array<{ accountNumber: string; accountName: string; atCloseKobo: string; nowKobo: string }>;
+}
+
+/** Re-check a close pack: is it as stored, and does the ledger still agree with it? */
+export async function checkClosePack(packId: string): Promise<PackCheck> {
+  try {
+    return { error: null, ...(await api<Omit<PackCheck, 'error'>>(`/close-packs/${packId}/verify`)) };
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not check that pack.' };
+  }
+}

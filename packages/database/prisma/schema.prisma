@@ -114,6 +114,8 @@ enum AuditAction {
   PERIOD_REOPEN
   LOGIN
   CONFIG_CHANGE
+  /// Someone looked at sensitive personal numbers in the clear.
+  VIEW
 }
 
 // ---------------------------------------------------------------------------
@@ -2586,6 +2588,10 @@ model Employee {
 
   // --- Statutory (drives Phase 9; see the payroll workbooks) ---
   tin                  String?
+  /// Keyed fingerprints (HMAC) of the account number and TIN: the duplicate
+  /// checks compare these, since the numbers themselves are encrypted.
+  accountNumberHash    String? @map("account_number_hash")
+  tinHash              String? @map("tin_hash")
   nhfNumber            String? @map("nhf_number")
   pensionRsaNumber     String? @map("pension_rsa_number")
   pensionAdministrator String? @map("pension_administrator")
@@ -2627,6 +2633,8 @@ model Employee {
 
   @@unique([companyId, employeeNumber])
   @@index([companyId, employmentStatus])
+  @@index([companyId, accountNumberHash])
+  @@index([companyId, tinHash])
   @@map("employees")
   assignments   EmployeeAssignment[]
   verifications EmployeeVerification[]
@@ -8095,4 +8103,22 @@ model VarianceProration {
 
   @@unique([companyId, financialYearId])
   @@map("variance_prorations")
+}
+
+/// The close pack (§8): the trial balance as it stood when a period or year
+/// was closed, with its SHA-256 fingerprint. Append-only (sql/180).
+model ClosePack {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  financialYearId   String   @map("financial_year_id") @db.Uuid
+  financialPeriodId String?  @map("financial_period_id") @db.Uuid
+  scope             String   // PERIOD | YEAR
+  report            String   // TRIAL_BALANCE
+  content           Json
+  sha256            String
+  createdById       String   @map("created_by_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([companyId, financialYearId])
+  @@map("close_packs")
 }

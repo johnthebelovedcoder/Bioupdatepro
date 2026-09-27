@@ -7,6 +7,7 @@ import {
   decidePay,
   recordCheck,
   recordJobChange,
+  revealNumbers,
   saveDetails,
   type StepState,
 } from '@/app/(app)/staff/employees/[id]/actions';
@@ -26,6 +27,7 @@ export interface Onboarding {
     nhfEnrolled: boolean;
     dateOfBirth: string | null;
     details: Record<string, string | null>;
+    encrypted?: boolean;
   };
   steps: Array<{ key: string; title: string; complete: boolean; missing: string[] }>;
   allComplete: boolean;
@@ -170,6 +172,55 @@ function Field({ name, label, value, type = 'text' }: { name: string; label: str
   );
 }
 
+/** A bank or statutory number: never sent to the page in full. Blank keeps the saved one. */
+function SecretField({ name, label, masked }: { name: string; label: string; masked?: string | null }) {
+  return (
+    <label className="field">
+      {label}
+      <input name={name} autoComplete="off" placeholder={masked ? `Saved ${masked}. Type a new one to change it` : 'Not recorded'} />
+    </label>
+  );
+}
+
+const NUMBER_LABELS: Array<[string, string]> = [
+  ['accountNumber', 'Account number'],
+  ['tin', 'TIN'],
+  ['pensionRsaNumber', 'Pension RSA number'],
+  ['nhfNumber', 'NHF number'],
+];
+
+/** Show the full numbers, for the roles allowed. Each look is written to the audit trail. */
+function RevealNumbers({ employeeId }: { employeeId: string }) {
+  const [pending, startTransition] = useTransition();
+  const [shown, setShown] = useState<Awaited<ReturnType<typeof revealNumbers>> | null>(null);
+  if (shown?.numbers) {
+    return (
+      <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+        <dl className="grid-auto" style={{ margin: 0 }}>
+          {NUMBER_LABELS.map(([key, label]) => (
+            <div key={key}>
+              <dt className="faint" style={{ fontSize: 13 }}>{label}</dt>
+              <dd style={{ margin: 0, fontFamily: 'var(--font-mono, monospace)' }}>{shown.numbers![key] ?? 'Not recorded'}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center' }}>
+          <span className="faint" style={{ fontSize: 13 }}>This look has been recorded in the audit trail.</span>
+          <button type="button" className="btn btn-ghost" onClick={() => setShown(null)}>Hide</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+      <button type="button" className="btn btn-ghost" disabled={pending} onClick={() => startTransition(async () => setShown(await revealNumbers(employeeId)))}>
+        {pending ? 'Showing…' : 'Show full numbers'}
+      </button>
+      <span className="faint" style={{ fontSize: 13 }}>{shown?.error ?? 'For HR and finance managers, the CFO and administrators. Each look is recorded.'}</span>
+    </div>
+  );
+}
+
 function PersonalStep({ data }: { data: Onboarding }) {
   const [state, action] = useActionState(saveDetails, EMPTY);
   const d = data.employee.details;
@@ -201,16 +252,19 @@ function PersonalStep({ data }: { data: Onboarding }) {
       </div>
 
       <h3 style={{ margin: 0 }}>Bank and statutory</h3>
-      <p className="faint" style={{ margin: 0 }}>Changing a bank account, TIN, RSA or NHF number clears its verification until someone checks it again.</p>
+      <p className="faint" style={{ margin: 0 }}>
+        Numbers are stored encrypted and shown masked. Leave a box blank to keep the saved number. Changing a bank account, TIN, RSA or NHF number clears its verification until someone checks it again.
+      </p>
+      <RevealNumbers employeeId={data.employee.id} />
       <div className="grid-auto">
         <Field name="bankName" label="Bank" value={d.bankName} />
-        <Field name="accountNumber" label="Account number" value={d.accountNumber} />
+        <SecretField name="accountNumber" label="Account number" masked={d.accountNumber} />
         <Field name="accountName" label="Account name" value={d.accountName} />
         <Field name="taxState" label="Tax state" value={d.taxState} />
-        <Field name="tin" label="TIN" value={d.tin} />
-        <Field name="pensionRsaNumber" label="Pension RSA number" value={d.pensionRsaNumber} />
+        <SecretField name="tin" label="TIN" masked={d.tin} />
+        <SecretField name="pensionRsaNumber" label="Pension RSA number" masked={d.pensionRsaNumber} />
         <Field name="pensionAdministrator" label="Pension administrator (PFA)" value={d.pensionAdministrator} />
-        <Field name="nhfNumber" label="NHF number" value={d.nhfNumber} />
+        <SecretField name="nhfNumber" label="NHF number" masked={d.nhfNumber} />
       </div>
       <div className="row" style={{ gap: 'var(--sp-4)', flexWrap: 'wrap' }}>
         <label className="row" style={{ gap: 6 }}>

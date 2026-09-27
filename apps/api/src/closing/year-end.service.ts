@@ -9,6 +9,7 @@ import {
 } from '@bioassetpro/database';
 import { chartVersionOf, numberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
+import { recordClosePack } from './close-pack';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
 import { TrialBalanceService } from '../reporting/trial-balance.service';
@@ -228,7 +229,7 @@ export class YearEndService {
     const lastPeriod = year.periods[year.periods.length - 1]!;
     const firstPeriod = year.periods[0]!;
 
-    return this.prisma.$transaction(
+    const closed = await this.prisma.$transaction(
       async (tx) => {
         // --- 1. Sweep revenue and expense to retained earnings --------------
         const temporaryRows = tb.rows.filter(
@@ -558,6 +559,16 @@ export class YearEndService {
       // The default timeout is tuned for a single document, not for this.
       { timeout: 120_000, maxWait: 20_000 },
     );
+
+    // The close pack: the year's trial balance after the closing entries, fingerprinted.
+    await recordClosePack(this.prisma, {
+      companyId: year.companyId,
+      financialYearId: year.id,
+      financialPeriodId: null,
+      tb: await this.trialBalance.build({ companyId: year.companyId, financialYearId: year.id }),
+      createdById: params.actor.userId,
+    });
+    return closed;
   }
 
   /** The stored closing or opening position for a year. */

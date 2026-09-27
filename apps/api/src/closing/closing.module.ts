@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PeriodCloseService } from './period-close.service';
 import { YearEndService } from './year-end.service';
 import { IncomeTaxService } from './income-tax.service';
+import { ClosePackService } from './close-pack.service';
 import { PostingControlModule } from '../posting-control/posting-control.module';
 
 /**
@@ -14,7 +15,7 @@ import { PostingControlModule } from '../posting-control/posting-control.module'
  */
 @Module({
   imports: [PostingControlModule],
-  providers: [PeriodCloseService, YearEndService, IncomeTaxService],
-  exports: [PeriodCloseService, YearEndService, IncomeTaxService],
+  providers: [PeriodCloseService, YearEndService, IncomeTaxService, ClosePackService],
+  exports: [PeriodCloseService, YearEndService, IncomeTaxService, ClosePackService],
 })
 export class ClosingModule {}

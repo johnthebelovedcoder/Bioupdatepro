@@ -1557,8 +1557,9 @@ describe('Procure-to-Pay (§5)', () => {
         rejectionRatePercent: '5.0', // 10 of 200 received
         onTimePercent: '50.0', // one of the two received
         averageDaysLate: '3.0',
-        overdueOrders: [never.orderNumber, late.orderNumber].sort(),
       });
+      // Overdue in any order: order numbers here are random.
+      expect([...row!.overdueOrders].sort()).toEqual([never.orderNumber, late.orderNumber].sort());
     });
 
     it('shows what has actually been invoiced against a budget, beside what is on order', async () => {

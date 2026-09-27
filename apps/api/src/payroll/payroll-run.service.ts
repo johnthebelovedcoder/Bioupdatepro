@@ -1,4 +1,5 @@
 import { leavePayReduction } from '../leave/leave-rules';
+import { mask, open } from '../common/sensitive';
 import Decimal from 'decimal.js';
 import { Injectable, Logger } from '@nestjs/common';
 import {
@@ -711,7 +712,8 @@ export class PayrollRunService {
       employeeNumber: line.employee.employeeNumber,
       name: `${line.employee.firstName} ${line.employee.surname}`,
       bankName: line.employee.bankName,
-      accountNumber: line.employee.accountNumber,
+      // Masked on screen; the full number goes only into the bank payment file.
+      accountNumber: mask(open(line.employee.accountNumber)),
       accountName: line.employee.accountName,
       netPayKobo: line.netPayKobo.toString(),
     }));

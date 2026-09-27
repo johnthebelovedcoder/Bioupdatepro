@@ -3,6 +3,7 @@ import { ChecklistItemStatus } from '@bioassetpro/database';
 import { PeriodCloseService } from './period-close.service';
 import { YearEndService } from './year-end.service';
 import { IncomeTaxService } from './income-tax.service';
+import { ClosePackService } from './close-pack.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
@@ -18,7 +19,22 @@ export class ClosingController {
     private readonly yearEnd: YearEndService,
     private readonly prisma: PrismaService,
     private readonly incomeTax: IncomeTaxService,
+    private readonly packs: ClosePackService,
   ) {}
+
+  /** The close packs: the trial balance stored at each close, with its fingerprint. */
+  @Roles('FINANCE_CONTROLLER', 'CFO', 'FINANCE_MANAGER', 'INTERNAL_AUDITOR', 'EXTERNAL_AUDITOR')
+  @Get('close-packs')
+  async closePacks(@CurrentCompany() companyId: string, @Query('financialYearId') financialYearId?: string) {
+    return this.packs.list(companyId, financialYearId);
+  }
+
+  /** Is this pack as stored at close, and does the ledger still agree with it? */
+  @Roles('FINANCE_CONTROLLER', 'CFO', 'FINANCE_MANAGER', 'INTERNAL_AUDITOR', 'EXTERNAL_AUDITOR')
+  @Get('close-packs/:id/verify')
+  async verifyClosePack(@CurrentCompany() companyId: string, @Param('id') id: string) {
+    return this.packs.verify(companyId, id);
+  }
 
   /** What providing for income tax through this period would post (PCR-084). */
   @Get('period/:id/income-tax')

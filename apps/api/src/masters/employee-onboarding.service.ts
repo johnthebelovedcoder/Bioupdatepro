@@ -1,5 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditAction, EmploymentStatus, EmploymentType } from '@bioassetpro/database';
+import {
+  encryptionConfigured,
+  mask,
+  open,
+  sealEmployeeFields,
+  SENSITIVE_EMPLOYEE_FIELDS,
+  type SensitiveEmployeeField,
+} from '../common/sensitive';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
@@ -20,6 +28,11 @@ const DETAIL_FIELDS = [
   'nextOfKinName', 'nextOfKinRelationship', 'nextOfKinPhone', 'nextOfKinAddress',
 ] as const;
 type DetailField = (typeof DETAIL_FIELDS)[number];
+
+const isSensitive = (field: string): field is SensitiveEmployeeField => (SENSITIVE_EMPLOYEE_FIELDS as readonly string[]).includes(field);
+
+/** Who may see the sensitive numbers in the clear; each look is logged. */
+export const REVEAL_ROLES = ['HR_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'ADMINISTRATOR'];
 
 /** A change to one of these undoes the check that vouched for the old value. */
 const RECHECK_ON_CHANGE: Partial<Record<DetailField, VerificationCheck>> = {
@@ -185,7 +198,10 @@ export class EmployeeOnboardingService {
         employmentDate: employee.employmentDate.toISOString().slice(0, 10),
         pensionEnrolled: employee.pensionEnrolled,
         nhfEnrolled: employee.nhfEnrolled,
-        details: Object.fromEntries(DETAIL_FIELDS.map((field) => [field, employee[field] ?? null])),
+        // Bank and statutory numbers are masked; the clear values come only from reveal(), which is logged.
+        details: Object.fromEntries(DETAIL_FIELDS.map((field) => [field, isSensitive(field) ? mask(open(employee[field])) : (employee[field] ?? null)])),
+        sensitiveFields: SENSITIVE_EMPLOYEE_FIELDS,
+        encrypted: encryptionConfigured(),
         dateOfBirth: employee.dateOfBirth?.toISOString().slice(0, 10) ?? null,
         department: employee.department,
         branch: employee.branch,
@@ -244,6 +260,38 @@ export class EmployeeOnboardingService {
     };
   }
 
+  /**
+   * An employee's bank and statutory numbers in the clear, for someone whose
+   * role allows it. Every look is written to the audit trail: who, when, from
+   * where, and which fields — never the numbers themselves.
+   */
+  async reveal(params: { companyId: string; employeeId: string; actor: { userId: string; roles: string[]; ipAddress?: string | null; device?: string | null } }) {
+    if (!params.actor.roles.some((r) => REVEAL_ROLES.includes(r))) {
+      throw new ForbiddenException('Bank and statutory numbers are shown to HR and finance managers, the CFO and administrators.');
+    }
+    const employee = await this.prisma.employee.findFirst({
+      where: { id: params.employeeId, companyId: params.companyId },
+      select: { id: true, employeeNumber: true, employmentStatus: true, accountNumber: true, tin: true, nhfNumber: true, pensionRsaNumber: true },
+    });
+    if (!employee) throw new NotFoundException('No such employee.');
+    const values = Object.fromEntries(SENSITIVE_EMPLOYEE_FIELDS.map((field) => [field, open(employee[field])])) as Record<SensitiveEmployeeField, string | null>;
+    const shown = SENSITIVE_EMPLOYEE_FIELDS.filter((field) => values[field]);
+    await this.audit.write({
+      transactionId: employee.id,
+      module: 'masters',
+      entityType: 'Employee',
+      entityId: employee.id,
+      status: employee.employmentStatus,
+      action: AuditAction.VIEW,
+      userId: params.actor.userId,
+      ipAddress: params.actor.ipAddress ?? null,
+      device: params.actor.device ?? null,
+      comments: `Viewed ${shown.length ? shown.join(', ') : 'bank and statutory numbers (none on file)'} for ${employee.employeeNumber}.`,
+      metadata: { fields: shown },
+    });
+    return { employeeNumber: employee.employeeNumber, ...values };
+  }
+
   async listDepartments(companyId: string) {
     return this.prisma.department.findMany({
       where: { companyId, active: true },
@@ -273,7 +321,8 @@ export class EmployeeOnboardingService {
       const raw = params.details[field];
       const value = typeof raw === 'string' ? raw.trim() || null : null;
       if ((field === 'firstName' || field === 'surname') && !value) throw new BadRequestException('First name and surname cannot be blank.');
-      if (value !== (employee[field] ?? null)) {
+      const current = isSensitive(field) ? open(employee[field]) : (employee[field] ?? null);
+      if (value !== current) {
         data[field] = value;
         const check = RECHECK_ON_CHANGE[field];
         if (check) recheck.add(check);
@@ -292,14 +341,18 @@ export class EmployeeOnboardingService {
     if (Object.keys(data).length === 0) return employee;
     if ('accountNumber' in data || 'bankName' in data || 'tin' in data) {
       await this.employees.assertUniqueIdentity(params.companyId, employee.id, {
-        accountNumber: ('accountNumber' in data ? data.accountNumber : employee.accountNumber) as string | null,
+        accountNumber: ('accountNumber' in data ? data.accountNumber : open(employee.accountNumber)) as string | null,
         bankName: ('bankName' in data ? data.bankName : employee.bankName) as string | null,
-        tin: ('tin' in data ? data.tin : employee.tin) as string | null,
+        tin: ('tin' in data ? data.tin : open(employee.tin)) as string | null,
       });
     }
 
+    // Encrypted at rest, with fingerprints for the duplicate checks.
+    const sensitive = Object.fromEntries(Object.entries(data).filter(([field]) => isSensitive(field))) as Partial<Record<SensitiveEmployeeField, string | null>>;
+    const stored = { ...data, ...sealEmployeeFields(sensitive) };
+
     return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.employee.update({ where: { id: employee.id }, data });
+      const updated = await tx.employee.update({ where: { id: employee.id }, data: stored });
       if (recheck.size > 0) {
         await tx.employeeVerification.deleteMany({
           where: { companyId: params.companyId, employeeId: employee.id, checkType: { in: [...recheck] } },
