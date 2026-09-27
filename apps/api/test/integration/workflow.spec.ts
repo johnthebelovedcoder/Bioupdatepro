@@ -669,6 +669,11 @@ describe('Workflow & Approval Engine (§2)', () => {
         actor: { userId: users.maker.id, roles: users.maker.roles },
       });
       expect(cancelled.status).toBe(WorkflowStatus.CANCELLED);
+      // Whoever it was waiting on is told it was withdrawn; the maker, who withdrew it, is not.
+      const withdrawn = await prisma.workflowNotification.findMany({ where: { transactionId: submitted.transactionId, event: 'CANCELLATION', channel: 'IN_APP' } });
+      expect(withdrawn.length).toBeGreaterThan(0);
+      expect(withdrawn.some((n) => n.recipientId === users.maker.id)).toBe(false);
+      expect(withdrawn[0]!.subject).toMatch(/^Withdrawn: /);
     });
 
     it('refuses cancellation once a level has approved', async () => {

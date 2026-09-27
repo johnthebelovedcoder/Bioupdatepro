@@ -549,6 +549,20 @@ export class WorkflowService {
         auditAction: AuditAction.CANCEL,
       });
 
+      // Whoever it was waiting on is told it is withdrawn — until 2026-09-27
+      // no CANCELLATION notice was ever raised, so a cancelled document just
+      // vanished from an approver's queue, and the setting for it did nothing.
+      const waitingOn = transaction.steps.find((s) => s.level === transaction.currentLevel);
+      if (waitingOn) {
+        await this.notifyLevel(tx, transaction.id, waitingOn.roleCode, {
+          companyId: transaction.companyId,
+          event: NotificationEvent.CANCELLATION,
+          subject: `Withdrawn: ${transaction.documentReference}`,
+          body: `${transaction.documentReference} was cancelled by whoever raised it, so it no longer needs your approval.` + (request.comments ? ` Reason: ${request.comments}` : ''),
+          excludeUserId: request.actor.userId,
+        });
+      }
+
       return {
         transactionId: transaction.id,
         documentReference: updated.documentReference,
