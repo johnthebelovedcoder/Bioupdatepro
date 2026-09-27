@@ -223,9 +223,9 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     // kept to the kobo a kg (₦385.71), so the price variance is ₦5,995.50.
     const issued = await prisma.productionOrder.findUniqueOrThrow({ where: { id } });
     const line = await prisma.productionOrderComponent.findFirstOrThrow({ where: { productionOrderId: id } });
-    expect(line.issuedCostKobo).toBe(404_995_50n);
+    expect(line.issuedCostKobo).toBe(405_000_00n);
     expect(issued.packagingCostKobo).toBe(399_000_00n);
-    expect(issued.materialPriceVarianceKobo).toBe(5_995_50n);
+    expect(issued.materialPriceVarianceKobo).toBe(6_000_00n);
     expect(issued.materialUsageVarianceKobo).toBe(0n);
     expect(issued.standardConversionCostKobo).toBe(145_000_00n);
 
@@ -257,18 +257,18 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     // The order's ₦154,500 of actual cost leaves the feed-mill pool, where
     // payroll and depreciation put it at source (not posted in this test).
     expect(await balanceOf('623100')).toBe(-154_500_00n);
-    // The workbook's total cost variance, ₦26,380, less the ₦4.50 of moving-average rounding.
-    expect(await balanceOf('520500')).toBe(26_375_50n);
+    // The workbook's total cost variance, ₦26,380 — the issue that empties the store takes exactly its value.
+    expect(await balanceOf('520500')).toBe(26_380_00n);
     expect(await balanceOf('130110')).toBe(533_120_00n); // finished feed at standard
   });
 
   it('settles a variance beyond the year’s tolerance only with a reason', async () => {
-    // Within the default 20%: the ₦26,375.50 is 4.95% of ₦533,120 and settles as it is.
+    // Within the default 20%: the ₦26,380 is 4.95% of ₦533,120 and settles as it is.
     await releasedStandard();
     const first = await throughConversion();
     await orders.recordOutputs({ productionOrderId: first, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: '980' }], warehouseId: feedStore, actor: maker });
     const within = await orders.varianceCheck(first);
-    expect(within.totalKobo).toBe(26_375_50n.toString());
+    expect(within.totalKobo).toBe(26_380_00n.toString());
     expect(within.percent).toBe('4.95');
     expect(within.overTolerance).toBe(false);
     await orders.settle({ productionOrderId: first, actor: maker });
@@ -369,14 +369,14 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     const id = await throughConversion();
     await orders.recordOutputs({ productionOrderId: id, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: '980' }], warehouseId: feedStore, actor: maker });
     await orders.settle({ productionOrderId: id, actor: maker });
-    expect(await balanceOf('520500')).toBe(26_375_50n);
+    expect(await balanceOf('520500')).toBe(26_380_00n);
 
     const audit = new AuditService(prisma);
     const prorations = new VarianceProrationService(prisma, audit, new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma)));
     // All 980 kg is still in store and nothing was sold or left in WIP: the whole variance belongs to finished goods.
     const preview = await prorations.preview(fixture.companyId, fixture.financialYearId);
-    expect(preview).toMatchObject({ disposition: 'PRORATE', totalVarianceKobo: '2637550', applies: true });
-    expect(preview.lines[0]).toMatchObject({ cycle: 'FEED_MILL', fgBaseKobo: '53312000', toFgKobo: '2637550', toCogsKobo: '0', toWipKobo: '0' });
+    expect(preview).toMatchObject({ disposition: 'PRORATE', totalVarianceKobo: '2638000', applies: true });
+    expect(preview.lines[0]).toMatchObject({ cycle: 'FEED_MILL', fgBaseKobo: '53312000', toFgKobo: '2638000', toCogsKobo: '0', toWipKobo: '0' });
     await expect(prorations.prorate({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, actor: maker })).rejects.toThrow(/finance controller or CFO/);
 
     // The year's last period must be open to post in.
@@ -384,7 +384,7 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     const last = year.periods[0]!;
     if (last.status !== 'OPEN') await prisma.financialPeriod.update({ where: { id: last.id }, data: { status: 'OPEN' } });
     await prorations.prorate({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, actor: finance });
-    expect(await balanceOf('130590')).toBe(26_375_50n);
+    expect(await balanceOf('130590')).toBe(26_380_00n);
     expect(await balanceOf('520500')).toBe(0n);
     await expect(prorations.prorate({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, actor: finance })).rejects.toThrow(/already prorated/);
     const [row] = await prorations.list(fixture.companyId);

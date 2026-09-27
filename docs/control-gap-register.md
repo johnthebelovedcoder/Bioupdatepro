@@ -79,7 +79,7 @@ other approval does.
 | AC-MFG-007 | S_Recovery and P_Recovery reconcile separately | Built | poultry-processing.spec: Controls reconciliation of 1304/2198 |
 | AC-MFG-008 | Snail ₦26,000 and poultry ₦40,000 variances | Built 26 Sep | see above |
 | AC-MFG-009 | FA depreciation = P&L + absorbed manufacturing depreciation | Built 26 Sep | Books → Depreciation schedule: per asset, charge split between expense and each processing line, with the checks against the ledger (fixed-assets.spec) |
-| AC-ENT-001 | Direct and indirect cash flow both equal SOFP cash | Built 26 Sep | Both methods side by side with the workbook's three checks; the 500-snail replay reproduces 500_Cash_Flow's direct lines (cash-flow.spec, case-500-snail.spec REP-019) |
+| AC-ENT-001 | Direct and indirect cash flow both equal SOFP cash | Built 26 Sep | Both methods side by side with the workbook's three checks; the 500-snail replay reproduces 500_Cash_Flow's direct lines and the 500-poultry replay P500_Cash_Flow's checks (cash-flow.spec, case-500-snail.spec REP-019, case-500-poultry.spec) |
 
 ## Acceptance_Criteria
 

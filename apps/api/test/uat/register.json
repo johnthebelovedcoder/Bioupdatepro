@@ -224,7 +224,8 @@
       "Financial statements (UAT-022) > balances: TB debits equal credits",
       "Financial statements (UAT-022) > reports each farm on its own",
       "SegmentProfitLossService > passes its release checks",
-      "500-snail case replay"
+      "500-snail case replay",
+      "500-poultry case replay"
     ],
     "negative": ["excludes draft journals from the trial balance"]
   },

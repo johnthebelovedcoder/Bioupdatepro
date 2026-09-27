@@ -148,6 +148,15 @@ either match or differ by named causes (the workbook's purchased breeders
 vanishing from its books, its unposted opening stock, and so on); an
 unexplained difference fails the test.
 
+The 500-poultry case is replayed the same way
+(`case-500-poultry.spec.ts` → `case-500-poultry-report.md`), against
+P_APP_EXPECTED_RESULTS and the 13 P500_Checks: the flock placed, fed from the
+store on the rounds, treated, charged its labour by animal-days, valued,
+partly sold live and partly processed through plant intake, ABC conversion and
+cold store. Both replays write their profit to `case-500-*.json`, and
+`run-uat.mjs` scores the workbook's V896 primary and enterprise P&L checks from
+them.
+
 ## Deploying schema changes
 
 Change `schema.prisma`, then create a migration with

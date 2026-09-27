@@ -396,7 +396,7 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
 
     const rows = (Object.keys(EXPECTED) as RepId[]).map((id) => {
       const variance = actual[id] - EXPECTED[id].value;
-      const causes = explained[id] ?? [];
+      const causes = (explained[id] ?? []).filter(([, amount]) => amount !== 0n);
       const explainedTotal = causes.reduce((s, [, amount]) => s + amount, 0n);
       return { id, variance, explainedTotal, causes, status: variance === 0n ? 'MATCH' : variance === explainedTotal ? 'EXPLAINED' : 'UNEXPLAINED' };
     });
@@ -420,8 +420,25 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
         '',
         '## Causes',
         '',
-        ...Object.entries(CAUSES).map(([key, c]) => `- **${key}** — ${c.why}`),
+        ...Object.entries(CAUSES).filter(([, c]) => c.amount !== 0n).map(([key, c]) => `- **${key}** — ${c.why}`),
       ].join('\n'),
+    );
+    // For the enterprise (V896) scoring in run-uat.mjs, beside the poultry replay's.
+    const causeTotal = (id: RepId) => (explained[id] ?? []).reduce((sum, [, amount]) => sum + amount, 0n);
+    writeFileSync(
+      join(__dirname, '..', 'uat', 'case-500-snail.json'),
+      JSON.stringify(
+        {
+          product: 'snail',
+          run: new Date().toISOString(),
+          workbook: { pbtKobo: EXPECTED['REP-014'].value.toString(), patKobo: EXPECTED['REP-015'].value.toString() },
+          application: { pbtKobo: pl.profitBeforeTaxKobo, patKobo: pl.profitAfterTaxKobo },
+          explained: { pbtKobo: causeTotal('REP-014').toString(), patKobo: causeTotal('REP-015').toString() },
+          causes: Object.fromEntries(Object.entries(CAUSES).map(([k, c]) => [k, c.amount.toString()])),
+        },
+        null,
+        2,
+      ),
     );
 
     // The application's own books hold together throughout.

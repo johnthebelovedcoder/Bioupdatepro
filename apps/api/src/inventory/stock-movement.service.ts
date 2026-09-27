@@ -411,12 +411,20 @@ export class StockMovementService {
       );
     }
 
-    const valueKobo = BigInt(
+    /*
+     * The average is held to the kobo, so quantity × average can drift a few
+     * kobo from the value actually on hand. The issue that empties the item
+     * takes exactly what is left, and no issue takes more than is there — so
+     * a sold-out item stands at ₦0.00, never a stray credit or debit.
+     */
+    const atAverage = BigInt(
       new Decimal(before.wacKobo.toString())
         .mul(params.quantity)
         .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
         .toFixed(0),
     );
+    const available = before.valueKobo > 0n ? before.valueKobo : 0n;
+    const valueKobo = before.quantity.equals(params.quantity) ? available : atAverage > available ? available : atAverage;
 
     const movement = await params.tx.stockMovement.create({
       data: {
