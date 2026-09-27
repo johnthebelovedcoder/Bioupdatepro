@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PurchaseOrderStatus, QualityStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
-import { GoodsReceiptService } from './goods-receipt.service';
+import { GoodsReceiptService, type LivestockPlacement } from './goods-receipt.service';
 import { PurchaseOrderService } from './purchase-order.service';
 import { SupplierInvoiceService } from './supplier-invoice.service';
 import { SupplierPaymentService } from './supplier-payment.service';
@@ -320,6 +320,8 @@ export class ProcurementFlowService {
       batchReference?: string | null;
       expiryDate?: Date | null;
       warehouseId?: string | null;
+      /** Live animals: the batch they are placed as. */
+      placement?: LivestockPlacement | null;
     }>;
   }) {
     const order = await this.prisma.purchaseOrder.findFirst({
@@ -384,6 +386,7 @@ export class ProcurementFlowService {
         ...(line.batchReference ? { batchReference: line.batchReference } : {}),
         ...(line.expiryDate ? { expiryDate: line.expiryDate } : {}),
         ...(line.warehouseId ? { warehouseId: line.warehouseId } : {}),
+        ...(line.placement ? { placement: line.placement } : {}),
       })),
       actor: params.actor,
     });

@@ -2208,6 +2208,11 @@ model Item {
   /// Whether this item can be produced by a recipe (a finished good or an
   /// intermediate), as opposed to only ever being bought.
   isManufactured   Boolean  @default(false) @map("is_manufactured")
+  /// Live animals of this species (snail, poultry). Bought on a purchase
+  /// order like any stock, but a goods receipt places a batch and posts to
+  /// the biological-asset account instead of stock (Test_Environment_Script
+  /// steps 5 and 12).
+  livestockSpeciesKey String? @map("livestock_species_key")
 
   unitOfMeasureId String @map("unit_of_measure_id") @db.Uuid
 
@@ -5461,6 +5466,11 @@ model GoodsReceiptNoteLine {
   /// warehouse" — every receipt before this went into one warehouse for the
   /// whole document; this lets one line land somewhere else without forcing
   /// every receipt to name a location it doesn't need.
+  /// For live animals: the batch the accepted quantity is placed as —
+  /// { code, house, stage, breed, purpose }.
+  livestockPlacement Json? @map("livestock_placement")
+  /// The batch this line placed, once posted.
+  livestockGroupId String? @map("livestock_group_id") @db.Uuid
   warehouseId String? @map("warehouse_id") @db.Uuid
 
   /// How much of the accepted quantity has been invoiced. The GRNI balance for

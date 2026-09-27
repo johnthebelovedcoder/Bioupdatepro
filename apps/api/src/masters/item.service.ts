@@ -34,6 +34,8 @@ export class ItemService {
     itemType?: ItemType;
     isBiologicalFeed?: boolean;
     isManufactured?: boolean;
+    /** Live animals of this species (snail, poultry): received as a batch, not stock. */
+    livestockSpeciesKey?: string | null;
     unitOfMeasureCode: string;
     vatTaxCode?: string | null;
     preferredSupplierId?: string | null;
@@ -83,7 +85,8 @@ export class ItemService {
     }
 
     // An item that cannot post is an item that will fail at the worst moment.
-    if (itemType === ItemType.INVENTORY && !input.inventoryGlAccountId) {
+    // Live animals post to the biological-asset account for their stage, not a stock account.
+    if (itemType === ItemType.INVENTORY && !input.inventoryGlAccountId && !input.livestockSpeciesKey) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §5 — Item master',
         `Inventory item "${input.code}" needs a default inventory GL account: goods ` +
@@ -109,6 +112,7 @@ export class ItemService {
           itemType,
           isBiologicalFeed: input.isBiologicalFeed ?? false,
           isManufactured: input.isManufactured ?? false,
+          livestockSpeciesKey: input.livestockSpeciesKey?.trim() || null,
           unitOfMeasureId: uom.id,
           vatTaxCodeId,
           preferredSupplierId: input.preferredSupplierId ?? null,

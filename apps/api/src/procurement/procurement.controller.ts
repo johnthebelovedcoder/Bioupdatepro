@@ -225,6 +225,8 @@ export class ProcurementController {
         /** YYYY-MM-DD, from the pack. */
         expiryDate?: string | null;
         warehouseId?: string | null;
+        /** Live animals: the batch they are placed as. */
+        placement?: { code: string; house: string; stage: string; breed: string; purpose?: string | null } | null;
       }>;
     },
   ) {

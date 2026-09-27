@@ -1535,6 +1535,57 @@ describe('Procure-to-Pay (§5)', () => {
     });
   });
 
+  describe('live animals bought on a purchase order (Test_Environment_Script steps 5 and 12)', () => {
+    it('places the batch on receipt, books it to the biological asset, and clears GRNI when the invoice matches', async () => {
+      const uom = await prisma.unitOfMeasure.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'Unit' } });
+      const breeders = await prisma.item.create({
+        data: { companyId: fixture.companyId, code: 'LIVE-BRD', description: 'Breeder snails', unitOfMeasureId: uom.id, itemType: ItemType.INVENTORY, livestockSpeciesKey: 'snail' },
+      });
+      const baAccount = await prisma.gLAccount.create({
+        data: { companyId: fixture.companyId, accountNumber: '130200', name: 'BA — Breeders', accountType: 'ASSET', normalBalance: 'DEBIT' },
+      });
+      await prisma.biologicalAssetStageAccount.create({ data: { companyId: fixture.companyId, speciesKey: 'snail', stage: 'Breeder', glAccountId: baAccount.id } });
+      await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: 'SNL-1', name: 'Snailery 1', capacity: 1_000 } });
+
+      const order = await approvedOrder(breeders.id, 500, 2_200_00n);
+      // A receipt of animals must say where they go.
+      await expect(
+        receipts.create({
+          purchaseOrderId: order.id, receiptDate: JAN, ...period(), qualityStatus: QualityStatus.PASSED, actor: maker,
+          lines: [{ purchaseOrderLineId: order.lines[0]!.id, receivedQuantity: 500 }],
+        }),
+      ).rejects.toThrow(/give the batch code, house, stage and breed/);
+
+      const grn = await receipts.create({
+        purchaseOrderId: order.id, grnNumber: 'GRN-LIVE', receiptDate: JAN, ...period(), qualityStatus: QualityStatus.PASSED, actor: maker,
+        lines: [{ purchaseOrderLineId: order.lines[0]!.id, receivedQuantity: 500, placement: { code: 'BRD-1', house: 'SNL-1', stage: 'Breeder', breed: 'Archachatina marginata', purpose: 'Breeders' } }],
+      });
+      const submitted = await receipts.submit({ grnId: grn.id, actor: maker });
+      await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+
+      const batch = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'BRD-1' } });
+      expect(batch).toMatchObject({ population: 500, speciesKey: 'snail', stage: 'Breeder', acquisitionCostKobo: 1_100_000_00n });
+      expect(batch.source).toContain('GRN-LIVE');
+      expect(await accountBalance('130200')).toBe(1_100_000_00n);
+      // No stock movement: animals are a batch, not stock on a shelf.
+      expect(await prisma.stockMovement.count({ where: { companyId: fixture.companyId, itemId: breeders.id } })).toBe(0);
+      expect((await receipts.grniBalance(order.id)).outstandingKobo).toBe('110000000');
+
+      // The supplier's invoice matches the receipt and clears GRNI.
+      await invoiceFromGrn(order.id, grn.id, 'SI-LIVE');
+      expect((await receipts.grniBalance(order.id)).outstandingKobo).toBe('0');
+
+      // The house is not overfilled by a second delivery.
+      const more = await approvedOrder(breeders.id, 600, 2_200_00n);
+      await expect(
+        receipts.create({
+          purchaseOrderId: more.id, grnNumber: 'GRN-LIVE-2', receiptDate: JAN, ...period(), qualityStatus: QualityStatus.PASSED, actor: maker,
+          lines: [{ purchaseOrderLineId: more.lines[0]!.id, receivedQuantity: 600, placement: { code: 'BRD-1', house: 'SNL-1', stage: 'Breeder', breed: 'Archachatina marginata' } }],
+        }),
+      ).rejects.toThrow(/already a batch called BRD-1/);
+    });
+  });
+
   describe('delivery performance and budget against spend (AGR-001, AGR-002)', () => {
     const day = (n: number) => new Date(JAN.getTime() + n * 86_400_000);
 

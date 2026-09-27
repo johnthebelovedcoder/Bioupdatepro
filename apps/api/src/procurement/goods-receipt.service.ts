@@ -20,6 +20,7 @@ import { StockMovementService } from '../inventory/stock-movement.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { expiryFromShelfLife, registerLot } from '../inventory/lots';
 import { kobo } from '../common/money';
+import { assertPenRoom } from '../operations/pen-capacity';
 
 export interface GrnLineInput {
   purchaseOrderLineId: string;
@@ -31,6 +32,20 @@ export interface GrnLineInput {
   expiryDate?: Date | null;
   /** US-897-007. Omit to use the GRN's own header warehouse, same as before. */
   warehouseId?: string | null;
+  /** Live animals only: the batch the accepted quantity is placed as. */
+  placement?: LivestockPlacement | null;
+}
+
+/** Where live animals received on a purchase order go (Test_Environment_Script steps 5 and 12). */
+export interface LivestockPlacement {
+  /** The new batch's code, e.g. BRD-1. */
+  code: string;
+  /** The pen or house code. */
+  house: string;
+  /** The stage they arrive at, e.g. Breeder or Day-old chick. */
+  stage: string;
+  breed: string;
+  purpose?: string | null;
 }
 
 /**
@@ -165,6 +180,27 @@ export class GoodsReceiptService {
       // Only inventory items carry value into stock and GRNI at receipt.
       if (orderLine.item.itemType === ItemType.INVENTORY) totalValue += value;
 
+      // Live animals are placed as a batch, so the receipt has to say where.
+      let placement: LivestockPlacement | null = null;
+      if (orderLine.item.livestockSpeciesKey) {
+        const p = line.placement;
+        if (!p?.code?.trim() || !p.house?.trim() || !p.stage?.trim() || !p.breed?.trim()) {
+          throw new AccountingRuleViolation(
+            'Consolidated Reference §5 — Goods receipt',
+            `${orderLine.item.code} is live animals: give the batch code, house, stage and breed they are placed as.`,
+            { itemCode: orderLine.item.code },
+          );
+        }
+        if (!accepted.isInteger()) {
+          throw new AccountingRuleViolation('Consolidated Reference §5 — Goods receipt', `Animals are counted whole: ${accepted.toString()} accepted.`, {});
+        }
+        const taken = await this.prisma.livestockGroup.findUnique({ where: { companyId_code: { companyId: order.companyId, code: p.code.trim() } } });
+        if (taken) {
+          throw new AccountingRuleViolation('UAT-010 — Duplicate cohort', `There is already a batch called ${p.code.trim()}. Give this one another code.`, { code: p.code.trim() });
+        }
+        placement = { code: p.code.trim(), house: p.house.trim(), stage: p.stage.trim(), breed: p.breed.trim(), purpose: p.purpose?.trim() || null };
+      }
+
       prepared.push({
         lineNumber: lineNumber++,
         purchaseOrderLineId: orderLine.id,
@@ -178,6 +214,7 @@ export class GoodsReceiptService {
         batchReference: line.batchReference ?? null,
         expiryDate: line.expiryDate ?? null,
         warehouseId: line.warehouseId ?? null,
+        livestockPlacement: placement ? (placement as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       });
     }
 
@@ -332,13 +369,17 @@ export class GoodsReceiptService {
     };
 
     const inventoryLines = grn.lines.filter(
-      (line) => line.item.itemType === ItemType.INVENTORY && line.valueKobo > 0n,
+      (line) => line.item.itemType === ItemType.INVENTORY && line.valueKobo > 0n && !line.item.livestockSpeciesKey,
     );
+
+    // Live animals: each accepted line becomes a batch, carried at what it cost,
+    // and its debit goes to the biological-asset account for its species and stage.
+    const livestockDebits = await this.placeLivestock({ tx: params.tx, grn, actor: params.actor });
 
     let journalEntryId: string | null = null;
 
-    if (inventoryLines.length > 0) {
-      const total = inventoryLines.reduce((s, l) => s + l.valueKobo, 0n);
+    if (inventoryLines.length > 0 || livestockDebits.length > 0) {
+      const total = inventoryLines.reduce((s, l) => s + l.valueKobo, 0n) + livestockDebits.reduce((s, l) => s + l.debit, 0n);
 
       /*
        * Every stocked line must name the account its value lands in.
@@ -373,6 +414,8 @@ export class GoodsReceiptService {
         debit?: bigint;
         credit?: bigint;
         itemId: string | null;
+        farmId?: string;
+        penHouseId?: string;
       }> = [
         ...inventoryLines.map((line) => ({
           glAccountId: line.item.inventoryGlAccountId!,
@@ -380,6 +423,7 @@ export class GoodsReceiptService {
           debit: line.valueKobo,
           itemId: line.itemId,
         })),
+        ...livestockDebits,
         {
           glAccountId: settings.grniGlAccountId,
           description: `Goods received not invoiced — ${grn.grnNumber}`,
@@ -404,7 +448,7 @@ export class GoodsReceiptService {
             description: line.description,
             debit: line.debit !== undefined ? kobo(line.debit) : undefined,
             credit: line.credit !== undefined ? kobo(line.credit) : undefined,
-            dimensions: { ...lineDimensions, itemId: line.itemId },
+            dimensions: { ...lineDimensions, itemId: line.itemId, ...(line.farmId ? { farmId: line.farmId, penHouseId: line.penHouseId } : {}) },
           })),
         },
         params.tx,
@@ -416,6 +460,8 @@ export class GoodsReceiptService {
     // since Phase 8 introduced it.
     for (const line of grn.lines) {
       if (line.item.itemType !== ItemType.INVENTORY) continue;
+      // Animals are a batch, not stock on a shelf.
+      if (line.item.livestockSpeciesKey) continue;
       const accepted = new Decimal(line.acceptedQuantity.toString());
       if (accepted.lessThanOrEqualTo(0)) continue;
 
@@ -537,6 +583,99 @@ export class GoodsReceiptService {
 
     this.logger.log(`Posted goods receipt ${grn.grnNumber}`);
     return { journalEntryId };
+  }
+
+  /**
+   * Live animals on a receipt become batches, inside the receipt's own
+   * transaction: the batch is created with the accepted count, carried at
+   * what it cost (UAT-010/016: code unique, house not overfilled), and the
+   * debit for the receipt's journal goes to the biological-asset account for
+   * its species and arrival stage — `Dr BA / Cr GRNI`, the same entry a
+   * placement with an acquisition cost makes, but matched to the order so
+   * the supplier's invoice clears it.
+   */
+  private async placeLivestock(params: {
+    tx: Prisma.TransactionClient;
+    grn: Prisma.GoodsReceiptNoteGetPayload<{ include: { lines: { include: { item: true } }; purchaseOrder: true } }>;
+    actor: WorkflowActor;
+  }) {
+    const { tx, grn } = params;
+    const debits: Array<{ glAccountId: string; description: string; debit: bigint; itemId: string; farmId: string; penHouseId: string }> = [];
+    for (const line of grn.lines) {
+      const species = line.item.livestockSpeciesKey;
+      if (!species || line.valueKobo <= 0n) continue;
+      const placement = line.livestockPlacement as unknown as LivestockPlacement | null;
+      if (!placement) {
+        throw new AccountingRuleViolation('Consolidated Reference §5 — Goods receipt', `${grn.grnNumber} line ${line.lineNumber}: live animals with no batch to place them as.`, {});
+      }
+      const count = Number(line.acceptedQuantity.toString());
+      if (count <= 0) continue;
+
+      const pen = await tx.penHouse.findFirst({
+        where: { code: placement.house, farm: { companyId: grn.companyId } },
+        include: { farm: { select: { branchId: true } } },
+      });
+      if (!pen) {
+        throw new AccountingRuleViolation('Consolidated Reference §5 — Goods receipt', `There is no house or pen ${placement.house} to place ${placement.code} in.`, { house: placement.house });
+      }
+      await assertPenRoom(tx, grn.companyId, pen, count);
+
+      const mapping = await tx.biologicalAssetStageAccount.findUnique({
+        where: { companyId_speciesKey_stage: { companyId: grn.companyId, speciesKey: species, stage: placement.stage } },
+      });
+      if (!mapping?.active) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §67 — Biological asset stage account',
+          `No biological-asset account is set for ${species} at ${placement.stage}. Set it under Books → Controls, then approve ${grn.grnNumber} again.`,
+          { speciesKey: species, stage: placement.stage },
+        );
+      }
+
+      const group = await tx.livestockGroup.create({
+        data: {
+          companyId: grn.companyId,
+          branchId: pen.farm.branchId,
+          farmId: pen.farmId,
+          penHouseId: pen.id,
+          code: placement.code,
+          speciesKey: species,
+          breed: placement.breed,
+          purpose: placement.purpose ?? placement.stage,
+          stage: placement.stage,
+          openingPopulation: count,
+          population: count,
+          startedOn: grn.receiptDate,
+          source: `${grn.grnNumber} (${grn.purchaseOrder.orderNumber})`,
+          acquisitionCostKobo: line.valueKobo,
+          // Carried at cost from arrival; marks the acquisition as booked, so a
+          // later placement posting does not book it a second time.
+          currentFvlctsPerUnitKobo: line.valueKobo / BigInt(count),
+        },
+      });
+      await tx.goodsReceiptNoteLine.update({ where: { id: line.id }, data: { livestockGroupId: group.id } });
+      await this.audit.write(
+        {
+          transactionId: group.id,
+          module: 'OPERATIONS',
+          entityType: 'LivestockGroup',
+          entityId: group.id,
+          status: 'ACTIVE',
+          action: AuditAction.CREATE,
+          userId: params.actor.userId,
+          comments: `Placed ${count} ${placement.breed} at ${placement.house} from ${grn.grnNumber}.`,
+        },
+        tx,
+      );
+      debits.push({
+        glAccountId: mapping.glAccountId,
+        description: `Biological asset — ${placement.code} (${grn.grnNumber})`,
+        debit: line.valueKobo,
+        itemId: line.itemId,
+        farmId: pen.farmId,
+        penHouseId: pen.id,
+      });
+    }
+    return debits;
   }
 
   /**
