@@ -926,6 +926,67 @@ await step(32, 'Cash', 'Receive and allocate customer payments', async () => {
   return { ref: 'Receipts for every invoice', actual: `All invoices collected; AR cleared to zero; bank ${shown(await balance('110100'))}.` };
 });
 
+// ---------------------------------------------------------------- 33-35 Counts, valuation, reconciliation
+
+await step(33, 'Inventory close', 'Count and reconcile RM, feed, packaging and FG', async () => {
+  const counts = svc('inventory/stock-count.service.js', 'StockCountService');
+  const recon = svc('reporting/control-account-reconciliation.service.js', 'ControlAccountReconciliationService');
+  const summary = [];
+  for (const code of ['RAW-WH', 'FG-WH']) {
+    const count = await counts.start({ companyId: ctx.companyId, warehouseId: ctx.warehouse[code], actor: ctx.clerk });
+    const sheet = await counts.detail(ctx.companyId, count.id);
+    if (sheet.lines.length === 0) {
+      summary.push(`${code}: nothing on hand`);
+      continue;
+    }
+    // Everything as the books say, except 10 kg of maize lost to spillage.
+    await counts.record({
+      companyId: ctx.companyId, countId: count.id, actor: ctx.clerk,
+      counts: sheet.lines.map((l) => (l.itemId === ctx.item.maize && Number(l.bookQuantity) >= 10 ? { itemId: l.itemId, quantity: String(Number(l.bookQuantity) - 10), reason: 'Spillage in the store' } : { itemId: l.itemId, quantity: l.bookQuantity })),
+    });
+    await counts.submit({ companyId: ctx.companyId, countId: count.id, actor: ctx.clerk });
+    await counts.decide({ companyId: ctx.companyId, countId: count.id, action: 'APPROVE', note: 'Agreed with the store', actor: ctx.controller });
+    summary.push(`${code}: ${sheet.lines.length} items counted`);
+  }
+  const rows = await recon.reconcile(ctx.companyId);
+  const stockRows = rows.filter((r) => /^130(100|110|215|510|520)$/.test(r.accountNumber));
+  const off = stockRows.filter((r) => !r.reconciled);
+  expect(off.length === 0, `Stock accounts off their subledger: ${off.map((r) => `${r.accountNumber} ${shown(r.varianceKobo)}`).join(', ')}.`);
+  return { ref: summary.join('; '), actual: `Counted; a 10 kg maize shortfall approved by the finance controller and posted to inventory variance. Stock subledger = GL for ${stockRows.map((r) => r.accountNumber).join(', ')}.` };
+});
+
+await step(34, 'BA valuation', 'Count and value all snail/poultry BA stages', async () => {
+  const assets = svc('biological-assets/biological-asset.service.js', 'BiologicalAssetService');
+  const valued = [];
+  for (const [code, price, toSell] of [['BRD-1', 2_500, 0], ['HAT-1', 3_200, 200], ['PAR-1', 6_000, 0], ['HCH-1', 5_500, 0]]) {
+    const v = await valueAtHarvest(code, 265, price, toSell, 'Month-end count and market evidence');
+    valued.push(`${code} ${v.status}`);
+  }
+  // A batch that has gone entirely is not revalued.
+  const gone = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'BLR-001' } });
+  expect(gone.population === 0, `BLR-001 still holds ${gone.population}.`);
+  let refused = false;
+  try {
+    await assets.requestValuation({ companyId: ctx.companyId, groupId: gone.id, valuationDate: D(265), marketPricePerUnitKobo: naira(5_500), costsToSellPerUnitKobo: 0n, evidenceReference: 'test', actor: ctx.clerk });
+  } catch {
+    refused = true;
+  }
+  expect(refused, 'A fully disposed batch was revalued.');
+  const rollForwards = await Promise.all(['BRD-1', 'HAT-1', 'PAR-1', 'HCH-1'].map(async (code) => assets.rollForward((await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code } })).id)));
+  if (process.env.REHEARSAL_DEBUG) console.log(JSON.stringify(rollForwards, (k, v) => (typeof v === 'bigint' ? v.toString() : v)));
+  const diff = rollForwards.reduce((s, r) => s + BigInt(r.differenceKobo), 0n);
+  expect(diff === 0n, `Roll-forward differs by ${shown(diff)}.`);
+  return { ref: valued.join(', '), actual: `Remaining stages valued through approval; fair-value movements to 420100/420200. BLR-001 (all sold or processed) refused a revaluation. BA roll-forward: opening + movements = closing for every batch.` };
+});
+
+await step(35, 'AP/AR close', 'Reconcile GRNI, AP, AR, WHT/VAT and customer/supplier balances', async () => {
+  const recon = svc('reporting/control-account-reconciliation.service.js', 'ControlAccountReconciliationService');
+  const rows = await recon.reconcile(ctx.companyId);
+  const off = rows.filter((r) => !r.reconciled);
+  expect(off.length === 0, `Off: ${off.map((r) => `${r.accountNumber} ${r.accountName} GL ${shown(r.glBalanceKobo)} vs ${r.source} ${shown(r.subledgerKobo)}`).join('; ')}.`);
+  return { ref: `${rows.length} control accounts`, actual: `Every control account equals its subledger: ${rows.map((r) => `${r.accountNumber} ${shown(r.glBalanceKobo)}`).join('; ')}.` };
+});
+
 /*@@STEPS@@*/
 
 // ---------------------------------------------------------------- evidence

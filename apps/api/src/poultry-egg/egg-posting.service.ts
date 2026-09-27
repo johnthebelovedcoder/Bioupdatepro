@@ -402,9 +402,15 @@ export class EggPostingService {
 
         await tx.hatchEvent.update({ where: { id: hatch.id }, data: { journalEntryId: journal.journalEntryId } });
         // The chicks' carrying value is what the eggs were worth, the same
-        // field a bought flock carries its purchase cost in.
+        // fields a bought flock carries its purchase cost in. The per-bird
+        // value matters: a valuation measures its gain from it, and without it
+        // the eggs' value was counted again as fair-value gain (the 40-step
+        // rehearsal's roll-forward, step 34).
         if (group) {
-          await tx.livestockGroup.update({ where: { id: group.id }, data: { acquisitionCostKobo: incubation.valueKobo } });
+          await tx.livestockGroup.update({
+            where: { id: group.id },
+            data: { acquisitionCostKobo: incubation.valueKobo, currentFvlctsPerUnitKobo: incubation.valueKobo / BigInt(Math.max(1, hatch.hatchedCount)) },
+          });
         }
       });
     });

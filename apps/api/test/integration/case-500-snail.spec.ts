@@ -113,11 +113,6 @@ const CAUSES = {
     why:
       'Income tax is 30% of the application’s own profit before tax, which is higher by the causes above, so tax is higher and profit after tax lower by 30% of them. The workbook books no tax liability in its trial balance (profit after tax appears only in its P&L); the application provides for it (PCR-084, 227100).',
   },
-  overheadToPayables: {
-    amount: N(900_000),
-    why:
-      'The workbook accrues actual processing overhead to 230100 Accrued Expenses. The application posts PCR-055’s credit to its resolved source liability — trade payables here — so AP is ₦900,000 higher and accrued expenses lower by the same; total liabilities are unchanged.',
-  },
 };
 
 let prisma: PrismaService;
@@ -391,7 +386,6 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     CAUSES.wacRounding.amount = wacRounding;
     CAUSES.taxOnDifference.amount = taxOnDifference;
     const explained: Partial<Record<RepId, Array<[keyof typeof CAUSES, bigint]>>> = {
-      'REP-010': [['overheadToPayables', CAUSES.overheadToPayables.amount]],
       'REP-013': [['breeders', CAUSES.breeders.amount]],
       'REP-014': [['breeders', CAUSES.breeders.amount], ['wacRounding', wacRounding]],
       'REP-015': [['breeders', CAUSES.breeders.amount], ['wacRounding', wacRounding], ['taxOnDifference', taxOnDifference]],

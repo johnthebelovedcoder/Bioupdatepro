@@ -291,6 +291,39 @@ export class StockMovementService {
     return held;
   }
 
+  /**
+   * Which store an issue comes out of. The item's own default store when it
+   * has one; otherwise a store that actually holds enough of it — the one
+   * holding most — rather than the first store by code. Picking the first
+   * store took production and feed issues out of the finished-goods store
+   * while the stock sat in raw materials, so the ledger was right and every
+   * store's own records were wrong (found by the 40-step rehearsal's count).
+   * With nothing held anywhere it falls back to the first store, and the
+   * issue is refused there as before.
+   */
+  async issuingWarehouse(
+    client: Prisma.TransactionClient | PrismaService,
+    params: { companyId: string; itemId: string; quantity: Decimal.Value; defaultWarehouseId?: string | null },
+  ): Promise<string> {
+    if (params.defaultWarehouseId) return params.defaultWarehouseId;
+    const rows = await client.stockMovement.groupBy({
+      by: ['warehouseId', 'direction'],
+      where: { companyId: params.companyId, itemId: params.itemId },
+      _sum: { quantity: true },
+    });
+    const held = new Map<string, Decimal>();
+    for (const row of rows) {
+      const q = new Decimal((row._sum.quantity ?? 0).toString());
+      held.set(row.warehouseId, (held.get(row.warehouseId) ?? new Decimal(0))[row.direction === StockDirection.IN ? 'plus' : 'minus'](q));
+    }
+    const ranked = [...held.entries()].sort((a, b) => b[1].comparedTo(a[1]));
+    const enough = ranked.find(([, q]) => q.greaterThanOrEqualTo(params.quantity));
+    if (enough) return enough[0];
+    if (ranked[0] && ranked[0][1].greaterThan(0)) return ranked[0][0];
+    const first = await client.warehouse.findFirstOrThrow({ where: { companyId: params.companyId, active: true }, orderBy: { code: 'asc' }, select: { id: true } });
+    return first.id;
+  }
+
   /** Refuses, in words, when the named store holds less than asked for. */
   async assertStoreHolds(params: {
     tx: Prisma.TransactionClient;

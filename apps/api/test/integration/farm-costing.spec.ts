@@ -263,6 +263,8 @@ describe('Eggs at a dated value per crate (PCR-067/068/069)', () => {
     expect(await eggPostings.postHatch(hatch.id, actor)).toEqual({ posted: true });
     const chicks = await prisma.livestockGroup.findUniqueOrThrow({ where: { id: hatch.chickGroupId! } });
     expect(chicks.acquisitionCostKobo).toBe(150_000n);
+    // Carried at what the eggs were worth, a bird: a later valuation's gain is measured from this, not from nothing.
+    expect(chicks.currentFvlctsPerUnitKobo).toBe(6_000n);
 
     const balance = async (id: string) => {
       const sums = await prisma.journalLine.aggregate({ where: { glAccountId: id }, _sum: { debitKobo: true, creditKobo: true } });

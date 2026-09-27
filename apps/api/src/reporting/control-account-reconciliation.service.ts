@@ -153,7 +153,10 @@ export class ControlAccountReconciliationService {
     for (const order of orders) {
       // The same WIP debits settle() checks: biological input, its rearing cost, packaging, standard conversion.
       const wipDebits = order.biologicalInputValueKobo + order.rearingCostKobo + order.packagingCostKobo + order.standardConversionCostKobo;
-      const closingWip = wipDebits - order.finishedGoodsCostKobo - order.abnormalLossCostKobo;
+      // A settled order holds nothing: settlement cleared its WIP, the difference going to variance.
+      // Without this a settled order whose output cost more than its WIP debits read as negative WIP
+      // (the 40-step rehearsal's feed orders). Anything settlement left behind still shows against zero.
+      const closingWip = order.settledAt ? 0n : wipDebits - order.finishedGoodsCostKobo - order.abnormalLossCostKobo;
       const entry = byCycle.get(order.processingCycle) ?? { subledgerKobo: 0n, count: 0 };
       entry.subledgerKobo += closingWip;
       entry.count += 1;

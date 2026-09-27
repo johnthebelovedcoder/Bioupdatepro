@@ -82,6 +82,19 @@ beforeEach(async () => {
 const onHand = async (warehouseId: string) => (await stock.storeQuantity(prisma, fixture.companyId, itemId, warehouseId)).toNumber();
 
 describe('Inventory control (UAT-006)', () => {
+  it('issues from the store that holds the stock, not the first store by code (rehearsal step 33)', async () => {
+    // An empty store whose code sorts first: the old fallback would have issued from it.
+    const empty = (await prisma.warehouse.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'A-FG', name: 'Produce store', type: 'FINISHED_GOODS' } })).id;
+    expect(await stock.issuingWarehouse(prisma, { companyId: fixture.companyId, itemId, quantity: 100 })).toBe(store.MAIN);
+    // More than any one store holds: still the store holding most, so the refusal names the right one.
+    expect(await stock.issuingWarehouse(prisma, { companyId: fixture.companyId, itemId, quantity: 5_000 })).toBe(store.MAIN);
+    // An item's own default store is respected.
+    expect(await stock.issuingWarehouse(prisma, { companyId: fixture.companyId, itemId, quantity: 100, defaultWarehouseId: store.MILL })).toBe(store.MILL);
+    // Nothing held anywhere: the first store, where the issue is then refused.
+    const other = await prisma.item.create({ data: { companyId: fixture.companyId, code: 'SOYA', description: 'Soya', unitOfMeasureId: (await prisma.item.findUniqueOrThrow({ where: { id: itemId } })).unitOfMeasureId } });
+    expect(await stock.issuingWarehouse(prisma, { companyId: fixture.companyId, itemId: other.id, quantity: 1 })).toBe(empty);
+  });
+
   it('writes off only once someone other than the requester approves it (PCR-014)', async () => {
     const requested = await transfers.writeOff({
       companyId: fixture.companyId, branchId: fixture.branchId, itemId, warehouseId: store.MAIN!, quantity: 5, reason: 'Rat damage, bay 3', actor,

@@ -142,8 +142,14 @@ export class OperationsPostingService {
        * No stock on hand refuses the issue; the round is kept and its cost
        * waits, like a closed period, until the feed has been received.
        */
+      // The store that holds the feed, unless the item names its own.
       const warehouseId = issue.itemId
-        ? (issue.item?.defaultWarehouseId ?? (await this.defaultWarehouse(params.companyId)))
+        ? await this.stockMovements.issuingWarehouse(this.prisma, {
+            companyId: params.companyId,
+            itemId: issue.itemId,
+            quantity: issue.quantityKg.toString(),
+            defaultWarehouseId: issue.item?.defaultWarehouseId,
+          })
         : null;
       if (issue.itemId && !warehouseId) {
         skipped.push('No store is set up to issue feed from.');
@@ -396,15 +402,6 @@ export class OperationsPostingService {
 
   /** The two accounts these postings need, by their workbook numbers. */
   /** The store feed leaves from when its item names none — the same fallback production orders use. */
-  private async defaultWarehouse(companyId: string): Promise<string | null> {
-    const warehouse = await this.prisma.warehouse.findFirst({
-      where: { companyId, active: true },
-      orderBy: { code: 'asc' },
-      select: { id: true },
-    });
-    return warehouse?.id ?? null;
-  }
-
   /**
    * Where a feed or treatment posts, on the company's own chart (chart.ts).
    * `workInProgress` is what is debited: the population's rearing cost

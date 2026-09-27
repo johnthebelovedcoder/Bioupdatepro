@@ -1238,7 +1238,13 @@ export class BiologicalAssetService {
 
     const isGain = valuation.direction === 'GAIN';
 
-    const result = await this.posting.post(
+    /*
+     * A valuation that confirms the carrying value (a month-end count at an
+     * unchanged price) is evidence, not a movement: it is recorded and
+     * approved with no journal, since a journal of zero is refused. Found by
+     * the 40-step rehearsal's month-end valuation (step 34).
+     */
+    const result = valuation.gainLossKobo === 0n ? { journalEntryId: null } : await this.posting.post(
       {
         sourceModule: 'BIOLOGICAL_ASSETS',
         sourceDocumentType: 'BIOLOGICAL_ASSET_VALUATION',

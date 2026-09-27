@@ -123,6 +123,10 @@ const PAYABLE_ACCOUNTS = [
   '219810', '219820', '219830',
   // Income tax provided for but not yet paid (PCR-084-CR).
   '227100',
+  // Accrued expenses: actual conversion cost accrued at confirmation
+  // (ProductionOrderService.actualCostCreditAccount), settled when the
+  // invoices, payroll and depreciation behind it are booked.
+  '230100',
 ];
 const BANK_ACCOUNTS = ['1101', '110100'];
 /** Salary and statutory payroll payables and costs: paid to or for employees. */

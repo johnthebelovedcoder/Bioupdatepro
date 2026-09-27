@@ -102,7 +102,7 @@ const CAUSES = {
   conversionToPayables: {
     amount: 0n, // measured: what the actual conversion credited to trade payables
     why:
-      'The workbook accrues the ₦660,000 actual processing cost to 220100 (“Payroll/AP/Accum Dep”). The application posts PCR-055’s credit for the actual conversion pool to its resolved source liability — trade payables — so AP is ₦660,000 higher and 220100 lower by the same; total liabilities are unchanged. (The same cause as the snail case’s overheadToPayables.)',
+      'The workbook accrues the ₦660,000 actual processing cost to 220100 (“Payroll/AP/Accum Dep”); the application accrues it to 230100 Accrued Expenses, as the snail case does. Trade payables are unaffected either way, so this measures zero on AP; it remains only as the check that nothing credits payables without a supplier.',
   },
   fgRounding: {
     amount: 0n, // measured: what the kobo-rounded average leaves in finished goods

@@ -482,10 +482,13 @@ export class ProductionOrderService {
       this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.packagingRuleId, on: new Date() }),
       this.prisma.item.findMany({ where: { id: { in: order.components.map((c) => c.componentItemId) } } }),
     ]);
-    const fallbackWarehouseId = componentItems.some((i) => !i.defaultWarehouseId)
-      ? await this.defaultWarehouse(this.prisma, order.companyId)
-      : null;
-    const warehouseByItem = new Map(componentItems.map((i) => [i.id, i.defaultWarehouseId ?? fallbackWarehouseId!]));
+    // Each component from the store that holds it, unless the item names its own (StockMovementService.issuingWarehouse).
+    const warehouseByItem = new Map<string, string>();
+    for (const item of componentItems) {
+      const component = order.components.find((c) => c.componentItemId === item.id)!;
+      const wanted = params.actualQuantities?.[component.id] ?? component.plannedQuantity.toString();
+      warehouseByItem.set(item.id, await this.stockMovements.issuingWarehouse(this.prisma, { companyId: order.companyId, itemId: item.id, quantity: wanted, defaultWarehouseId: item.defaultWarehouseId }));
+    }
 
     /*
      * Guarded the same way packagingLines below guards packagingTotal — a
@@ -814,12 +817,11 @@ export class ProductionOrderService {
       // key ("Payroll/AP/FA source") is non-atomic — resolve() validates both
       // sides eagerly, so calling it at all would throw before the (perfectly
       // atomic) debit side could ever be used. The debit is looked up
-      // directly; the credit is the same disclosed Trade-Payables policy
-      // FixedAssetService already uses for its own dual-account key.
+      // directly; the credit is the accrual actualCostCreditAccount() explains.
       const combinedActual = params.actualLabourCostKobo + params.actualOverheadCostKobo;
-      const [actualDebitAccountId, payablesAccount] = await Promise.all([
+      const [actualDebitAccountId, actualCreditAccount] = await Promise.all([
         this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`),
-        this.tradePayablesAccount(order.companyId),
+        this.actualCostCreditAccount(order.companyId),
       ]);
       postLines = [
         {
@@ -841,7 +843,7 @@ export class ProductionOrderService {
           dimensions,
         },
         {
-          glAccountId: payablesAccount,
+          glAccountId: actualCreditAccount,
           description: `${rules.actualConversionRuleId} — actual processing conversion (${order.orderNumber})`,
           credit: kobo(combinedActual),
           dimensions,
@@ -850,10 +852,10 @@ export class ProductionOrderService {
     } else {
       // Snail: two separate actual lines (PCR-054 labour, PCR-055
       // overhead), the latter's credit side non-atomic the same way.
-      const [labourRule, overheadDebitAccountId, payablesAccount] = await Promise.all([
+      const [labourRule, overheadDebitAccountId, actualCreditAccount] = await Promise.all([
         this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.actualLabourRuleId!, on }),
         this.resolvePostingKeyAccount(order.companyId, `${rules.actualOverheadRuleId}-DR`),
-        this.tradePayablesAccount(order.companyId),
+        this.actualCostCreditAccount(order.companyId),
       ]);
       postLines = [
         {
@@ -887,7 +889,7 @@ export class ProductionOrderService {
           dimensions,
         },
         {
-          glAccountId: payablesAccount,
+          glAccountId: actualCreditAccount,
           description: `${rules.actualOverheadRuleId} — actual processing overhead (${order.orderNumber})`,
           credit: kobo(params.actualOverheadCostKobo),
           dimensions,
@@ -2005,19 +2007,27 @@ export class ProductionOrderService {
     return company.baseCurrencyId;
   }
 
-  private async defaultWarehouse(client: PrismaService | Prisma.TransactionClient, companyId: string): Promise<string> {
-    const warehouse = await client.warehouse.findFirstOrThrow({ where: { companyId, active: true }, orderBy: { code: 'asc' } });
-    return warehouse.id;
-  }
-
-  private async tradePayablesAccount(companyId: string): Promise<string> {
-    const account = await this.prisma.gLAccount.findFirst({
-      where: { companyId, accountNumber: '210100', active: true },
+  /**
+   * Where actual conversion cost is credited: 230100 Accrued Expenses, as the
+   * workbook's 500-snail case accrues processing overhead. The workbook's key
+   * names the source ("Payroll/AP/FA source"): the cost itself arrives through
+   * payroll, supplier invoices and depreciation, so this is an accrual against
+   * them, not a debt to a supplier. It used to credit Trade Payables, which put
+   * a balance in the payables control account with no supplier behind it — the
+   * payables reconciliation then failed, and with it the period close (found by
+   * the 40-step rehearsal, step 35). Trade Payables only where a chart has no
+   * accrued-expenses account.
+   */
+  private async actualCostCreditAccount(companyId: string): Promise<string> {
+    const accounts = await this.prisma.gLAccount.findMany({
+      where: { companyId, accountNumber: { in: ['230100', '210100'] }, active: true },
+      select: { id: true, accountNumber: true },
     });
+    const account = accounts.find((a) => a.accountNumber === '230100') ?? accounts.find((a) => a.accountNumber === '210100');
     if (!account) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §66 — Posting chart',
-        'No active Trade Payables account (210100) exists for actual conversion cost to credit.',
+        'No active Accrued Expenses (230100) or Trade Payables (210100) account exists for actual conversion cost to credit.',
         {},
       );
     }
