@@ -35,6 +35,7 @@ import { IncomeTaxService } from '../../src/closing/income-tax.service';
 import { kobo } from '../../src/common/money';
 import { JointCostService } from '../../src/production/joint-cost.service';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { kpiService, kpisByKey } from '../helpers/kpis';
 
 /**
  * The client's 500-snail case (500_Assumptions → APP_EXPECTED_RESULTS), run
@@ -508,5 +509,11 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     expect(recon.filter((r) => !r.reconciled && !['120100', '210100'].includes(r.accountNumber))).toEqual([]);
     // And every difference from the workbook is exactly its named causes.
     expect(rows.filter((r) => r.status === 'UNEXPLAINED')).toEqual([]);
+
+    // The KPIs page, on the workbook's own case (500_Lifecycle, KPI_FORMULA_DEMOS).
+    const kpis = await kpisByKey(kpiService(prisma, posting, workflow, services.pl), fixture.companyId);
+    expect(kpis.snailHatchRate!.value).toBe('75.00'); // 30,000 hatched of 40,000 eggs
+    expect(kpis.snailMeatYield!.value).toBe('40.00'); // meat at 40% of the live weight processed
+    expect(kpis.productionCloseReadiness!.value).toBe('1');
   }, 600_000);
 });

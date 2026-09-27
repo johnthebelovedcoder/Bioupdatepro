@@ -10,323 +10,1356 @@
     {
       "sheet": "APP_EXPECTED_RESULTS / P_APP_EXPECTED_RESULTS / P500_Checks",
       "rows": [
-        { "check": "500-snail expected results (REP-005–020)", "tests": ["500-snail case replay"] },
-        { "check": "500-poultry expected results (P-REP-005–016) and the 13 P500_Checks", "tests": ["500-poultry case replay"] }
+        {
+          "check": "500-snail expected results (REP-005–020)",
+          "tests": [
+            "500-snail case replay"
+          ]
+        },
+        {
+          "check": "500-poultry expected results (P-REP-005–016) and the 13 P500_Checks",
+          "tests": [
+            "500-poultry case replay"
+          ]
+        }
       ]
     },
     {
       "sheet": "Model_Checks",
       "rows": [
-        { "check": "CHK-001 SOP rows missing FRS/report/KPI/actor/screen", "workbook": "Counts gaps in the workbook's own SOP table." },
-        { "check": "CHK-002 Snail available allocation difference", "expected": 0, "unit": "count", "figure": "snail.available - snail.liveSold - snail.processed" },
-        { "check": "CHK-003 Poultry harvest allocation difference", "expected": 0, "unit": "count", "figure": "poultry.harvested - poultry.liveSold - poultry.processed" },
-        { "check": "CHK-004 Journal case balance", "expected": 0, "unit": "naira", "figure": "snail.tbDifference + poultry.tbDifference" },
-        { "check": "CHK-005 Separate S_Recovery_GL mapping", "tests": ["Processing and production-order close (UAT-015 / UAT-024) > runs issue → conversion → output → settle"] },
-        { "check": "CHK-006 Separate P_Recovery_GL mapping", "tests": ["Poultry processing and close (UAT-020) > runs issue → conversion → output → settle"] },
-        { "check": "CHK-007 Acceptance criteria defined (15)", "workbook": "Counts the workbook's acceptance-criteria rows." },
-        { "check": "CHK-008 Reports defined (28)", "workbook": "Counts the workbook's report rows; the catalogue itself is scored under REPORT_KPI_CHECKS." }
+        {
+          "check": "CHK-001 SOP rows missing FRS/report/KPI/actor/screen",
+          "workbook": "Counts gaps in the workbook's own SOP table."
+        },
+        {
+          "check": "CHK-002 Snail available allocation difference",
+          "expected": 0,
+          "unit": "count",
+          "figure": "snail.available - snail.liveSold - snail.processed"
+        },
+        {
+          "check": "CHK-003 Poultry harvest allocation difference",
+          "expected": 0,
+          "unit": "count",
+          "figure": "poultry.harvested - poultry.liveSold - poultry.processed"
+        },
+        {
+          "check": "CHK-004 Journal case balance",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.tbDifference + poultry.tbDifference"
+        },
+        {
+          "check": "CHK-005 Separate S_Recovery_GL mapping",
+          "tests": [
+            "Processing and production-order close (UAT-015 / UAT-024) > runs issue → conversion → output → settle"
+          ]
+        },
+        {
+          "check": "CHK-006 Separate P_Recovery_GL mapping",
+          "tests": [
+            "Poultry processing and close (UAT-020) > runs issue → conversion → output → settle"
+          ]
+        },
+        {
+          "check": "CHK-007 Acceptance criteria defined (15)",
+          "workbook": "Counts the workbook's acceptance-criteria rows."
+        },
+        {
+          "check": "CHK-008 Reports defined (28)",
+          "workbook": "Counts the workbook's report rows; the catalogue itself is scored under REPORT_KPI_CHECKS."
+        }
       ]
     },
     {
       "sheet": "Checks_v2",
       "rows": [
-        { "check": "CHK-001 Master SOP row count (63)", "workbook": "Counts the workbook's SOP rows." },
-        { "check": "CHK-002 HR/payroll SOP count (15)", "workbook": "Counts the workbook's SOP rows." },
-        { "check": "CHK-003 Manufacturing/ABC SOP count (17)", "workbook": "Counts the workbook's SOP rows." },
-        { "check": "CHK-004 Payroll allocated cost difference", "tests": ["splits by animals × days", "posts on the hours basis and records it"] },
-        { "check": "CHK-005 Snail standard/actual variance (26,000)", "tests": ["shows the ₦26,000 snail variance of the sample"] },
-        { "check": "CHK-006 Poultry standard/actual variance", "expected": 40000, "unit": "naira", "figure": "poultry.abcVariance" },
-        { "check": "CHK-007 Snail WIP closing balance", "expected": 0, "unit": "naira", "figure": "snail.wip" },
-        { "check": "CHK-008 Poultry WIP closing balance", "expected": 0, "unit": "naira", "figure": "poultry.wip" },
-        { "check": "CHK-009 Snail recovery variance allocation", "expected": 0, "unit": "naira", "figure": "snail.recovery" },
-        { "check": "CHK-010 Poultry recovery variance allocation", "expected": 0, "unit": "naira", "figure": "poultry.recovery" },
-        { "check": "CHK-011 Expanded report count (46)", "workbook": "Counts the workbook's report rows." },
-        { "check": "CHK-012 Expanded role count (24)", "workbook": "Counts the workbook's role rows." }
+        {
+          "check": "CHK-001 Master SOP row count (63)",
+          "workbook": "Counts the workbook's SOP rows."
+        },
+        {
+          "check": "CHK-002 HR/payroll SOP count (15)",
+          "workbook": "Counts the workbook's SOP rows."
+        },
+        {
+          "check": "CHK-003 Manufacturing/ABC SOP count (17)",
+          "workbook": "Counts the workbook's SOP rows."
+        },
+        {
+          "check": "CHK-004 Payroll allocated cost difference",
+          "tests": [
+            "splits by animals × days",
+            "posts on the hours basis and records it"
+          ]
+        },
+        {
+          "check": "CHK-005 Snail standard/actual variance (26,000)",
+          "tests": [
+            "shows the ₦26,000 snail variance of the sample"
+          ]
+        },
+        {
+          "check": "CHK-006 Poultry standard/actual variance",
+          "expected": 40000,
+          "unit": "naira",
+          "figure": "poultry.abcVariance"
+        },
+        {
+          "check": "CHK-007 Snail WIP closing balance",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.wip"
+        },
+        {
+          "check": "CHK-008 Poultry WIP closing balance",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "poultry.wip"
+        },
+        {
+          "check": "CHK-009 Snail recovery variance allocation",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.recovery"
+        },
+        {
+          "check": "CHK-010 Poultry recovery variance allocation",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "poultry.recovery"
+        },
+        {
+          "check": "CHK-011 Expanded report count (46)",
+          "workbook": "Counts the workbook's report rows."
+        },
+        {
+          "check": "CHK-012 Expanded role count (24)",
+          "workbook": "Counts the workbook's role rows."
+        }
       ]
     },
     {
       "sheet": "500_Checks",
       "rows": [
-        { "check": "GL debits equal credits", "expected": 0, "unit": "naira", "figure": "snail.tbDifference", "note": "Scored as debits − credits; the workbook's gross ₦306,452,310 counts its own journal lines." },
-        { "check": "Trial balance balances", "expected": 0, "unit": "naira", "figure": "snail.tbDifference" },
-        { "check": "Lifecycle quantities reconcile", "expected": 19400, "unit": "count", "figure": "snail.available" },
-        { "check": "WAC issue + closing = available value", "expected": 1800000, "unit": "naira", "figure": "snail.wacAvailable" },
-        { "check": "Standard WIP closes", "expected": 0, "unit": "naira", "figure": "snail.wip" },
-        { "check": "Standard recovery closes", "expected": 0, "unit": "naira", "figure": "snail.recovery" },
-        { "check": "Actual WIP closes", "expected": 0, "unit": "naira", "figure": "snail.wip" },
-        { "check": "AP ageing ties to GL", "expected": 720000, "unit": "naira", "figure": "snail.ap", "causes": ["snail.overheadToPayables"] },
-        { "check": "AR ageing ties to GL", "expected": 13819590, "unit": "naira", "figure": "snail.ar" },
-        { "check": "Balance sheet balances", "expected": 63317950, "unit": "naira", "figure": "snail.totalAssets", "causes": ["snail.breeders", "snail.openingStock"] },
-        { "check": "Direct cash flow ties to SOFP", "expected": 45498360, "unit": "naira", "figure": "snail.cfDirectClosing" },
-        { "check": "Indirect cash flow ties to SOFP", "expected": 45498360, "unit": "naira", "figure": "snail.cfIndirectClosing" },
-        { "check": "Selected GL WIP closes", "expected": 0, "unit": "naira", "figure": "snail.wip" },
-        { "check": "Selected S_Recovery closes", "expected": 0, "unit": "naira", "figure": "snail.recovery" },
-        { "check": "MODEL STATUS", "summary": true }
+        {
+          "check": "GL debits equal credits",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.tbDifference",
+          "note": "Scored as debits − credits; the workbook's gross ₦306,452,310 counts its own journal lines."
+        },
+        {
+          "check": "Trial balance balances",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.tbDifference"
+        },
+        {
+          "check": "Lifecycle quantities reconcile",
+          "expected": 19400,
+          "unit": "count",
+          "figure": "snail.available"
+        },
+        {
+          "check": "WAC issue + closing = available value",
+          "expected": 1800000,
+          "unit": "naira",
+          "figure": "snail.wacAvailable"
+        },
+        {
+          "check": "Standard WIP closes",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.wip"
+        },
+        {
+          "check": "Standard recovery closes",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.recovery"
+        },
+        {
+          "check": "Actual WIP closes",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.wip"
+        },
+        {
+          "check": "AP ageing ties to GL",
+          "expected": 720000,
+          "unit": "naira",
+          "figure": "snail.ap",
+          "causes": [
+            "snail.overheadToPayables"
+          ]
+        },
+        {
+          "check": "AR ageing ties to GL",
+          "expected": 13819590,
+          "unit": "naira",
+          "figure": "snail.ar"
+        },
+        {
+          "check": "Balance sheet balances",
+          "expected": 63317950,
+          "unit": "naira",
+          "figure": "snail.totalAssets",
+          "causes": [
+            "snail.breeders",
+            "snail.openingStock"
+          ]
+        },
+        {
+          "check": "Direct cash flow ties to SOFP",
+          "expected": 45498360,
+          "unit": "naira",
+          "figure": "snail.cfDirectClosing"
+        },
+        {
+          "check": "Indirect cash flow ties to SOFP",
+          "expected": 45498360,
+          "unit": "naira",
+          "figure": "snail.cfIndirectClosing"
+        },
+        {
+          "check": "Selected GL WIP closes",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.wip"
+        },
+        {
+          "check": "Selected S_Recovery closes",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.recovery"
+        },
+        {
+          "check": "MODEL STATUS",
+          "summary": true
+        }
       ]
     },
     {
       "sheet": "Close_and_Roll_Checks",
       "rows": [
-        { "check": "Existing 500-case model status", "sheet": "500_Checks" },
-        { "check": "New-year debit roll equals credit roll", "tests": ["captures the trial balance at the moment of close", "archives the closed year periods and logs the close", "stays internally balanced across the roll-forward"], "note": "The year-end close and roll are tested; the 500-snail replay does not yet close its year, so the ₦63,317,950 roll itself is not replayed." },
-        { "check": "Roll-forward row differences", "tests": ["rolls a permanent account forward across periods with no activity of its own", "does not carry a revenue account forward"] },
-        { "check": "Closed WIP", "expected": 0, "unit": "naira", "figure": "snail.wip" },
-        { "check": "S_Recovery_GL", "expected": 0, "unit": "naira", "figure": "snail.recovery" },
-        { "check": "Balance sheet", "expected": 0, "unit": "naira", "figure": "snail.balanceSheetDifference" },
-        { "check": "Direct cash-flow tie", "expected": 0, "unit": "naira", "figure": "snail.cfDirectCheck" },
-        { "check": "Indirect cash-flow tie", "expected": 0, "unit": "naira", "figure": "snail.cfIndirectCheck" },
-        { "check": "CLOSE STATUS", "summary": true }
+        {
+          "check": "Existing 500-case model status",
+          "sheet": "500_Checks"
+        },
+        {
+          "check": "New-year debit roll equals credit roll",
+          "tests": [
+            "captures the trial balance at the moment of close",
+            "archives the closed year periods and logs the close",
+            "stays internally balanced across the roll-forward"
+          ],
+          "note": "The year-end close and roll are tested; the 500-snail replay does not yet close its year, so the ₦63,317,950 roll itself is not replayed."
+        },
+        {
+          "check": "Roll-forward row differences",
+          "tests": [
+            "rolls a permanent account forward across periods with no activity of its own",
+            "does not carry a revenue account forward"
+          ]
+        },
+        {
+          "check": "Closed WIP",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.wip"
+        },
+        {
+          "check": "S_Recovery_GL",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.recovery"
+        },
+        {
+          "check": "Balance sheet",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.balanceSheetDifference"
+        },
+        {
+          "check": "Direct cash-flow tie",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.cfDirectCheck"
+        },
+        {
+          "check": "Indirect cash-flow tie",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.cfIndirectCheck"
+        },
+        {
+          "check": "CLOSE STATUS",
+          "summary": true
+        }
       ]
     },
     {
       "sheet": "Poultry_Parity_Check",
       "rows": [
-        { "check": "Procurement/intake — parent/chick intake", "tests": ["500-poultry case replay", "refuses to bill more than arrived"] },
-        { "check": "Laying/egg collection", "tests": ["collects, sets and hatches, carrying the value through to the chicks", "values table and hatching eggs apart"] },
-        { "check": "Incubation/hatching — setter/hatcher/DOC", "tests": ["fits sets to registered incubators and holds the hatch for unacknowledged exceptions and candling"] },
-        { "check": "Lifecycle/stage transfers", "tests": ["moves a batch to a stage its age has reached", "refuses a stage the batch is too young for"] },
-        { "check": "Normal/abnormal loss", "tests": ["keeps normal loss within the recipe’s approved yield; the rest is abnormal", "500-poultry case replay"] },
-        { "check": "GL dimensions", "tests": ["reports each farm on its own, and the farms add up to the whole"] },
-        { "check": "Accounting entries — poultry event catalogue", "tests": ["loads every rule and key into a company that had none, and the load checks pass"] },
-        { "check": "Standard/actual/WAC — P_Recovery/WAC/variance", "tests": ["rolls the WAC forward as a moving average across two receipts at different prices", "500-poultry case replay"] },
-        { "check": "Processing/WIP/recovery — bird processing/order settlement", "tests": ["Poultry processing and close (UAT-020) > runs issue → conversion → output → settle"] },
-        { "check": "Sales/AR/cash — bird/egg/FG sales", "tests": ["costs a delivery of eggs at their carried value, not the standard cost", "ages each invoice by its own due date"] },
-        { "check": "Reports/KPIs — poultry roles and KPIs", "tests": ["works out FCR (KPI-11)", "works out hen-day % (KPI-13)"] },
-        { "check": "Numbering/genealogy — PSF→PEG→PIN→DOC→flock→HAR→PRO→FG", "tests": ["traces a delivery back to the harvest, the cohort and its breeders", "gives every posted journal a controlled voucher number"] },
-        { "check": "Close/audit — same core close and audit trail", "tests": ["closes a clean period", "writes an audit record in the same transaction as the posting"] },
-        { "check": "PARITY STATUS", "summary": true }
+        {
+          "check": "Procurement/intake — parent/chick intake",
+          "tests": [
+            "500-poultry case replay",
+            "refuses to bill more than arrived"
+          ]
+        },
+        {
+          "check": "Laying/egg collection",
+          "tests": [
+            "collects, sets and hatches, carrying the value through to the chicks",
+            "values table and hatching eggs apart"
+          ]
+        },
+        {
+          "check": "Incubation/hatching — setter/hatcher/DOC",
+          "tests": [
+            "fits sets to registered incubators and holds the hatch for unacknowledged exceptions and candling"
+          ]
+        },
+        {
+          "check": "Lifecycle/stage transfers",
+          "tests": [
+            "moves a batch to a stage its age has reached",
+            "refuses a stage the batch is too young for"
+          ]
+        },
+        {
+          "check": "Normal/abnormal loss",
+          "tests": [
+            "keeps normal loss within the recipe’s approved yield; the rest is abnormal",
+            "500-poultry case replay"
+          ]
+        },
+        {
+          "check": "GL dimensions",
+          "tests": [
+            "reports each farm on its own, and the farms add up to the whole"
+          ]
+        },
+        {
+          "check": "Accounting entries — poultry event catalogue",
+          "tests": [
+            "loads every rule and key into a company that had none, and the load checks pass"
+          ]
+        },
+        {
+          "check": "Standard/actual/WAC — P_Recovery/WAC/variance",
+          "tests": [
+            "rolls the WAC forward as a moving average across two receipts at different prices",
+            "500-poultry case replay"
+          ]
+        },
+        {
+          "check": "Processing/WIP/recovery — bird processing/order settlement",
+          "tests": [
+            "Poultry processing and close (UAT-020) > runs issue → conversion → output → settle"
+          ]
+        },
+        {
+          "check": "Sales/AR/cash — bird/egg/FG sales",
+          "tests": [
+            "costs a delivery of eggs at their carried value, not the standard cost",
+            "ages each invoice by its own due date"
+          ]
+        },
+        {
+          "check": "Reports/KPIs — poultry roles and KPIs",
+          "tests": [
+            "works out FCR (KPI-11)",
+            "works out hen-day % (KPI-13)"
+          ]
+        },
+        {
+          "check": "Numbering/genealogy — PSF→PEG→PIN→DOC→flock→HAR→PRO→FG",
+          "tests": [
+            "traces a delivery back to the harvest, the cohort and its breeders",
+            "gives every posted journal a controlled voucher number"
+          ]
+        },
+        {
+          "check": "Close/audit — same core close and audit trail",
+          "tests": [
+            "closes a clean period",
+            "writes an audit record in the same transaction as the posting"
+          ]
+        },
+        {
+          "check": "PARITY STATUS",
+          "summary": true
+        }
       ]
     },
     {
       "sheet": "Feed_Processing_Check",
       "rows": [
-        { "check": "Feed-mill master", "tests": ["rolls the feed standard up from recipe and routing: ₦544 a kg"] },
-        { "check": "Feed-mill SOP", "tests": ["receives good feed at standard and shows every variance, WIP and recovery at zero"] },
-        { "check": "Formula-driven costing", "tests": ["rolls the feed standard up from recipe and routing: ₦544 a kg"] },
-        { "check": "Feed accounting — S/P feed recovery GL", "tests": ["receives good feed at standard and shows every variance, WIP and recovery at zero"] },
-        { "check": "WAC raw material/farm issue", "tests": ["takes the feed out of the store at average cost and posts exactly that"] },
-        { "check": "Normal/abnormal loss", "tests": ["keeps normal loss within the recipe’s approved yield; the rest is abnormal"] },
-        { "check": "Processing SOP", "tests": ["500-snail case replay", "500-poultry case replay"] },
-        { "check": "WIP/recovery settlement", "tests": ["runs issue → conversion → output → settle, and closes with WIP and recovery at exactly zero"] },
-        { "check": "Joint/by-product costing — meat/slime/shell, carcass/cuts/offal", "tests": ["costs by the one released method, from approved prices"] },
-        { "check": "Sales/COGS/AR/cash", "tests": ["500-snail case replay", "500-poultry case replay"] },
-        { "check": "Dimensions/reports/KPIs", "tests": ["shows each product by farm, feed mill and processing, with the mill’s feed eliminated"] },
-        { "check": "OVERALL STATUS", "summary": true }
+        {
+          "check": "Feed-mill master",
+          "tests": [
+            "rolls the feed standard up from recipe and routing: ₦544 a kg"
+          ]
+        },
+        {
+          "check": "Feed-mill SOP",
+          "tests": [
+            "receives good feed at standard and shows every variance, WIP and recovery at zero"
+          ]
+        },
+        {
+          "check": "Formula-driven costing",
+          "tests": [
+            "rolls the feed standard up from recipe and routing: ₦544 a kg"
+          ]
+        },
+        {
+          "check": "Feed accounting — S/P feed recovery GL",
+          "tests": [
+            "receives good feed at standard and shows every variance, WIP and recovery at zero"
+          ]
+        },
+        {
+          "check": "WAC raw material/farm issue",
+          "tests": [
+            "takes the feed out of the store at average cost and posts exactly that"
+          ]
+        },
+        {
+          "check": "Normal/abnormal loss",
+          "tests": [
+            "keeps normal loss within the recipe’s approved yield; the rest is abnormal"
+          ]
+        },
+        {
+          "check": "Processing SOP",
+          "tests": [
+            "500-snail case replay",
+            "500-poultry case replay"
+          ]
+        },
+        {
+          "check": "WIP/recovery settlement",
+          "tests": [
+            "runs issue → conversion → output → settle, and closes with WIP and recovery at exactly zero"
+          ]
+        },
+        {
+          "check": "Joint/by-product costing — meat/slime/shell, carcass/cuts/offal",
+          "tests": [
+            "costs by the one released method, from approved prices"
+          ]
+        },
+        {
+          "check": "Sales/COGS/AR/cash",
+          "tests": [
+            "500-snail case replay",
+            "500-poultry case replay"
+          ]
+        },
+        {
+          "check": "Dimensions/reports/KPIs",
+          "tests": [
+            "shows each product by farm, feed mill and processing, with the mill’s feed eliminated"
+          ]
+        },
+        {
+          "check": "OVERALL STATUS",
+          "summary": true
+        }
       ]
     },
     {
       "sheet": "V8_Release_Checks",
       "rows": [
-        { "check": "V8-001 Existing 500-case failures", "sheet": "500_Checks" },
-        { "check": "V8-002 Close/roll-forward failures", "sheet": "Close_and_Roll_Checks" },
-        { "check": "V8-003 Poultry design parity", "sheet": "Poultry_Parity_Check" },
-        { "check": "V8-004 Feed/processing design coverage", "sheet": "Feed_Processing_Check" },
-        { "check": "V8-005 Decision Register rows (14)", "workbook": "Counts the workbook's decision rows." },
-        { "check": "V8-006 Developer end-to-end events (35)", "workbook": "Counts the workbook's event rows." },
-        { "check": "V8-007 Report/KPI blueprints (18)", "workbook": "Counts the workbook's blueprint rows." },
-        { "check": "V8-008 Test environment steps (40)", "manual": "The 40-step Test_Environment_Script is a rehearsal people run on a test environment (Phase 5)." },
-        { "check": "V8-009 Open critical decisions (7)", "manual": "The client's open decisions (Phase 0)." },
-        { "check": "V8-010 Overall internal model status", "workbook": "The workbook's own status cell (it reads FAIL while decisions are open)." }
+        {
+          "check": "V8-001 Existing 500-case failures",
+          "sheet": "500_Checks"
+        },
+        {
+          "check": "V8-002 Close/roll-forward failures",
+          "sheet": "Close_and_Roll_Checks"
+        },
+        {
+          "check": "V8-003 Poultry design parity",
+          "sheet": "Poultry_Parity_Check"
+        },
+        {
+          "check": "V8-004 Feed/processing design coverage",
+          "sheet": "Feed_Processing_Check"
+        },
+        {
+          "check": "V8-005 Decision Register rows (14)",
+          "workbook": "Counts the workbook's decision rows."
+        },
+        {
+          "check": "V8-006 Developer end-to-end events (35)",
+          "workbook": "Counts the workbook's event rows."
+        },
+        {
+          "check": "V8-007 Report/KPI blueprints (18)",
+          "workbook": "Counts the workbook's blueprint rows."
+        },
+        {
+          "check": "V8-008 Test environment steps (40)",
+          "manual": "The 40-step Test_Environment_Script is a rehearsal people run on a test environment (Phase 5)."
+        },
+        {
+          "check": "V8-009 Open critical decisions (7)",
+          "manual": "The client's open decisions (Phase 0)."
+        },
+        {
+          "check": "V8-010 Overall internal model status",
+          "workbook": "The workbook's own status cell (it reads FAIL while decisions are open)."
+        }
       ]
     },
     {
       "sheet": "NG_Statutory_Checks",
       "rows": [
-        { "check": "Six employees calculated", "payroll": "statutory.Six employees calculated" },
-        { "check": "Gross payroll", "payroll": "statutory.Gross payroll" },
-        { "check": "Employee pension at 8%", "payroll": "statutory.Employee pension at 8%" },
-        { "check": "Employer pension at 10%", "payroll": "statutory.Employer pension at 10%" },
-        { "check": "NHF configured calculation", "payroll": "statutory.NHF configured calculation" },
-        { "check": "PAYE equals employee detail", "payroll": "statutory.PAYE (NG_PAYE_2026 total)" },
-        { "check": "Net pay equation", "payroll": "statutory.Net pay equation" },
-        { "check": "NSITF employer-only 1%", "payroll": "statutory.NSITF employer-only 1%" },
-        { "check": "ITF applicability and 1%", "payroll": "statutory.ITF applicability and 1%" },
-        { "check": "Payroll journals balance", "payroll": "statutory.Payroll journals balance" },
-        { "check": "PAYE payable cleared", "payroll": "statutory.PAYE payable cleared" },
-        { "check": "Pension payables cleared", "payroll": "statutory.Pension payables cleared" },
-        { "check": "Other statutory payables cleared", "payroll": "statutory.Other statutory payables cleared" }
+        {
+          "check": "Six employees calculated",
+          "payroll": "statutory.Six employees calculated"
+        },
+        {
+          "check": "Gross payroll",
+          "payroll": "statutory.Gross payroll"
+        },
+        {
+          "check": "Employee pension at 8%",
+          "payroll": "statutory.Employee pension at 8%"
+        },
+        {
+          "check": "Employer pension at 10%",
+          "payroll": "statutory.Employer pension at 10%"
+        },
+        {
+          "check": "NHF configured calculation",
+          "payroll": "statutory.NHF configured calculation"
+        },
+        {
+          "check": "PAYE equals employee detail",
+          "payroll": "statutory.PAYE (NG_PAYE_2026 total)"
+        },
+        {
+          "check": "Net pay equation",
+          "payroll": "statutory.Net pay equation"
+        },
+        {
+          "check": "NSITF employer-only 1%",
+          "payroll": "statutory.NSITF employer-only 1%"
+        },
+        {
+          "check": "ITF applicability and 1%",
+          "payroll": "statutory.ITF applicability and 1%"
+        },
+        {
+          "check": "Payroll journals balance",
+          "payroll": "statutory.Payroll journals balance"
+        },
+        {
+          "check": "PAYE payable cleared",
+          "payroll": "statutory.PAYE payable cleared"
+        },
+        {
+          "check": "Pension payables cleared",
+          "payroll": "statutory.Pension payables cleared"
+        },
+        {
+          "check": "Other statutory payables cleared",
+          "payroll": "statutory.Other statutory payables cleared"
+        }
       ]
     },
     {
       "sheet": "Employee_Master_Checks",
       "rows": [
-        { "check": "Six unique active employee IDs", "payroll": "master.Six unique active employee IDs" },
-        { "check": "Employee records approved", "payroll": "master.Employee records approved" },
-        { "check": "PAYE state present", "payroll": "master.PAYE state present" },
-        { "check": "Bank verification complete", "payroll": "master.Bank verification complete" },
-        { "check": "Tax references present", "payroll": "master.Tax references present" },
-        { "check": "Pension references present", "payroll": "master.Pension references present" },
-        { "check": "Employment assignments active", "payroll": "master.Employment assignments active" },
-        { "check": "Compensation records approved", "payroll": "master.Compensation records approved" },
-        { "check": "Document packs complete", "payroll": "master.Document packs complete" },
-        { "check": "Audit events recorded", "payroll": "master.Audit events recorded" },
-        { "check": "Payroll employee IDs tied", "payroll": "master.Payroll employee IDs tied" },
-        { "check": "Payroll gross tied to compensation", "payroll": "master.Payroll gross tied to compensation" },
-        { "check": "Statutory payroll checks pass", "payroll": "master.Statutory payroll checks pass" }
+        {
+          "check": "Six unique active employee IDs",
+          "payroll": "master.Six unique active employee IDs"
+        },
+        {
+          "check": "Employee records approved",
+          "payroll": "master.Employee records approved"
+        },
+        {
+          "check": "PAYE state present",
+          "payroll": "master.PAYE state present"
+        },
+        {
+          "check": "Bank verification complete",
+          "payroll": "master.Bank verification complete"
+        },
+        {
+          "check": "Tax references present",
+          "payroll": "master.Tax references present"
+        },
+        {
+          "check": "Pension references present",
+          "payroll": "master.Pension references present"
+        },
+        {
+          "check": "Employment assignments active",
+          "payroll": "master.Employment assignments active"
+        },
+        {
+          "check": "Compensation records approved",
+          "payroll": "master.Compensation records approved"
+        },
+        {
+          "check": "Document packs complete",
+          "payroll": "master.Document packs complete"
+        },
+        {
+          "check": "Audit events recorded",
+          "payroll": "master.Audit events recorded"
+        },
+        {
+          "check": "Payroll employee IDs tied",
+          "payroll": "master.Payroll employee IDs tied"
+        },
+        {
+          "check": "Payroll gross tied to compensation",
+          "payroll": "master.Payroll gross tied to compensation"
+        },
+        {
+          "check": "Statutory payroll checks pass",
+          "payroll": "master.Statutory payroll checks pass"
+        }
       ]
     },
     {
       "sheet": "STANDARD_COST_CHECKS",
       "rows": [
-        { "check": "Costing method fixed to Standard", "tests": ["refuses production in a year with no costing policy, and locks it at the first posting"] },
-        { "check": "Approved costing decision", "tests": ["refuses production in a year with no costing policy, and locks it at the first posting"] },
-        { "check": "Snail standard total (300,000)", "tests": ["shows the ₦26,000 snail variance of the sample"] },
-        { "check": "Snail actual comparator total (326,000)", "tests": ["shows the ₦26,000 snail variance of the sample"] },
-        { "check": "Snail variance visible (26,000)", "tests": ["shows the ₦26,000 snail variance of the sample"] },
-        { "check": "Poultry standard total", "expected": 620000, "unit": "naira", "figure": "poultry.abcStandard" },
-        { "check": "Poultry actual comparator total", "expected": 660000, "unit": "naira", "figure": "poultry.abcActual" },
-        { "check": "Poultry variance visible", "expected": 40000, "unit": "naira", "figure": "poultry.abcVariance" },
-        { "check": "Snail WIP closes", "expected": 0, "unit": "naira", "figure": "snail.wip" },
-        { "check": "Snail recovery closes", "expected": 0, "unit": "naira", "figure": "snail.recovery" },
-        { "check": "Poultry WIP closes", "expected": 0, "unit": "naira", "figure": "poultry.wip" },
-        { "check": "Poultry recovery closes", "expected": 0, "unit": "naira", "figure": "poultry.recovery" },
-        { "check": "Integrity rules documented (34)", "workbook": "Counts the workbook's integrity-rule rows." }
+        {
+          "check": "Costing method fixed to Standard",
+          "tests": [
+            "refuses production in a year with no costing policy, and locks it at the first posting"
+          ]
+        },
+        {
+          "check": "Approved costing decision",
+          "tests": [
+            "refuses production in a year with no costing policy, and locks it at the first posting"
+          ]
+        },
+        {
+          "check": "Snail standard total (300,000)",
+          "tests": [
+            "shows the ₦26,000 snail variance of the sample"
+          ]
+        },
+        {
+          "check": "Snail actual comparator total (326,000)",
+          "tests": [
+            "shows the ₦26,000 snail variance of the sample"
+          ]
+        },
+        {
+          "check": "Snail variance visible (26,000)",
+          "tests": [
+            "shows the ₦26,000 snail variance of the sample"
+          ]
+        },
+        {
+          "check": "Poultry standard total",
+          "expected": 620000,
+          "unit": "naira",
+          "figure": "poultry.abcStandard"
+        },
+        {
+          "check": "Poultry actual comparator total",
+          "expected": 660000,
+          "unit": "naira",
+          "figure": "poultry.abcActual"
+        },
+        {
+          "check": "Poultry variance visible",
+          "expected": 40000,
+          "unit": "naira",
+          "figure": "poultry.abcVariance"
+        },
+        {
+          "check": "Snail WIP closes",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.wip"
+        },
+        {
+          "check": "Snail recovery closes",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.recovery"
+        },
+        {
+          "check": "Poultry WIP closes",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "poultry.wip"
+        },
+        {
+          "check": "Poultry recovery closes",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "poultry.recovery"
+        },
+        {
+          "check": "Integrity rules documented (34)",
+          "workbook": "Counts the workbook's integrity-rule rows."
+        }
       ]
     },
     {
       "sheet": "AGE_GLOSSARY_CHECKS",
       "rows": [
-        { "check": "Approved species rows (4)", "tests": ["gives a newly registered farm the workbook’s species and breeds", "loads them for a farm registered before"] },
-        { "check": "Tracked example cohorts (5)", "workbook": "Counts the workbook's sample cohorts." },
-        { "check": "Non-negative calculated ages", "tests": ["counts age from placement, then from an exact or estimated hatch date"] },
-        { "check": "Exact/Estimated basis captured", "tests": ["counts age from placement, then from an exact or estimated hatch date"] },
-        { "check": "Closed cohorts stop at closure date", "tests": ["counts age from placement, then from an exact or estimated hatch date"], "note": "Age is taken to the closing date (batch-profile.service ageOf(group, closedOn ?? today)); no test closes a batch and reads its age yet." },
-        { "check": "Glossary terms documented (22)", "tests": ["defines every FARMING_GLOSSARY term (22)", "points only at screens that exist"] },
-        { "check": "Age formulas populated (15)", "workbook": "Counts the workbook's formula cells." }
+        {
+          "check": "Approved species rows (4)",
+          "tests": [
+            "gives a newly registered farm the workbook’s species and breeds",
+            "loads them for a farm registered before"
+          ]
+        },
+        {
+          "check": "Tracked example cohorts (5)",
+          "workbook": "Counts the workbook's sample cohorts."
+        },
+        {
+          "check": "Non-negative calculated ages",
+          "tests": [
+            "counts age from placement, then from an exact or estimated hatch date"
+          ]
+        },
+        {
+          "check": "Exact/Estimated basis captured",
+          "tests": [
+            "counts age from placement, then from an exact or estimated hatch date"
+          ]
+        },
+        {
+          "check": "Closed cohorts stop at closure date",
+          "tests": [
+            "counts age from placement, then from an exact or estimated hatch date"
+          ],
+          "note": "Age is taken to the closing date (batch-profile.service ageOf(group, closedOn ?? today)); no test closes a batch and reads its age yet."
+        },
+        {
+          "check": "Glossary terms documented (22)",
+          "tests": [
+            "defines every FARMING_GLOSSARY term (22)",
+            "points only at screens that exist"
+          ]
+        },
+        {
+          "check": "Age formulas populated (15)",
+          "workbook": "Counts the workbook's formula cells."
+        }
       ]
     },
     {
       "sheet": "BOTH_AGE_ACCT_CHECKS",
       "rows": [
-        { "check": "Snail age example cohorts (5)", "workbook": "Counts the workbook's sample cohorts." },
-        { "check": "Poultry age example flocks (5)", "workbook": "Counts the workbook's sample flocks." },
-        { "check": "Poultry non-negative ages", "tests": ["counts age from placement, then from an exact or estimated hatch date"] },
-        { "check": "Poultry age formulas populated (10)", "workbook": "Counts the workbook's formula cells." },
-        { "check": "Closed poultry flock stops ageing", "tests": ["counts age from placement, then from an exact or estimated hatch date"] },
-        { "check": "Start-to-finish accounting steps (18)", "tests": ["500-poultry case replay"] },
-        { "check": "Production-close WIP rule present", "tests": ["refuses to close an order while anything is still in WIP, and says why"] },
-        { "check": "Standard-cost-only check remains", "tests": ["refuses production in a year with no costing policy, and locks it at the first posting"] },
-        { "check": "Original standard/integrity checks pass", "sheet": "STANDARD_COST_CHECKS" }
+        {
+          "check": "Snail age example cohorts (5)",
+          "workbook": "Counts the workbook's sample cohorts."
+        },
+        {
+          "check": "Poultry age example flocks (5)",
+          "workbook": "Counts the workbook's sample flocks."
+        },
+        {
+          "check": "Poultry non-negative ages",
+          "tests": [
+            "counts age from placement, then from an exact or estimated hatch date"
+          ]
+        },
+        {
+          "check": "Poultry age formulas populated (10)",
+          "workbook": "Counts the workbook's formula cells."
+        },
+        {
+          "check": "Closed poultry flock stops ageing",
+          "tests": [
+            "counts age from placement, then from an exact or estimated hatch date"
+          ]
+        },
+        {
+          "check": "Start-to-finish accounting steps (18)",
+          "tests": [
+            "500-poultry case replay"
+          ]
+        },
+        {
+          "check": "Production-close WIP rule present",
+          "tests": [
+            "refuses to close an order while anything is still in WIP, and says why"
+          ]
+        },
+        {
+          "check": "Standard-cost-only check remains",
+          "tests": [
+            "refuses production in a year with no costing policy, and locks it at the first posting"
+          ]
+        },
+        {
+          "check": "Original standard/integrity checks pass",
+          "sheet": "STANDARD_COST_CHECKS"
+        }
       ]
     },
     {
       "sheet": "REPORT_KPI_CHECKS",
       "rows": [
-        { "check": "AgriPro catalog rows (18)", "gap": "12 of the workbook's 39 report and KPI definitions are built.", "phase": 3 },
-        { "check": "SnailPro catalog rows (10)", "gap": "12 of the workbook's 39 report and KPI definitions are built.", "phase": 3 },
-        { "check": "PoultryPro catalog rows (11)", "gap": "12 of the workbook's 39 report and KPI definitions are built; missing include fill rate, vaccination compliance, cull rate, grade mix and eggs per breeder.", "phase": 3 },
-        { "check": "Total catalog definitions (39)", "gap": "12 of 39 built.", "phase": 3 },
-        { "check": "Formula demonstrations (15)", "gap": "FCR and hen-day % are tested against their formulas; current ratio, inventory days and close readiness are not built.", "phase": 3 },
-        { "check": "Snail variance agrees (26,000)", "tests": ["shows the ₦26,000 snail variance of the sample"] },
-        { "check": "Poultry variance agrees", "expected": 40000, "unit": "naira", "figure": "poultry.abcVariance" },
-        { "check": "Production close ready example", "tests": ["refuses to close an order while anything is still in WIP, and says why"] },
-        { "check": "All prior age/accounting checks pass", "sheet": "BOTH_AGE_ACCT_CHECKS" }
+        {
+          "check": "AgriPro catalog rows (18)",
+          "tests": [
+            "defines every workbook report: 18 AgriPro, 10 SnailPro, 11 PoultryPro",
+            "puts every built report on a screen that exists, and says what is missing from the rest"
+          ]
+        },
+        {
+          "check": "SnailPro catalog rows (10)",
+          "tests": [
+            "defines every workbook report: 18 AgriPro, 10 SnailPro, 11 PoultryPro",
+            "puts every built report on a screen that exists, and says what is missing from the rest"
+          ]
+        },
+        {
+          "check": "PoultryPro catalog rows (11)",
+          "tests": [
+            "defines every workbook report: 18 AgriPro, 10 SnailPro, 11 PoultryPro",
+            "puts every built report on a screen that exists, and says what is missing from the rest"
+          ]
+        },
+        {
+          "check": "Total catalog definitions (39)",
+          "tests": [
+            "defines every workbook report: 18 AgriPro, 10 SnailPro, 11 PoultryPro",
+            "puts every built report on a screen that exists, and says what is missing from the rest"
+          ],
+          "note": "Every definition is in the Reports page’s catalogue with its screen; the next row lists the ones not fully built."
+        },
+        {
+          "check": "Catalogue reports fully built",
+          "gap": "Built in part: budget against actual spend (AGR-001), sales margin by product (AGR-011), year-to-date cash flow (AGR-016), snail mortality by cause (SNL-005), processing yield across orders (SNL-009, PLY-010), order profitability (SNL-010, PLY-011), cull rate (PLY-004), vaccination compliance (PLY-008). Not built: delivery performance (AGR-002).",
+          "phase": 3
+        },
+        {
+          "check": "Formula demonstrations (15)",
+          "tests": [
+            "reproduces all fifteen workbook demonstrations",
+            "works out the current ratio once every account holding a balance is classified",
+            "works out inventory days from the stock on hand",
+            "500-poultry case replay",
+            "500-snail case replay"
+          ]
+        },
+        {
+          "check": "Snail variance agrees (26,000)",
+          "tests": [
+            "shows the ₦26,000 snail variance of the sample"
+          ]
+        },
+        {
+          "check": "Poultry variance agrees",
+          "expected": 40000,
+          "unit": "naira",
+          "figure": "poultry.abcVariance"
+        },
+        {
+          "check": "Production close ready example",
+          "tests": [
+            "refuses to close an order while anything is still in WIP, and says why"
+          ]
+        },
+        {
+          "check": "All prior age/accounting checks pass",
+          "sheet": "BOTH_AGE_ACCT_CHECKS"
+        }
       ]
     },
     {
       "sheet": "BA_LIFECYCLE_CHECKS",
       "rows": [
-        { "check": "Snail BA reconciliation differences", "expected": 0, "unit": "naira", "figure": "snail.baRollForwardDifference" },
-        { "check": "Poultry BA reconciliation differences", "expected": 0, "unit": "naira", "figure": "poultry.baRollForwardDifference" },
-        { "check": "Snail allocated quantities", "expected": 20400, "unit": "count", "figure": "snail.marketReady" },
-        { "check": "Poultry allocated quantities", "expected": 470, "unit": "count", "figure": "poultry.harvested" },
-        { "check": "Snail routing absorption", "expected": 1400000, "unit": "naira", "figure": "snail.abcStandard" },
-        { "check": "Poultry routing absorption", "expected": 620000, "unit": "naira", "figure": "poultry.abcStandard" },
-        { "check": "Snail allocation basis", "tests": ["costs by the one released method, from approved prices"] },
-        { "check": "Poultry allocation basis", "tests": ["costs by the one released method, from approved prices"] }
+        {
+          "check": "Snail BA reconciliation differences",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.baRollForwardDifference"
+        },
+        {
+          "check": "Poultry BA reconciliation differences",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "poultry.baRollForwardDifference"
+        },
+        {
+          "check": "Snail allocated quantities",
+          "expected": 20400,
+          "unit": "count",
+          "figure": "snail.marketReady"
+        },
+        {
+          "check": "Poultry allocated quantities",
+          "expected": 470,
+          "unit": "count",
+          "figure": "poultry.harvested"
+        },
+        {
+          "check": "Snail routing absorption",
+          "expected": 1400000,
+          "unit": "naira",
+          "figure": "snail.abcStandard"
+        },
+        {
+          "check": "Poultry routing absorption",
+          "expected": 620000,
+          "unit": "naira",
+          "figure": "poultry.abcStandard"
+        },
+        {
+          "check": "Snail allocation basis",
+          "tests": [
+            "costs by the one released method, from approved prices"
+          ]
+        },
+        {
+          "check": "Poultry allocation basis",
+          "tests": [
+            "costs by the one released method, from approved prices"
+          ]
+        }
       ]
     },
     {
       "sheet": "INTEGRATION_JOINT_CHECKS",
       "rows": [
-        { "check": "Snail live-sale link", "expected": 13580, "unit": "count", "figure": "snail.liveSold" },
-        { "check": "Snail processing link", "expected": 5820, "unit": "count", "figure": "snail.processed" },
-        { "check": "Snail BA carrying-rate link", "expected": 3000, "unit": "naira", "figure": "snail.carryingRatePerUnit" },
-        { "check": "Poultry live-sale link", "expected": 188, "unit": "count", "figure": "poultry.liveSold" },
-        { "check": "Poultry processing link", "expected": 282, "unit": "count", "figure": "poultry.processed" },
-        { "check": "Poultry BA carrying-rate link", "expected": 5500, "unit": "naira", "figure": "poultry.carryingRatePerUnit", "causes": ["workbookCarryingRate"] },
-        { "check": "Snail joint allocation", "tests": ["costs by the one released method, from approved prices"] },
-        { "check": "Poultry joint allocation", "tests": ["costs by the one released method, from approved prices"] },
-        { "check": "Snail joint cost reconciliation", "expected": 0, "unit": "naira", "figure": "snail.jointAllocationDifference" },
-        { "check": "Poultry joint cost reconciliation", "expected": 0, "unit": "naira", "figure": "poultry.jointAllocationDifference" },
-        { "check": "Prior BA lifecycle checks", "sheet": "BA_LIFECYCLE_CHECKS" }
+        {
+          "check": "Snail live-sale link",
+          "expected": 13580,
+          "unit": "count",
+          "figure": "snail.liveSold"
+        },
+        {
+          "check": "Snail processing link",
+          "expected": 5820,
+          "unit": "count",
+          "figure": "snail.processed"
+        },
+        {
+          "check": "Snail BA carrying-rate link",
+          "expected": 3000,
+          "unit": "naira",
+          "figure": "snail.carryingRatePerUnit"
+        },
+        {
+          "check": "Poultry live-sale link",
+          "expected": 188,
+          "unit": "count",
+          "figure": "poultry.liveSold"
+        },
+        {
+          "check": "Poultry processing link",
+          "expected": 282,
+          "unit": "count",
+          "figure": "poultry.processed"
+        },
+        {
+          "check": "Poultry BA carrying-rate link",
+          "expected": 5500,
+          "unit": "naira",
+          "figure": "poultry.carryingRatePerUnit",
+          "causes": [
+            "workbookCarryingRate"
+          ]
+        },
+        {
+          "check": "Snail joint allocation",
+          "tests": [
+            "costs by the one released method, from approved prices"
+          ]
+        },
+        {
+          "check": "Poultry joint allocation",
+          "tests": [
+            "costs by the one released method, from approved prices"
+          ]
+        },
+        {
+          "check": "Snail joint cost reconciliation",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.jointAllocationDifference"
+        },
+        {
+          "check": "Poultry joint cost reconciliation",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "poultry.jointAllocationDifference"
+        },
+        {
+          "check": "Prior BA lifecycle checks",
+          "sheet": "BA_LIFECYCLE_CHECKS"
+        }
       ]
     },
     {
       "sheet": "SEGMENT_ABC_CHECKS",
       "rows": [
-        { "check": "Snail consolidated PBT", "expected": 61697950, "unit": "naira", "figure": "snail.pbt", "causes": ["snail.breeders"] },
-        { "check": "Snail consolidated PAT", "expected": 43188565, "unit": "naira", "figure": "snail.pat", "causes": ["snail.breeders", "snail.taxOnDifference"] },
-        { "check": "Poultry consolidated PBT", "expected": 362277.6, "unit": "naira", "figure": "poultry.pbt" },
-        { "check": "Poultry consolidated PAT", "expected": 253594.32, "unit": "naira", "figure": "poultry.pat" },
-        { "check": "Snail internal transfer elimination", "tests": ["shows each product by farm, feed mill and processing, with the mill’s feed eliminated"] },
-        { "check": "Poultry internal transfer elimination", "tests": ["shows each product by farm, feed mill and processing, with the mill’s feed eliminated"] },
-        { "check": "Snail indirect cash-flow tie", "expected": 0, "unit": "naira", "figure": "snail.cfIndirectCheck" },
-        { "check": "Poultry indirect cash-flow tie", "expected": 0, "unit": "naira", "figure": "poultry.cfIndirectCheck" },
-        { "check": "Snail processing ABC standard tie", "expected": 1400000, "unit": "naira", "figure": "snail.abcStandard" },
-        { "check": "Snail processing ABC actual tie", "expected": 1500000, "unit": "naira", "figure": "snail.abcActual" },
-        { "check": "Poultry processing ABC standard tie", "expected": 620000, "unit": "naira", "figure": "poultry.abcStandard" },
-        { "check": "Poultry processing ABC actual tie", "expected": 660000, "unit": "naira", "figure": "poultry.abcActual" }
+        {
+          "check": "Snail consolidated PBT",
+          "expected": 61697950,
+          "unit": "naira",
+          "figure": "snail.pbt",
+          "causes": [
+            "snail.breeders"
+          ]
+        },
+        {
+          "check": "Snail consolidated PAT",
+          "expected": 43188565,
+          "unit": "naira",
+          "figure": "snail.pat",
+          "causes": [
+            "snail.breeders",
+            "snail.taxOnDifference"
+          ]
+        },
+        {
+          "check": "Poultry consolidated PBT",
+          "expected": 362277.6,
+          "unit": "naira",
+          "figure": "poultry.pbt"
+        },
+        {
+          "check": "Poultry consolidated PAT",
+          "expected": 253594.32,
+          "unit": "naira",
+          "figure": "poultry.pat"
+        },
+        {
+          "check": "Snail internal transfer elimination",
+          "tests": [
+            "shows each product by farm, feed mill and processing, with the mill’s feed eliminated"
+          ]
+        },
+        {
+          "check": "Poultry internal transfer elimination",
+          "tests": [
+            "shows each product by farm, feed mill and processing, with the mill’s feed eliminated"
+          ]
+        },
+        {
+          "check": "Snail indirect cash-flow tie",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "snail.cfIndirectCheck"
+        },
+        {
+          "check": "Poultry indirect cash-flow tie",
+          "expected": 0,
+          "unit": "naira",
+          "figure": "poultry.cfIndirectCheck"
+        },
+        {
+          "check": "Snail processing ABC standard tie",
+          "expected": 1400000,
+          "unit": "naira",
+          "figure": "snail.abcStandard"
+        },
+        {
+          "check": "Snail processing ABC actual tie",
+          "expected": 1500000,
+          "unit": "naira",
+          "figure": "snail.abcActual"
+        },
+        {
+          "check": "Poultry processing ABC standard tie",
+          "expected": 620000,
+          "unit": "naira",
+          "figure": "poultry.abcStandard"
+        },
+        {
+          "check": "Poultry processing ABC actual tie",
+          "expected": 660000,
+          "unit": "naira",
+          "figure": "poultry.abcActual"
+        }
       ]
     },
     {
       "sheet": "V895_FULL_CHECKS",
       "rows": [
-        { "check": "Snail consolidated PBT", "expected": 61697950, "unit": "naira", "figure": "snail.pbt", "causes": ["snail.breeders"] },
-        { "check": "Poultry consolidated PBT", "expected": 362277.6, "unit": "naira", "figure": "poultry.pbt" },
-        { "check": "Snail direct CF closing cash", "expected": 45498360, "unit": "naira", "figure": "snail.cfDirectClosing" },
-        { "check": "Snail indirect CF closing cash", "expected": 45498360, "unit": "naira", "figure": "snail.cfIndirectClosing" },
-        { "check": "Snail direct vs indirect CFO (indirect)", "expected": 45498360, "unit": "naira", "figure": "snail.cfoIndirect", "causes": ["-snail.openingStock"] },
-        { "check": "Poultry direct CF closing cash", "expected": 20524572.08, "unit": "naira", "figure": "poultry.cfDirectClosing" },
-        { "check": "Poultry indirect CF closing cash", "expected": 20524572.08, "unit": "naira", "figure": "poultry.cfIndirectClosing" },
-        { "check": "Poultry direct vs indirect CFO (indirect)", "expected": 524572.08, "unit": "naira", "figure": "poultry.cfoIndirect" },
-        { "check": "Snailery ABC total", "expected": 7500000, "unit": "naira", "figure": "snail.farmAbcTotal" },
-        { "check": "Snailery ABC output allocation", "gap": "Snail lifecycle cost is expensed as used (PCR-042/043), and the snailery's ABC pool is not yet allocated to its outputs by stage (farm lifecycle ABC).", "phase": 3 },
-        { "check": "Poultry farm ABC total", "expected": 2612500, "unit": "naira", "figure": "poultry.farmAbcTotal" },
-        { "check": "Poultry farm ABC output allocation", "expected": 2612500, "unit": "naira", "figure": "poultry.farmAbcAllocated" }
+        {
+          "check": "Snail consolidated PBT",
+          "expected": 61697950,
+          "unit": "naira",
+          "figure": "snail.pbt",
+          "causes": [
+            "snail.breeders"
+          ]
+        },
+        {
+          "check": "Poultry consolidated PBT",
+          "expected": 362277.6,
+          "unit": "naira",
+          "figure": "poultry.pbt"
+        },
+        {
+          "check": "Snail direct CF closing cash",
+          "expected": 45498360,
+          "unit": "naira",
+          "figure": "snail.cfDirectClosing"
+        },
+        {
+          "check": "Snail indirect CF closing cash",
+          "expected": 45498360,
+          "unit": "naira",
+          "figure": "snail.cfIndirectClosing"
+        },
+        {
+          "check": "Snail direct vs indirect CFO (indirect)",
+          "expected": 45498360,
+          "unit": "naira",
+          "figure": "snail.cfoIndirect",
+          "causes": [
+            "-snail.openingStock"
+          ]
+        },
+        {
+          "check": "Poultry direct CF closing cash",
+          "expected": 20524572.08,
+          "unit": "naira",
+          "figure": "poultry.cfDirectClosing"
+        },
+        {
+          "check": "Poultry indirect CF closing cash",
+          "expected": 20524572.08,
+          "unit": "naira",
+          "figure": "poultry.cfIndirectClosing"
+        },
+        {
+          "check": "Poultry direct vs indirect CFO (indirect)",
+          "expected": 524572.08,
+          "unit": "naira",
+          "figure": "poultry.cfoIndirect"
+        },
+        {
+          "check": "Snailery ABC total",
+          "expected": 7500000,
+          "unit": "naira",
+          "figure": "snail.farmAbcTotal"
+        },
+        {
+          "check": "Snailery ABC output allocation",
+          "gap": "Snail lifecycle cost is expensed as used (PCR-042/043), and the snailery's ABC pool is not yet allocated to its outputs by stage (farm lifecycle ABC).",
+          "phase": 3
+        },
+        {
+          "check": "Poultry farm ABC total",
+          "expected": 2612500,
+          "unit": "naira",
+          "figure": "poultry.farmAbcTotal"
+        },
+        {
+          "check": "Poultry farm ABC output allocation",
+          "expected": 2612500,
+          "unit": "naira",
+          "figure": "poultry.farmAbcAllocated"
+        }
       ]
     },
     {
       "sheet": "V896_PL_CHECKS",
       "rows": [
-        { "check": "Main snail PBT", "expected": 61697950, "unit": "naira", "figure": "snail.pbt", "causes": ["snail.breeders"] },
-        { "check": "Main snail PAT", "expected": 43188565, "unit": "naira", "figure": "snail.pat", "causes": ["snail.breeders", "snail.taxOnDifference"] },
-        { "check": "Main poultry PBT", "expected": 362277.6, "unit": "naira", "figure": "poultry.pbt" },
-        { "check": "Main poultry PAT", "expected": 253594.32, "unit": "naira", "figure": "poultry.pat" },
-        { "check": "Snail transfer elimination", "tests": ["shows each product by farm, feed mill and processing, with the mill’s feed eliminated"] },
-        { "check": "Poultry transfer elimination", "tests": ["shows each product by farm, feed mill and processing, with the mill’s feed eliminated"] },
-        { "check": "Enterprise PBT", "expected": 62060227.6, "unit": "naira", "figure": "snail.pbt + poultry.pbt", "causes": ["snail.breeders"] },
-        { "check": "Enterprise PAT", "expected": 43442159.32, "unit": "naira", "figure": "snail.pat + poultry.pat", "causes": ["snail.breeders", "snail.taxOnDifference"] }
+        {
+          "check": "Main snail PBT",
+          "expected": 61697950,
+          "unit": "naira",
+          "figure": "snail.pbt",
+          "causes": [
+            "snail.breeders"
+          ]
+        },
+        {
+          "check": "Main snail PAT",
+          "expected": 43188565,
+          "unit": "naira",
+          "figure": "snail.pat",
+          "causes": [
+            "snail.breeders",
+            "snail.taxOnDifference"
+          ]
+        },
+        {
+          "check": "Main poultry PBT",
+          "expected": 362277.6,
+          "unit": "naira",
+          "figure": "poultry.pbt"
+        },
+        {
+          "check": "Main poultry PAT",
+          "expected": 253594.32,
+          "unit": "naira",
+          "figure": "poultry.pat"
+        },
+        {
+          "check": "Snail transfer elimination",
+          "tests": [
+            "shows each product by farm, feed mill and processing, with the mill’s feed eliminated"
+          ]
+        },
+        {
+          "check": "Poultry transfer elimination",
+          "tests": [
+            "shows each product by farm, feed mill and processing, with the mill’s feed eliminated"
+          ]
+        },
+        {
+          "check": "Enterprise PBT",
+          "expected": 62060227.6,
+          "unit": "naira",
+          "figure": "snail.pbt + poultry.pbt",
+          "causes": [
+            "snail.breeders"
+          ]
+        },
+        {
+          "check": "Enterprise PAT",
+          "expected": 43442159.32,
+          "unit": "naira",
+          "figure": "snail.pat + poultry.pat",
+          "causes": [
+            "snail.breeders",
+            "snail.taxOnDifference"
+          ]
+        }
       ]
     },
     {
       "sheet": "POSTING_CONTROL_CHECKS",
       "rows": [
-        { "check": "Approved posting rules (86)", "tests": ["loads every rule and key into a company that had none, and the load checks pass"] },
-        { "check": "COA posting keys (172)", "tests": ["loads every rule and key into a company that had none, and the load checks pass"] },
-        { "check": "Active COA posting keys (172)", "tests": ["loads every rule and key into a company that had none, and the load checks pass"] },
-        { "check": "Retrieved debit GL codes and names (86)", "tests": ["loads every rule and key into a company that had none, and the load checks pass"] },
-        { "check": "Retrieved credit GL codes and names (86)", "tests": ["loads every rule and key into a company that had none, and the load checks pass"] },
-        { "check": "Blank posting-rule rows (20)", "workbook": "Counts spare rows in the workbook's table." },
-        { "check": "Blank COA-master rows (40)", "workbook": "Counts spare rows in the workbook's table." },
-        { "check": "Missing ledger flags", "tests": ["loads every rule and key into a company that had none, and the load checks pass"] },
-        { "check": "Duplicate approved posting keys", "tests": ["loads every rule and key into a company that had none, and the load checks pass"] }
+        {
+          "check": "Approved posting rules (86)",
+          "tests": [
+            "loads every rule and key into a company that had none, and the load checks pass"
+          ]
+        },
+        {
+          "check": "COA posting keys (172)",
+          "tests": [
+            "loads every rule and key into a company that had none, and the load checks pass"
+          ]
+        },
+        {
+          "check": "Active COA posting keys (172)",
+          "tests": [
+            "loads every rule and key into a company that had none, and the load checks pass"
+          ]
+        },
+        {
+          "check": "Retrieved debit GL codes and names (86)",
+          "tests": [
+            "loads every rule and key into a company that had none, and the load checks pass"
+          ]
+        },
+        {
+          "check": "Retrieved credit GL codes and names (86)",
+          "tests": [
+            "loads every rule and key into a company that had none, and the load checks pass"
+          ]
+        },
+        {
+          "check": "Blank posting-rule rows (20)",
+          "workbook": "Counts spare rows in the workbook's table."
+        },
+        {
+          "check": "Blank COA-master rows (40)",
+          "workbook": "Counts spare rows in the workbook's table."
+        },
+        {
+          "check": "Missing ledger flags",
+          "tests": [
+            "loads every rule and key into a company that had none, and the load checks pass"
+          ]
+        },
+        {
+          "check": "Duplicate approved posting keys",
+          "tests": [
+            "loads every rule and key into a company that had none, and the load checks pass"
+          ]
+        }
       ]
     },
     {
       "sheet": "BIO_MASTER_CHECKS",
       "rows": [
-        { "check": "Snail sample masters (3)", "workbook": "Counts the workbook's sample cohort rows; batch master data is recorded on placement (placement.spec)." },
-        { "check": "Poultry sample masters (2)", "workbook": "Counts the workbook's sample flock rows; batch master data is recorded on placement (placement.spec)." },
-        { "check": "Snail mortality events", "tests": ["500-snail case replay"] },
-        { "check": "Poultry mortality events", "tests": ["500-poultry case replay", "records a weight sample taken on the round as a pending weighing, and what was done with the dead"] },
-        { "check": "Snail current weight rows", "tests": ["keeps exactly one current weighing: the latest approved"] },
-        { "check": "Poultry current weight rows", "tests": ["keeps exactly one current weighing: the latest approved"] },
-        { "check": "Developer terms mapped (26)", "tests": ["maps every BIO_TERMINOLOGY_SCREEN_MAP term (26)", "points only at screens that exist"] },
-        { "check": "Negative snail quantities", "tests": ["never holds a negative population, at the database"] },
-        { "check": "Negative poultry quantities", "tests": ["never holds a negative population, at the database"] },
-        { "check": "Snail missing definitions", "tests": ["says what each term means and what the application holds it to, once each"] },
-        { "check": "Poultry missing definitions", "tests": ["says what each term means and what the application holds it to, once each"] }
+        {
+          "check": "Snail sample masters (3)",
+          "workbook": "Counts the workbook's sample cohort rows; batch master data is recorded on placement (placement.spec)."
+        },
+        {
+          "check": "Poultry sample masters (2)",
+          "workbook": "Counts the workbook's sample flock rows; batch master data is recorded on placement (placement.spec)."
+        },
+        {
+          "check": "Snail mortality events",
+          "tests": [
+            "500-snail case replay"
+          ]
+        },
+        {
+          "check": "Poultry mortality events",
+          "tests": [
+            "500-poultry case replay",
+            "records a weight sample taken on the round as a pending weighing, and what was done with the dead"
+          ]
+        },
+        {
+          "check": "Snail current weight rows",
+          "tests": [
+            "keeps exactly one current weighing: the latest approved"
+          ]
+        },
+        {
+          "check": "Poultry current weight rows",
+          "tests": [
+            "keeps exactly one current weighing: the latest approved"
+          ]
+        },
+        {
+          "check": "Developer terms mapped (26)",
+          "tests": [
+            "maps every BIO_TERMINOLOGY_SCREEN_MAP term (26)",
+            "points only at screens that exist"
+          ]
+        },
+        {
+          "check": "Negative snail quantities",
+          "tests": [
+            "never holds a negative population, at the database"
+          ]
+        },
+        {
+          "check": "Negative poultry quantities",
+          "tests": [
+            "never holds a negative population, at the database"
+          ]
+        },
+        {
+          "check": "Snail missing definitions",
+          "tests": [
+            "says what each term means and what the application holds it to, once each"
+          ]
+        },
+        {
+          "check": "Poultry missing definitions",
+          "tests": [
+            "says what each term means and what the application holds it to, once each"
+          ]
+        }
       ]
     }
   ]

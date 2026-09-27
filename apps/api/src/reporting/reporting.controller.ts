@@ -8,6 +8,8 @@ import { BalanceSheetService } from './balance-sheet.service';
 import { CashFlowService } from './cash-flow.service';
 import { DepreciationScheduleService } from './depreciation-schedule.service';
 import { KpiService } from './kpi.service';
+import { KPI_DEFINITIONS } from './kpi-definitions';
+import { REPORT_CATALOGUE, WORKBOOK_REPORTS } from './report-catalogue';
 import { ControlAccountReconciliationService } from './control-account-reconciliation.service';
 import { CustomerReceiptService } from '../sales/customer-receipt.service';
 import { SupplierPaymentService } from '../procurement/supplier-payment.service';
@@ -484,11 +486,8 @@ export class ReportingController {
    */
   @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
   @Get('kpi-definitions')
-  async kpiDefinitions(@CurrentCompany() companyId: string) {
-    return this.prisma.kpiDefinition.findMany({
-      where: { companyId, active: true },
-      orderBy: { key: 'asc' },
-    });
+  kpiDefinitions() {
+    return KPI_DEFINITIONS;
   }
 
   /**
@@ -500,11 +499,8 @@ export class ReportingController {
    */
   @AnyRole('Every signed-in user needs to know what reports exist before they can ask for one.')
   @Get('catalogue')
-  async reportCatalogue(@CurrentCompany() companyId: string) {
-    return this.prisma.reportDefinition.findMany({
-      where: { companyId, active: true },
-      orderBy: { name: 'asc' },
-    });
+  reportCatalogue() {
+    return REPORT_CATALOGUE;
   }
 
   /**
@@ -706,8 +702,6 @@ export class ReportingController {
       poultryGroupCount,
       settledProductionOrderCount,
       salesInvoiceCount,
-      reportDefinitionCount,
-      kpiDefinitionCount,
       releaseSignOffCount,
     ] = await Promise.all([
       this.prisma.costCentre.count({ where: { companyId } }),
@@ -718,8 +712,6 @@ export class ReportingController {
       this.prisma.livestockGroup.count({ where: { companyId, speciesKey: 'poultry' } }),
       this.prisma.productionOrder.count({ where: { companyId, settledAt: { not: null } } }),
       this.prisma.salesInvoice.count({ where: { companyId } }),
-      this.prisma.reportDefinition.count({ where: { companyId, active: true } }),
-      this.prisma.kpiDefinition.count({ where: { companyId, active: true } }),
       this.prisma.auditRecord.count({ where: { companyId, entityType: 'ReleaseSignOff' } }),
     ]);
 
@@ -733,8 +725,10 @@ export class ReportingController {
       'DEV-07': { hasEvidence: settledProductionOrderCount > 0, signal: `${settledProductionOrderCount} production order(s) fully settled` },
       'DEV-08': { hasEvidence: salesInvoiceCount > 0, signal: `${salesInvoiceCount} sales invoice(s) raised` },
       'DEV-09': {
-        hasEvidence: reportDefinitionCount > 0 && kpiDefinitionCount > 0,
-        signal: `${reportDefinitionCount} report(s), ${kpiDefinitionCount} KPI(s) governed`,
+        hasEvidence: true,
+        signal: `${WORKBOOK_REPORTS.filter((e) => e.status === 'BUILT').length} of ${WORKBOOK_REPORTS.length} catalogue reports built, ${
+          WORKBOOK_REPORTS.filter((e) => e.status === 'PARTIAL').length
+        } in part; ${KPI_DEFINITIONS.length} KPIs defined`,
       },
       'DEV-10': { hasEvidence: false, signal: null },
       'DEV-11': { hasEvidence: false, signal: null },

@@ -36,6 +36,7 @@ import { ControlAccountReconciliationService } from '../../src/reporting/control
 import { IncomeTaxService } from '../../src/closing/income-tax.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { kpiService, kpisByKey } from '../helpers/kpis';
 
 /**
  * The client's 500-poultry case (P500_Assumptions → P_APP_EXPECTED_RESULTS and
@@ -510,6 +511,13 @@ describe('The 500-poultry case, through the application (UAT-022)', () => {
     const recon = await services.recon.reconcile(fixture.companyId);
     expect(recon.filter((x) => !x.reconciled && !['120100', '210100'].includes(x.accountNumber))).toEqual([]);
     expect(checks.filter((c) => c.actual !== c.expected)).toEqual([]);
+
+    // The KPIs page, on the workbook's own case (KPI_FORMULA_DEMOS, P500_Lifecycle).
+    const kpis = await kpisByKey(kpiService(prisma, posting, workflow, services.pl), fixture.companyId);
+    expect(kpis.poultryDressedYield!.value).toBe('72.00'); // 446.688 kg dressed from 620.4 kg live
+    expect(kpis.mortalityRate!.value).toBe('6.00'); // 30 of 500
+    expect(kpis.productionCloseReadiness!).toMatchObject({ value: '1', reason: null });
+    expect(kpis.snailMeatYield!.computable).toBe(false);
     expect(rows.filter((x) => x.status === 'UNEXPLAINED')).toEqual([]);
   }, 600_000);
 });

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { GLOSSARY } from '../../../web/src/lib/glossary';
+import { routeExists } from '../helpers/web-routes';
 
 /**
  * The in-app glossary (apps/web/src/lib/glossary.ts) against the client's
@@ -69,20 +68,6 @@ const SCREEN_MAP: Record<string, string> = {
   'Parent Cohort/Flock': 'Parent batch',
   'Current Flag': 'Current weight',
 };
-
-const webApp = join(__dirname, '..', '..', '..', 'web', 'src', 'app', '(app)');
-
-/** Does a route like /m/poultry/flocks resolve to a page, allowing [dynamic] segments? */
-function routeExists(href: string): boolean {
-  const walk = (dir: string, parts: string[]): boolean => {
-    if (parts.length === 0) return existsSync(join(dir, 'page.tsx'));
-    if (!existsSync(dir)) return false;
-    const [head, ...rest] = parts;
-    const children = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
-    return children.some((c) => (c === head || (c.startsWith('[') && c.endsWith(']'))) && walk(join(dir, c), rest));
-  };
-  return walk(webApp, href.split('/').filter(Boolean));
-}
 
 describe('The glossary covers the workbook’s terms (AGE_GLOSSARY_CHECKS, BIO_MASTER_CHECKS)', () => {
   const byTerm = new Map(GLOSSARY.map((e) => [e.term, e]));

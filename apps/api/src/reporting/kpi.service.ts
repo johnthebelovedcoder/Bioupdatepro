@@ -5,6 +5,7 @@ import { ProfitLossService } from './profit-loss.service';
 import { CustomerReceiptService } from '../sales/customer-receipt.service';
 import { SupplierPaymentService } from '../procurement/supplier-payment.service';
 import { currentFinancialYearId } from './current-financial-year';
+import * as formula from './kpi-formulas';
 
 export interface Kpi {
   key: string;
@@ -12,7 +13,8 @@ export interface Kpi {
   /** Raw number as a string — a percentage already ×100, days as a decimal,
    * currency in kobo. Null when not computable. */
   value: string | null;
-  format: 'percent' | 'days' | 'currency';
+  /** times: a ratio such as current ratio; status: 1 ready, 0 not. */
+  format: 'percent' | 'days' | 'currency' | 'times' | 'status';
   computable: boolean;
   reason: string | null;
 }
@@ -57,7 +59,10 @@ export class KpiService {
    * dimension but not a per-cohort one.
    */
   async build(companyId: string, farmId?: string, financialYearId?: string, groupId?: string): Promise<Kpi[]> {
-    const [survivalAndMortality, grossMargin, dso, dpo, payrollCostPerHead, yieldKpi, costVarianceKpi] = await Promise.all([
+    const [
+      survivalAndMortality, grossMargin, dso, dpo, payrollCostPerHead, yieldKpi, costVarianceKpi,
+      currentRatio, inventoryDays, hatch, processingYields, closeReadiness,
+    ] = await Promise.all([
       this.survivalAndMortality(companyId, farmId, groupId),
       this.grossMarginPercent(companyId, farmId, financialYearId),
       this.daysSalesOutstanding(companyId),
@@ -65,6 +70,11 @@ export class KpiService {
       this.payrollCostPerHead(companyId, financialYearId),
       this.yieldPercent(companyId, farmId, groupId),
       this.costVariancePercent(companyId, farmId, groupId),
+      this.currentRatio(companyId),
+      this.inventoryDays(companyId),
+      this.hatchRates(companyId),
+      this.processingYields(companyId, farmId, groupId),
+      this.productionCloseReadiness(companyId, farmId),
     ]);
 
     return [
@@ -75,6 +85,11 @@ export class KpiService {
       payrollCostPerHead,
       yieldKpi,
       costVarianceKpi,
+      currentRatio,
+      inventoryDays,
+      ...hatch,
+      ...processingYields,
+      closeReadiness,
       this.notComputable(
         'assetUtilisation',
         'Asset utilisation',
@@ -206,7 +221,7 @@ export class KpiService {
       {
         key: 'survivalRate',
         label: 'Survival rate',
-        value: ((alive / opening) * 100).toFixed(2),
+        value: formula.survivalRate(alive, opening)!.mul(100).toFixed(2),
         format: 'percent',
         computable: true,
         reason: null,
@@ -214,7 +229,7 @@ export class KpiService {
       {
         key: 'mortalityRate',
         label: 'Mortality rate',
-        value: ((deaths / opening) * 100).toFixed(2),
+        value: formula.mortalityRate(deaths, opening)!.mul(100).toFixed(2),
         format: 'percent',
         computable: true,
         reason: null,
@@ -268,11 +283,11 @@ export class KpiService {
       );
     }
 
-    const grossProfit = BigInt(pnl.grossProfitKobo);
+    const costOfSales = BigInt(pnl.costOfSalesKobo);
     return {
       key: 'grossMargin',
       label: 'Gross margin',
-      value: ((Number(grossProfit) / Number(revenue)) * 100).toFixed(2),
+      value: formula.grossMargin(revenue.toString(), costOfSales.toString())!.mul(100).toFixed(2),
       format: 'percent',
       computable: true,
       reason: null,
@@ -318,7 +333,7 @@ export class KpiService {
     return {
       key: 'dso',
       label: 'Days sales outstanding',
-      value: ((Number(outstanding) / Number(revenue)) * days).toFixed(1),
+      value: formula.daysSalesOutstanding(outstanding.toString(), revenue.toString(), days)!.toFixed(1),
       format: 'days',
       computable: true,
       reason: null,
@@ -416,6 +431,129 @@ export class KpiService {
       format: 'currency',
       computable: true,
       reason: null,
+    };
+  }
+
+  /**
+   * KPI-02: current assets ÷ current liabilities, from the accounts' own
+   * statement category (Admin → Accounts). Categories are never defaulted —
+   * a farm chooses them — so while any asset or liability account holding a
+   * balance is unclassified, this says how many rather than guessing.
+   */
+  private async currentRatio(companyId: string): Promise<Kpi> {
+    const label = 'Current ratio';
+    const accounts = await this.prisma.gLAccount.findMany({
+      where: { companyId, accountType: { in: ['ASSET', 'LIABILITY'] } },
+      select: { id: true, accountType: true, fsCategory: true },
+    });
+    const sums = await this.prisma.journalLine.groupBy({
+      by: ['glAccountId'],
+      where: { glAccountId: { in: accounts.map((a) => a.id) }, journalEntry: { companyId, status: 'POSTED' } },
+      _sum: { debitKobo: true, creditKobo: true },
+    });
+    const balance = new Map(sums.map((s) => [s.glAccountId, (s._sum.debitKobo ?? 0n) - (s._sum.creditKobo ?? 0n)]));
+    const carrying = accounts.filter((a) => (balance.get(a.id) ?? 0n) !== 0n);
+    const unclassified = carrying.filter((a) => a.fsCategory === null);
+    if (unclassified.length > 0) {
+      return this.notComputable('currentRatio', label, 'times', `${unclassified.length} asset or liability account${unclassified.length === 1 ? '' : 's'} with a balance ${unclassified.length === 1 ? 'has' : 'have'} no statement category yet (current or non-current). Set them under Admin → Accounts.`);
+    }
+    const sumOf = (category: string, sign: bigint) => carrying.filter((a) => a.fsCategory === category).reduce((s, a) => s + sign * (balance.get(a.id) ?? 0n), 0n);
+    const ratio = formula.currentRatio(sumOf('CURRENT_ASSET', 1n).toString(), sumOf('CURRENT_LIABILITY', -1n).toString());
+    if (ratio === null) return this.notComputable('currentRatio', label, 'times', 'There are no current liabilities to compare current assets with.');
+    return { key: 'currentRatio', label, value: ratio.toFixed(2), format: 'times', computable: true, reason: null };
+  }
+
+  /**
+   * KPI-04: stock on hand (the stock ledger's value) ÷ cost of sales this
+   * year × days elapsed — how many days of sales the stock would cover. This
+   * year only, for the same reason as DSO: it relates stock as at today to
+   * the year's cost of sales.
+   */
+  private async inventoryDays(companyId: string): Promise<Kpi> {
+    const label = 'Inventory days';
+    const year = await this.resolveYear(companyId);
+    if (!year) return this.notComputable('inventoryDays', label, 'days', 'No financial year is set up for this company yet.');
+    const today = new Date();
+    const [pnl, movements] = await Promise.all([
+      this.profitLoss.build({ companyId, financialYearId: year.id }),
+      this.prisma.stockMovement.groupBy({ by: ['direction'], where: { companyId }, _sum: { valueKobo: true } }),
+    ]);
+    const onHand = movements.reduce((s, m) => s + (m.direction === 'IN' ? 1n : -1n) * (m._sum.valueKobo ?? 0n), 0n);
+    const costOfSales = BigInt(pnl.costOfSalesKobo);
+    const days = formula.inventoryDays(onHand.toString(), costOfSales.toString(), this.elapsedDays(year.startDate, today));
+    if (days === null) return this.notComputable('inventoryDays', label, 'days', 'No cost of sales has been posted yet this financial year.');
+    return { key: 'inventoryDays', label, value: days.toFixed(1), format: 'days', computable: true, reason: null };
+  }
+
+  /** KPI-07 (snail hatch rate) and PLY-007 (poultry hatchability): hatched ÷ eggs set, across every completed hatch. */
+  private async hatchRates(companyId: string): Promise<Kpi[]> {
+    const [snail, poultry] = await Promise.all([
+      this.prisma.snailBreedingCycle.aggregate({ where: { companyId, hatchedCount: { not: null } }, _sum: { eggsLaid: true, hatchedCount: true } }),
+      this.prisma.hatchEvent.findMany({ where: { companyId }, select: { hatchedCount: true, incubationBatch: { select: { setQuantity: true } } } }),
+    ]);
+    const snailRate = formula.hatchRate(snail._sum.hatchedCount ?? 0, snail._sum.eggsLaid ?? 0);
+    const poultryRate = formula.hatchRate(
+      poultry.reduce((s, h) => s + h.hatchedCount, 0),
+      poultry.reduce((s, h) => s + h.incubationBatch.setQuantity, 0),
+    );
+    return [
+      snailRate === null
+        ? this.notComputable('snailHatchRate', 'Snail hatch rate', 'percent', 'No snail breeding cycle has hatched yet.')
+        : { key: 'snailHatchRate', label: 'Snail hatch rate', value: snailRate.mul(100).toFixed(2), format: 'percent', computable: true, reason: null },
+      poultryRate === null
+        ? this.notComputable('poultryHatchability', 'Poultry hatchability', 'percent', 'No incubation batch has hatched yet.')
+        : { key: 'poultryHatchability', label: 'Poultry hatchability', value: poultryRate.mul(100).toFixed(2), format: 'percent', computable: true, reason: null },
+    ];
+  }
+
+  /**
+   * KPI-10 (snail meat yield) and KPI-14 (poultry dressed yield): the main
+   * output's kilograms ÷ the live kilograms that went in, across every completed
+   * processing order raised from a harvest. Poultry input is what the plant
+   * received where it was recorded (handbook §29), else the harvest weight.
+   */
+  private async processingYields(companyId: string, farmId?: string, groupId?: string): Promise<Kpi[]> {
+    const orders = await this.prisma.productionOrder.findMany({
+      where: { companyId, status: 'COMPLETED', harvestRecordId: { not: null }, ...(farmId ? { farmId } : {}), ...(groupId ? { sourceGroupId: groupId } : {}) },
+      select: {
+        processingCycle: true,
+        plantReceivedWeightKg: true,
+        harvestRecord: { select: { weightKg: true } },
+        outputs: { where: { outputType: 'MAIN' }, select: { quantity: true } },
+      },
+    });
+    const measure = (cycle: 'SNAILPRO' | 'POULTRYPRO', key: string, label: string): Kpi => {
+      const mine = orders.filter((o) => o.processingCycle === cycle);
+      const inputKg = mine.reduce((s, o) => s + Number(o.plantReceivedWeightKg ?? o.harvestRecord?.weightKg ?? 0), 0);
+      const outputKg = mine.reduce((s, o) => s + o.outputs.reduce((t, out) => t + Number(out.quantity), 0), 0);
+      const rate = formula.processingYield(outputKg, inputKg);
+      return rate === null
+        ? this.notComputable(key, label, 'percent', 'No completed processing order from a harvest yet.')
+        : { key, label, value: rate.mul(100).toFixed(2), format: 'percent', computable: true, reason: null };
+    };
+    return [measure('SNAILPRO', 'snailMeatYield', 'Snail meat yield'), measure('POULTRYPRO', 'poultryDressedYield', 'Poultry dressed yield')];
+  }
+
+  /**
+   * KPI-15: 1 when production can close, 0 while any order has been issued
+   * into WIP and not settled. Settlement refuses to close an order unless its
+   * WIP and recovery are exactly zero (ProductionOrderService.settle), so
+   * "every issued order settled" is the workbook's WIP = 0 and recovery = 0.
+   */
+  private async productionCloseReadiness(companyId: string, farmId?: string): Promise<Kpi> {
+    const open = await this.prisma.productionOrder.findMany({
+      where: { companyId, issuedAt: { not: null }, settledAt: null, status: { not: 'CANCELLED' }, ...(farmId ? { farmId } : {}) },
+      select: { orderNumber: true },
+      orderBy: { orderNumber: 'asc' },
+    });
+    const ready = formula.closeReadiness(0, 0, open.length);
+    return {
+      key: 'productionCloseReadiness',
+      label: 'Production close readiness',
+      value: String(ready),
+      format: 'status',
+      computable: true,
+      reason: ready ? null : `Not settled yet: ${open.slice(0, 5).map((o) => o.orderNumber).join(', ')}${open.length > 5 ? ` and ${open.length - 5} more` : ''}.`,
     };
   }
 

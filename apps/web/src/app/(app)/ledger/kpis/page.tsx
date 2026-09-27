@@ -10,7 +10,7 @@ interface Kpi {
   key: string;
   label: string;
   value: string | null;
-  format: 'percent' | 'days' | 'currency';
+  format: 'percent' | 'days' | 'currency' | 'times' | 'status';
   computable: boolean;
   reason: string | null;
 }
@@ -87,7 +87,7 @@ export default async function KpisPage() {
             key={kpi.key}
             label={kpi.label}
             value={kpi.computable ? formatValue(kpi) : '—'}
-            hint={kpi.computable ? undefined : `Not yet computable — ${kpi.reason}`}
+            hint={kpi.reason ? (kpi.computable ? kpi.reason : `Not yet computable — ${kpi.reason}`) : undefined}
             href={kpi.computable ? KPI_SOURCE[kpi.key] : undefined}
           />
         ))}
@@ -153,6 +153,10 @@ function formatValue(kpi: Kpi): string {
       return `${kpi.value} days`;
     case 'currency':
       return formatNaira(kpi.value);
+    case 'times':
+      return `${kpi.value}×`;
+    case 'status':
+      return kpi.value === '1' ? 'Ready' : 'Not ready';
     default:
       return kpi.value;
   }

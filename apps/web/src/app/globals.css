@@ -3245,3 +3245,10 @@ body:has(.offline-banner) .app-sidebar {
 .glossary-entry dd p {
   margin: 0 0 var(--sp-1);
 }
+
+/* A heading over a group of cards (Reports by module). */
+.section-title {
+  margin: var(--sp-2) 0 0;
+  font-size: 15px;
+  color: var(--text-muted);
+}
