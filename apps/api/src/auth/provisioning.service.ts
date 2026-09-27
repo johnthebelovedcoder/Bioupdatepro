@@ -7,6 +7,7 @@ import {
   SalaryComponentType,
   WarehouseType,
 } from '@bioassetpro/database';
+import { loadStandardBreeds } from '../masters/standard-breeds';
 
 /**
  * Everything a new farm needs before it can record anything.
@@ -343,6 +344,8 @@ export class ProvisioningService {
     await this.openFinancialYear(tx, company.id, input.financialYearStartMonth ?? 1);
     await this.seedWorkflow(tx, company.id);
     await this.seedDomainAccountConfiguration(tx, company.id);
+    // The workbook's approved species and breeds, with their stage ages.
+    await loadStandardBreeds(tx, company.id);
 
     this.logger.log(`Provisioned ${company.name} (${code})`);
     return { companyId: company.id, branchId: branch.id, farmId: farm.id };

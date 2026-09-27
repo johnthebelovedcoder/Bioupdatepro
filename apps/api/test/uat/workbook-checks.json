@@ -186,7 +186,7 @@
     {
       "sheet": "AGE_GLOSSARY_CHECKS",
       "rows": [
-        { "check": "Approved species rows (4)", "gap": "No approved species/breed master is seeded; a farm types breeds free-hand.", "phase": 3 },
+        { "check": "Approved species rows (4)", "tests": ["gives a newly registered farm the workbook’s species and breeds", "loads them for a farm registered before"] },
         { "check": "Tracked example cohorts (5)", "workbook": "Counts the workbook's sample cohorts." },
         { "check": "Non-negative calculated ages", "tests": ["counts age from placement, then from an exact or estimated hatch date"] },
         { "check": "Exact/Estimated basis captured", "tests": ["counts age from placement, then from an exact or estimated hatch date"] },

@@ -82,3 +82,19 @@ export async function saveStageStandards(_previous: FlowState, formData: FormDat
   revalidatePath('/admin/breeds');
   return { error: null, message: 'Saved.' };
 }
+
+/**
+ * Load the workbook's approved species and breeds (SNAIL_SPECIES_MASTER,
+ * POULTRY_BREED_MASTER) for one species. Adds only the codes the farm does not
+ * have; nothing it already has is changed.
+ */
+export async function loadStandardBreeds(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const speciesKey = String(formData.get('speciesKey') ?? '').trim();
+  try {
+    const { added } = await api<{ added: string[] }>('/masters/species-breeds/standard', { method: 'POST', body: { speciesKeys: [speciesKey] } });
+    revalidatePath('/admin/breeds');
+    return { error: null, message: added.length ? `Added ${added.join(', ')}.` : 'You have them all already.' };
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not load the breeds.', message: null };
+  }
+}

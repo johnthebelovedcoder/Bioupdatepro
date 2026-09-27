@@ -3,6 +3,7 @@ import { AuditAction, FsCategory } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
+import { loadStandardBreeds } from './standard-breeds';
 
 /**
  * Farms and the houses, pens and sections inside them.
@@ -544,6 +545,31 @@ export class FarmStructureService {
    * reference data itself and feeds the age-eligibility check on stage
    * transfer and sale, which reads a matching row where one exists.
    */
+  /**
+   * The workbook's approved species and breeds (standard-breeds.ts), for a
+   * farm registered before registration loaded them. Adds only the codes it
+   * does not have; nothing it has is changed.
+   */
+  async loadStandardBreeds(params: { companyId: string; actor: WorkflowActor; speciesKeys?: string[] }) {
+    const speciesKeys = (params.speciesKeys?.length ? params.speciesKeys : ['snail', 'poultry']).filter((k) => k === 'snail' || k === 'poultry');
+    const added = await loadStandardBreeds(this.prisma, params.companyId, speciesKeys);
+    if (added.length > 0) {
+      await this.audit.write({
+        transactionId: params.companyId,
+        module: 'MASTERS',
+        entityType: 'SpeciesBreed',
+        entityId: params.companyId,
+        status: 'ACTIVE',
+        action: AuditAction.CREATE,
+        userId: params.actor.userId,
+        ipAddress: params.actor.ipAddress ?? null,
+        device: params.actor.device ?? null,
+        comments: `Loaded the workbook's species and breeds: ${added.join(', ')}`,
+      });
+    }
+    return { added };
+  }
+
   async createSpeciesBreed(params: {
     companyId: string;
     actor: WorkflowActor;

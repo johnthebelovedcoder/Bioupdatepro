@@ -820,6 +820,17 @@ export class MasterDataController {
     });
   }
 
+  /** The workbook's approved species and breeds, for a farm that has not got them. */
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('species-breeds/standard')
+  async loadStandardBreeds(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { speciesKeys?: string[] },
+  ) {
+    return this.structure.loadStandardBreeds({ companyId, actor, speciesKeys: Array.isArray(body?.speciesKeys) ? body.speciesKeys : undefined });
+  }
+
   @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post('species-breeds')
   async createSpeciesBreed(

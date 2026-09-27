@@ -5,6 +5,7 @@ import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { BreedForm } from '@/components/breed-form';
 import { StageStandardsForm } from '@/components/stage-standards';
+import { LoadStandardBreeds } from '@/components/load-standard-breeds';
 
 export const metadata = { title: 'Breeds — BioAssetPro' };
 
@@ -15,6 +16,8 @@ interface Breed {
   name: string;
   classification: string | null;
   openingStage: string;
+  status: string;
+  controlNote: string | null;
   stages: Array<{ id: string; stageName: string; minDay: number; targetWeightGrams: number | null; dailyFeedGramsPerHead: number | null }>;
 }
 
@@ -47,11 +50,14 @@ export default async function BreedsPage() {
               title={module.label}
               subtitle={`${rows.length} breed${rows.length === 1 ? '' : 's'}`}
               action={
-                <BreedForm
-                  speciesKey={module.key}
-                  speciesLabel={module.label}
-                  stages={module.terms.stages}
-                />
+                <span style={{ display: 'inline-flex', gap: 'var(--sp-2)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {module.key === 'snail' || module.key === 'poultry' ? <LoadStandardBreeds speciesKey={module.key} /> : null}
+                  <BreedForm
+                    speciesKey={module.key}
+                    speciesLabel={module.label}
+                    stages={module.terms.stages}
+                  />
+                </span>
               }
               padded={false}
             >
@@ -81,6 +87,16 @@ export default async function BreedsPage() {
                             {breed.name}
                             {breed.classification ? (
                               <div className="faint">{breed.classification}</div>
+                            ) : null}
+                            {breed.status !== 'Active' ? (
+                              <div>
+                                <span className="badge badge-warning">{breed.status}</span>
+                              </div>
+                            ) : null}
+                            {breed.controlNote ? (
+                              <div className="faint" style={{ fontSize: 12 }}>
+                                {breed.controlNote}
+                              </div>
                             ) : null}
                           </td>
                           <td>{breed.openingStage}</td>
