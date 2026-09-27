@@ -2,8 +2,10 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { AuditAction, EmploymentStatus, EmploymentType } from '@bioassetpro/database';
 import {
   encryptionConfigured,
+  isIdentityCheck,
   mask,
   open,
+  seal,
   sealEmployeeFields,
   SENSITIVE_EMPLOYEE_FIELDS,
   type SensitiveEmployeeField,
@@ -24,7 +26,7 @@ import {
 const DETAIL_FIELDS = [
   'title', 'firstName', 'middleName', 'surname', 'gender', 'nationality', 'stateOfOrigin', 'address', 'email', 'phone',
   'bankName', 'accountNumber', 'accountName',
-  'tin', 'nhfNumber', 'pensionRsaNumber', 'pensionAdministrator', 'taxState',
+  'tin', 'nhfNumber', 'pensionRsaNumber', 'pensionAdministrator', 'taxState', 'nin', 'nhiaNumber',
   'nextOfKinName', 'nextOfKinRelationship', 'nextOfKinPhone', 'nextOfKinAddress',
 ] as const;
 type DetailField = (typeof DETAIL_FIELDS)[number];
@@ -32,7 +34,7 @@ type DetailField = (typeof DETAIL_FIELDS)[number];
 const isSensitive = (field: string): field is SensitiveEmployeeField => (SENSITIVE_EMPLOYEE_FIELDS as readonly string[]).includes(field);
 
 /** Who may see the sensitive numbers in the clear; each look is logged. */
-export const REVEAL_ROLES = ['HR_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'ADMINISTRATOR'];
+export const REVEAL_ROLES = ['HR_MANAGER', 'TREASURY_OFFICER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'ADMINISTRATOR'];
 
 /** A change to one of these undoes the check that vouched for the old value. */
 const RECHECK_ON_CHANGE: Partial<Record<DetailField, VerificationCheck>> = {
@@ -43,6 +45,8 @@ const RECHECK_ON_CHANGE: Partial<Record<DetailField, VerificationCheck>> = {
   pensionRsaNumber: 'PENSION',
   pensionAdministrator: 'PENSION',
   nhfNumber: 'NHF',
+  nin: 'NIN',
+  nhiaNumber: 'NHIA',
   address: 'ADDRESS',
   nextOfKinName: 'EMERGENCY_CONTACT',
   nextOfKinPhone: 'EMERGENCY_CONTACT',
@@ -60,6 +64,8 @@ const EVIDENCE_FIELD: Partial<Record<VerificationCheck, { field: DetailField; la
     { field: 'pensionAdministrator', label: 'PFA' },
   ],
   NHF: [{ field: 'nhfNumber', label: 'NHF number' }],
+  NIN: [{ field: 'nin', label: 'NIN' }],
+  NHIA: [{ field: 'nhiaNumber', label: 'NHIA number' }],
   ADDRESS: [{ field: 'address', label: 'address' }],
   EMERGENCY_CONTACT: [
     { field: 'nextOfKinName', label: 'next of kin' },
@@ -249,7 +255,8 @@ export class EmployeeOnboardingService {
           label: c.label,
           required: required.has(c.code),
           status: v?.status ?? 'OUTSTANDING',
-          reference: v?.reference ?? null,
+          // An identity check's reference may itself be an identifier: masked here, like the numbers.
+          reference: v?.reference ? (isIdentityCheck(c.code) ? mask(open(v.reference)) : v.reference) : null,
           note: v?.note ?? null,
           verifiedBy: v ? nameOf(v.verifiedById) : null,
           verifiedAt: v?.verifiedAt.toISOString().slice(0, 10) ?? null,
@@ -267,11 +274,11 @@ export class EmployeeOnboardingService {
    */
   async reveal(params: { companyId: string; employeeId: string; actor: { userId: string; roles: string[]; ipAddress?: string | null; device?: string | null } }) {
     if (!params.actor.roles.some((r) => REVEAL_ROLES.includes(r))) {
-      throw new ForbiddenException('Bank and statutory numbers are shown to HR and finance managers, the CFO and administrators.');
+      throw new ForbiddenException('Bank, statutory and identity numbers are shown to HR and finance managers, treasury, the CFO and administrators.');
     }
     const employee = await this.prisma.employee.findFirst({
       where: { id: params.employeeId, companyId: params.companyId },
-      select: { id: true, employeeNumber: true, employmentStatus: true, accountNumber: true, tin: true, nhfNumber: true, pensionRsaNumber: true },
+      select: { id: true, employeeNumber: true, employmentStatus: true, accountNumber: true, tin: true, nhfNumber: true, pensionRsaNumber: true, nin: true, nhiaNumber: true },
     });
     if (!employee) throw new NotFoundException('No such employee.');
     const values = Object.fromEntries(SENSITIVE_EMPLOYEE_FIELDS.map((field) => [field, open(employee[field])])) as Record<SensitiveEmployeeField, string | null>;
@@ -339,11 +346,12 @@ export class EmployeeOnboardingService {
       if (typeof params.details[flag] === 'boolean' && params.details[flag] !== employee[flag]) data[flag] = params.details[flag];
     }
     if (Object.keys(data).length === 0) return employee;
-    if ('accountNumber' in data || 'bankName' in data || 'tin' in data) {
+    if ('accountNumber' in data || 'bankName' in data || 'tin' in data || 'nin' in data) {
       await this.employees.assertUniqueIdentity(params.companyId, employee.id, {
         accountNumber: ('accountNumber' in data ? data.accountNumber : open(employee.accountNumber)) as string | null,
         bankName: ('bankName' in data ? data.bankName : employee.bankName) as string | null,
         tin: ('tin' in data ? data.tin : open(employee.tin)) as string | null,
+        nin: ('nin' in data ? data.nin : open(employee.nin)) as string | null,
       });
     }
 
@@ -538,9 +546,11 @@ export class EmployeeOnboardingService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const reference = params.reference?.trim() || null;
       const data = {
         status: params.status,
-        reference: params.reference?.trim() || null,
+        // Sealed for identity checks: the reference may be the identifier itself.
+        reference: isIdentityCheck(check.code) ? seal(reference) : reference,
         note: params.note?.trim() || null,
         verifiedById: params.actorId,
         verifiedAt: new Date(),
@@ -561,7 +571,7 @@ export class EmployeeOnboardingService {
           status: params.status,
           action: AuditAction.UPDATE,
           userId: params.actorId,
-          comments: `${check.label} for ${employee.employeeNumber}: ${params.status.toLowerCase().replace('_', ' ')}${data.reference ? ` (${data.reference})` : ''}.`,
+          comments: `${check.label} for ${employee.employeeNumber}: ${params.status.toLowerCase().replace('_', ' ')}${reference ? ` (${isIdentityCheck(check.code) ? mask(reference) : reference})` : ''}.`,
         },
         tx,
       );

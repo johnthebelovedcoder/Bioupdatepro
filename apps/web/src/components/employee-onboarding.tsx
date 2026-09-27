@@ -187,6 +187,8 @@ const NUMBER_LABELS: Array<[string, string]> = [
   ['tin', 'TIN'],
   ['pensionRsaNumber', 'Pension RSA number'],
   ['nhfNumber', 'NHF number'],
+  ['nin', 'NIN'],
+  ['nhiaNumber', 'NHIA number'],
 ];
 
 /** Show the full numbers, for the roles allowed. Each look is written to the audit trail. */
@@ -216,7 +218,7 @@ function RevealNumbers({ employeeId }: { employeeId: string }) {
       <button type="button" className="btn btn-ghost" disabled={pending} onClick={() => startTransition(async () => setShown(await revealNumbers(employeeId)))}>
         {pending ? 'Showing…' : 'Show full numbers'}
       </button>
-      <span className="faint" style={{ fontSize: 13 }}>{shown?.error ?? 'For HR and finance managers, the CFO and administrators. Each look is recorded.'}</span>
+      <span className="faint" style={{ fontSize: 13 }}>{shown?.error ?? 'For HR and finance managers, treasury, the CFO and administrators. Each look is recorded.'}</span>
     </div>
   );
 }
@@ -253,7 +255,7 @@ function PersonalStep({ data }: { data: Onboarding }) {
 
       <h3 style={{ margin: 0 }}>Bank and statutory</h3>
       <p className="faint" style={{ margin: 0 }}>
-        Numbers are stored encrypted and shown masked. Leave a box blank to keep the saved number. Changing a bank account, TIN, RSA or NHF number clears its verification until someone checks it again.
+        Numbers are stored encrypted and shown masked. Leave a box blank to keep the saved number. Changing a bank account, TIN, RSA, NHF, NIN or NHIA number clears its verification until someone checks it again.
       </p>
       <RevealNumbers employeeId={data.employee.id} />
       <div className="grid-auto">
@@ -265,6 +267,8 @@ function PersonalStep({ data }: { data: Onboarding }) {
         <SecretField name="pensionRsaNumber" label="Pension RSA number" masked={d.pensionRsaNumber} />
         <Field name="pensionAdministrator" label="Pension administrator (PFA)" value={d.pensionAdministrator} />
         <SecretField name="nhfNumber" label="NHF number" masked={d.nhfNumber} />
+        <SecretField name="nin" label="National identity number (NIN)" masked={d.nin} />
+        <SecretField name="nhiaNumber" label="Health insurance (NHIA) number" masked={d.nhiaNumber} />
       </div>
       <div className="row" style={{ gap: 'var(--sp-4)', flexWrap: 'wrap' }}>
         <label className="row" style={{ gap: 6 }}>

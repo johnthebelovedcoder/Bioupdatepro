@@ -460,7 +460,7 @@ export class MasterDataController {
 
   /** Bank and statutory numbers in the clear. Every call is written to the audit trail. */
   @OwnedRecord('employee', 'id')
-  @Roles('HR_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'ADMINISTRATOR')
+  @Roles('HR_MANAGER', 'TREASURY_OFFICER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'ADMINISTRATOR')
   @Get('employees/:id/sensitive')
   async revealEmployeeNumbers(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Param('id') id: string) {
     return this.onboarding.reveal({ companyId, employeeId: id, actor });

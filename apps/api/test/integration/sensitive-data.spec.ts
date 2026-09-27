@@ -82,7 +82,7 @@ describe('Sensitive employee numbers', () => {
     const employee = await makeEmployee();
     await expect(
       onboarding.reveal({ companyId: fixture.companyId, employeeId: employee.id, actor: { userId: fixture.makerId, roles: ['FARM_MANAGER'] } }),
-    ).rejects.toThrow(/shown to HR and finance managers/);
+    ).rejects.toThrow(/shown to HR and finance managers, treasury/);
 
     const shown = await onboarding.reveal({
       companyId: fixture.companyId,
@@ -118,13 +118,58 @@ describe('Sensitive employee numbers', () => {
     expect(shown.accountNumber).toBe('5555555555');
   });
 
+  it('treats the NIN and NHIA number the same way, and refuses one NIN on two employees', async () => {
+    const employee = await makeEmployee({ nin: '12345678901', nhiaNumber: 'NHIA-5566' });
+    const [row] = await prisma.$queryRaw<Array<Record<string, string>>>`SELECT nin, nhia_number, nin_hash FROM employees WHERE id = ${employee.id}::uuid`;
+    expect(row!.nin).toMatch(/^enc:v1:/);
+    expect(row!.nhia_number).toMatch(/^enc:v1:/);
+    expect(row!.nin_hash).toMatch(/^[0-9a-f]{64}$/);
+
+    const view = await onboarding.onboarding(fixture.companyId, employee.id, new Date('2026-01-15'));
+    expect(view.employee.details).toMatchObject({ nin: '••••8901', nhiaNumber: '••••5566' });
+    const shown = await onboarding.reveal({ companyId: fixture.companyId, employeeId: employee.id, actor: { userId: fixture.checkerId, roles: ['HR_MANAGER'] } });
+    expect(shown).toMatchObject({ nin: '12345678901', nhiaNumber: 'NHIA-5566' });
+
+    await expect(makeEmployee({ accountNumber: '8888888888', tin: 'TIN-3003', nin: '12345678901' })).rejects.toThrow(/NIN ••••8901 is already EMP-/);
+  });
+
+  it('needs the number before an identity check is verified, and keeps the evidence reference sealed and masked', async () => {
+    const employee = await makeEmployee();
+    await expect(
+      onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType: 'NIN', status: 'VERIFIED', reference: 'NIN slip 12345678901', actorId: fixture.checkerId }),
+    ).rejects.toThrow(/Record the NIN before verifying/);
+
+    await onboarding.updateDetails({ companyId: fixture.companyId, employeeId: employee.id, details: { nin: '12345678901' }, actorId: fixture.makerId });
+    await onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType: 'NIN', status: 'VERIFIED', reference: 'NIN slip 12345678901', actorId: fixture.checkerId });
+
+    const stored = await prisma.employeeVerification.findFirstOrThrow({ where: { companyId: fixture.companyId, employeeId: employee.id, checkType: 'NIN' } });
+    expect(stored.reference).toMatch(/^enc:v1:/);
+    const view = await onboarding.onboarding(fixture.companyId, employee.id, new Date('2026-01-15'));
+    expect(view.checks.find((c) => c.code === 'NIN')!.reference).toBe('••••8901');
+    const audit = await prisma.auditRecord.findFirstOrThrow({ where: { companyId: fixture.companyId, entityType: 'EmployeeVerification', entityId: stored.id } });
+    expect(audit.comments).not.toContain('12345678901');
+
+    // A non-identity check's reference is left as written.
+    await onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType: 'CONTRACT', status: 'VERIFIED', reference: 'HR file 7', actorId: fixture.checkerId });
+    expect((await onboarding.onboarding(fixture.companyId, employee.id, new Date('2026-01-15'))).checks.find((c) => c.code === 'CONTRACT')!.reference).toBe('HR file 7');
+
+    // Changing the NIN undoes its verification.
+    await onboarding.updateDetails({ companyId: fixture.companyId, employeeId: employee.id, details: { nin: '10987654321' }, actorId: fixture.makerId });
+    expect(await prisma.employeeVerification.count({ where: { companyId: fixture.companyId, employeeId: employee.id, checkType: 'NIN' } })).toBe(0);
+  });
+
   it('encrypts records written before the key was set', async () => {
     const employee = await makeEmployee();
     await prisma.employee.updateMany({
       where: { id: employee.id, companyId: fixture.companyId },
       data: { accountNumber: '1111111111', tin: 'TIN-OLD', nhfNumber: null, pensionRsaNumber: null, accountNumberHash: null, tinHash: null },
     });
-    expect(await new EmployeeSealService(prisma).sealAll()).toEqual({ sealed: 1 });
+    const oldReference = await prisma.employeeVerification.create({
+      data: { companyId: fixture.companyId, employeeId: employee.id, checkType: 'BANK', status: 'VERIFIED', reference: 'Bank letter 1111111111', verifiedById: fixture.checkerId },
+    });
+    // The employee record and the bank check's reference.
+    expect(await new EmployeeSealService(prisma).sealAll()).toEqual({ sealed: 2 });
+    expect((await prisma.employeeVerification.findFirstOrThrow({ where: { id: oldReference.id, companyId: fixture.companyId } })).reference).toMatch(/^enc:v1:/);
     const row = await prisma.employee.findFirstOrThrow({ where: { id: employee.id, companyId: fixture.companyId } });
     expect(row.accountNumber).toMatch(/^enc:v1:/);
     expect(row.accountNumberHash).toMatch(/^[0-9a-f]{64}$/);

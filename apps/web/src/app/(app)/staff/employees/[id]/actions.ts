@@ -22,12 +22,12 @@ function failed(caught: unknown, fallback: string): StepState {
 const DETAIL_KEYS = [
   'title', 'firstName', 'middleName', 'surname', 'gender', 'nationality', 'stateOfOrigin', 'address', 'email', 'phone',
   'bankName', 'accountNumber', 'accountName',
-  'tin', 'nhfNumber', 'pensionRsaNumber', 'pensionAdministrator', 'taxState',
+  'tin', 'nhfNumber', 'pensionRsaNumber', 'pensionAdministrator', 'taxState', 'nin', 'nhiaNumber',
   'nextOfKinName', 'nextOfKinRelationship', 'nextOfKinPhone', 'nextOfKinAddress',
 ];
 
 /** Stored encrypted and shown masked: a blank box means "keep what is saved", not "clear it". */
-const SENSITIVE_KEYS = new Set(['accountNumber', 'tin', 'nhfNumber', 'pensionRsaNumber']);
+const SENSITIVE_KEYS = new Set(['accountNumber', 'tin', 'nhfNumber', 'pensionRsaNumber', 'nin', 'nhiaNumber']);
 
 /** Step 1 — personal, bank and statutory details. */
 export async function saveDetails(_previous: StepState, formData: FormData): Promise<StepState> {
@@ -47,7 +47,7 @@ export async function saveDetails(_previous: StepState, formData: FormData): Pro
     return failed(caught, 'Could not save those details.');
   }
   refresh(employeeId);
-  return { error: null, message: 'Saved. A changed bank account, TIN, RSA or NHF number needs verifying again.' };
+  return { error: null, message: 'Saved. A changed bank account, TIN, RSA, NHF, NIN or NHIA number needs verifying again.' };
 }
 
 export interface RevealState {

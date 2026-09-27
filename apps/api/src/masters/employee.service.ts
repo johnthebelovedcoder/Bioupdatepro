@@ -125,6 +125,7 @@ export class EmployeeService {
       accountNumber: (input.accountNumber as string) ?? null,
       bankName: (input.bankName as string) ?? null,
       tin: (input.tin as string) ?? null,
+      nin: (input.nin as string) ?? null,
     });
 
     return this.prisma.$transaction(async (tx) => {
@@ -159,6 +160,8 @@ export class EmployeeService {
             tin: (input.tin as string) || null,
             nhfNumber: (input.nhfNumber as string) || null,
             pensionRsaNumber: (input.pensionRsaNumber as string) || null,
+            nin: (input.nin as string) || null,
+            nhiaNumber: (input.nhiaNumber as string) || null,
           }),
           pensionAdministrator: (input.pensionAdministrator as string) ?? null,
           taxState: input.taxState ?? null,
@@ -670,7 +673,7 @@ export class EmployeeService {
   async assertUniqueIdentity(
     companyId: string,
     employeeId: string | null,
-    identity: { accountNumber?: string | null; bankName?: string | null; tin?: string | null },
+    identity: { accountNumber?: string | null; bankName?: string | null; tin?: string | null; nin?: string | null },
   ) {
     const others = { ...(employeeId ? { id: { not: employeeId } } : {}) };
     const account = identity.accountNumber?.trim();
@@ -703,6 +706,20 @@ export class EmployeeService {
         throw new AccountingRuleViolation(
           'INT-012 — One employee, one identity',
           `TIN ${mask(tin)} is already ${clash.employeeNumber}'s.`,
+          { employeeNumber: clash.employeeNumber },
+        );
+      }
+    }
+    const nin = identity.nin?.trim();
+    if (nin) {
+      const clash = await this.prisma.employee.findFirst({
+        where: { companyId, ...others, OR: [{ nin }, ...(fingerprint(nin) ? [{ ninHash: fingerprint(nin) }] : [])] },
+        select: { employeeNumber: true },
+      });
+      if (clash) {
+        throw new AccountingRuleViolation(
+          'INT-012 — One employee, one identity',
+          `NIN ${mask(nin)} is already ${clash.employeeNumber}'s.`,
           { employeeNumber: clash.employeeNumber },
         );
       }

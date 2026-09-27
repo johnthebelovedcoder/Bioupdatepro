@@ -22,12 +22,20 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes }
 
 const PREFIX = 'enc:v1:';
 
-/** The four employee numbers treated as sensitive. */
-export const SENSITIVE_EMPLOYEE_FIELDS = ['accountNumber', 'tin', 'nhfNumber', 'pensionRsaNumber'] as const;
+/** The employee numbers treated as sensitive (handbook §54.2). */
+export const SENSITIVE_EMPLOYEE_FIELDS = ['accountNumber', 'tin', 'nhfNumber', 'pensionRsaNumber', 'nin', 'nhiaNumber'] as const;
 export type SensitiveEmployeeField = (typeof SENSITIVE_EMPLOYEE_FIELDS)[number];
 
 /** Fields whose fingerprint is stored for the duplicate checks. */
-export const FINGERPRINTED = { accountNumber: 'accountNumberHash', tin: 'tinHash' } as const;
+export const FINGERPRINTED = { accountNumber: 'accountNumberHash', tin: 'tinHash', nin: 'ninHash' } as const;
+
+/**
+ * Document-pack checks whose evidence reference is itself likely to be an
+ * identifier (a NIN slip number, a bank letter): the reference is sealed and
+ * masked like the numbers, and kept out of the audit comment.
+ */
+export const IDENTITY_CHECKS = ['BANK', 'TAX_ID', 'NIN', 'PENSION', 'NHF', 'NHIA'] as const;
+export const isIdentityCheck = (code: string) => (IDENTITY_CHECKS as readonly string[]).includes(code);
 
 function keys(): { enc: Buffer; mac: Buffer } | null {
   const raw = process.env.PII_ENCRYPTION_KEY?.trim();

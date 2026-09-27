@@ -2592,6 +2592,12 @@ model Employee {
   /// checks compare these, since the numbers themselves are encrypted.
   accountNumberHash    String? @map("account_number_hash")
   tinHash              String? @map("tin_hash")
+  /// National identity number and health insurance (NHIA) number: encrypted
+  /// like the other identifiers (handbook §54.2); NIN also fingerprinted, so
+  /// one person cannot be two employees.
+  nin                  String?
+  ninHash              String? @map("nin_hash")
+  nhiaNumber           String? @map("nhia_number")
   nhfNumber            String? @map("nhf_number")
   pensionRsaNumber     String? @map("pension_rsa_number")
   pensionAdministrator String? @map("pension_administrator")
@@ -2635,6 +2641,7 @@ model Employee {
   @@index([companyId, employmentStatus])
   @@index([companyId, accountNumberHash])
   @@index([companyId, tinHash])
+  @@index([companyId, ninHash])
   @@map("employees")
   assignments   EmployeeAssignment[]
   verifications EmployeeVerification[]
