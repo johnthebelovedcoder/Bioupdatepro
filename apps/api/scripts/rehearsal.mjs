@@ -170,7 +170,7 @@ await step(1, 'Foundation', 'Create entity, farms, warehouses, fiscal year, NGN 
   ctx.byRole.ADMINISTRATOR = ctx.owner;
   const team = [
     ['clerk', ['FARM_ACCOUNTANT', 'PROCUREMENT_OFFICER', 'STOREKEEPER', 'PRODUCTION_SUPERVISOR', 'HR_OFFICER', 'TREASURY_OFFICER', 'SALES_OFFICER']],
-    ['farm', ['FARM_MANAGER']],
+    ['manager', ['FARM_MANAGER']],
     ['finance', ['FINANCE_MANAGER']],
     ['controller', ['FINANCE_CONTROLLER']],
     ['hr', ['HR_MANAGER']],
@@ -213,6 +213,10 @@ await step(2, 'Foundation', 'Load COA, cost centres, posting profiles, dimension
   for (const [code, name] of WORKBOOK_CENTRES) await structure.createCostCentre({ companyId: ctx.companyId, actor: ctx.owner, code, name });
   ctx.cc = Object.fromEntries((await prisma.costCentre.findMany({ where: { companyId: ctx.companyId } })).map((c) => [c.code, c.id]));
   const centres = Object.keys(ctx.cc).length;
+  // POL-001: the year's costing policy, chosen by the finance controller before any standard is prepared.
+  await svc('production/standard-cost.service.js', 'StandardCostService').configurePolicy({
+    companyId: ctx.companyId, financialYearId: ctx.year.id, varianceTolerancePercent: 20, varianceDisposition: 'COGS', actor: ctx.controller,
+  });
   ctx.account = Object.fromEntries((await prisma.gLAccount.findMany({ where: { companyId: ctx.companyId, active: true } })).map((a) => [a.accountNumber, a.id]));
   // POSTING_COA_MASTER: S_Recovery_GL 219810, P_Recovery_GL 219820 and the feed mill's 219830 (PCR-033/036).
   expect(recovery.length === 3, `Recovery accounts missing: have ${recovery.map((r) => r.accountNumber).join(', ')}.`);
@@ -262,8 +266,8 @@ await step(3, 'Masters', 'Create vendors, customers, employees, items, assets, s
   ctx.item = {
     liveSnails: (await item('LIVE-SNL', 'Breeder snails (live)', 'Unit', { livestockSpeciesKey: 'snail' })).id,
     liveChicks: (await item('LIVE-DOC', 'Day-old chicks (live)', 'Unit', { livestockSpeciesKey: 'poultry' })).id,
-    maize: (await item('RM-MAIZE', 'Maize', 'Kg', { inventoryGlAccountId: ctx.account['130100'] })).id,
-    soya: (await item('RM-SOYA', 'Soybean meal', 'Kg', { inventoryGlAccountId: ctx.account['130100'] })).id,
+    maize: (await item('RM-MAIZE', 'Maize', 'Kg', { inventoryGlAccountId: ctx.account['130100'], standardCost: naira(380), standardCostFrom: D(0) })).id,
+    soya: (await item('RM-SOYA', 'Soybean meal', 'Kg', { inventoryGlAccountId: ctx.account['130100'], standardCost: naira(620), standardCostFrom: D(0) })).id,
     pack: (await item('PACK', 'Packaging', 'Kg', { inventoryGlAccountId: ctx.account['130100'] })).id,
   };
 
@@ -535,6 +539,116 @@ await step(15, 'Hatchery', 'Set hatching eggs, hatch and transfer birds through 
   expect(chicks.population === 240, `HCH-1 holds ${chicks.population}.`);
   expect((await balance('130216')) === 0n, `Eggs in incubation not cleared: ${shown(await balance('130216'))}.`);
   return { ref: 'PEG-1 → PIN-1 → HCH-1', actual: `Set 300 = hatched 240 + unhatched 50 + damaged 10. Dr Eggs in incubation / Cr Eggs on setting; Dr BA—Poultry / Cr Eggs in incubation on hatch (incubation cleared to zero). HCH-1 to market-ready at day 42.` };
+});
+
+// ---------------------------------------------------------------- 16-21 Feed mill
+
+await step(16, 'Feed P2P', 'Buy, receive, invoice and pay feed ingredients', async () => {
+  const { order } = await raiseOrder({
+    supplierId: ctx.supplier.feed, costCentre: 'CC-CORP-PROC', date: D(30),
+    lines: [{ itemId: ctx.item.maize, quantity: 4_000, unitPriceKobo: naira(380) }, { itemId: ctx.item.soya, quantity: 2_500, unitPriceKobo: naira(620) }],
+  });
+  const lines = [...order.lines].sort((a, b) => a.lineNumber - b.lineNumber);
+  const grn = await receive(order, D(32), lines.map((l) => ({ purchaseOrderLineId: l.id, receivedQuantity: l.quantity.toString(), batchReference: `LOT-${l.lineNumber}` })));
+  const inv = await invoice(grn, D(33), 'FEED-INV-001');
+  await pay(ctx.supplier.feed, [inv.invoice], D(45));
+  const stock = svc('inventory/stock-movement.service.js', 'StockMovementService');
+  const maize = await stock.currentPosition(prisma, ctx.companyId, ctx.item.maize);
+  expect(maize.quantity.toString() === '4000', `Maize on hand ${maize.quantity}.`);
+  return { ref: `${order.orderNumber}; ${grn.grnNumber}; ${inv.invoice.invoiceNumber}`, actual: `4,000 kg maize and 2,500 kg soya received in released lots, NGN 3,070,000 into raw materials; three-way match ${inv.matchStatus}; paid.` };
+});
+
+await step(17, 'Feed mill', 'Release snail and poultry feed orders and issue ingredients at WAC', async () => {
+  const items = svc('masters/item.service.js', 'ItemService');
+  const recipes = svc('masters/recipe.service.js', 'RecipeService');
+  const routing = svc('routing/routing.service.js', 'RoutingService');
+  const standards = svc('production/standard-cost.service.js', 'StandardCostService');
+  const orders = svc('production/production-order.service.js', 'ProductionOrderService');
+  const feed = (code, name) => items.create({ companyId: ctx.companyId, code, description: name, unitOfMeasureCode: 'Kg', inventoryGlAccountId: ctx.account['130110'], isManufactured: true, isBiologicalFeed: true, actorId: ctx.clerk.userId });
+  ctx.item.snailFeed = (await feed('FEED-SNL', 'Snail grower mash')).id;
+  ctx.item.poultryFeed = (await feed('FEED-POL', 'Broiler finisher')).id;
+
+  // Cost pools at the mill: labour and mixer by the hour, other overhead by the kg.
+  const pools = {};
+  for (const [code, name, driver, cost, capacity] of [['MILL-LAB', 'Mill labour', 'Labour hours', 250_000, '100'], ['MILL-MCH', 'Mixer', 'Machine hours', 500_000, '100'], ['MILL-OH', 'Mill overhead', 'kg output', 35_000, '1000']]) {
+    const pool = await routing.createCostPool({ companyId: ctx.companyId, code, name, driverName: driver, actorId: ctx.clerk.userId });
+    await routing.setCostPoolRate({ companyId: ctx.companyId, poolId: pool.id, poolCost: naira(cost), practicalCapacity: capacity, effectiveFrom: D(0), actorId: ctx.clerk.userId });
+    pools[code] = pool.id;
+  }
+
+  ctx.feedOrders = {};
+  for (const [key, output, maizeKg, soyaKg, planned] of [['snail', ctx.item.snailFeed, '700', '350', '2000'], ['poultry', ctx.item.poultryFeed, '600', '450', '3000']]) {
+    const recipe = await recipes.create({ companyId: ctx.companyId, code: `R-${key.toUpperCase()}-FEED`, name: `${key} feed`, outputItemId: output });
+    const version = await recipes.createDraftVersion({ companyId: ctx.companyId, recipeId: recipe.id, batchSize: '1000', effectiveFrom: D(0) });
+    await recipes.addComponent({ companyId: ctx.companyId, recipeVersionId: version.id, componentItemId: ctx.item.maize, quantityPerBatch: maizeKg, unitOfMeasureCode: 'Kg' });
+    await recipes.addComponent({ companyId: ctx.companyId, recipeVersionId: version.id, componentItemId: ctx.item.soya, quantityPerBatch: soyaKg, unitOfMeasureCode: 'Kg' });
+    for (const [pool, op, type, setup, run] of [['MILL-LAB', 'Grind and mix', 'LABOUR', '12', '0'], ['MILL-MCH', 'Mixer run', 'MACHINE', '5', '0'], ['MILL-OH', 'Other overhead', 'OVERHEAD', '0', '1']]) {
+      await routing.createRoutingOperation({ companyId: ctx.companyId, recipeVersionId: version.id, costCentreId: ctx.cc['130'], costPoolId: pools[pool], operationName: op, resourceType: type, setupHours: setup, runHoursPerUnit: run, actorId: ctx.clerk.userId });
+    }
+    await recipes.activateVersion({ recipeVersionId: version.id, actorId: ctx.manager.userId });
+    const standard = await standards.prepare({ companyId: ctx.companyId, recipeVersionId: version.id, effectiveFrom: D(0), actor: ctx.clerk });
+    await standards.decide({ companyId: ctx.companyId, versionId: standard.id, approve: true, actor: ctx.controller });
+    const { id } = await orders.createFeedOrder({ companyId: ctx.companyId, branchId: ctx.branchId, farmId: ctx.farm.id, warehouseId: ctx.warehouse['RAW-WH'], recipeVersionId: version.id, plannedOutputQuantity: planned, actor: ctx.clerk });
+    const submitted = await orders.submit({ productionOrderId: id, actor: ctx.clerk });
+    await approveAll(submitted.transactionId);
+    await orders.issueMaterials({ productionOrderId: id, actor: ctx.clerk });
+    ctx.feedOrders[key] = id;
+  }
+  const snail = await prisma.productionOrder.findUniqueOrThrow({ where: { id: ctx.feedOrders.snail } });
+  const poultry = await prisma.productionOrder.findUniqueOrThrow({ where: { id: ctx.feedOrders.poultry } });
+  const onHand = await svc('inventory/stock-movement.service.js', 'StockMovementService').currentPosition(prisma, ctx.companyId, ctx.item.maize);
+  expect(Number(onHand.quantity) >= 0, 'Maize went negative.');
+  return { ref: `${snail.orderNumber} (snail), ${poultry.orderNumber} (poultry)`, actual: `Recipes, routing and standards released (standard approved by the finance controller). Ingredients issued at WAC: Dr Feed WIP (130430) / Cr Raw materials. Maize left ${onHand.quantity} kg; no negative stock.` };
+});
+
+await step(18, 'Feed mill', 'Record staff time, machine hours and standard absorption', async () => {
+  const orders = svc('production/production-order.service.js', 'ProductionOrderService');
+  // Actuals from the mill's own records; the standard comes from the routing (hours × approved rates).
+  for (const [key, labour, overhead] of [['snail', 70_000, 60_000], ['poultry', 90_000, 95_000]]) {
+    await orders.confirmConversion({ productionOrderId: ctx.feedOrders[key], actualLabourCostKobo: naira(labour), actualOverheadCostKobo: naira(overhead), actor: ctx.clerk });
+  }
+  const absorbed = -(await balance('219830'));
+  expect(absorbed > 0n, 'Nothing absorbed to the feed-mill recovery account.');
+  return { ref: 'Both feed orders', actual: `Standard conversion absorbed from the routing: Dr Feed WIP / Cr Feed Mill Recovery (219830) ${shown(absorbed)}.` };
+});
+
+await step(19, 'Feed mill', 'Post actual payroll, depreciation, power and maintenance', async () => {
+  const pools = await Promise.all(['620100', '623100', '630100', '210100', '230100'].map(async (n) => [n, await balance(n)]));
+  const orderTotals = await prisma.productionOrder.aggregate({ where: { id: { in: Object.values(ctx.feedOrders) } }, _sum: { actualLabourCostKobo: true, actualOverheadCostKobo: true } });
+  const actual = (orderTotals._sum.actualLabourCostKobo ?? 0n) + (orderTotals._sum.actualOverheadCostKobo ?? 0n);
+  expect(actual === naira(315_000), `Actual conversion recorded ${shown(actual)}.`);
+  note(19, 'Feed-mill actual labour and overhead are entered on each order when conversion is confirmed and posted there, rather than drawn from the payroll run and depreciation run of steps 22 and 25. The totals tie to the order; the client may want actual mill cost pulled from payroll, fixed assets and AP instead.');
+  return { ref: 'Both feed orders', actual: `Actual mill cost ${shown(actual)} recorded against the orders (labour NGN 160,000, overhead NGN 155,000). Balances: ${pools.map(([n, v]) => `${n} ${shown(v)}`).join('; ')}.` };
+});
+
+await step(20, 'Feed mill', 'Record loss, receive feed and settle both orders', async () => {
+  const orders = svc('production/production-order.service.js', 'ProductionOrderService');
+  // Normal milling loss: 2,000 kg planned snail feed yields 1,960 kg; 3,000 kg poultry feed yields 2,940 kg.
+  for (const [key, itemId, qty] of [['snail', ctx.item.snailFeed, '1960'], ['poultry', ctx.item.poultryFeed, '2940']]) {
+    await orders.recordOutputs({ productionOrderId: ctx.feedOrders[key], outputs: [{ itemId, outputType: 'MAIN', quantity: qty }], warehouseId: ctx.warehouse['RAW-WH'], actor: ctx.clerk });
+    await orders.settle({ productionOrderId: ctx.feedOrders[key], varianceReason: 'Milling loss and actual against standard', actor: ctx.clerk });
+  }
+  const wip = await balance('130430');
+  const recovery = await balance('219830');
+  expect(wip === 0n && recovery === 0n, `After settlement Feed WIP ${shown(wip)}, recovery ${shown(recovery)}.`);
+  const variance = await balance('520500');
+  return { ref: 'Both feed orders settled', actual: `1,960 kg snail feed and 2,940 kg poultry feed into stock. Feed WIP 0 and feed-mill recovery 0 after settlement; variance to Feed Production Variance (520500) ${shown(variance)}.` };
+});
+
+await step(21, 'Inventory', 'Issue finished feed to snail cohorts and poultry flocks', async () => {
+  const operations = svc('operations/operations.service.js', 'OperationsService');
+  const feedRound = (groupCode, module, n, feedType, feedKg) =>
+    operations.recordRound({ companyId: ctx.companyId, actor: ctx.clerk, idempotencyKey: `rehearsal-feed-${groupCode}-${n}`, payload: { module, date: day(n), entries: [{ groupCode, feedType, feedKg }] } });
+  await feedRound('HAT-1', 'snail', 60, 'FEED-SNL', 900);
+  await feedRound('HAT-1', 'snail', 150, 'FEED-SNL', 900);
+  await feedRound('BLR-001', 'poultry', 46, 'FEED-POL', 1_000);
+  await feedRound('HCH-1', 'poultry', 210, 'FEED-POL', 500);
+  const stock = svc('inventory/stock-movement.service.js', 'StockMovementService');
+  const snailLeft = await stock.currentPosition(prisma, ctx.companyId, ctx.item.snailFeed);
+  const poultryLeft = await stock.currentPosition(prisma, ctx.companyId, ctx.item.poultryFeed);
+  const issued = await prisma.feedIssue.aggregate({ where: { dailyRecord: { companyId: ctx.companyId } }, _sum: { valueKobo: true } });
+  expect(Number(snailLeft.quantity) === 160 && Number(poultryLeft.quantity) === 1_440, `Feed left: snail ${snailLeft.quantity}, poultry ${poultryLeft.quantity}.`);
+  return { ref: 'Rounds for HAT-1, BLR-001, HCH-1', actual: `1,800 kg snail feed and 1,500 kg poultry feed issued at WAC, ${shown(issued._sum.valueKobo ?? 0n)} to the batches; left in store 160 kg and 1,440 kg.` };
 });
 
 /*@@STEPS@@*/
