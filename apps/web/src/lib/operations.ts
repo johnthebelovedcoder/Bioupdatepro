@@ -93,6 +93,20 @@ export async function getFeeding(moduleKey: string, days = 30): Promise<FeedingR
   );
 }
 
+export interface HealthCompliance {
+  due: number;
+  onTime: number;
+  late: number;
+  overdue: number;
+  skipped: number;
+  compliancePercent: string | null;
+}
+
+/** Vaccination and health compliance: what fell due, and whether it was given on time (PLY-008). */
+export async function getHealthCompliance(moduleKey: string): Promise<HealthCompliance> {
+  return api<HealthCompliance>(`/operations/health-compliance?species=${encodeURIComponent(moduleKey)}`);
+}
+
 export async function getHealth(moduleKey: string): Promise<HealthEvent[]> {
   return api<HealthEvent[]>(`/operations/health?species=${encodeURIComponent(moduleKey)}`);
 }

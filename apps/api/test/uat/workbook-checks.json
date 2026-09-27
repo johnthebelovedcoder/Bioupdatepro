@@ -843,7 +843,7 @@
         },
         {
           "check": "Catalogue reports fully built",
-          "gap": "Built in part: budget against actual spend (AGR-001), sales margin by product (AGR-011), year-to-date cash flow (AGR-016), snail mortality by cause (SNL-005), cull rate (PLY-004), vaccination compliance (PLY-008). Not built: delivery performance (AGR-002).",
+          "gap": "Built in part: budget against actual spend (AGR-001), sales margin by product (AGR-011), year-to-date cash flow (AGR-016), snail mortality by cause (SNL-005), cull rate (PLY-004). Not built: delivery performance (AGR-002).",
           "phase": 3
         },
         {

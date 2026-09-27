@@ -54,7 +54,7 @@ export interface HealthEvent {
   dueOn: string;
   administeredOn: string | null;
   administeredBy: string | null;
-  status: 'DONE' | 'DUE' | 'OVERDUE' | 'OPEN';
+  status: 'DONE' | 'DUE' | 'OVERDUE' | 'OPEN' | 'SKIPPED';
 }
 
 export interface PerformanceRow {

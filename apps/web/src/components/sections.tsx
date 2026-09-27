@@ -12,6 +12,7 @@ import {
   getGroups,
   getHarvests,
   getHealth,
+  getHealthCompliance,
   getPerformance,
   getProduction,
   getStageBreakdown,
@@ -287,10 +288,11 @@ export async function FeedingSection({
 /* ========================================================================== */
 
 export async function HealthSection({ module }: { module: SpeciesModule }) {
-  const [events, groups, people] = await Promise.all([
+  const [events, groups, people, compliance] = await Promise.all([
     getHealth(module.key),
     getGroups(module.key),
     getActiveNames(),
+    getHealthCompliance(module.key).catch(() => null),
   ]);
   const t = module.terms;
 
@@ -310,6 +312,16 @@ export async function HealthSection({ module }: { module: SpeciesModule }) {
           <Stat label="Overdue" value={String(overdue.length)} goodWhen="down" />
           <Stat label="Due soon" value={String(due.length)} goodWhen="neutral" />
           <Stat label="Completed" value={String(done.length)} goodWhen="up" />
+          <Stat
+            label="Given on time"
+            value={compliance?.compliancePercent ? `${compliance.compliancePercent}%` : '—'}
+            goodWhen="up"
+            hint={
+              compliance && compliance.due > 0
+                ? `${compliance.onTime} on time, ${compliance.late} late, ${compliance.overdue} not given, ${compliance.skipped} stood down, of ${compliance.due} due`
+                : 'Nothing has fallen due yet'
+            }
+          />
           <Stat
             label={`${title(t.group.many)} covered`}
             value={String(new Set(events.map((event) => event.groupCode)).size)}

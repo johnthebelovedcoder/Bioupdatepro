@@ -6,6 +6,7 @@ import { TradeService } from './trade.service';
 import { OperationsPostingService } from './operations-posting.service';
 import { BatchCloseService } from './batch-close.service';
 import { BatchProfileService } from './batch-profile.service';
+import { HealthScheduleService } from './health-schedule.service';
 import { SalesModule } from '../sales/sales.module';
 import { ProcurementModule } from '../procurement/procurement.module';
 import { BiologicalAssetModule } from '../biological-assets/biological-asset.module';
@@ -33,6 +34,7 @@ import { PoultryEggModule } from '../poultry-egg/poultry-egg.module';
     OperationsPostingService,
     BatchCloseService,
     BatchProfileService,
+    HealthScheduleService,
   ],
   exports: [OperationsService, OperationsReadService],
 })

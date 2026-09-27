@@ -259,6 +259,8 @@ export class OperationsReadService {
       },
     });
 
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     return events.map((event) => {
       const given = event.treatments[0];
       return {
@@ -271,7 +273,8 @@ export class OperationsReadService {
         dueOn: iso(event.dueOn),
         administeredOn: given ? iso(given.givenOn) : null,
         administeredBy: given?.givenBy ?? null,
-        status: event.status,
+        // Nothing marks an event overdue as the days pass; it is overdue when read past its due date.
+        status: event.status === 'DUE' && event.dueOn < today ? 'OVERDUE' : event.status,
       };
     });
   }

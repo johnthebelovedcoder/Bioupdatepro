@@ -16,6 +16,7 @@ import { OperationsPostingService } from './operations-posting.service';
 import { EggPostingService } from '../poultry-egg/egg-posting.service';
 import { BatchCloseService } from './batch-close.service';
 import { BatchProfileService } from './batch-profile.service';
+import { HealthScheduleService } from './health-schedule.service';
 import { Roles, AnyRole } from '../auth/roles.guard';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -43,6 +44,7 @@ export class OperationsController {
     private readonly eggPostings: EggPostingService,
     private readonly batches: BatchCloseService,
     private readonly profiles: BatchProfileService,
+    private readonly healthSchedule: HealthScheduleService,
   ) {}
 
   /* --- Reads ------------------------------------------------------------ */
@@ -85,6 +87,36 @@ export class OperationsController {
   @Get('health')
   async health(@CurrentCompany() companyId: string, @Query('species') species: string) {
     return this.reads.health(companyId, species);
+  }
+
+  /** Vaccination and health compliance (PLY-008): what fell due, and whether it was given on time. */
+  @AnyRole('Livestock reads are the shared ground floor of the product.')
+  @Get('health-compliance')
+  async healthCompliance(@CurrentCompany() companyId: string, @Query('species') species?: string) {
+    return this.healthSchedule.compliance({ companyId, speciesKey: species || undefined });
+  }
+
+  /** Put a vaccination or treatment on a batch's programme. */
+  @Roles('PRODUCTION_SUPERVISOR', 'SNAIL_SUPERVISOR', 'POULTRY_SUPERVISOR', 'PRODUCTION_LEAD', 'FARM_MANAGER', 'CFO')
+  @Post('health-events')
+  async scheduleHealthEvent(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { groupCode: string; kind: string; name: string; dueOn: string; detail?: string | null },
+  ) {
+    return this.healthSchedule.schedule({ companyId, actor, groupCode: body?.groupCode ?? '', kind: body?.kind ?? '', name: body?.name ?? '', dueOn: new Date(body?.dueOn ?? ''), detail: body?.detail ?? null });
+  }
+
+  /** Stand a scheduled event down, with the reason. */
+  @Roles('PRODUCTION_SUPERVISOR', 'SNAIL_SUPERVISOR', 'POULTRY_SUPERVISOR', 'PRODUCTION_LEAD', 'FARM_MANAGER', 'CFO')
+  @Post('health-events/:id/skip')
+  async skipHealthEvent(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') eventId: string,
+    @Body() body: { reason: string },
+  ) {
+    return this.healthSchedule.skip({ companyId, actor, eventId, reason: body?.reason ?? '' });
   }
 
   @AnyRole('Livestock reads are the shared ground floor of the product.')

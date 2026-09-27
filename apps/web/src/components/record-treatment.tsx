@@ -7,6 +7,7 @@ import { enqueue, flush } from '@/lib/sync-queue';
 import { Card } from './ui';
 import { Sheet } from './sheet';
 import { HelpTerm } from './help';
+import { ScheduleHealthButton, SkipHealthEvent } from './schedule-health';
 
 /**
  * Recording that a treatment was actually given.
@@ -86,9 +87,12 @@ export function HealthSchedule({
         subtitle="What is due, and what has been given"
         padded={false}
         action={
-          <button type="button" className="btn" onClick={() => setTarget('unscheduled')}>
-            Record a treatment
-          </button>
+          <span style={{ display: 'inline-flex', gap: 'var(--sp-2)' }}>
+            <ScheduleHealthButton groups={groups.map((g) => g.code)} groupLabel={labels.group} today={today} />
+            <button type="button" className="btn" onClick={() => setTarget('unscheduled')}>
+              Record a treatment
+            </button>
+          </span>
         }
       >
         <div className="table-wrap">
@@ -151,14 +155,19 @@ export function HealthSchedule({
                         >
                           {justRecorded ? 'in outbox' : 'done'}
                         </span>
+                      ) : event.status === 'SKIPPED' ? (
+                        <span className="badge">stood down</span>
                       ) : (
-                        <button
-                          type="button"
-                          className={`btn ${event.status === 'OVERDUE' ? 'btn-primary' : ''}`}
-                          onClick={() => setTarget(event)}
-                        >
-                          Record it
-                        </button>
+                        <span style={{ display: 'inline-flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
+                          <SkipHealthEvent eventId={event.id} name={event.name} />
+                          <button
+                            type="button"
+                            className={`btn ${event.status === 'OVERDUE' ? 'btn-primary' : ''}`}
+                            onClick={() => setTarget(event)}
+                          >
+                            Record it
+                          </button>
+                        </span>
                       )}
                     </td>
                   </tr>
