@@ -843,8 +843,15 @@
         },
         {
           "check": "Catalogue reports fully built",
-          "gap": "Built in part: sales margin by product (AGR-011).",
-          "phase": 3
+          "tests": [
+            "puts every built report on a screen that exists",
+            "500-poultry case replay",
+            "Vaccination and health compliance (PLY-008)",
+            "reports culls apart from deaths",
+            "delivery performance and budget against spend",
+            "reports each product and customer at what it sold for"
+          ],
+          "note": "All 39 REPORT_KPI_CATALOG definitions are built; the reports added in Phase 3 each have their own test."
         },
         {
           "check": "Formula demonstrations (15)",

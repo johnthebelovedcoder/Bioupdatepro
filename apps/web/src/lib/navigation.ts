@@ -219,6 +219,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['invoice', 'bill', 'receivable', 'receipt', 'ar'],
       },
       {
+        href: '/sales/margin',
+        label: 'Sales margin',
+        hint: 'What each product and customer sold for, what it cost, and what was left',
+        keywords: ['margin', 'gross margin', 'profit', 'cost of sales', 'cogs', 'by product', 'by customer'],
+      },
+      {
         href: '/customers',
         label: 'Customers',
         hint: 'Everyone the farm sells to',

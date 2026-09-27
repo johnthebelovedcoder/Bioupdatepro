@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { SalesFlowService } from './sales-flow.service';
+import { SalesMarginService } from './sales-margin.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
 import { AnyRole, Roles } from '../auth/roles.guard';
@@ -14,7 +15,23 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  */
 @Controller('sales')
 export class SalesController {
-  constructor(private readonly flow: SalesFlowService) {}
+  constructor(
+    private readonly flow: SalesFlowService,
+    private readonly margins: SalesMarginService,
+  ) {}
+
+  /** Sales, cost of sales and gross margin by product and customer (AGR-011). */
+  @AnyRole('What each product and customer earns is read across sales and finance.')
+  @Get('margin')
+  async margin(@CurrentCompany() companyId: string, @Query('from') from?: string, @Query('to') to?: string) {
+    const date = (v?: string) => {
+      if (!v) return undefined;
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`${v} is not a date.`);
+      return d;
+    };
+    return this.margins.report({ companyId, from: date(from), to: date(to) });
+  }
 
   @AnyRole('Seeing what has been sold is how anyone knows what is owed.')
   @Get('orders')

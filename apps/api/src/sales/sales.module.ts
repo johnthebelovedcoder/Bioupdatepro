@@ -6,6 +6,7 @@ import { SalesInvoiceService } from './sales-invoice.service';
 import { CustomerReceiptService } from './customer-receipt.service';
 import { CreditNoteService } from './credit-note.service';
 import { SalesFlowService } from './sales-flow.service';
+import { SalesMarginService } from './sales-margin.service';
 import {
   CreditNotePostingHandler,
   CustomerReceiptPostingHandler,
@@ -24,6 +25,7 @@ import { WorkflowService } from '../workflow/workflow.service';
     CustomerReceiptService,
     CreditNoteService,
     SalesFlowService,
+    SalesMarginService,
     DeliveryPostingHandler,
     SalesInvoicePostingHandler,
     CustomerReceiptPostingHandler,

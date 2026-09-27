@@ -30,6 +30,7 @@ import { SalesPricingService } from '../../src/sales/sales-pricing.service';
 import { SalesOrderService } from '../../src/sales/sales-order.service';
 import { DeliveryService } from '../../src/sales/delivery.service';
 import { SalesInvoiceService } from '../../src/sales/sales-invoice.service';
+import { SalesMarginService } from '../../src/sales/sales-margin.service';
 import { CustomerReceiptService } from '../../src/sales/customer-receipt.service';
 import { CreditNoteService } from '../../src/sales/credit-note.service';
 import {
@@ -1340,6 +1341,24 @@ describe('Order-to-Cash (§6)', () => {
       await asEggs(null);
       const order = await makeApprovedOrder(10);
       await expect(deliverAll(order.id)).rejects.toThrow(/have been valued into stock/);
+    });
+  });
+
+  describe('sales, cost of sales and gross margin (AGR-011)', () => {
+    it('reports each product and customer at what it sold for and what it cost', async () => {
+      const first = await makeApprovedOrder(100, 1_000_00n);
+      await deliverAll(first.id, 'DN-M1');
+      await invoiceAll(first.id, 'INV-M1');
+      const second = await makeApprovedOrder(20, 800_00n);
+      await deliverAll(second.id, 'DN-M2');
+      await invoiceAll(second.id, 'INV-M2');
+
+      const report = await new SalesMarginService(prisma).report({ companyId: fixture.companyId });
+      // 100 at ₦1,000 and 20 at ₦800, all at ₦600 cost.
+      expect(report.totals).toEqual({ revenueKobo: String(116_000_00n), costOfSalesKobo: String(72_000_00n), grossMarginKobo: String(44_000_00n), grossMarginPercent: '37.9' });
+      expect(report.byProduct).toHaveLength(1);
+      expect(report.byProduct[0]).toMatchObject({ quantity: '120.000', grossMarginKobo: String(44_000_00n) });
+      expect(report.byCustomer[0]).toMatchObject({ revenueKobo: String(116_000_00n) });
     });
   });
 });
