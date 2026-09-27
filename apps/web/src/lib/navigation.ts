@@ -339,6 +339,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['production', 'processing', 'snailpro', 'poultrypro', 'convert', 'manufacture', 'wip', 'slaughter'],
       },
       {
+        href: '/production/results',
+        label: 'Yield and profitability',
+        hint: 'What each processing order turned live weight into, and what it cost and is worth',
+        keywords: ['yield', 'dressed', 'meat yield', 'profitability', 'margin', 'mass balance', 'by-product', 'order result'],
+      },
+      {
         href: '/production/recipes',
         label: 'Recipes',
         hint: 'What a processing order consumes to make one batch of output',

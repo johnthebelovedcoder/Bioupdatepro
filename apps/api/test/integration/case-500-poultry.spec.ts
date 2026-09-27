@@ -37,6 +37,7 @@ import { IncomeTaxService } from '../../src/closing/income-tax.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 import { kpiService, kpisByKey } from '../helpers/kpis';
+import { ProcessingResultsService } from '../../src/production/processing-results.service';
 
 /**
  * The client's 500-poultry case (P500_Assumptions → P_APP_EXPECTED_RESULTS and
@@ -518,6 +519,17 @@ describe('The 500-poultry case, through the application (UAT-022)', () => {
     expect(kpis.mortalityRate!.value).toBe('6.00'); // 30 of 500
     expect(kpis.productionCloseReadiness!).toMatchObject({ value: '1', reason: null });
     expect(kpis.snailMeatYield!.computable).toBe(false);
+
+    // Processing yield and order profitability (PLY-010/011) on the case's one order.
+    const { rows: results } = await new ProcessingResultsService(prisma).list({ companyId: fixture.companyId, cycle: 'POULTRYPRO' });
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      orderNumber: order.orderNumber, inputKg: '620.400', mainKg: '446.688', byProductKg: '60.000', lossKg: '113.712', yieldPercent: '72.00',
+      standardConversionKobo: String(N(620_000)), actualConversionKobo: String(N(660_000)), varianceKobo: String(N(40_000)),
+      finishedGoodsCostKobo: String(N(2_453_000)),
+      salesValueKobo: String(N('2412777.60')), // the workbook's processed revenue (PJE017)
+      marginKobo: String(N('2412777.60') - N(2_453_000)),
+    });
     expect(rows.filter((x) => x.status === 'UNEXPLAINED')).toEqual([]);
   }, 600_000);
 });

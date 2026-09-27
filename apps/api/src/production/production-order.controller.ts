@@ -4,6 +4,7 @@ import { ProductionOrderService } from './production-order.service';
 import { JointCostService } from './joint-cost.service';
 import { StandardCostService } from './standard-cost.service';
 import { VarianceProrationService } from './variance-proration.service';
+import { ProcessingResultsService } from './processing-results.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { AnyRole, Roles } from '../auth/roles.guard';
 import { OwnedRecord } from '../auth/owned-record.guard';
@@ -24,6 +25,7 @@ export class ProductionOrderController {
     private readonly joint: JointCostService,
     private readonly standards: StandardCostService,
     private readonly prorations: VarianceProrationService,
+    private readonly processingResults: ProcessingResultsService,
   ) {}
 
   // --- POL-009 variance proration -------------------------------------------
@@ -77,6 +79,25 @@ export class ProductionOrderController {
       weightKg: row.weightKg.toString(),
       grade: row.grade,
     }));
+  }
+
+  /** Processing yield and order profitability (SNL-009/010, PLY-010/011). */
+  @AnyRole('What processing turned live weight into, and what it earned, is read by the farm and finance alike.')
+  @Get('results')
+  async results(
+    @CurrentCompany() companyId: string,
+    @Query('cycle') cycle?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    if (cycle && cycle !== 'SNAILPRO' && cycle !== 'POULTRYPRO') throw new BadRequestException('Cycle is SNAILPRO or POULTRYPRO.');
+    const date = (value?: string) => {
+      if (!value) return undefined;
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`${value} is not a date.`);
+      return d;
+    };
+    return this.processingResults.list({ companyId, cycle: cycle as 'SNAILPRO' | 'POULTRYPRO' | undefined, from: date(from), to: date(to) });
   }
 
   @AnyRole('Every processing order and where it stands.')

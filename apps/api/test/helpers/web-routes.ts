@@ -12,5 +12,5 @@ export function routeExists(href: string): boolean {
     const children = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     return children.some((c) => (c === head || (c.startsWith('[') && c.endsWith(']'))) && walk(join(dir, c), rest));
   };
-  return walk(webApp, href.split('/').filter(Boolean));
+  return walk(webApp, href.split('?')[0]!.split('/').filter(Boolean));
 }

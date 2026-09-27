@@ -11,6 +11,7 @@ import { FeedPlanService } from './feed-plan.service';
 import { FeedQualityService } from './feed-quality.service';
 import { FeedMillController } from './feed-mill.controller';
 import { VarianceProrationService } from './variance-proration.service';
+import { ProcessingResultsService } from './processing-results.service';
 
 /**
  * Production orders — SnailPro (PCR-051–058) and PoultryPro (PCR-074–080)
@@ -28,11 +29,12 @@ import { VarianceProrationService } from './variance-proration.service';
     FeedPlanService,
     FeedQualityService,
     VarianceProrationService,
+    ProcessingResultsService,
   ],
   controllers: [FeedMillController],
   // ProductionOrderController is registered in AppModule, matching every
   // other feature module's controller in this codebase.
-  exports: [ProductionOrderService, JointCostService, StandardCostService, FeedPlanService, FeedQualityService, VarianceProrationService],
+  exports: [ProductionOrderService, JointCostService, StandardCostService, FeedPlanService, FeedQualityService, VarianceProrationService, ProcessingResultsService],
 })
 export class ProductionModule implements OnModuleInit {
   constructor(
