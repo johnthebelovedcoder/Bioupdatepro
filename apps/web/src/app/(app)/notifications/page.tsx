@@ -9,6 +9,7 @@ interface Policy {
   events: string[];
   emailEvents: string[];
   whatsappEvents: string[];
+  emailAvailable: boolean;
   whatsappAvailable: boolean;
 }
 
@@ -39,6 +40,7 @@ export default async function NotificationsPage() {
             emailEvents={policy.emailEvents}
             whatsappEvents={policy.whatsappEvents}
             canEdit={canEdit}
+            emailAvailable={policy.emailAvailable}
             whatsappAvailable={policy.whatsappAvailable}
           />
         </Card>

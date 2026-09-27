@@ -6,6 +6,7 @@ import { AuditService } from '../audit/audit.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { ALL_EVENTS, normaliseNumber, policyFor } from './notification-rules';
 import { WhatsAppService } from './whatsapp.service';
+import { EmailService } from '../auth/email.service';
 
 const POLICY_ROLES = ['ADMINISTRATOR', 'CFO'];
 const CODE_MINUTES = 10;
@@ -24,6 +25,7 @@ export class NotificationPreferencesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly whatsapp: WhatsAppService,
+    private readonly email: EmailService,
   ) {}
 
   async mine(companyId: string, userId: string) {
@@ -33,6 +35,7 @@ export class NotificationPreferencesService {
     ]);
     const consented = Boolean(contact?.consentedAt && (!contact.withdrawnAt || contact.withdrawnAt < contact.consentedAt));
     return {
+      emailAvailable: this.email.isConfigured(),
       whatsappAvailable: this.whatsapp.isConfigured(),
       whatsappNumber: contact?.whatsappNumber ?? null,
       verified: Boolean(contact?.whatsappVerifiedAt),
@@ -132,7 +135,7 @@ export class NotificationPreferencesService {
 
   async policy(companyId: string) {
     const policy = await policyFor(this.prisma, companyId);
-    return { events: ALL_EVENTS, ...policy, whatsappAvailable: this.whatsapp.isConfigured() };
+    return { events: ALL_EVENTS, ...policy, emailAvailable: this.email.isConfigured(), whatsappAvailable: this.whatsapp.isConfigured() };
   }
 
   /** Approve which events go out by email and by WhatsApp (AC-015 "approved event"). */

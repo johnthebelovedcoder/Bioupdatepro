@@ -37,6 +37,7 @@ function Submit({ label }: { label: string }) {
 }
 
 export interface MyNotifications {
+  emailAvailable: boolean;
   whatsappAvailable: boolean;
   whatsappNumber: string | null;
   verified: boolean;
@@ -56,7 +57,7 @@ export function WhatsAppSettings({ mine }: { mine: MyNotifications }) {
   const router = useRouter();
 
   if (!mine.whatsappAvailable) {
-    return <p className="faint" style={{ margin: 0 }}>WhatsApp is not set up for this farm yet. Notices come in the app and by email.</p>;
+    return <p className="faint" style={{ margin: 0 }}>WhatsApp is not set up for this farm yet. Notices come in the app{mine.emailAvailable ? ' and by email' : ''}.</p>;
   }
 
   const toggle = (consent: boolean) =>
@@ -166,12 +167,14 @@ export function NotificationPolicyForm({
   emailEvents,
   whatsappEvents,
   canEdit,
+  emailAvailable = false,
   whatsappAvailable = false,
 }: {
   events: string[];
   emailEvents: string[];
   whatsappEvents: string[];
   canEdit: boolean;
+  emailAvailable?: boolean;
   whatsappAvailable?: boolean;
 }) {
   const [state, action] = useActionState(savePolicy, EMPTY);
@@ -179,6 +182,11 @@ export function NotificationPolicyForm({
   return (
     <form action={action} className="stack" style={{ gap: 'var(--sp-3)' }}>
       <Notices state={state} />
+      {emailAvailable ? null : (
+        <p className="faint" style={{ margin: 0 }}>
+          Email isn&apos;t set up on this server yet, so nothing goes out by email until it is. Notices in the app still arrive.
+        </p>
+      )}
       <table className="pref-table">
         <thead>
           <tr>
@@ -205,7 +213,7 @@ export function NotificationPolicyForm({
                     <span className="pref-always">Always</span>
                   </td>
                   <td>
-                    <Toggle name="email" value={e.key} checked={emailEvents.includes(e.key)} disabled={!canEdit} label={`${e.label} by email`} />
+                    <Toggle name="email" value={e.key} checked={emailEvents.includes(e.key)} disabled={!canEdit} label={`${e.label} by email${emailAvailable ? '' : ' (once email is set up)'}`} />
                   </td>
                   <td>
                     <Toggle

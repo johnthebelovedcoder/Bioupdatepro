@@ -676,6 +676,41 @@ describe('Workflow & Approval Engine (§2)', () => {
       expect(withdrawn[0]!.subject).toMatch(/^Withdrawn: /);
     });
 
+    it("queues email and WhatsApp only for the events the company's policy approves (AC-015)", async () => {
+      const submitted = await workflow.submit(submitRequest());
+      const queue = (event: NotificationEvent, subject: string) =>
+        notifications.queue({
+          companyId: fixture.companyId,
+          transactionId: submitted.transactionId,
+          recipientIds: [users.farmManager.id, users.financeManager.id],
+          event,
+          subject,
+          body: subject,
+        });
+      const channels = async (subject: string) =>
+        (await prisma.workflowNotification.findMany({ where: { transactionId: submitted.transactionId, subject } }))
+          .map((n) => `${n.recipientId === users.farmManager.id ? 'farm' : 'finance'}:${n.channel}`)
+          .sort();
+
+      // No policy row yet: every event by email, nothing by WhatsApp.
+      await queue(NotificationEvent.SUBMISSION, 'default');
+      expect(await channels('default')).toEqual(['farm:EMAIL', 'farm:IN_APP', 'finance:EMAIL', 'finance:IN_APP']);
+
+      // Approvals by email only; submissions by WhatsApp only, and only to someone with a number.
+      await prisma.notificationPolicy.create({
+        data: { companyId: fixture.companyId, emailEvents: ['APPROVAL'], whatsappEvents: ['SUBMISSION'], updatedById: users.admin.id },
+      });
+      await prisma.notificationContact.create({ data: { companyId: fixture.companyId, userId: users.farmManager.id, whatsappNumber: '+2348031234567' } });
+
+      await queue(NotificationEvent.SUBMISSION, 'submitted');
+      expect(await channels('submitted')).toEqual(['farm:IN_APP', 'farm:WHATSAPP', 'finance:IN_APP']);
+      await queue(NotificationEvent.APPROVAL, 'approved');
+      expect(await channels('approved')).toEqual(['farm:EMAIL', 'farm:IN_APP', 'finance:EMAIL', 'finance:IN_APP']);
+      // An event on neither list still reaches the bell, and nothing else.
+      await queue(NotificationEvent.REJECTION, 'rejected');
+      expect(await channels('rejected')).toEqual(['farm:IN_APP', 'finance:IN_APP']);
+    });
+
     it('refuses cancellation once a level has approved', async () => {
       const submitted = await workflow.submit(submitRequest({ amount: kobo(5_000_000_00) }));
       await workflow.approve({
