@@ -18,6 +18,13 @@ export interface CashFlow {
   receivablesChangeKobo: string;
   inventoryChangeKobo: string;
   payablesChangeKobo: string;
+  /**
+   * Equity booked without cash — an opening balance taken on against
+   * retained earnings, a prior-period adjustment. Its other side is already in
+   * the working-capital changes above, so it is added back here; without it
+   * the statement no longer ends at the bank.
+   */
+  nonCashEquityKobo: string;
   netCashFromOperationsKobo: string;
   fixedAssetAcquisitionsKobo: string;
   netCashFromInvestingKobo: string;
@@ -160,6 +167,81 @@ export class CashFlowService {
     private readonly profitLoss: ProfitLossService,
   ) {}
 
+  /**
+   * Year to date (REPORT_KPI_CATALOG AGR-016): the year's first period
+   * through the one named. Every flow line adds up across periods, so this is
+   * the sum of the monthly statements — opening cash from the first, closing
+   * and the bank from the last — and agrees with them by construction.
+   */
+  async yearToDate(params: { companyId: string; financialPeriodId: string }): Promise<CashFlow & { fromPeriodId: string; periods: number }> {
+    await assertReportFilter(this.prisma, params);
+    const through = await this.prisma.financialPeriod.findUniqueOrThrow({
+      where: { id: params.financialPeriodId },
+      select: { financialYearId: true, startDate: true },
+    });
+    const periods = await this.prisma.financialPeriod.findMany({
+      where: { financialYearId: through.financialYearId, startDate: { lte: through.startDate } },
+      orderBy: { startDate: 'asc' },
+      select: { id: true },
+    });
+    const months: CashFlow[] = [];
+    for (const p of periods) months.push(await this.build({ companyId: params.companyId, financialPeriodId: p.id }));
+    const first = months[0]!;
+    const last = months[months.length - 1]!;
+    const sum = (pick: (m: CashFlow) => string) => months.reduce((s, m) => s + BigInt(pick(m)), 0n);
+
+    const netCashFromOperationsKobo = sum((m) => m.netCashFromOperationsKobo);
+    const netCashFromInvestingKobo = sum((m) => m.netCashFromInvestingKobo);
+    const netCashFromFinancingKobo = sum((m) => m.netCashFromFinancingKobo);
+    const netChangeInCashKobo = netCashFromOperationsKobo + netCashFromInvestingKobo + netCashFromFinancingKobo;
+    const openingCashKobo = BigInt(first.openingCashKobo);
+    const closingCashKobo = openingCashKobo + netChangeInCashKobo;
+    const bank = BigInt(last.bankAccountClosingKobo);
+    const directOperating = sum((m) => m.direct.netCashFromOperationsKobo);
+    const directChange = sum((m) => m.direct.netChangeInCashKobo);
+    const directClosing = openingCashKobo + directChange;
+
+    return {
+      fromPeriodId: periods[0]!.id,
+      periods: periods.length,
+      openingCashKobo: openingCashKobo.toString(),
+      netIncomeKobo: sum((m) => m.netIncomeKobo).toString(),
+      depreciationAddBackKobo: sum((m) => m.depreciationAddBackKobo).toString(),
+      fairValueAdjustmentKobo: sum((m) => m.fairValueAdjustmentKobo).toString(),
+      receivablesChangeKobo: sum((m) => m.receivablesChangeKobo).toString(),
+      inventoryChangeKobo: sum((m) => m.inventoryChangeKobo).toString(),
+      payablesChangeKobo: sum((m) => m.payablesChangeKobo).toString(),
+      nonCashEquityKobo: sum((m) => m.nonCashEquityKobo).toString(),
+      netCashFromOperationsKobo: netCashFromOperationsKobo.toString(),
+      fixedAssetAcquisitionsKobo: sum((m) => m.fixedAssetAcquisitionsKobo).toString(),
+      netCashFromInvestingKobo: netCashFromInvestingKobo.toString(),
+      netCashFromFinancingKobo: netCashFromFinancingKobo.toString(),
+      netChangeInCashKobo: netChangeInCashKobo.toString(),
+      closingCashKobo: closingCashKobo.toString(),
+      bankAccountClosingKobo: bank.toString(),
+      reconciled: closingCashKobo === bank,
+      direct: {
+        customerReceiptsKobo: sum((m) => m.direct.customerReceiptsKobo).toString(),
+        supplierPaymentsKobo: sum((m) => m.direct.supplierPaymentsKobo).toString(),
+        employeePaymentsKobo: sum((m) => m.direct.employeePaymentsKobo).toString(),
+        taxesPaidKobo: sum((m) => m.direct.taxesPaidKobo).toString(),
+        otherOperatingKobo: sum((m) => m.direct.otherOperatingKobo).toString(),
+        netCashFromOperationsKobo: directOperating.toString(),
+        investingKobo: sum((m) => m.direct.investingKobo).toString(),
+        financingKobo: sum((m) => m.direct.financingKobo).toString(),
+        netChangeInCashKobo: directChange.toString(),
+        openingCashKobo: openingCashKobo.toString(),
+        closingCashKobo: directClosing.toString(),
+        journals: months.reduce((s, m) => s + m.direct.journals, 0),
+      },
+      checks: {
+        directKobo: (directClosing - bank).toString(),
+        indirectKobo: (closingCashKobo - bank).toString(),
+        directVsIndirectOperatingKobo: (directOperating - netCashFromOperationsKobo).toString(),
+      },
+    };
+  }
+
   async build(params: { companyId: string; financialPeriodId: string }): Promise<CashFlow> {
     await assertReportFilter(this.prisma, params);
     const period = await this.prisma.financialPeriod.findUniqueOrThrow({
@@ -207,13 +289,15 @@ export class CashFlowService {
     // Profit after tax: the tax provision is not cash, and its payable is
     // working capital above, so the statement still ends at the bank.
     const netIncomeKobo = BigInt(netIncome.profitAfterTaxKobo);
+    const nonCashEquityKobo = await this.nonCashEquity(params.companyId, params.financialPeriodId);
     const netCashFromOperationsKobo =
       netIncomeKobo +
       depreciationAddBackKobo +
       fairValueAdjustmentKobo +
       receivablesChangeKobo +
       inventoryChangeKobo +
-      payablesChangeKobo;
+      payablesChangeKobo +
+      nonCashEquityKobo;
 
     const fixedAssetAcquisitionsKobo = -(closing.ppe - opening.ppe);
     const netCashFromInvestingKobo = fixedAssetAcquisitionsKobo;
@@ -239,6 +323,7 @@ export class CashFlowService {
       receivablesChangeKobo: receivablesChangeKobo.toString(),
       inventoryChangeKobo: inventoryChangeKobo.toString(),
       payablesChangeKobo: payablesChangeKobo.toString(),
+      nonCashEquityKobo: nonCashEquityKobo.toString(),
       netCashFromOperationsKobo: netCashFromOperationsKobo.toString(),
       fixedAssetAcquisitionsKobo: fixedAssetAcquisitionsKobo.toString(),
       netCashFromInvestingKobo: netCashFromInvestingKobo.toString(),
@@ -368,6 +453,30 @@ export class CashFlowService {
       for (const share of shares) totals[share.line] += share.share;
     }
     return { ...totals, journals };
+  }
+
+  /**
+   * Equity booked in the period by journals that moved no bank account, as
+   * an increase (credit) positive. The year-end close is left out: it only
+   * moves the year's profit, already counted as net income, into retained
+   * earnings.
+   */
+  private async nonCashEquity(companyId: string, financialPeriodId: string): Promise<bigint> {
+    const bank = await this.prisma.gLAccount.findMany({ where: { companyId, accountNumber: { in: BANK_ACCOUNTS } }, select: { id: true } });
+    const sums = await this.prisma.journalLine.aggregate({
+      where: {
+        companyId,
+        financialPeriodId,
+        glAccount: { accountType: 'EQUITY' },
+        journalEntry: {
+          status: 'POSTED',
+          sourceModule: { not: 'closing' },
+          ...(bank.length ? { lines: { none: { glAccountId: { in: bank.map((b) => b.id) } } } } : {}),
+        },
+      },
+      _sum: { debitKobo: true, creditKobo: true },
+    });
+    return (sums._sum.creditKobo ?? 0n) - (sums._sum.debitKobo ?? 0n);
   }
 
   private async balancesAsOf(companyId: string, financialPeriodId: string) {

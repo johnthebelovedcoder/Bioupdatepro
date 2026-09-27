@@ -451,12 +451,14 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
       const outputs = await prisma.productionOrderOutput.aggregate({ where: { productionOrderId: orderId }, _sum: { allocatedCostKobo: true } });
       const tb = await services.tb.build({ companyId: fixture.companyId });
       const valued = await prisma.biologicalAssetValuation.findUniqueOrThrow({ where: { id: valuationId } });
-      const yearToDate = { direct: 0n, indirect: 0n };
-      for (const periodId of fixture.periodIds) {
-        const month = await services.cf.build({ companyId: fixture.companyId, financialPeriodId: periodId });
-        yearToDate.direct += BigInt(month.direct.netCashFromOperationsKobo);
-        yearToDate.indirect += BigInt(month.netCashFromOperationsKobo);
-      }
+      // The year to date, as the workbook states its case (AGR-016): the months summed, and still ending at the bank.
+      const ytd = await services.cf.yearToDate({ companyId: fixture.companyId, financialPeriodId: fixture.periodIds[11]! });
+      expect(ytd.reconciled).toBe(true);
+      expect(ytd.checks.directKobo).toBe('0');
+      // January took opening stock on against retained earnings; its month still ends at the bank.
+      const january = await services.cf.build({ companyId: fixture.companyId, financialPeriodId: fixture.periodIds[0]! });
+      expect(january).toMatchObject({ reconciled: true, nonCashEquityKobo: String(N(500_000)) });
+      const yearToDate = { direct: BigInt(ytd.direct.netCashFromOperationsKobo), indirect: BigInt(ytd.netCashFromOperationsKobo) };
       // Snailery lifecycle cost (500_Assumptions): feed and medication, labour and facility — expensed as used on SPEC.
       const lifecycle = async (n: string) => {
         const a = await prisma.gLAccount.findFirst({ where: { companyId: fixture.companyId, accountNumber: n } });

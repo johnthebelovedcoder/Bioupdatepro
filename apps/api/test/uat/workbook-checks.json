@@ -843,7 +843,7 @@
         },
         {
           "check": "Catalogue reports fully built",
-          "gap": "Built in part: sales margin by product (AGR-011), year-to-date cash flow (AGR-016).",
+          "gap": "Built in part: sales margin by product (AGR-011).",
           "phase": 3
         },
         {
@@ -1123,10 +1123,7 @@
           "check": "Snail direct vs indirect CFO (indirect)",
           "expected": 45498360,
           "unit": "naira",
-          "figure": "snail.cfoIndirect",
-          "causes": [
-            "-snail.openingStock"
-          ]
+          "figure": "snail.cfoIndirect"
         },
         {
           "check": "Poultry direct CF closing cash",

@@ -383,12 +383,15 @@ export class ReportingController {
   async cashFlowReport(
     @CurrentCompany() companyId: string,
     @Query('financialPeriodId') financialPeriodId?: string,
+    @Query('yearToDate') yearToDate?: string,
   ) {
     const periodId = financialPeriodId ?? (await currentFinancialPeriodId(this.prisma, companyId));
     if (!periodId) {
       return { error: 'No financial period covers today for this company.' };
     }
-    return this.cashFlow.build({ companyId, financialPeriodId: periodId });
+    return yearToDate === 'true'
+      ? this.cashFlow.yearToDate({ companyId, financialPeriodId: periodId })
+      : this.cashFlow.build({ companyId, financialPeriodId: periodId });
   }
 
   /** Cash Flow has no line-item array — a flat set of named figures — so its
@@ -419,12 +422,16 @@ export class ReportingController {
   async cashFlowExport(
     @CurrentCompany() companyId: string,
     @Query('financialPeriodId') financialPeriodId?: string,
+    @Query('yearToDate') yearToDate?: string,
   ): Promise<string> {
     const periodId = financialPeriodId ?? (await currentFinancialPeriodId(this.prisma, companyId));
     if (!periodId) {
       return 'Line Item,Amount (kobo)\r\nError,No financial period covers today for this company.';
     }
-    const cf = await this.cashFlow.build({ companyId, financialPeriodId: periodId });
+    const cf =
+      yearToDate === 'true'
+        ? await this.cashFlow.yearToDate({ companyId, financialPeriodId: periodId })
+        : await this.cashFlow.build({ companyId, financialPeriodId: periodId });
     const header = ['Line Item', 'Amount (kobo)'];
     const rows = [
       ['Opening Cash', cf.openingCashKobo],
@@ -433,6 +440,7 @@ export class ReportingController {
       ['Receivables Change', cf.receivablesChangeKobo],
       ['Inventory Change', cf.inventoryChangeKobo],
       ['Payables Change', cf.payablesChangeKobo],
+      ['Non-cash Equity Entries', cf.nonCashEquityKobo],
       ['Net Cash From Operations', cf.netCashFromOperationsKobo],
       ['Fixed Asset Acquisitions', cf.fixedAssetAcquisitionsKobo],
       ['Net Cash From Investing', cf.netCashFromInvestingKobo],

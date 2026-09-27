@@ -462,13 +462,11 @@ describe('The 500-poultry case, through the application (UAT-022)', () => {
         assets.rollForward(flock.id),
       ]);
       const after = await prisma.livestockGroup.findUniqueOrThrow({ where: { id: flock.id } });
-      // The cash-flow statement is built a month at a time; the case's operating cash is the year's.
-      const yearToDate = { direct: 0n, indirect: 0n };
-      for (const periodId of fixture.periodIds) {
-        const month = await services.cf.build({ companyId: fixture.companyId, financialPeriodId: periodId });
-        yearToDate.direct += BigInt(month.direct.netCashFromOperationsKobo);
-        yearToDate.indirect += BigInt(month.netCashFromOperationsKobo);
-      }
+      // The year to date, as the workbook states its case (AGR-016): the months summed, and still ending at the bank.
+      const ytd = await services.cf.yearToDate({ companyId: fixture.companyId, financialPeriodId: fixture.periodIds[11]! });
+      expect(ytd.reconciled).toBe(true);
+      expect(ytd.checks.directKobo).toBe('0');
+      const yearToDate = { direct: BigInt(ytd.direct.netCashFromOperationsKobo), indirect: BigInt(ytd.netCashFromOperationsKobo) };
       const farmAbcTotal = flock.acquisitionCostKobo + (feed._sum.valueKobo ?? 0n) + (treatments._sum.costKobo ?? 0n) + (labour._sum.amountKobo ?? 0n);
       const stillHeld = (await rearing.remaining(flock.id)) + BigInt(after.population) * (after.currentFvlctsPerUnitKobo ?? 0n);
       const f: Record<string, bigint> = {

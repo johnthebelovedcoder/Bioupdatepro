@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { formatNaira, formatDate } from '@/lib/money';
 import { getContext } from '@/lib/org';
@@ -17,6 +18,7 @@ interface CashFlow {
   receivablesChangeKobo: string;
   inventoryChangeKobo: string;
   payablesChangeKobo: string;
+  nonCashEquityKobo?: string;
   netCashFromOperationsKobo: string;
   fixedAssetAcquisitionsKobo: string;
   netCashFromInvestingKobo: string;
@@ -48,7 +50,7 @@ interface CashFlow {
  * profit adjusted for what was not cash. Both must reach the bank's closing
  * balance, and their operating cash must agree.
  *
- * One period at a time, defaulting to whichever period covers today.
+ * A month, or the year to date through it, defaulting to whichever period covers today.
  */
 export default async function CashFlowPage({
   searchParams,
@@ -82,8 +84,17 @@ export default async function CashFlowPage({
     periods.find((period) => period.id === periodId) ??
     periods.find((period) => period.startDate <= today && today <= period.endDate);
 
+  const yearToDate = params.view === 'ytd';
   const query = new URLSearchParams();
   if (periodId) query.set('financialPeriodId', periodId);
+  if (yearToDate) query.set('yearToDate', 'true');
+  const viewHref = (view: 'month' | 'ytd') => {
+    const next = new URLSearchParams();
+    if (periodId) next.set('financialPeriodId', periodId);
+    if (view === 'ytd') next.set('view', 'ytd');
+    return `/ledger/cash-flow?${next.toString()}`;
+  };
+  const periodLabel = `${yearToDate ? 'Year to date through ' : ''}${selectedPeriod?.label ?? 'the current period'}`;
 
   let report: CashFlow | null = null;
   let error: string | null = null;
@@ -101,7 +112,7 @@ export default async function CashFlowPage({
     <div className="stack">
       <PageHeader
         title="Cash flow"
-        subtitle="Where the cash moved, for one period, by the direct and indirect methods"
+        subtitle="Where the cash moved, for a month or the year to date, by the direct and indirect methods"
         actions={<ExportLink report="cash-flow" filters={Object.fromEntries(query)} />}
       />
 
@@ -111,6 +122,15 @@ export default async function CashFlowPage({
         periods={periods.map(({ id, label }) => ({ id, label }))}
         selected={periodId}
       />
+
+      <div className="chip-row" role="group" aria-label="Span">
+        <Link href={viewHref('month')} className="chip" aria-pressed={!yearToDate}>
+          This month
+        </Link>
+        <Link href={viewHref('ytd')} className="chip" aria-pressed={yearToDate}>
+          Year to date
+        </Link>
+      </div>
 
       {error ? <div className="notice notice-error">{error}</div> : null}
 
@@ -128,7 +148,7 @@ export default async function CashFlowPage({
 
           <div className="grid-auto" style={{ alignItems: 'start' }}>
             {report.direct ? (
-              <Card title="Direct method" subtitle={`${selectedPeriod?.label ?? 'Current period'} · ${report.direct.journals} bank movements`} padded={false}>
+              <Card title="Direct method" subtitle={`${periodLabel} · ${report.direct.journals} bank movements`} padded={false}>
                 <div className="table-wrap">
                   <table className="data">
                     <tbody>
@@ -154,7 +174,7 @@ export default async function CashFlowPage({
 
             <Card
               title="Indirect method"
-              subtitle={selectedPeriod?.label ?? 'Current period'}
+              subtitle={periodLabel}
               padded={false}
               action={
                 <span className={`badge ${report.reconciled ? 'badge-success' : 'badge-danger'}`}>
@@ -174,6 +194,9 @@ export default async function CashFlowPage({
                     <LineRow label="Change in receivables" amountKobo={report.receivablesChangeKobo} />
                     <LineRow label="Change in inventory and biological assets" amountKobo={report.inventoryChangeKobo} />
                     <LineRow label="Change in payables" amountKobo={report.payablesChangeKobo} />
+                    {report.nonCashEquityKobo && report.nonCashEquityKobo !== '0' ? (
+                      <LineRow label="Add: equity booked without cash (opening balances, adjustments)" amountKobo={report.nonCashEquityKobo} />
+                    ) : null}
                     <TotalRow label="Net cash from operating activities" amountKobo={report.netCashFromOperationsKobo} strong />
                     <SectionHeader label="Investing activities" />
                     <LineRow label="Fixed asset acquisitions" amountKobo={report.fixedAssetAcquisitionsKobo} />
