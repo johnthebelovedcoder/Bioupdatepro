@@ -149,11 +149,19 @@ export async function receiveGoods(_previous: FlowState, formData: FormData): Pr
       rejectedQuantity: String(formData.get(`rejected:${purchaseOrderLineId}`) ?? '').trim(),
       batchReference: String(formData.get(`batch:${purchaseOrderLineId}`) ?? '').trim(),
       expiryDate: String(formData.get(`expiry:${purchaseOrderLineId}`) ?? '').trim(),
+      placeCode: String(formData.get(`placeCode:${purchaseOrderLineId}`) ?? '').trim(),
+      placeHouse: String(formData.get(`placeHouse:${purchaseOrderLineId}`) ?? '').trim(),
+      placeStage: String(formData.get(`placeStage:${purchaseOrderLineId}`) ?? '').trim(),
+      placeBreed: String(formData.get(`placeBreed:${purchaseOrderLineId}`) ?? '').trim(),
     }))
     .filter((line) => line.receivedQuantity !== '' && Number(line.receivedQuantity) > 0)
     .map((line) => ({
       purchaseOrderLineId: line.purchaseOrderLineId,
       receivedQuantity: line.receivedQuantity,
+      // Live animals: the batch they are placed as.
+      ...(line.placeCode
+        ? { placement: { code: line.placeCode, house: line.placeHouse, stage: line.placeStage, breed: line.placeBreed } }
+        : {}),
       ...(line.rejectedQuantity && Number(line.rejectedQuantity) > 0
         ? { rejectedQuantity: line.rejectedQuantity }
         : {}),

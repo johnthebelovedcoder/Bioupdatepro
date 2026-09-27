@@ -16,6 +16,8 @@ export interface OrderLine {
   itemCode: string;
   description: string;
   itemType: string;
+  /** Live animals of this species: receiving them places a batch. */
+  livestockSpeciesKey?: string | null;
   orderedQuantity: string;
   receivedQuantity: string;
   unitPriceKobo: string;

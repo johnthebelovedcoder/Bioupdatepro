@@ -48,7 +48,7 @@ export class ProcurementFlowService {
         lines: {
           orderBy: { lineNumber: 'asc' },
           include: {
-            item: { select: { code: true, description: true, itemType: true } },
+            item: { select: { code: true, description: true, itemType: true, livestockSpeciesKey: true } },
             taxCode: { select: { code: true } },
           },
         },
@@ -92,6 +92,8 @@ export class ProcurementFlowService {
         itemCode: line.item.code,
         description: line.item.description,
         itemType: line.item.itemType,
+        // Live animals: the receipt places them as a batch.
+        livestockSpeciesKey: line.item.livestockSpeciesKey,
         orderedQuantity: line.quantity.toString(),
         receivedQuantity: line.receivedQuantity?.toString() ?? '0',
         unitPriceKobo: line.unitPriceKobo.toString(),

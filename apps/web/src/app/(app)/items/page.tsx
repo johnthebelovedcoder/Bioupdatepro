@@ -167,6 +167,17 @@ export default async function ItemsPage() {
                   half: true,
                 },
                 {
+                  name: 'livestockSpeciesKey',
+                  label: 'Live animals',
+                  hint: 'Bought live: a receipt places a batch instead of adding stock.',
+                  options: [
+                    { value: '', label: 'No, not live animals' },
+                    { value: 'snail', label: 'Live snails' },
+                    { value: 'poultry', label: 'Live birds' },
+                  ],
+                  half: true,
+                },
+                {
                   name: 'isBiologicalFeed',
                   label: 'This is animal feed',
                   hint: 'Feed issued to a population is costed against it',

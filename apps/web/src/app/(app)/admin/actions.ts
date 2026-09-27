@@ -73,6 +73,7 @@ export async function createItem(
         inventoryGlAccountId: value('inventoryGlAccountId') || null,
         expenseGlAccountId: value('expenseGlAccountId') || null,
         isBiologicalFeed: formData.get('isBiologicalFeed') === 'on',
+        livestockSpeciesKey: value('livestockSpeciesKey') || null,
         reorderLevel: kept.reorderLevel || null,
         ...(cost !== null && cost > 0
           ? { standardCostKobo: String(cost), standardCostFrom: new Date().toISOString() }

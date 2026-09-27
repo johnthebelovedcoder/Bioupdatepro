@@ -91,6 +91,19 @@ export function GoodsReceiptForm({ order, today }: { order: PurchaseOrder; today
   );
 }
 
+/** Live animals arrive as a batch: say what it is called, where it goes and at what stage. */
+function LivestockPlacement({ lineId, species }: { lineId: string; species: string }) {
+  return (
+    <div className="stack" style={{ gap: 6, marginTop: 'var(--sp-2)' }}>
+      <span className="faint">Live {species}: placed as a new batch and carried as a biological asset.</span>
+      <input name={`placeCode:${lineId}`} placeholder="Batch code, e.g. BRD-1" required style={{ minHeight: 0 }} />
+      <input name={`placeHouse:${lineId}`} placeholder="House or pen code" required style={{ minHeight: 0 }} />
+      <input name={`placeStage:${lineId}`} placeholder={species === 'snail' ? 'Stage, e.g. Breeder' : 'Stage, e.g. Day-old chick'} required style={{ minHeight: 0 }} />
+      <input name={`placeBreed:${lineId}`} placeholder="Breed" required style={{ minHeight: 0 }} />
+    </div>
+  );
+}
+
 function LineRow({ line }: { line: PurchaseOrder['lines'][number] }) {
   const outstanding = Math.max(
     0,
@@ -110,6 +123,7 @@ function LineRow({ line }: { line: PurchaseOrder['lines'][number] }) {
           {formatNaira(line.unitPriceKobo)} each
           {line.itemType !== 'INVENTORY' ? ' — not stocked, so no stock entry' : null}
         </div>
+        {line.livestockSpeciesKey ? <LivestockPlacement lineId={line.id} species={line.livestockSpeciesKey} /> : null}
       </td>
       <td className="num">{trim(outstanding)}</td>
       <td>
