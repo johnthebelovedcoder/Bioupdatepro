@@ -186,6 +186,9 @@ const WAREHOUSES = [
  * policy. Keep this list and the seed's in sync until it moves to real
  * configuration.
  */
+/** The workbook's baseline date; configuration starts no later than this. */
+const BASELINE = new Date('2026-01-01');
+
 const WORKFLOW_ROLES = {
   supervisor: 'PRODUCTION_SUPERVISOR',
   farmManager: 'FARM_MANAGER',
@@ -341,9 +344,13 @@ export class ProvisioningService {
       })),
     });
 
-    await this.openFinancialYear(tx, company.id, input.financialYearStartMonth ?? 1);
-    await this.seedWorkflow(tx, company.id);
-    await this.seedDomainAccountConfiguration(tx, company.id);
+    const yearStart = await this.openFinancialYear(tx, company.id, input.financialYearStartMonth ?? 1);
+    // Routes and account settings apply from the farm's first financial year.
+    // A fixed 2026-01-01 left a year starting in late 2025 unable to route or
+    // post anything dated before January (found by the 40-step rehearsal).
+    const effectiveFrom = yearStart < BASELINE ? yearStart : BASELINE;
+    await this.seedWorkflow(tx, company.id, effectiveFrom);
+    await this.seedDomainAccountConfiguration(tx, company.id, effectiveFrom);
     // The workbook's approved species and breeds, with their stage ages.
     await loadStandardBreeds(tx, company.id);
 
@@ -360,7 +367,7 @@ export class ProvisioningService {
    * transaction, so there is nothing to collide with — unlike the demo seed,
    * which re-runs against the same company and has to be idempotent.
    */
-  private async seedWorkflow(tx: Prisma.TransactionClient, companyId: string): Promise<void> {
+  private async seedWorkflow(tx: Prisma.TransactionClient, companyId: string, effectiveFrom: Date): Promise<void> {
     /*
      * Two round trips for the whole ladder rather than one per definition
      * plus one per step (this used to be ~120 sequential creates: 24
@@ -377,7 +384,7 @@ export class ProvisioningService {
         'Company-wide default route. Add a narrower definition to give a ' +
         'branch, farm or cost centre its own ladder.',
       autoPostOnApproval: spec.autoPost,
-      effectiveFrom: new Date('2026-01-01'),
+      effectiveFrom,
     }));
     await tx.workflowDefinition.createMany({ data: definitions });
 
@@ -415,7 +422,7 @@ export class ProvisioningService {
     tx: Prisma.TransactionClient,
     companyId: string,
     startMonth: number,
-  ): Promise<void> {
+  ): Promise<Date> {
     const now = new Date();
     const month = Math.min(12, Math.max(1, startMonth));
     const startYear = now.getUTCMonth() + 1 >= month ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
@@ -444,6 +451,7 @@ export class ProvisioningService {
       };
     });
     await tx.financialPeriod.createMany({ data: periods });
+    return start;
   }
 
   /**
@@ -457,6 +465,7 @@ export class ProvisioningService {
   private async seedDomainAccountConfiguration(
     tx: Prisma.TransactionClient,
     companyId: string,
+    effectiveFrom: Date,
   ): Promise<void> {
     const accounts = await tx.gLAccount.findMany({
       where: { companyId },
@@ -491,7 +500,7 @@ export class ProvisioningService {
       data: {
         companyId,
         abnormalMortalityThresholdPercent: ABNORMAL_MORTALITY_THRESHOLD_PERCENT,
-        effectiveFrom: new Date('2026-01-01'),
+        effectiveFrom,
       },
     });
 
@@ -518,7 +527,7 @@ export class ProvisioningService {
           companyId,
           grniGlAccountId: grni,
           payablesGlAccountId: payables,
-          effectiveFrom: new Date('2026-01-01'),
+          effectiveFrom,
         },
       });
     }
@@ -535,7 +544,7 @@ export class ProvisioningService {
           revenueGlAccountId: revenue,
           costOfSalesGlAccountId: costOfSales,
           inventoryGlAccountId: finishedGoods,
-          effectiveFrom: new Date('2026-01-01'),
+          effectiveFrom,
         },
       });
     }
