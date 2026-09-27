@@ -40,6 +40,7 @@ import { WorkflowService } from '../workflow/workflow.service';
     CreditNoteService,
     // Exported because SalesController is registered in AppModule.
     SalesFlowService,
+    SalesMarginService,
   ],
 })
 export class SalesModule implements OnModuleInit {
