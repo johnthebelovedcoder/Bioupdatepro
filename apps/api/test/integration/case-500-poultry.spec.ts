@@ -37,6 +37,7 @@ import { IncomeTaxService } from '../../src/closing/income-tax.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 import { kpiService, kpisByKey } from '../helpers/kpis';
+import { FarmAbcService } from '../../src/cost-allocation/farm-abc.service';
 import { MortalityReportService } from '../../src/operations/mortality-report.service';
 import { ProcessingResultsService } from '../../src/production/processing-results.service';
 
@@ -523,6 +524,13 @@ describe('The 500-poultry case, through the application (UAT-022)', () => {
     const mortality = await new MortalityReportService(prisma).report({ companyId: fixture.companyId, speciesKey: 'poultry' });
     expect(mortality.totals).toMatchObject({ placed: 500, deaths: 30, culls: 0, mortalityPercent: '6.00', cullPercent: '0.00' });
     expect(mortality.byStage).toEqual([{ key: 'Broiler', deaths: 30 }]);
+
+    // Farm lifecycle ABC (P_POULTRY_FARM_ABC): ₦2,612,500 over 188 sold live and 282 processed.
+    const [abc] = await new FarmAbcService(prisma, new AuditService(prisma), new FarmCostAllocationService(prisma, posting, new AuditService(prisma), new TimesheetService(prisma))).flocks(fixture.companyId);
+    expect(abc).toMatchObject({
+      code: 'BLR-001', acquisitionKobo: String(N(650_000)), feedKobo: String(N(1_462_500)), medicationKobo: String(N(180_000)), labourKobo: String(N(320_000)),
+      totalKobo: String(N(2_612_500)), birds: { live: 188, processing: 282, held: 0 }, liveKobo: String(N(1_045_000)), processingKobo: String(N(1_567_500)),
+    });
 
     // Processing yield and order profitability (PLY-010/011) on the case's one order.
     const { rows: results } = await new ProcessingResultsService(prisma).list({ companyId: fixture.companyId, cycle: 'POULTRYPRO' });

@@ -613,6 +613,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['egg value', 'egg price', 'crate', 'allocation', 'animal days', 'labour', 'overhead', 'abc', 'costing'],
       },
       {
+        href: '/ledger/farm-abc',
+        label: 'Farm ABC',
+        hint: 'What each lifecycle stage cost, and what live sales and processing carried',
+        keywords: ['abc', 'activity based costing', 'lifecycle', 'stage cost', 'snailery', 'flock cost', 'driver', 'breeder-months'],
+      },
+      {
         href: '/ledger/posting-rules',
         label: 'Posting rules',
         hint: 'Every business event, and the debit and credit it makes',

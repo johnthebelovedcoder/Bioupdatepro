@@ -95,6 +95,7 @@ export const REPORT_CATALOGUE: ReportEntry[] = [
   r('APP-001', 'kpis', 'AgriPro', 'KPIs', 'The KPI_FORMULA_DEMOS measures and the farm’s own, each computed or refused with a reason.', 'CFO', 'On demand', '/ledger/kpis', 'BUILT', null, { drillThroughSupported: true }),
   r('APP-002', 'journals', 'AgriPro', 'Journal entries', 'Every posting, whichever module raised it.', 'Internal Auditor', 'On demand', '/ledger/journals', 'BUILT'),
   r('APP-003', 'traceability', 'AgriPro', 'Traceability', 'From a sale back to the harvest, the batch, its breeders, feed and packaging.', 'QA', 'On demand', '/inventory/trace', 'BUILT'),
+  r('APP-004', 'farm-abc', 'AgriPro', 'Farm ABC', 'What each lifecycle stage cost — snails by driver and rate, flocks by their capitalised cost — and what live sales and processing carried (S_SNAILERY_ABC, P_POULTRY_FARM_ABC).', 'Management Accountant', 'Monthly', '/ledger/farm-abc', 'BUILT'),
 ];
 
 /** The workbook's own definitions (not the APP- extras). */

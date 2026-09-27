@@ -1158,8 +1158,10 @@
         },
         {
           "check": "Snailery ABC output allocation",
-          "gap": "Snail lifecycle cost is expensed as used (PCR-042/043), and the snailery's ABC pool is not yet allocated to its outputs by stage (farm lifecycle ABC).",
-          "phase": 3
+          "expected": 7500000,
+          "unit": "naira",
+          "figure": "snail.farmAbcAllocated",
+          "note": "Shared over the stages by driver × rate and over the market-ready snails; kept 367,647.06, live 4,992,647.06, processing 2,139,705.88, as the workbook."
         },
         {
           "check": "Poultry farm ABC total",

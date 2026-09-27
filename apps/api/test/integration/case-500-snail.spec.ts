@@ -36,6 +36,9 @@ import { kobo } from '../../src/common/money';
 import { JointCostService } from '../../src/production/joint-cost.service';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 import { kpiService, kpisByKey } from '../helpers/kpis';
+import { FarmAbcService } from '../../src/cost-allocation/farm-abc.service';
+import { FarmCostAllocationService } from '../../src/cost-allocation/farm-cost-allocation.service';
+import { TimesheetService } from '../../src/cost-allocation/timesheet.service';
 import { MortalityReportService } from '../../src/operations/mortality-report.service';
 
 /**
@@ -496,6 +499,7 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
         tbDifference: BigInt(tb.totalDebitKobo) - BigInt(tb.totalCreditKobo),
         baRollForwardDifference: rollForwards.reduce((sum, r) => sum + BigInt(r.differenceKobo), 0n),
         farmAbcTotal: (await lifecycle('611000')) + (await lifecycle('612000')),
+        farmAbcAllocated: BigInt((await new FarmAbcService(prisma, new AuditService(prisma), new FarmCostAllocationService(prisma, posting, new AuditService(prisma), new TimesheetService(prisma))).snailery(fixture.companyId, fixture.financialYearId)).allocatedKobo),
         jointAllocationDifference: order.finishedGoodsCostKobo - (outputs._sum.allocatedCostKobo ?? 0n),
         materialUsageVariance: order.materialUsageVarianceKobo,
       };
@@ -524,5 +528,13 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     expect(mortality.byStage).toEqual([{ key: 'Hatchling', deaths: 6_000 }, { key: 'Juvenile', deaths: 3_600 }]);
     expect(mortality.byCause).toEqual([{ key: 'Natural attrition', deaths: 9_600 }]);
     expect(mortality.batches.find((b) => b.code === 'HAT-1')).toMatchObject({ placed: 30_000, deaths: 9_600, mortalityPercent: '32.00' });
+
+    // Farm lifecycle ABC (S_SNAILERY_ABC): the ₦7.5m allocated in full, and over the market-ready snails as the workbook shares it.
+    const abc = await new FarmAbcService(prisma, new AuditService(prisma), new FarmCostAllocationService(prisma, posting, new AuditService(prisma), new TimesheetService(prisma))).snailery(fixture.companyId, fixture.financialYearId);
+    expect(abc.pools.totalKobo).toBe(String(N(7_500_000)));
+    expect(abc.allocatedKobo).toBe(String(N(7_500_000)));
+    expect(abc.marketReady).toEqual({ total: 20_400, kept: 1_000, live: 13_580, processing: 5_820 });
+    expect(abc.outcome).toEqual({ keptKobo: String(N('367647.06')), liveKobo: String(N('4992647.06')), processingKobo: String(N('2139705.88')) });
+    expect(abc.stages.map((s) => [s.stage, s.driverQuantity]).slice(1)).toEqual([['Egg', '40000'], ['Hatchling', '30000'], ['Juvenile', '24000'], ['Market-ready', '20400']]);
   }, 600_000);
 });

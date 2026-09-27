@@ -7648,6 +7648,27 @@ model FarmCostAllocation {
   @@map("farm_cost_allocations")
 }
 
+/// Farm lifecycle ABC (S_SNAILERY_ABC): what a unit of each stage's driver
+/// weighs when a species' lifecycle cost pool is shared across its stages —
+/// breeder-months, eggs produced, hatchlings, juveniles, market-ready.
+/// Naira per driver unit, as the workbook states them; used as relative
+/// weights, so the actual pool is always allocated in full. A company with no
+/// rows uses the workbook's (apps/api/src/cost-allocation/farm-abc.ts).
+model FarmAbcRate {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  speciesKey String   @map("species_key")
+  stage      String
+  /// FEED (feed and medication) or LABOUR (labour and facility).
+  pool       String
+  rate       Decimal  @db.Decimal(18, 6)
+  setById    String   @map("set_by_id") @db.Uuid
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, speciesKey, stage, pool])
+  @@map("farm_abc_rates")
+}
+
 model FarmCostAllocationSource {
   id           String  @id @default(uuid()) @db.Uuid
   allocationId String  @map("allocation_id") @db.Uuid

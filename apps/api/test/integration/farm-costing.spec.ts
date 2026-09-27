@@ -17,6 +17,7 @@ import { FixedAssetService } from '../../src/fixed-assets/fixed-asset.service';
 import type { WorkflowService } from '../../src/workflow/workflow.service';
 import { PoultryEggController } from '../../src/poultry-egg/poultry-egg.controller';
 import { FarmCostAllocationController } from '../../src/cost-allocation/farm-cost-allocation.controller';
+import { FarmAbcService } from '../../src/cost-allocation/farm-abc.service';
 import { FixedAssetsController } from '../../src/fixed-assets/fixed-assets.controller';
 import { AssetChangeService } from '../../src/fixed-assets/asset-change.service';
 import { BatchCloseService } from '../../src/operations/batch-close.service';
@@ -315,7 +316,7 @@ describe('The endpoints the forms call', () => {
   it('posts an allocation from the form’s string amounts', async () => {
     await population('L-A', 'poultry', 100);
     await salaries(40_000n);
-    const controller = new FarmCostAllocationController(allocation, timesheets, prisma);
+    const controller = new FarmCostAllocationController(allocation, timesheets, new FarmAbcService(prisma, new AuditService(prisma), allocation), prisma);
 
     expect(await controller.sources(company(), fixture.periodIds[JANUARY]!)).toHaveLength(1);
     const result = await controller.post(company(), actor, {
@@ -633,4 +634,17 @@ describe('Closing a batch', () => {
       closer.close({ companyId: other.id, groupCode: 'L-MINE', closedOn: new Date('2026-01-20'), reason: 'x', writeOffRemaining: true, actor }),
     ).rejects.toThrow(/No such batch/);
   });
+
 });
+describe('Farm ABC rates (S_SNAILERY_ABC)', () => {
+  it('uses the workbook’s rates until the farm sets its own, and refuses a rate that cannot be one', async () => {
+    const abc = new FarmAbcService(prisma, new AuditService(prisma), allocation);
+    const before = await abc.rates(fixture.companyId);
+    expect(before.find((r) => r.stage === 'Breeder')).toMatchObject({ feedRate: '80', labourRate: '60', own: false });
+    await abc.setRate({ companyId: fixture.companyId, actor, stage: 'Breeder', pool: 'FEED', rate: '95.5' });
+    expect((await abc.rates(fixture.companyId)).find((r) => r.stage === 'Breeder')).toMatchObject({ feedRate: '95.5', labourRate: '60', own: true });
+    await expect(abc.setRate({ companyId: fixture.companyId, actor, stage: 'Adult', pool: 'FEED', rate: '1' })).rejects.toThrow(/Stage is one of/);
+    await expect(abc.setRate({ companyId: fixture.companyId, actor, stage: 'Egg', pool: 'FEED', rate: '-1' })).rejects.toThrow(/cannot be negative/);
+  });
+});
+

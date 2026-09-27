@@ -6,6 +6,7 @@ import type { WorkflowActor } from '../workflow/workflow.types';
 import { FarmCostAllocationService, type AllocationBasis } from './farm-cost-allocation.service';
 import { TimesheetService } from './timesheet.service';
 import { LabourReconciliationService } from './labour-reconciliation.service';
+import { FarmAbcService } from './farm-abc.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** Whole kobo from the wire, where money travels as a string. */
@@ -33,8 +34,38 @@ export class FarmCostAllocationController {
   constructor(
     private readonly allocations: FarmCostAllocationService,
     private readonly timesheets: TimesheetService,
+    private readonly farmAbc: FarmAbcService,
     private readonly prisma: PrismaService,
   ) {}
+
+  /** Farm lifecycle ABC for snails: the year's pools by stage and outcome (S_SNAILERY_ABC). */
+  @Get('farm-abc/snails')
+  async snailAbc(@CurrentCompany() companyId: string, @Query('financialYearId') financialYearId: string) {
+    if (!financialYearId) throw new BadRequestException('Name the financial year.');
+    return this.farmAbc.snailery(companyId, financialYearId);
+  }
+
+  /** Farm lifecycle ABC for poultry: each flock's capitalised cost by outcome (P_POULTRY_FARM_ABC). */
+  @Get('farm-abc/flocks')
+  async flockAbc(@CurrentCompany() companyId: string) {
+    return this.farmAbc.flocks(companyId);
+  }
+
+  @Get('farm-abc/rates')
+  async abcRates(@CurrentCompany() companyId: string) {
+    return this.farmAbc.rates(companyId);
+  }
+
+  /** A stage's naira-per-driver-unit weight for one pool. */
+  @Roles('FINANCE_CONTROLLER', 'CFO')
+  @Post('farm-abc/rates')
+  async setAbcRate(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { stage: string; pool: string; rate: string },
+  ) {
+    return this.farmAbc.setRate({ companyId, actor, stage: String(body?.stage ?? ''), pool: String(body?.pool ?? ''), rate: String(body?.rate ?? '') });
+  }
 
   @Get()
   async list(@CurrentCompany() companyId: string) {
