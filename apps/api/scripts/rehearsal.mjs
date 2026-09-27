@@ -270,7 +270,7 @@ await step(3, 'Masters', 'Create vendors, customers, employees, items, assets, s
     liveChicks: (await item('LIVE-DOC', 'Day-old chicks (live)', 'Unit', { livestockSpeciesKey: 'poultry' })).id,
     maize: (await item('RM-MAIZE', 'Maize', 'Kg', { inventoryGlAccountId: ctx.account['130100'], standardCost: naira(380), standardCostFrom: D(0) })).id,
     soya: (await item('RM-SOYA', 'Soybean meal', 'Kg', { inventoryGlAccountId: ctx.account['130100'], standardCost: naira(620), standardCostFrom: D(0) })).id,
-    pack: (await item('PACK', 'Packaging', 'Kg', { inventoryGlAccountId: ctx.account['130100'] })).id,
+    pack: (await item('PACK', 'Packaging', 'Kg', { inventoryGlAccountId: ctx.account['130100'], standardCost: naira(600), standardCostFrom: D(0) })).id,
   };
 
   // Six employees: pay proposed by HR and approved by the HR manager, document pack verified, put on payroll by someone else.
@@ -548,7 +548,7 @@ await step(15, 'Hatchery', 'Set hatching eggs, hatch and transfer birds through 
 await step(16, 'Feed P2P', 'Buy, receive, invoice and pay feed ingredients', async () => {
   const { order } = await raiseOrder({
     supplierId: ctx.supplier.feed, costCentre: 'CC-CORP-PROC', date: D(30),
-    lines: [{ itemId: ctx.item.maize, quantity: 4_000, unitPriceKobo: naira(380) }, { itemId: ctx.item.soya, quantity: 2_500, unitPriceKobo: naira(620) }],
+    lines: [{ itemId: ctx.item.maize, quantity: 4_000, unitPriceKobo: naira(380) }, { itemId: ctx.item.soya, quantity: 2_500, unitPriceKobo: naira(620) }, { itemId: ctx.item.pack, quantity: 1_000, unitPriceKobo: naira(650) }],
   });
   const lines = [...order.lines].sort((a, b) => a.lineNumber - b.lineNumber);
   const grn = await receive(order, D(32), lines.map((l) => ({ purchaseOrderLineId: l.id, receivedQuantity: l.quantity.toString(), batchReference: `LOT-${l.lineNumber}` })));
@@ -557,7 +557,7 @@ await step(16, 'Feed P2P', 'Buy, receive, invoice and pay feed ingredients', asy
   const stock = svc('inventory/stock-movement.service.js', 'StockMovementService');
   const maize = await stock.currentPosition(prisma, ctx.companyId, ctx.item.maize);
   expect(maize.quantity.toString() === '4000', `Maize on hand ${maize.quantity}.`);
-  return { ref: `${order.orderNumber}; ${grn.grnNumber}; ${inv.invoice.invoiceNumber}`, actual: `4,000 kg maize and 2,500 kg soya received in released lots, NGN 3,070,000 into raw materials; three-way match ${inv.matchStatus}; paid.` };
+  return { ref: `${order.orderNumber}; ${grn.grnNumber}; ${inv.invoice.invoiceNumber}`, actual: `4,000 kg maize, 2,500 kg soya and 1,000 kg packaging received in released lots, NGN 3,720,000 into raw materials; three-way match ${inv.matchStatus}; paid.` };
 });
 
 await step(17, 'Feed mill', 'Release snail and poultry feed orders and issue ingredients at WAC', async () => {
@@ -724,6 +724,116 @@ await step(25, 'Fixed assets', 'Run depreciation and allocate manufacturing/admi
   const expense = await balance('630100');
   expect(register._sum.accumulatedDepreciationKobo === accumulated, `Register depreciation ${shown(register._sum.accumulatedDepreciationKobo)} ≠ ledger ${shown(accumulated)}.`);
   return { ref: `${runs} monthly runs`, actual: `Accumulated depreciation ${shown(accumulated)} = register. Depreciation expense (630100) ${shown(expense)}; the rest of the depreciation is charged to production (${shown(accumulated - expense)}).` };
+});
+
+// ---------------------------------------------------------------- 26-29 Processing
+
+/** IAS 41 at the point of harvest: fair value less costs to sell, through approval. */
+async function valueAtHarvest(groupCode, n, priceNaira, costToSellNaira, evidence) {
+  const assets = svc('biological-assets/biological-asset.service.js', 'BiologicalAssetService');
+  const group = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: groupCode } });
+  const { id } = await assets.requestValuation({ companyId: ctx.companyId, groupId: group.id, valuationDate: D(n), marketPricePerUnitKobo: naira(priceNaira), costsToSellPerUnitKobo: naira(costToSellNaira), evidenceReference: evidence, actor: ctx.clerk });
+  const valuation = await prisma.biologicalAssetValuation.findUniqueOrThrow({ where: { id } });
+  await approveAll(valuation.workflowTransactionId);
+  return prisma.biologicalAssetValuation.findUniqueOrThrow({ where: { id } });
+}
+
+async function harvest(groupCode, n, count, kg) {
+  const operations = svc('operations/operations.service.js', 'OperationsService');
+  const result = await operations.recordHarvest({ companyId: ctx.companyId, actor: ctx.clerk, idempotencyKey: `rehearsal-harvest-${groupCode}`, payload: { groupCode, date: day(n), grade: 'Market', kg, count, destination: 'PROCESSING' } });
+  return prisma.harvestRecord.findUniqueOrThrow({ where: { id: result.id } });
+}
+
+/** A processing recipe through the recipe service, NRV prices approved by the finance controller (JOINT_COST_ALLOCATION). */
+async function processingRecipe({ code, main, byProduct, batchKg, packPerBatch, prices }) {
+  const recipes = svc('masters/recipe.service.js', 'RecipeService');
+  const joint = svc('production/joint-cost.service.js', 'JointCostService');
+  const recipe = await recipes.create({ companyId: ctx.companyId, code, name: code, outputItemId: main });
+  const version = await recipes.createDraftVersion({ companyId: ctx.companyId, recipeId: recipe.id, batchSize: batchKg, effectiveFrom: D(0) });
+  await recipes.addComponent({ companyId: ctx.companyId, recipeVersionId: version.id, componentItemId: ctx.item.pack, quantityPerBatch: packPerBatch, unitOfMeasureCode: 'Kg', componentType: 'PACKAGING' });
+  await recipes.activateVersion({ recipeVersionId: version.id, actorId: ctx.manager.userId });
+  for (const [itemId, price] of [[main, prices[0]], [byProduct, prices[1]]]) {
+    const proposed = await joint.proposePrice({ companyId: ctx.companyId, itemId, sellingPricePerUnitKobo: naira(price), furtherCostPerUnitKobo: 0n, effectiveFrom: D(0), evidenceReference: 'Workbook assumptions', actor: ctx.clerk });
+    await joint.decide({ companyId: ctx.companyId, priceId: proposed.id, approve: true, actor: ctx.controller });
+  }
+  return version.id;
+}
+
+await step(26, 'Snail processing', 'Harvest and issue market-ready snails to production', async () => {
+  const items = svc('masters/item.service.js', 'ItemService');
+  const orders = svc('production/production-order.service.js', 'ProductionOrderService');
+  const fg = (code, name, account) => items.create({ companyId: ctx.companyId, code, description: name, unitOfMeasureCode: 'Kg', inventoryGlAccountId: ctx.account[account], isManufactured: true, actorId: ctx.clerk.userId });
+  ctx.item.meat = (await fg('SNL-MEAT', 'Snail meat', '130510')).id;
+  ctx.item.shell = (await fg('SNL-SHELL', 'Snail shell', '130510')).id;
+  // 500_Assumptions: 1,000 kept as replacement breeders, 70% of the rest sold live, 30% (5,820) processed at 0.18 kg each.
+  ctx.snail = { liveKg: 5_820 * 0.18, meatKg: '419.040', shellKg: '178.092' };
+  const version = await processingRecipe({ code: 'R-SNL-MEAT', main: ctx.item.meat, byProduct: ctx.item.shell, batchKg: ctx.snail.meatKg, packPerBatch: '480', prices: [18_000, 2_500] });
+  // FV-001 (500_Assumptions): NGN 3,200 a market snail less NGN 200 to sell.
+  const valued = await valueAtHarvest('HAT-1', 253, 3_200, 200, '500_Assumptions IAS 41');
+  const baBefore = await balance('130204');
+  const record = await harvest('HAT-1', 254, 5_820, ctx.snail.liveKg);
+  const { id } = await orders.createFromHarvest({ harvestRecordId: record.id, recipeVersionId: version, warehouseId: ctx.warehouse['FG-WH'], plannedOutputQuantity: ctx.snail.meatKg, actor: ctx.clerk });
+  const submitted = await orders.submit({ productionOrderId: id, actor: ctx.clerk });
+  await approveAll(submitted.transactionId);
+  ctx.snailOrderId = id;
+  const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id } });
+  return { ref: `${order.orderNumber} from harvest of 5,820 snails (1,047.6 kg)`, actual: `Valued at harvest: 20,400 at NGN 3,000 (FV gain ${shown(-(await balance('420100')))}, valuation ${valued.status}). Harvested 5,820 market snails, 1,047.6 kg live; qty and weight tie to the harvest. Biological input to the order ${shown(order.biologicalInputValueKobo)}; BA—Market snails moved ${shown(baBefore - (await balance('130204')))}.` };
+});
+
+await step(27, 'Snail processing', 'Produce meat, slime, shell/powder; record loss and settle', async () => {
+  const orders = svc('production/production-order.service.js', 'ProductionOrderService');
+  const line = await prisma.productionOrderComponent.findFirstOrThrow({ where: { productionOrderId: ctx.snailOrderId } });
+  await orders.issueMaterials({ productionOrderId: ctx.snailOrderId, actualQuantities: { [line.id]: '500' }, actor: ctx.clerk });
+  // 500_Std_Cost: standard conversion NGN 1,400,000; actual labour NGN 600,000, overhead NGN 900,000.
+  await orders.confirmConversion({ productionOrderId: ctx.snailOrderId, standardConversionCostKobo: naira(1_400_000), actualLabourCostKobo: naira(600_000), actualOverheadCostKobo: naira(900_000), actor: ctx.clerk });
+  const loss = (ctx.snail.liveKg - 419.04 - 178.092).toFixed(3);
+  await orders.recordOutputs({
+    productionOrderId: ctx.snailOrderId, warehouseId: ctx.warehouse['FG-WH'], normalLossQuantity: loss, actor: ctx.clerk,
+    outputs: [{ itemId: ctx.item.meat, outputType: 'MAIN', quantity: ctx.snail.meatKg, weight: ctx.snail.meatKg }, { itemId: ctx.item.shell, outputType: 'BY_PRODUCT', quantity: ctx.snail.shellKg, weight: ctx.snail.shellKg }],
+  });
+  const settled = await orders.settle({ productionOrderId: ctx.snailOrderId, varianceReason: 'Yield and conversion against standard', actor: ctx.clerk });
+  expect((await balance('130410')) === 0n && (await balance('219810')) === 0n, `WIP ${shown(await balance('130410'))}, S_Recovery ${shown(await balance('219810'))} after settlement.`);
+  const outputs = await prisma.productionOrderOutput.findMany({ where: { productionOrderId: ctx.snailOrderId } });
+  return { ref: 'Snail processing order settled', actual: `419.04 kg meat and 178.092 kg shell into stock, ${loss} kg normal loss (1,047.6 kg in). Cost by NRV: ${outputs.map((o) => shown(o.allocatedCostKobo)).join(' / ')}. WIP and S_Recovery zero; variance ${shown(BigInt(settled.variance))}.` };
+});
+
+await step(28, 'Poultry processing', 'Harvest and issue market birds to production', async () => {
+  const items = svc('masters/item.service.js', 'ItemService');
+  const orders = svc('production/production-order.service.js', 'ProductionOrderService');
+  const fg = (code, name) => items.create({ companyId: ctx.companyId, code, description: name, unitOfMeasureCode: 'Kg', inventoryGlAccountId: ctx.account['130520'], isManufactured: true, actorId: ctx.clerk.userId });
+  ctx.item.carcass = (await fg('POL-DRESSED', 'Dressed chicken')).id;
+  ctx.item.offal = (await fg('POL-OFFAL', 'Offal and by-products')).id;
+  // P500: 282 of 470 processed, 2.2 kg live, 72% dressed yield, 60 kg of offal.
+  ctx.poultry = { liveKg: 282 * 2.2, dressedKg: '446.688', offalKg: '60.000' };
+  const version = await processingRecipe({ code: 'R-POL-DRESSED', main: ctx.item.carcass, byProduct: ctx.item.offal, batchKg: ctx.poultry.dressedKg, packPerBatch: '40', prices: [5_200, 1_500] });
+  // P500: carried at NGN 5,500 a bird (Phase 0: the client is to confirm 5,500 against 6,500).
+  await valueAtHarvest('BLR-001', 54, 5_500, 0, 'P500_Assumptions IAS 41');
+  const record = await harvest('BLR-001', 55, 282, ctx.poultry.liveKg);
+  const { id } = await orders.createFromHarvest({ harvestRecordId: record.id, recipeVersionId: version, warehouseId: ctx.warehouse['FG-WH'], plannedOutputQuantity: ctx.poultry.dressedKg, actor: ctx.clerk });
+  const submitted = await orders.submit({ productionOrderId: id, actor: ctx.clerk });
+  await approveAll(submitted.transactionId);
+  ctx.poultryOrderId = id;
+  const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id } });
+  return { ref: `${order.orderNumber} from harvest of 282 birds (620.4 kg)`, actual: `Harvested 282 market birds, 620.4 kg live; bird count and live weight tie. Biological input ${shown(order.biologicalInputValueKobo)} into poultry processing WIP.` };
+});
+
+await step(29, 'Poultry processing', 'Produce carcass/cuts/offal; record loss and settle', async () => {
+  const orders = svc('production/production-order.service.js', 'ProductionOrderService');
+  // Plant intake: every bird arrived alive and passed inspection.
+  await orders.recordIntake({ productionOrderId: ctx.poultryOrderId, plantReceivedCount: 282, plantReceivedWeightKg: ctx.poultry.liveKg.toFixed(3), deadOnArrivalCount: 0, deadOnArrivalWeightKg: '0', condemnedCount: 0, condemnedWeightKg: '0', inspectedBy: 'Plant vet', actor: ctx.clerk });
+  await orders.issueMaterials({ productionOrderId: ctx.poultryOrderId, actor: ctx.clerk });
+  // P500 BOM/routing: standard conversion NGN 620,000; actual labour NGN 235,000, overhead NGN 425,000.
+  await orders.confirmConversion({ productionOrderId: ctx.poultryOrderId, standardConversionCostKobo: naira(620_000), actualLabourCostKobo: naira(235_000), actualOverheadCostKobo: naira(425_000), actor: ctx.clerk });
+  const loss = (ctx.poultry.liveKg - 446.688 - 60).toFixed(3);
+  await orders.recordOutputs({
+    productionOrderId: ctx.poultryOrderId, warehouseId: ctx.warehouse['FG-WH'], normalLossQuantity: loss, actor: ctx.clerk,
+    outputs: [{ itemId: ctx.item.carcass, outputType: 'MAIN', quantity: ctx.poultry.dressedKg, weight: ctx.poultry.dressedKg }, { itemId: ctx.item.offal, outputType: 'BY_PRODUCT', quantity: ctx.poultry.offalKg, weight: ctx.poultry.offalKg }],
+    // Cold store (handbook §29). The use-by date is checked against today, so it is set from today.
+    details: [0, 1].map(() => ({ grade: 'A', expiryDate: new Date(Date.now() + 30 * 86_400_000), storageTemperatureC: '-18' })),
+  });
+  const settled = await orders.settle({ productionOrderId: ctx.poultryOrderId, varianceReason: 'Conversion against standard', actor: ctx.clerk });
+  expect((await balance('130420')) === 0n && (await balance('219820')) === 0n, `WIP ${shown(await balance('130420'))}, P_Recovery ${shown(await balance('219820'))} after settlement.`);
+  return { ref: 'Poultry processing order settled', actual: `446.688 kg dressed (72% yield) and 60 kg offal into stock, ${loss} kg normal loss. WIP and P_Recovery zero; variance ${shown(BigInt(settled.variance))} (P500 expects NGN 40,000).` };
 });
 
 /*@@STEPS@@*/
