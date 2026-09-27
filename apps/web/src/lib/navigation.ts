@@ -108,6 +108,12 @@ export const SECTIONS: NavSection[] = [
         keywords: ['harvest', 'readiness', 'withdrawal', 'market ready', 'qa'],
       },
       {
+        href: '/farm/mortality',
+        label: 'Mortality and cull',
+        hint: 'Deaths and culls by batch, cause and stage, with survival',
+        keywords: ['mortality', 'deaths', 'cull', 'survival', 'loss', 'cause of death'],
+      },
+      {
         href: '/farm/activity',
         label: "What's happened",
         hint: 'Everything recorded on the farm, newest first',

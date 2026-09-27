@@ -17,6 +17,7 @@ import { EggPostingService } from '../poultry-egg/egg-posting.service';
 import { BatchCloseService } from './batch-close.service';
 import { BatchProfileService } from './batch-profile.service';
 import { HealthScheduleService } from './health-schedule.service';
+import { MortalityReportService } from './mortality-report.service';
 import { Roles, AnyRole } from '../auth/roles.guard';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -45,6 +46,7 @@ export class OperationsController {
     private readonly batches: BatchCloseService,
     private readonly profiles: BatchProfileService,
     private readonly healthSchedule: HealthScheduleService,
+    private readonly mortality: MortalityReportService,
   ) {}
 
   /* --- Reads ------------------------------------------------------------ */
@@ -87,6 +89,20 @@ export class OperationsController {
   @Get('health')
   async health(@CurrentCompany() companyId: string, @Query('species') species: string) {
     return this.reads.health(companyId, species);
+  }
+
+  /** Mortality, survival and cull by batch, cause and stage (SNL-005, PLY-004). */
+  @AnyRole('Livestock reads are the shared ground floor of the product.')
+  @Get('mortality')
+  async mortalityReport(@CurrentCompany() companyId: string, @Query('species') species: string, @Query('from') from?: string, @Query('to') to?: string) {
+    if (!species) throw new BadRequestException('Say which species.');
+    const date = (v?: string) => {
+      if (!v) return undefined;
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`${v} is not a date.`);
+      return d;
+    };
+    return this.mortality.report({ companyId, speciesKey: species, from: date(from), to: date(to) });
   }
 
   /** Vaccination and health compliance (PLY-008): what fell due, and whether it was given on time. */

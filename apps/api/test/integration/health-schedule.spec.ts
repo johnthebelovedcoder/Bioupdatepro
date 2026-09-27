@@ -14,6 +14,7 @@ import { OperationsService } from '../../src/operations/operations.service';
 import { OperationsReadService } from '../../src/operations/operations-read.service';
 import { BatchProfileService } from '../../src/operations/batch-profile.service';
 import { HealthScheduleService } from '../../src/operations/health-schedule.service';
+import { MortalityReportService } from '../../src/operations/mortality-report.service';
 import { WorkflowService } from '../../src/workflow/workflow.service';
 import { WorkflowRoutingService } from '../../src/workflow/workflow-routing.service';
 import { DelegationService } from '../../src/workflow/delegation.service';
@@ -90,5 +91,20 @@ describe('Vaccination and health compliance (PLY-008)', () => {
     await expect(schedule.schedule({ companyId: fixture.companyId, actor: actor(), groupCode: 'LAY-1', kind: 'Vaccination', name: 'X', dueOn: new Date('2025-12-01') })).rejects.toThrow(/cannot be due before/);
     const event = await schedule.schedule({ companyId: fixture.companyId, actor: actor(), groupCode: 'LAY-1', kind: 'Vaccination', name: 'Marek', dueOn: new Date('2026-01-02') });
     await expect(schedule.skip({ companyId: fixture.companyId, actor: actor(), eventId: event.id, reason: ' ' })).rejects.toThrow(/Say why/);
+  });
+
+  it('reports culls apart from deaths, with each as a share of what was placed (PLY-004)', async () => {
+    await operations.recordRound({
+      companyId: fixture.companyId, actor: actor(), idempotencyKey: 'round-1',
+      payload: { module: 'poultry', date: '2026-01-10', entries: [{ groupCode: 'LAY-1', deaths: 5, causes: ['Heat stress', 'Crowding'] }] },
+    });
+    const group = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'LAY-1' } });
+    await prisma.livestockGroupDisposal.create({
+      data: { groupId: group.id, quantity: 10, fvlctsPerUnitKobo: 0n, carryingAmountKobo: 0n, occurredOn: new Date('2026-01-12'), method: 'CULLED' },
+    });
+    const report = await new MortalityReportService(prisma).report({ companyId: fixture.companyId, speciesKey: 'poultry' });
+    expect(report.totals).toMatchObject({ placed: 500, deaths: 5, culls: 10, mortalityPercent: '1.00', cullPercent: '2.00' });
+    // One death with two causes is counted once.
+    expect(report.byCause).toEqual([{ key: 'Heat stress + Crowding', deaths: 5 }]);
   });
 });

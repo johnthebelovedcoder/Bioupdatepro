@@ -36,6 +36,7 @@ import { kobo } from '../../src/common/money';
 import { JointCostService } from '../../src/production/joint-cost.service';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 import { kpiService, kpisByKey } from '../helpers/kpis';
+import { MortalityReportService } from '../../src/operations/mortality-report.service';
 
 /**
  * The client's 500-snail case (500_Assumptions → APP_EXPECTED_RESULTS), run
@@ -515,5 +516,11 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     expect(kpis.snailHatchRate!.value).toBe('75.00'); // 30,000 hatched of 40,000 eggs
     expect(kpis.snailMeatYield!.value).toBe('40.00'); // meat at 40% of the live weight processed
     expect(kpis.productionCloseReadiness!.value).toBe('1');
+
+    // Mortality by the stage the snails were at (SNL-005): hatchlings before the move to Juvenile, juveniles after.
+    const mortality = await new MortalityReportService(prisma).report({ companyId: fixture.companyId, speciesKey: 'snail' });
+    expect(mortality.byStage).toEqual([{ key: 'Hatchling', deaths: 6_000 }, { key: 'Juvenile', deaths: 3_600 }]);
+    expect(mortality.byCause).toEqual([{ key: 'Natural attrition', deaths: 9_600 }]);
+    expect(mortality.batches.find((b) => b.code === 'HAT-1')).toMatchObject({ placed: 30_000, deaths: 9_600, mortalityPercent: '32.00' });
   }, 600_000);
 });

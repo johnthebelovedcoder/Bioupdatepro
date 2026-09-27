@@ -37,6 +37,7 @@ import { IncomeTaxService } from '../../src/closing/income-tax.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 import { kpiService, kpisByKey } from '../helpers/kpis';
+import { MortalityReportService } from '../../src/operations/mortality-report.service';
 import { ProcessingResultsService } from '../../src/production/processing-results.service';
 
 /**
@@ -519,6 +520,11 @@ describe('The 500-poultry case, through the application (UAT-022)', () => {
     expect(kpis.mortalityRate!.value).toBe('6.00'); // 30 of 500
     expect(kpis.productionCloseReadiness!).toMatchObject({ value: '1', reason: null });
     expect(kpis.snailMeatYield!.computable).toBe(false);
+
+    // Mortality and cull (PLY-004): 30 of 500, 6%.
+    const mortality = await new MortalityReportService(prisma).report({ companyId: fixture.companyId, speciesKey: 'poultry' });
+    expect(mortality.totals).toMatchObject({ placed: 500, deaths: 30, culls: 0, mortalityPercent: '6.00', cullPercent: '0.00' });
+    expect(mortality.byStage).toEqual([{ key: 'Broiler', deaths: 30 }]);
 
     // Processing yield and order profitability (PLY-010/011) on the case's one order.
     const { rows: results } = await new ProcessingResultsService(prisma).list({ companyId: fixture.companyId, cycle: 'POULTRYPRO' });
