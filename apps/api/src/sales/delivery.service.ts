@@ -7,6 +7,7 @@ import {
   AuditAction,
   CogsRecognitionPoint,
   DeliveryStatus,
+  ItemType,
   Prisma,
   SalesOrderStatus,
   StockDirection,
@@ -109,6 +110,20 @@ export class DeliveryService {
     // Eggs leave at what they went into stock at, not a standard cost (egg-cost.ts).
     const eggItems = await eggItemIds(this.prisma, order.companyId);
 
+    /*
+     * Lines that are not stock — a service, or live animals sold from a batch
+     * (whose carrying value went to cost of sales when the batch was reduced,
+     * TradeService.recordSale) — have nothing on a shelf to check, cost or
+     * move. Without this a live sale could never be delivered, so never
+     * invoiced, and its revenue never reached the ledger.
+     */
+    const stocked = new Set(
+      (await this.prisma.item.findMany({
+        where: { companyId: order.companyId, id: { in: order.lines.map((l) => l.itemId) }, itemType: ItemType.INVENTORY },
+        select: { id: true },
+      })).map((i) => i.id),
+    );
+
     let lineNumber = 1;
     for (const line of input.lines) {
       const orderLine = lineById.get(line.salesOrderLineId);
@@ -141,6 +156,19 @@ export class DeliveryService {
             `goods the customer did not order.`,
           { orderNumber: order.orderNumber, lineNumber: orderLine.lineNumber },
         );
+      }
+
+      if (!stocked.has(orderLine.itemId)) {
+        prepared.push({
+          lineNumber: lineNumber++,
+          salesOrderLineId: orderLine.id,
+          itemId: orderLine.itemId,
+          quantity,
+          unitCostKobo: 0n,
+          costKobo: 0n,
+          batchReference: line.batchReference ?? orderLine.batchReference ?? null,
+        });
+        continue;
       }
 
       const onHand = await this.stockOnHand({
@@ -314,6 +342,15 @@ export class DeliveryService {
     const recogniseHere =
       config.cogsRecognitionPoint === CogsRecognitionPoint.DELIVERY;
 
+    // Only stock leaves the store: a service or live-animal line has no stock to check or move.
+    const stocked = new Set(
+      (await params.tx.item.findMany({
+        where: { companyId: delivery.companyId, id: { in: delivery.lines.map((l) => l.itemId) }, itemType: ItemType.INVENTORY },
+        select: { id: true },
+      })).map((i) => i.id),
+    );
+    const stockLines = delivery.lines.filter((line) => stocked.has(line.itemId));
+
     let journalEntryId: string | null;
 
     if (recogniseHere && delivery.totalCostKobo > 0n) {
@@ -332,7 +369,7 @@ export class DeliveryService {
           // Per item: its own cost-of-sales account, and the store account
           // its stock is actually held in (item-accounts.ts).
           lines: groupByAccounts(
-            delivery.lines.map((line) => {
+            delivery.lines.filter((line) => line.costKobo > 0n).map((line) => {
               const accounts = accountsFor(line.itemId);
               return { debitAccount: accounts.costOfSales, creditAccount: accounts.inventory, amountKobo: line.costKobo };
             }),
@@ -382,7 +419,7 @@ export class DeliveryService {
     }
 
     // Nothing expired, quarantined or rejected leaves on a delivery (FR-FM-02).
-    for (const line of delivery.lines) {
+    for (const line of stockLines) {
       await assertUsableStock(params.tx, {
         companyId: delivery.companyId,
         itemId: line.itemId,
@@ -400,7 +437,7 @@ export class DeliveryService {
     // One createMany rather than one create per line, for the same round-trip
     // reason as the cogsPostedAt stamp above.
     await params.tx.stockMovement.createMany({
-      data: delivery.lines.map((line) => ({
+      data: stockLines.map((line) => ({
         companyId: delivery.companyId,
         branchId: delivery.branchId,
         itemId: line.itemId,

@@ -842,6 +842,27 @@ describe('Order-to-Cash (§6)', () => {
       ).rejects.toThrow(/only delivered against an approved order/i);
     });
 
+    it('delivers and invoices a line that is not stock — live animals from a batch, a service — with no stock check, cost or movement', async () => {
+      const stocked = await prisma.item.findUniqueOrThrow({ where: { id: itemId } });
+      const live = await prisma.item.create({
+        data: { companyId: fixture.companyId, code: 'LIVE-SNL', description: 'Live market snails', unitOfMeasureId: stocked.unitOfMeasureId, itemType: 'SERVICE', vatTaxCodeId: stocked.vatTaxCodeId, revenueGlAccountId: fixture.accounts['4101']! },
+      });
+      const order = await orders.createOrder({
+        companyId: fixture.companyId, orderNumber: 'SO-LIVE', customerId, orderDate: JAN, currencyId: fixture.currencyId, branchId: fixture.branchId, warehouseId, costCentreId: fixture.costCentreId,
+        lines: [{ lineNumber: 1, itemId: live.id, quantity: 1_000, unitPriceKobo: 4_500_00n }], actor: maker,
+      });
+      const submitted = await orders.submitOrder({ salesOrderId: order.id, actor: maker });
+      await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+      await orders.syncStatus(order.id);
+
+      // Nothing on hand, and it still delivers: there is no shelf to take live animals from.
+      await deliverAll(order.id, 'DN-LIVE');
+      expect(await prisma.stockMovement.count({ where: { itemId: live.id } })).toBe(0);
+      const line = await prisma.deliveryNoteLine.findFirstOrThrow({ where: { itemId: live.id } });
+      expect(line.costKobo).toBe(0n);
+      expect((await prisma.salesOrder.findUniqueOrThrow({ where: { id: order.id } })).status).toBe(SalesOrderStatus.FULLY_DELIVERED);
+    });
+
     it('records an outward stock movement and moves the order to delivered', async () => {
       const order = await makeApprovedOrder(100);
       await deliverAll(order.id);

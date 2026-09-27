@@ -836,6 +836,96 @@ await step(29, 'Poultry processing', 'Produce carcass/cuts/offal; record loss an
   return { ref: 'Poultry processing order settled', actual: `446.688 kg dressed (72% yield) and 60 kg offal into stock, ${loss} kg normal loss. WIP and P_Recovery zero; variance ${shown(BigInt(settled.variance))} (P500 expects NGN 40,000).` };
 });
 
+// ---------------------------------------------------------------- 30-32 Order to cash
+
+async function sellFromStock(customerId, n, lines) {
+  const orders = svc('sales/sales-order.service.js', 'SalesOrderService');
+  const flow = svc('sales/sales-flow.service.js', 'SalesFlowService');
+  const order = await orders.createOrder({
+    companyId: ctx.companyId, customerId, orderDate: D(n), currencyId: ctx.currencyId, branchId: ctx.branchId, warehouseId: ctx.warehouse['FG-WH'], farmId: ctx.farm.id,
+    lines: lines.map((l, i) => ({ lineNumber: i + 1, itemId: l.itemId, quantity: l.quantity, unitPriceKobo: naira(l.price), ...(l.warehouse ? {} : {}) })),
+    actor: ctx.clerk,
+  });
+  const submitted = await orders.submitOrder({ salesOrderId: order.id, actor: ctx.clerk });
+  if (submitted?.transactionId) await approveAll(submitted.transactionId);
+  await orders.syncStatus(order.id);
+  const stored = await prisma.salesOrder.findUniqueOrThrow({ where: { id: order.id }, include: { lines: true } });
+  const delivery = await flow.deliver({ companyId: ctx.companyId, actor: ctx.clerk, salesOrderId: order.id, deliveryDate: D(n + 1), receivedBy: 'Customer', lines: stored.lines.map((l) => ({ salesOrderLineId: l.id, quantity: l.quantity.toString() })) });
+  if (delivery.awaitingApproval) await approveAll(delivery.awaitingApproval);
+  return { order: stored, delivery };
+}
+
+await step(30, 'OTC', 'Create sales orders and deliver live/processed/feed products', async () => {
+  const items = svc('masters/item.service.js', 'ItemService');
+  const trade = svc('operations/trade.service.js', 'TradeService');
+  const stock = svc('inventory/stock-movement.service.js', 'StockMovementService');
+  // Processed products leave stock at standard: set from what processing actually cost them a kg.
+  for (const itemId of [ctx.item.meat, ctx.item.shell, ctx.item.carcass, ctx.item.offal]) {
+    const position = await stock.currentPosition(prisma, ctx.companyId, itemId);
+    const unit = position.valueKobo / BigInt(Math.round(Number(position.quantity) * 1000)) * 1000n;
+    await items.setStandardCost({ itemId, cost: unit > 0n ? unit : 1n, effectiveFrom: D(250), sourceReference: 'Actual processing cost', actorId: ctx.controller.userId });
+  }
+  ctx.sales = [];
+  // Processed snail and poultry products, surplus feed and table eggs, to the processor.
+  ctx.sales.push(await sellFromStock(ctx.customer.processed, 256, [
+    { itemId: ctx.item.meat, quantity: '419.040', price: 18_000 },
+    { itemId: ctx.item.shell, quantity: '178.092', price: 2_500 },
+    { itemId: ctx.item.carcass, quantity: '446.688', price: 5_200 },
+    { itemId: ctx.item.offal, quantity: '60', price: 1_500 },
+  ]));
+  // Live animals from the farm gate, through the same trade path the phone uses.
+  const liveItem = (code, name, revenue) => items.create({ companyId: ctx.companyId, code, description: name, unitOfMeasureCode: 'Unit', itemType: 'SERVICE', revenueGlAccountId: ctx.account[revenue], actorId: ctx.clerk.userId });
+  ctx.item.liveSnailSale = (await liveItem('SALE-LIVE-SNL', 'Live market snails', '410100')).id;
+  ctx.item.liveBirdSale = (await liveItem('SALE-LIVE-BIRD', 'Live broilers', '410300')).id;
+  const gate = (key, code, batchId, count, price, n) =>
+    trade.recordSale({
+      companyId: ctx.companyId, actor: ctx.clerk, idempotencyKey: `rehearsal-sale-${key}`,
+      payload: { type: 'sale', date: day(n), buyer: { customerId: ctx.customer.live }, paidNow: false, method: null, termsDays: 30, lines: [{ code, quantity: count, unitPriceKobo: String(naira(price)), vat: 'VAT-EXEMPT', batchId, animalsRemoved: count }], totalKobo: String(naira(price * count)), vatKobo: '0' },
+    });
+  const snails = await gate('snails', 'SALE-LIVE-SNL', 'HAT-1', 13_580, 4_500, 257);
+  const birds = await gate('birds', 'SALE-LIVE-BIRD', 'BLR-001', 188, 7_000, 60);
+  for (const sale of [snails, birds]) {
+    const so = await prisma.salesOrder.findUniqueOrThrow({ where: { id: sale.salesOrderId ?? sale.result?.salesOrderId }, include: { lines: true } });
+    const tx = await prisma.workflowTransaction.findFirst({ where: { companyId: ctx.companyId, documentReference: so.orderNumber } });
+    if (tx) await approveAll(tx.id);
+    await svc('sales/sales-order.service.js', 'SalesOrderService').syncStatus(so.id);
+    const flow = svc('sales/sales-flow.service.js', 'SalesFlowService');
+    const delivery = await flow.deliver({ companyId: ctx.companyId, actor: ctx.clerk, salesOrderId: so.id, deliveryDate: so.orderDate, receivedBy: 'Buyer', lines: so.lines.map((l) => ({ salesOrderLineId: l.id, quantity: l.quantity.toString(), batchReference: l.batchReference })) });
+    if (delivery.awaitingApproval) await approveAll(delivery.awaitingApproval);
+    ctx.sales.push({ order: so, delivery });
+  }
+  const market = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'HAT-1' } });
+  expect(market.population === 1_000, `HAT-1 left with ${market.population}, not the 1,000 kept as breeders.`);
+  return { ref: ctx.sales.map((s) => s.order.orderNumber).join(', '), actual: `Processed products delivered from the cold store; 13,580 live snails and 188 live birds sold from the gate (1,000 snails kept as replacement breeders); credit checked; stock not taken negative.` };
+});
+
+await step(31, 'AR/COGS', 'Post customer invoices and cost of sales', async () => {
+  const flow = svc('sales/sales-flow.service.js', 'SalesFlowService');
+  ctx.invoices = [];
+  for (const sale of ctx.sales) {
+    const raised = await flow.raiseInvoice({ companyId: ctx.companyId, actor: ctx.clerk, salesOrderId: sale.order.id, invoiceDate: new Date(sale.order.orderDate.getTime() + 86_400_000) });
+    if (raised.awaitingApproval) await approveAll(raised.awaitingApproval);
+    ctx.invoices.push(await prisma.salesInvoice.findFirstOrThrow({ where: { companyId: ctx.companyId, salesOrderId: sale.order.id } }));
+  }
+  const revenue = ['410100', '410200', '410300', '410400'];
+  const totals = await Promise.all(revenue.map(async (n) => -(await balance(n))));
+  const cogs = await Promise.all(['510100', '510200', '510300', '510400'].map(balance));
+  return { ref: ctx.invoices.map((i) => i.invoiceNumber).join(', '), actual: `AR ${shown(await balance('120100'))}. Revenue: live snails ${shown(totals[0])}, processed snail ${shown(totals[1])}, live birds ${shown(totals[2])}, processed poultry ${shown(totals[3])}. Cost of sales ${cogs.map(shown).join(' / ')}.` };
+});
+
+await step(32, 'Cash', 'Receive and allocate customer payments', async () => {
+  const flow = svc('sales/sales-flow.service.js', 'SalesFlowService');
+  for (const inv of ctx.invoices) {
+    const fresh = await prisma.salesInvoice.findUniqueOrThrow({ where: { id: inv.id } });
+    const due = fresh.grossAmountKobo - fresh.settledAmountKobo;
+    const result = await flow.recordReceipt({ companyId: ctx.companyId, actor: ctx.treasury, customerId: fresh.customerId, receiptDate: D(264), method: 'BANK_TRANSFER', bankGlAccountId: ctx.account['110100'], allocations: [{ invoiceId: fresh.id, amountKobo: due.toString() }] });
+    if (result.awaitingApproval) await approveAll(result.awaitingApproval);
+  }
+  const ar = await balance('120100');
+  expect(ar === 0n, `AR not cleared: ${shown(ar)}.`);
+  return { ref: 'Receipts for every invoice', actual: `All invoices collected; AR cleared to zero; bank ${shown(await balance('110100'))}.` };
+});
+
 /*@@STEPS@@*/
 
 // ---------------------------------------------------------------- evidence

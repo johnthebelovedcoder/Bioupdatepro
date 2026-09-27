@@ -304,7 +304,8 @@ export class SalesInvoiceService {
       costLines.totalKobo > 0n
     ) {
       for (const pair of groupByAccounts(
-        costLines.lines.map((line) => {
+        // A service or live-animal line carries no stock cost (its cost, if any, was booked elsewhere).
+        costLines.lines.filter((line) => line.costKobo > 0n).map((line) => {
           const accounts = accountsFor(line.itemId);
           return { debitAccount: accounts.costOfSales, creditAccount: accounts.inventory, amountKobo: line.costKobo };
         }),
