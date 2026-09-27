@@ -205,7 +205,7 @@ const APPROVAL_LADDER = [
   { level: 4, roleCode: WORKFLOW_ROLES.cfo, name: 'CFO', maxAmountKobo: null as bigint | null },
 ];
 
-const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> = [
+export const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> = [
   { type: 'MANUAL_JOURNAL', name: 'Manual Journal', autoPost: true },
   { type: 'GL_JOURNAL', name: 'General Ledger Journal', autoPost: true },
   { type: 'CUSTOMER_ADJUSTMENT', name: 'Customer Adjustment Journal', autoPost: true },
@@ -237,15 +237,20 @@ const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> =
 
   { type: 'INVENTORY_ADJUSTMENT', name: 'Inventory Adjustment', autoPost: false },
   { type: 'PRODUCTION_ORDER', name: 'Production Order', autoPost: false },
+  { type: 'PRODUCTION_ORDER_ABNORMAL_LOSS', name: 'Production Order — abnormal loss claim', autoPost: true },
   { type: 'MATERIAL_ISSUE', name: 'Material Issue', autoPost: false },
 
   { type: 'BA_VALUATION', name: 'Biological Asset Valuation', autoPost: true },
+  { type: 'BIOLOGICAL_ASSET_ABNORMAL_MORTALITY', name: 'Biological Asset — abnormal mortality claim', autoPost: true },
 
   { type: 'FIXED_ASSET_CAPITALISATION', name: 'Fixed Asset Capitalisation', autoPost: true },
   { type: 'DEPRECIATION_RUN', name: 'Depreciation Run', autoPost: true },
+  { type: 'FIXED_ASSET_DISPOSAL', name: 'Fixed Asset Disposal', autoPost: true },
 
   { type: 'PAYROLL_RUN', name: 'Payroll Processing', autoPost: true },
+  { type: 'PAYROLL_PAYMENT', name: 'Payroll Payment', autoPost: true },
   { type: 'PERIOD_CLOSE', name: 'Period Close', autoPost: false },
+  { type: 'PERIOD_REOPEN', name: 'Period Reopen', autoPost: false },
   { type: 'PERIOD_REOPEN', name: 'Period Reopen', autoPost: false },
 ];
 

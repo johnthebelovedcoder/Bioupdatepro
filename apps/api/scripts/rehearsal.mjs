@@ -174,6 +174,8 @@ await step(1, 'Foundation', 'Create entity, farms, warehouses, fiscal year, NGN 
     ['finance', ['FINANCE_MANAGER']],
     ['controller', ['FINANCE_CONTROLLER']],
     ['hr', ['HR_MANAGER']],
+    // Pays what others prepared: payroll and supplier payments.
+    ['treasury', ['TREASURY_OFFICER']],
   ];
   for (const [who, roles] of team) {
     const invite = await invitations.invite({ companyId: ctx.companyId, actor: ctx.owner, email: `${who}@rehearsal.test`, roles });
@@ -649,6 +651,79 @@ await step(21, 'Inventory', 'Issue finished feed to snail cohorts and poultry fl
   const issued = await prisma.feedIssue.aggregate({ where: { dailyRecord: { companyId: ctx.companyId } }, _sum: { valueKobo: true } });
   expect(Number(snailLeft.quantity) === 160 && Number(poultryLeft.quantity) === 1_440, `Feed left: snail ${snailLeft.quantity}, poultry ${poultryLeft.quantity}.`);
   return { ref: 'Rounds for HAT-1, BLR-001, HCH-1', actual: `1,800 kg snail feed and 1,500 kg poultry feed issued at WAC, ${shown(issued._sum.valueKobo ?? 0n)} to the batches; left in store 160 kg and 1,440 kg.` };
+});
+
+// ---------------------------------------------------------------- 22-25 Payroll and fixed assets
+
+const periodOf = (n) => ctx.year.periods.find((p) => p.startDate <= D(n) && p.endDate >= D(n));
+
+await step(22, 'Payroll', 'Run payroll for farm, feed mill, processing and admin staff', async () => {
+  const payroll = svc('payroll/payroll-run.service.js', 'PayrollRunService');
+  const period = ctx.year.periods[0];
+  const run = await payroll.createRun({
+    companyId: ctx.companyId, year: period.startDate.getUTCFullYear(), month: period.startDate.getUTCMonth() + 1, branchId: ctx.branchId,
+    financialYearId: ctx.year.id, financialPeriodId: period.id, currencyId: ctx.currencyId, actorId: ctx.clerk.userId,
+  });
+  await payroll.calculate({ payrollRunId: run.id, actorId: ctx.clerk.userId });
+  const submitted = await payroll.submit({ payrollRunId: run.id, actor: ctx.clerk });
+  await approveAll(submitted.transactionId);
+  ctx.payrollRun = await prisma.payrollRun.findUniqueOrThrow({ where: { id: run.id } });
+  expect(ctx.payrollRun.status === 'POSTED', `Payroll run is ${ctx.payrollRun.status}.`);
+  const r = ctx.payrollRun;
+  const payable = -(await balance('220100'));
+  expect(payable === r.totalNetPayKobo, `Net pay payable ${shown(payable)} is not the register's ${shown(r.totalNetPayKobo)}.`);
+  return { ref: ctx.payrollRun.reference, actual: `6 employees: gross ${shown(r.totalGrossKobo)}, PAYE ${shown(r.totalPayeKobo)}, employee pension ${shown(r.totalEmployeePensionKobo)}, NHF ${shown(r.totalNhfKobo)}, net ${shown(r.totalNetPayKobo)}. Register = journal: net pay payable equals the register's net pay; labour charged by each employee's cost centre.` };
+});
+
+await step(23, 'Payroll', 'Pay staff and remit statutory deductions', async () => {
+  const payments = svc('payroll/payroll-payment.service.js', 'PayrollPaymentService');
+  const period = periodOf(31);
+  const paid = [];
+  for (const row of await payments.outstanding(ctx.payrollRun.id)) {
+    const amountKobo = BigInt(row.outstandingKobo);
+    if (amountKobo <= 0n) continue;
+    const payment = await payments.create({
+      companyId: ctx.companyId, payrollRunId: ctx.payrollRun.id, bucket: row.bucket, amountKobo, paymentDate: D(31), method: 'BANK_TRANSFER', bankGlAccountId: ctx.account['110100'],
+      branchId: ctx.branchId, currencyId: ctx.currencyId, financialYearId: ctx.year.id, financialPeriodId: period.id, actor: ctx.treasury,
+    });
+    const sent = await payments.submit({ paymentId: payment.id, actor: ctx.treasury });
+    await approveAll(sent.transactionId);
+    paid.push(`${row.bucket} ${shown(amountKobo)}`);
+  }
+  const left = (await payments.outstanding(ctx.payrollRun.id)).filter((r) => BigInt(r.outstandingKobo) !== 0n);
+  expect(left.length === 0, `Still outstanding: ${left.map((r) => r.bucket).join(', ')}.`);
+  for (const n of ['220100', '221100', '222100']) expect((await balance(n)) === 0n, `${n} not cleared: ${shown(await balance(n))}.`);
+  return { ref: ctx.payrollRun.reference, actual: `Paid and remitted: ${paid.join('; ')}. Net pay, PAYE and pension liabilities cleared to zero.` };
+});
+
+await step(24, 'Fixed assets', 'Acquire and capitalise farm/feed/processing assets', async () => {
+  const assets = svc('fixed-assets/fixed-asset.service.js', 'FixedAssetService');
+  ctx.assets = {};
+  for (const [key, name, cost, months, cc] of [['mixer', 'Feed mixer', 1_200_000, 60, '130'], ['plucker', 'Poultry plucker', 900_000, 60, 'CC-POL-PROC'], ['pickup', 'Farm pickup', 3_600_000, 60, 'CC-CORP-FIN']]) {
+    const raised = await assets.capitalise({ companyId: ctx.companyId, actor: ctx.clerk, name, assetClass: 'Machinery', acquisitionDate: D(35), costKobo: naira(cost), usefulLifeMonths: months, costCentreId: ctx.cc[cc] });
+    await approveAll(raised.awaitingApproval);
+    ctx.assets[key] = raised.assetId;
+  }
+  await assets.setProcessingCycle({ companyId: ctx.companyId, assetId: ctx.assets.mixer, processingCycle: 'FEED_MILL', actor: ctx.controller });
+  const register = await prisma.fixedAsset.aggregate({ where: { companyId: ctx.companyId }, _sum: { costKobo: true } });
+  expect(register._sum.costKobo === (await balance('140100')), `Register ${shown(register._sum.costKobo)} ≠ PPE ${shown(await balance('140100'))}.`);
+  return { ref: 'Feed mixer, poultry plucker, farm pickup', actual: `Capitalised through approval: PPE (140100) ${shown(register._sum.costKobo)} = register. The mixer is the feed mill's.` };
+});
+
+await step(25, 'Fixed assets', 'Run depreciation and allocate manufacturing/admin shares', async () => {
+  const assets = svc('fixed-assets/fixed-asset.service.js', 'FixedAssetService');
+  let runs = 0;
+  for (const period of ctx.year.periods) {
+    if (period.startDate < D(35) || period.endDate > D(LAST_DAY)) continue;
+    const run = await assets.runDepreciation({ companyId: ctx.companyId, actor: ctx.clerk, financialPeriodId: period.id });
+    if (run.awaitingApproval) await approveAll(run.awaitingApproval);
+    runs += 1;
+  }
+  const register = await prisma.fixedAsset.aggregate({ where: { companyId: ctx.companyId }, _sum: { accumulatedDepreciationKobo: true } });
+  const accumulated = -(await balance('149100'));
+  const expense = await balance('630100');
+  expect(register._sum.accumulatedDepreciationKobo === accumulated, `Register depreciation ${shown(register._sum.accumulatedDepreciationKobo)} ≠ ledger ${shown(accumulated)}.`);
+  return { ref: `${runs} monthly runs`, actual: `Accumulated depreciation ${shown(accumulated)} = register. Depreciation expense (630100) ${shown(expense)}; the rest of the depreciation is charged to production (${shown(accumulated - expense)}).` };
 });
 
 /*@@STEPS@@*/
