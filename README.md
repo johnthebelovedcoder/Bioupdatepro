@@ -153,9 +153,16 @@ The 500-poultry case is replayed the same way
 P_APP_EXPECTED_RESULTS and the 13 P500_Checks: the flock placed, fed from the
 store on the rounds, treated, charged its labour by animal-days, valued,
 partly sold live and partly processed through plant intake, ABC conversion and
-cold store. Both replays write their profit to `case-500-*.json`, and
-`run-uat.mjs` scores the workbook's V896 primary and enterprise P&L checks from
-them.
+cold store. The 2026 statutory payroll case (six employees, NG_PAYE_2026) is
+replayed in `case-payroll.spec.ts`: set up, approved, calculated, posted, paid
+and remitted.
+
+The replays write their figures to `case-*.json`, and `run-uat.mjs` scores
+every row of the workbook's check sheets from `test/uat/workbook-checks.json`
+into `workbook-checks-report.md`: each row is a replay figure (matching, or
+differing by named causes), a set of tests that must pass, a count of the
+workbook's own rows, a gap with the phase that closes it, or a manual step. A
+failing or missing row fails CI; a gap does not, and is listed.
 
 ## Deploying schema changes
 

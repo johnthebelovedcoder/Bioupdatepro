@@ -71,43 +71,142 @@ const scored = register.map((uat) => {
 });
 
 /*
- * V896_PL_CHECKS — the primary and enterprise P&L checks, scored from what the
- * two case replays (case-500-snail.spec.ts, case-500-poultry.spec.ts) wrote.
- * A row MATCHES when the application's figure is the workbook's, is EXPLAINED
- * when the difference is exactly that replay's named causes, and is MISSING
- * when a replay did not run — blank is not a pass.
+ * The workbook's own check sheets (workbook-checks.json), row by row.
+ *
+ * A figure row compares a case replay's figure (case-500-snail.json,
+ * case-500-poultry.json) with the workbook's: MATCH when equal, EXPLAINED
+ * when the difference is exactly the causes named for it, FAIL otherwise. A
+ * payroll row reads the payroll replay (case-payroll.json). A tests row needs
+ * every named test to have run and passed. WORKBOOK-ONLY rows count the
+ * workbook's own rows or sample data; GAP rows are not built yet, with the
+ * phase that builds them; MANUAL rows need a person. A replay that did not
+ * run leaves its rows MISSING — blank is not a pass.
  */
-const replay = (product) => {
-  const file = join(here, `case-500-${product}.json`);
+const checkRegister = JSON.parse(readFileSync(join(here, 'workbook-checks.json'), 'utf8'));
+const load = (name) => {
+  const file = join(here, name);
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
 };
-const snail = replay('snail');
-const poultry = replay('poultry');
-const sum = (parts, pick) => (parts.every(Boolean) ? parts.reduce((s, p) => s + BigInt(pick(p)), 0n) : null);
-const v896 = [
-  ['Main snail PBT', [snail], 'pbtKobo'],
-  ['Main snail PAT', [snail], 'patKobo'],
-  ['Main poultry PBT', [poultry], 'pbtKobo'],
-  ['Main poultry PAT', [poultry], 'patKobo'],
-  ['Enterprise PBT', [snail, poultry], 'pbtKobo'],
-  ['Enterprise PAT', [snail, poultry], 'patKobo'],
-].map(([check, parts, key]) => {
-  const workbook = sum(parts, (p) => p.workbook[key]);
-  const application = sum(parts, (p) => p.application[key]);
-  const explained = sum(parts, (p) => p.explained[key]);
-  if (workbook === null) return { check, status: 'MISSING' };
-  const difference = application - workbook;
-  const status = difference === 0n ? 'MATCH' : difference === explained ? 'EXPLAINED' : 'UNEXPLAINED';
-  return { check, workbook, application, difference, status };
-});
-// The workbook's transfer-elimination rows need an internal feed-mill sale to
-// the farm; neither replay has one (the cases buy feed), so they are said so.
-v896.push(
-  { check: 'Snail transfer elimination', status: 'NOT EXERCISED' },
-  { check: 'Poultry transfer elimination', status: 'NOT EXERCISED' },
+const cases = { snail: load('case-500-snail.json'), poultry: load('case-500-poultry.json'), payroll: load('case-payroll.json') };
+
+/** "snail.pbt + poultry.pbt" → kobo (or a count); null when a replay is missing. */
+function figure(expression) {
+  let total = 0n;
+  let sign = 1n;
+  for (const token of expression.split(/\s+/)) {
+    if (token === '+') sign = 1n;
+    else if (token === '-') sign = -1n;
+    else {
+      const [product, key] = token.split('.');
+      const value = cases[product]?.figures?.[key];
+      if (value === undefined) return null;
+      total += sign * BigInt(value);
+    }
+  }
+  return total;
+}
+/** A named cause in kobo: a replay's own ("snail.breeders", "-snail.openingStock") or the register's. */
+function cause(name) {
+  const negative = name.startsWith('-');
+  const bare = negative ? name.slice(1) : name;
+  const [product, key] = bare.split('.');
+  let amount = null;
+  if (key !== undefined) amount = cases[product]?.causes?.[key] !== undefined ? BigInt(cases[product].causes[key]) : null;
+  else if (checkRegister.causes[bare]) amount = BigInt(Math.round(checkRegister.causes[bare].naira * 100));
+  return amount === null ? null : negative ? -amount : amount;
+}
+const testStatus = (names) => {
+  const each = names.map((t) => {
+    const matches = [...outcomes.entries()].filter(([name]) => name.includes(t));
+    return matches.length === 0 ? 'missing' : matches.every(([, st]) => st === 'passed') ? 'passed' : 'failed';
+  });
+  return each.includes('failed') ? 'FAIL' : each.includes('missing') ? 'MISSING' : 'PASS';
+};
+const sheetStatus = (rows) => {
+  const st = rows.filter((r) => !r.summary).map((r) => r.status);
+  if (st.some((x) => x === 'FAIL')) return 'FAIL';
+  if (st.some((x) => x === 'MISSING')) return 'MISSING';
+  if (st.some((x) => x === 'GAP' || x === 'PARTIAL')) return 'PARTIAL';
+  return 'PASS';
+};
+
+const sheets = [];
+for (const sheet of checkRegister.sheets) {
+  const rows = sheet.rows.map((row) => {
+    if (row.summary) return { ...row };
+    if (row.workbook) return { ...row, status: 'WORKBOOK-ONLY', detail: row.workbook };
+    if (row.gap) return { ...row, status: 'GAP', detail: `Phase ${row.phase}: ${row.gap}` };
+    if (row.manual) return { ...row, status: 'MANUAL', detail: row.manual };
+    if (row.tests) return { ...row, status: testStatus(row.tests), detail: row.tests.join('; ') };
+    if (row.sheet) {
+      const other = sheets.find((s) => s.sheet === row.sheet);
+      return { ...row, status: other ? (other.status === 'PARTIAL' ? 'PASS' : other.status) : 'MISSING', detail: `${row.sheet}: ${other?.status ?? 'not scored'}` };
+    }
+    if (row.payroll) {
+      const [group, key] = [row.payroll.slice(0, row.payroll.indexOf('.')), row.payroll.slice(row.payroll.indexOf('.') + 1)];
+      const hit = cases.payroll?.[group]?.[key];
+      if (!hit) return { ...row, status: 'MISSING' };
+      return { ...row, workbook: BigInt(hit.expected), application: BigInt(hit.application), status: hit.expected === hit.application ? 'MATCH' : 'FAIL', money: !/employees|IDs|records|present|complete|active|approved|events|pass/i.test(key) };
+    }
+    const application = figure(row.figure);
+    if (application === null) return { ...row, status: 'MISSING' };
+    const workbook = row.unit === 'count' ? BigInt(row.expected) : BigInt(Math.round(row.expected * 100));
+    const difference = application - workbook;
+    const named = (row.causes ?? []).map((c) => [c, cause(c)]);
+    const explained = named.reduce((sum, [, a]) => sum + (a ?? 0n), 0n);
+    const status = difference === 0n ? 'MATCH' : named.length > 0 && named.every(([, a]) => a !== null) && difference === explained ? 'EXPLAINED' : 'FAIL';
+    return { ...row, workbook, application, difference, status, money: row.unit !== 'count', named: named.filter(([, a]) => a) };
+  });
+  const status = sheetStatus(rows);
+  for (const row of rows) if (row.summary) row.status = status === 'PARTIAL' ? 'PASS' : status;
+  sheets.push({ sheet: sheet.sheet, status, rows });
+}
+
+const naira = (k) => `₦${(Number(k) / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const shown = (row, v) => (v === undefined ? '' : row.money === false ? v.toLocaleString('en-NG') : naira(v));
+const allRows = sheets.flatMap((s) => s.rows);
+const tally = allRows.reduce((c, r) => ({ ...c, [r.status]: (c[r.status] ?? 0) + 1 }), {});
+const checksPass = !allRows.some((r) => r.status === 'FAIL' || r.status === 'MISSING');
+writeFileSync(
+  join(here, 'workbook-checks-report.md'),
+  [
+    '# Workbook check sheets — scored against the application',
+    '',
+    `Run ${new Date().toISOString()}. ${allRows.length} checks in ${sheets.length} sheets: ${Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(', ')}.`,
+    '',
+    'MATCH / EXPLAINED: a case replay’s figure equals the workbook’s, or differs by exactly its named causes (see each case’s report). PASS: the named tests ran and passed. WORKBOOK-ONLY: counts the workbook’s own rows or sample data, which says nothing about the application. GAP: not built yet — the phase that builds it is named. MANUAL: a person must do it. A sheet is PARTIAL while it has a gap.',
+    '',
+    '| Sheet | Status |',
+    '|---|---|',
+    ...sheets.map((s) => `| ${s.sheet} | **${s.status}** |`),
+    '',
+    ...sheets.flatMap((s) => [
+      `## ${s.sheet} — ${s.status}`,
+      '',
+      '| Check | Workbook | Application | Difference | Status | Evidence |',
+      '|---|---|---|---|---|---|',
+      ...s.rows.map(
+        (r) =>
+          `| ${r.check} | ${shown(r, r.workbook)} | ${shown(r, r.application)} | ${r.difference ? shown(r, r.difference) : ''} | **${r.status}** | ${
+            r.named?.length ? r.named.map(([c, a]) => `${c} ${naira(a)}`).join('; ') : (r.detail ?? '')
+          }${r.note ? ` _${r.note}_` : ''} |`,
+      ),
+      '',
+    ]),
+    '## Causes named by this register',
+    '',
+    ...Object.entries(checkRegister.causes).map(([k, c]) => `- **${k}** — ${c.why}`),
+  ].join('\n'),
 );
-const naira = (k) => (k === undefined ? '' : `₦${(Number(k) / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-const v896Passes = v896.every((r) => ['MATCH', 'EXPLAINED', 'NOT EXERCISED'].includes(r.status));
+const checkSummary = [
+  '## Workbook check sheets',
+  '',
+  `${allRows.length} checks in ${sheets.length} sheets: ${Object.entries(tally).map(([k, v]) => `${v} ${k}`).join(', ')}. Row by row in workbook-checks-report.md.`,
+  '',
+  '| Sheet | Status |',
+  '|---|---|',
+  ...sheets.map((s) => `| ${s.sheet} | **${s.status}** |`),
+];
 
 const counts = scored.reduce((c, u) => ({ ...c, [u.status]: (c[u.status] ?? 0) + 1 }), {});
 const lines = [
@@ -124,17 +223,11 @@ const lines = [
   '',
   '✗ marks the negative / integrity test. PASS + MANUAL: automated evidence passes; the manual step named must still be observed and signed.',
   '',
-  '## V896_PL_CHECKS — primary and enterprise P&L',
-  '',
-  '| Check | Workbook | Application | Difference | Status |',
-  '|---|---|---|---|---|',
-  ...v896.map((r) => `| ${r.check} | ${naira(r.workbook)} | ${naira(r.application)} | ${naira(r.difference)} | **${r.status}** |`),
-  '',
-  'EXPLAINED: the difference is exactly the named causes in that case’s report (case-500-report.md, case-500-poultry-report.md). NOT EXERCISED: the replays buy feed rather than transfer it from a feed mill, so there is no internal sale to eliminate.',
+  ...checkSummary,
 ];
 writeFileSync(join(here, 'uat-report.md'), lines.join('\n'));
 writeFileSync(join(here, 'uat-report.json'), JSON.stringify(scored, null, 2));
 console.log(lines.slice(0, 3).join('\n'));
 for (const u of scored) console.log(`${u.id.padEnd(8)} ${u.status.padEnd(14)} ${u.title}`);
-for (const r of v896) console.log(`V896     ${r.status.padEnd(14)} ${r.check}`);
-process.exit(scored.every((u) => u.status.startsWith('PASS')) && v896Passes ? 0 : 1);
+for (const sheet of sheets) console.log(`SHEET    ${sheet.status.padEnd(14)} ${sheet.sheet}`);
+process.exit(scored.every((u) => u.status.startsWith('PASS')) && checksPass ? 0 : 1);

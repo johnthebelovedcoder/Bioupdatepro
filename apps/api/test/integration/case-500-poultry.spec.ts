@@ -441,11 +441,69 @@ describe('The 500-poultry case, through the application (UAT-022)', () => {
           application: { pbtKobo: pl.profitBeforeTaxKobo, patKobo: pl.profitAfterTaxKobo },
           explained: { pbtKobo: pbtDifference.toString(), patKobo: (r.amount + t.amount).toString() },
           causes: Object.fromEntries(Object.entries(CAUSES).map(([k, c]) => [k, c.amount.toString()])),
+          figures: await figures(),
         },
         null,
         2,
       ),
     );
+
+    /** Every case figure the workbook's check sheets name, for run-uat.mjs (kobo, or a count). */
+    async function figures() {
+      const rearing = new RearingCostService(prisma, posting);
+      const [feed, treatments, labour, outputs, rollForward] = await Promise.all([
+        prisma.feedIssue.aggregate({ where: { dailyRecord: { groupId: flock.id }, journalEntryId: { not: null } }, _sum: { valueKobo: true } }),
+        prisma.treatmentRecord.aggregate({ where: { groupId: flock.id, journalEntryId: { not: null } }, _sum: { costKobo: true } }),
+        prisma.farmCostAllocationLine.aggregate({ where: { groupId: flock.id }, _sum: { amountKobo: true } }),
+        prisma.productionOrderOutput.aggregate({ where: { productionOrderId: orderId }, _sum: { allocatedCostKobo: true } }),
+        assets.rollForward(flock.id),
+      ]);
+      const after = await prisma.livestockGroup.findUniqueOrThrow({ where: { id: flock.id } });
+      // The cash-flow statement is built a month at a time; the case's operating cash is the year's.
+      const yearToDate = { direct: 0n, indirect: 0n };
+      for (const periodId of fixture.periodIds) {
+        const month = await services.cf.build({ companyId: fixture.companyId, financialPeriodId: periodId });
+        yearToDate.direct += BigInt(month.direct.netCashFromOperationsKobo);
+        yearToDate.indirect += BigInt(month.netCashFromOperationsKobo);
+      }
+      const farmAbcTotal = flock.acquisitionCostKobo + (feed._sum.valueKobo ?? 0n) + (treatments._sum.costKobo ?? 0n) + (labour._sum.amountKobo ?? 0n);
+      const stillHeld = (await rearing.remaining(flock.id)) + BigInt(after.population) * (after.currentFvlctsPerUnitKobo ?? 0n);
+      const f: Record<string, bigint> = {
+        harvested: BigInt(flock.population),
+        liveSold: BigInt(liveSold),
+        processed: BigInt(processed),
+        carryingRatePerUnit: after.currentFvlctsPerUnitKobo ?? 0n,
+        dressedGrams: BigInt(dressedKg.mul(1000).toFixed(0)),
+        abcStandard: order.standardConversionCostKobo,
+        abcActual: order.actualLabourCostKobo + order.actualOverheadCostKobo,
+        abcVariance: BigInt(settled.variance),
+        wip: await balance('130420'),
+        recovery: await balance('219820'),
+        conversionPool: await balance('622100'),
+        ap: -(await balance('210100')),
+        ar: await balance('120100'),
+        revenue: actual['P-REP-011'],
+        fvGain: fvGain,
+        pbt: BigInt(pl.profitBeforeTaxKobo),
+        pat: BigInt(pl.profitAfterTaxKobo),
+        totalAssets: BigInt(bs.totalAssetsKobo),
+        totalLiabilitiesAndEquity: BigInt(bs.totalLiabilitiesAndEquityKobo),
+        balanceSheetDifference: BigInt(bs.totalAssetsKobo) - BigInt(bs.totalLiabilitiesAndEquityKobo),
+        cash: await balance('110100'),
+        cfDirectClosing: BigInt(cf.direct.closingCashKobo),
+        cfIndirectClosing: BigInt(cf.closingCashKobo),
+        cfoDirect: yearToDate.direct,
+        cfoIndirect: yearToDate.indirect,
+        cfDirectCheck: BigInt(cf.checks.directKobo),
+        cfIndirectCheck: BigInt(cf.checks.indirectKobo),
+        tbDifference: BigInt(tb.totalDebitKobo) - BigInt(tb.totalCreditKobo),
+        baRollForwardDifference: BigInt(rollForward.differenceKobo),
+        farmAbcTotal,
+        farmAbcAllocated: farmAbcTotal - stillHeld,
+        jointAllocationDifference: order.finishedGoodsCostKobo - (outputs._sum.allocatedCostKobo ?? 0n),
+      };
+      return Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.toString()]));
+    }
 
     expect(bs.balanced).toBe(true);
     expect(cf.reconciled).toBe(true);

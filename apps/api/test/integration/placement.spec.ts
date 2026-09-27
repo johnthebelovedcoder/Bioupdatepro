@@ -88,4 +88,11 @@ describe('Placement (UAT-010 / UAT-016)', () => {
     await structure.setPenCapacity({ companyId: fixture.companyId, penId: h1.id, capacity: null, actor });
     await place('FLK-BR-002', 'H1', 5_000); // no limit now
   });
+
+  it('never holds a negative population, at the database (BIO_MASTER_CHECKS)', async () => {
+    await place('FLK-BR-001', 'H1', 450);
+    await expect(prisma.livestockGroup.update({ where: { companyId_code: { companyId: fixture.companyId, code: 'FLK-BR-001' } }, data: { population: -1 } })).rejects.toThrow(
+      /livestock_groups_population_not_negative/,
+    );
+  });
 });

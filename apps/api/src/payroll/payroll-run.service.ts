@@ -300,22 +300,14 @@ export class PayrollRunService {
       const pensionableKobo = kept(BigInt(salary.pensionableEmolumentsKobo));
       const nhfBaseKobo = kept(BigInt(salary.nhfBaseKobo));
 
-      const payeResult = await this.paye.calculate({
-        companyId: run.companyId,
-        monthlyTaxableGrossKobo: taxableKobo,
-        pensionableEmolumentsKobo: pensionableKobo,
-        pensionEnrolled: employee.pensionEnrolled,
-        annualBonusKobo: relief?.annualBonusKobo ?? 0n,
-        annualRentKobo: relief?.annualRentKobo ?? 0n,
-        nhfAnnualKobo: relief?.nhfAnnualKobo ?? 0n,
-        nhisAnnualKobo: relief?.nhisAnnualKobo ?? 0n,
-        lifeAssuranceAnnualKobo: relief?.lifeAssuranceAnnualKobo ?? 0n,
-        mortgageInterestAnnualKobo: relief?.mortgageInterestAnnualKobo ?? 0n,
-        documentsComplete: relief?.documentsComplete ?? true,
-        on: run.payrollDate,
-      });
-      ruleVersion ??= payeResult.ruleVersion;
-
+      /*
+       * Statutory deductions first: the NHF this payroll deducts is itself a
+       * PAYE relief (NG_PAYE_2026 "Annual deductions" = pension + NHF + rent
+       * relief). Until 2026-09-27 PAYE relieved NHF only when someone typed
+       * it in as a declared relief, so an enrolled employee paid PAYE on
+       * contributions the same payroll had just withheld. A declared figure
+       * still takes precedence (contributions made elsewhere in the year).
+       */
       const statutoryResult = await this.statutory.calculate({
         companyId: run.companyId,
         grossPayKobo: grossKobo,
@@ -326,6 +318,22 @@ export class PayrollRunService {
         employeeCount: headcount,
         on: run.payrollDate,
       });
+
+      const payeResult = await this.paye.calculate({
+        companyId: run.companyId,
+        monthlyTaxableGrossKobo: taxableKobo,
+        pensionableEmolumentsKobo: pensionableKobo,
+        pensionEnrolled: employee.pensionEnrolled,
+        annualBonusKobo: relief?.annualBonusKobo ?? 0n,
+        annualRentKobo: relief?.annualRentKobo ?? 0n,
+        nhfAnnualKobo: relief?.nhfAnnualKobo || BigInt(statutoryResult.nhfKobo) * 12n,
+        nhisAnnualKobo: relief?.nhisAnnualKobo ?? 0n,
+        lifeAssuranceAnnualKobo: relief?.lifeAssuranceAnnualKobo ?? 0n,
+        mortgageInterestAnnualKobo: relief?.mortgageInterestAnnualKobo ?? 0n,
+        documentsComplete: relief?.documentsComplete ?? true,
+        on: run.payrollDate,
+      });
+      ruleVersion ??= payeResult.ruleVersion;
 
       const monthlyPaye = BigInt(payeResult.monthlyPayeKobo);
       const employeePension = BigInt(statutoryResult.employeePensionKobo);

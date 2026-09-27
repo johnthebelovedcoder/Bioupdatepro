@@ -1368,11 +1368,63 @@ export class BiologicalAssetService {
       0n,
     );
 
+    /*
+     * Harvested animals leave the asset when their processing order issues
+     * them into WIP (at the rate in force then). Harvested but not yet
+     * issued, they are still on the books at the current rate — and so is
+     * the rearing cost set aside for them, which that issue will post.
+     */
+    const harvests = await this.prisma.harvestRecord.findMany({
+      where: { companyId: group.companyId, groupId, destination: 'PROCESSING' },
+      select: { id: true, count: true, productionOrder: { select: { issuedAt: true, biologicalInputValueKobo: true, rearingCostKobo: true } } },
+    });
+    const issued = harvests.filter((h) => h.productionOrder?.issuedAt);
+    const processedKobo = issued.reduce((sum, h) => sum + h.productionOrder!.biologicalInputValueKobo, 0n);
+    const awaitingProcessingKobo = harvests
+      .filter((h) => !h.productionOrder?.issuedAt)
+      .reduce((sum, h) => sum + BigInt(h.count ?? 0) * (group.currentFvlctsPerUnitKobo ?? 0n), 0n);
+
+    /*
+     * On the client's chart a flock's feed, medication and labour are
+     * capitalised into the same account (RearingCostService), and relieved
+     * from it when animals die, are sold or go to processing. Formula 7 as
+     * first written left both out, so on SPEC a fed flock never reconciled.
+     * A valuation's absorption of rearing cost (REVALUED) moves value inside
+     * the account — the gain is already net of it — so it is not a movement.
+     */
+    const version = await chartVersionOf(this.prisma, group.companyId);
+    const holdsRearing = version === 'SPEC' && speciesNumberFor(version, 'rearingCost', group.speciesKey) !== null;
+    let rearingCapitalisedKobo = 0n;
+    let rearingRelievedKobo = 0n;
+    let rearingHeldKobo = 0n;
+    if (holdsRearing) {
+      const standing = { is: { reversedBy: { is: null } } };
+      const [feed, treatments, labour, reliefs] = await Promise.all([
+        this.prisma.feedIssue.aggregate({ where: { dailyRecord: { groupId }, journalEntry: standing }, _sum: { valueKobo: true } }),
+        this.prisma.treatmentRecord.aggregate({ where: { companyId: group.companyId, groupId, journalEntry: standing }, _sum: { costKobo: true } }),
+        this.prisma.farmCostAllocationLine.aggregate({ where: { groupId, speciesKey: 'poultry', allocation: { journalEntry: standing } }, _sum: { amountKobo: true } }),
+        this.prisma.livestockRearingRelief.findMany({ where: { companyId: group.companyId, groupId }, select: { eventType: true, sourceId: true, amountKobo: true, journalEntryId: true } }),
+      ]);
+      const issuedHarvests = new Set(issued.map((h) => h.id));
+      rearingCapitalisedKobo = (feed._sum.valueKobo ?? 0n) + (treatments._sum.costKobo ?? 0n) + (labour._sum.amountKobo ?? 0n);
+      for (const relief of reliefs) {
+        if (relief.eventType === 'TRANSFER_IN') rearingCapitalisedKobo += relief.amountKobo;
+        else if (relief.eventType === 'HARVEST') {
+          if (issuedHarvests.has(relief.sourceId)) rearingRelievedKobo += relief.amountKobo;
+        } else if (relief.eventType !== 'REVALUED' && (relief.journalEntryId || relief.eventType === 'TRANSFER_OUT')) {
+          rearingRelievedKobo += relief.amountKobo;
+        }
+      }
+      rearingHeldKobo = await this.rearing.remaining(groupId);
+    }
+
     const openingBaKobo = group.acquisitionCostKobo;
-    const closingBaKobo = BigInt(group.population) * (group.currentFvlctsPerUnitKobo ?? 0n);
-    // Formula 7: Closing BA = Opening BA - mortality loss + growth/price gain
-    // - disposal carrying amount.
-    const expectedClosing = openingBaKobo - mortalityLossKobo + growthGainKobo - disposalCarryingAmountKobo;
+    const closingBaKobo = BigInt(group.population) * (group.currentFvlctsPerUnitKobo ?? 0n) + awaitingProcessingKobo + rearingHeldKobo;
+    // Formula 7: Closing BA = Opening BA + rearing capitalised − mortality
+    // loss − rearing relieved + growth/price gain − disposal carrying amount
+    // − issued to processing.
+    const expectedClosing =
+      openingBaKobo + rearingCapitalisedKobo - mortalityLossKobo - rearingRelievedKobo + growthGainKobo - disposalCarryingAmountKobo - processedKobo;
     const differenceKobo = closingBaKobo - expectedClosing;
 
     return {
@@ -1381,9 +1433,14 @@ export class BiologicalAssetService {
       population: group.population,
       currentFvlctsPerUnitKobo: (group.currentFvlctsPerUnitKobo ?? 0n).toString(),
       openingBaKobo: openingBaKobo.toString(),
+      rearingCapitalisedKobo: rearingCapitalisedKobo.toString(),
       mortalityLossKobo: mortalityLossKobo.toString(),
+      rearingRelievedKobo: rearingRelievedKobo.toString(),
       growthGainKobo: growthGainKobo.toString(),
       disposalCarryingAmountKobo: disposalCarryingAmountKobo.toString(),
+      processedKobo: processedKobo.toString(),
+      awaitingProcessingKobo: awaitingProcessingKobo.toString(),
+      rearingHeldKobo: rearingHeldKobo.toString(),
       closingBaKobo: closingBaKobo.toString(),
       differenceKobo: differenceKobo.toString(),
       reconciled: differenceKobo === 0n,

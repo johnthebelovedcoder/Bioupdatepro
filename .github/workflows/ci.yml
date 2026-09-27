@@ -79,6 +79,7 @@ jobs:
           cat test/uat/uat-report.md >> "$GITHUB_STEP_SUMMARY"
           if [ -f test/uat/case-500-report.md ]; then cat test/uat/case-500-report.md >> "$GITHUB_STEP_SUMMARY"; fi
           if [ -f test/uat/case-500-poultry-report.md ]; then cat test/uat/case-500-poultry-report.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f test/uat/workbook-checks-report.md ]; then cat test/uat/workbook-checks-report.md >> "$GITHUB_STEP_SUMMARY"; fi
           exit $status
 
       - name: Keep the UAT report
@@ -90,7 +91,8 @@ jobs:
             apps/api/test/uat/uat-report.*
             apps/api/test/uat/case-500-report.md
             apps/api/test/uat/case-500-poultry-report.md
-            apps/api/test/uat/case-500-*.json
+            apps/api/test/uat/case-*.json
+            apps/api/test/uat/workbook-checks-report.md
           retention-days: 90
 
       - name: Web production build

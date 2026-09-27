@@ -3224,3 +3224,24 @@ body:has(.offline-banner) .app-sidebar {
   font-size: 12px;
   color: var(--gray-500, #667085);
 }
+
+/* Glossary — one term per row, meaning then what the app holds it to. */
+.glossary {
+  margin: 0;
+}
+.glossary-entry {
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--border);
+}
+.glossary-entry:first-child {
+  border-top: 0;
+}
+.glossary-entry dt {
+  font-weight: 600;
+}
+.glossary-entry dd {
+  margin: var(--sp-1) 0 0;
+}
+.glossary-entry dd p {
+  margin: 0 0 var(--sp-1);
+}

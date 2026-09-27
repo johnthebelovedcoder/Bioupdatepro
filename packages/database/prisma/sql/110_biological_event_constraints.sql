@@ -73,3 +73,16 @@ DROP TRIGGER IF EXISTS trg_weighing_own_group ON livestock_weighings;
 CREATE TRIGGER trg_weighing_own_group
   BEFORE INSERT ON livestock_weighings
   FOR EACH ROW EXECUTE FUNCTION bap_weighing_own_group();
+
+-- BIO_MASTER_CHECKS "Negative snail/poultry quantities = 0": a population can
+-- never go below nothing. The services refuse it already; this is the guard
+-- that holds whatever writes the row. NOT VALID so a deploy never fails on an
+-- old row — it binds every insert and update from now on.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'livestock_groups_population_not_negative') THEN
+    ALTER TABLE livestock_groups
+      ADD CONSTRAINT livestock_groups_population_not_negative
+      CHECK (population >= 0 AND opening_population >= 0) NOT VALID;
+  END IF;
+END $$;

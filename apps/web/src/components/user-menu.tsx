@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { logout } from '@/app/login/actions';
 import type { SessionUser } from '@/lib/session';
 import { humanRole } from '@/lib/roles';
-import { IconBell, IconSignOut } from './icons';
+import { IconBell, IconBook, IconSignOut } from './icons';
 import { MenuOverlay } from './menu-overlay';
 
 /**
@@ -101,6 +101,11 @@ export function UserMenu({ user }: { user: SessionUser }) {
           <Link href="/notifications" role="menuitem" className="user-menu-option" onClick={() => setOpen(false)}>
             <IconBell size={17} />
             <span>Notification settings</span>
+          </Link>
+
+          <Link href="/glossary" role="menuitem" className="user-menu-option" onClick={() => setOpen(false)}>
+            <IconBook size={17} />
+            <span>Glossary</span>
           </Link>
 
           <form

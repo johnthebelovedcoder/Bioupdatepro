@@ -324,7 +324,7 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
       (await prisma.productionOrderOutput.findFirstOrThrow({ where: { productionOrderId: orderId, itemId } })).allocatedCostKobo;
     expect(Math.abs(Number((await allocatedTo(meat.id)) - N('18080734.43')))).toBeLessThanOrEqual(1);
     expect(Math.abs(Number(N('1067265.57') - (await allocatedTo(shell.id))))).toBeLessThanOrEqual(1);
-    await orders.settle({ productionOrderId: orderId, actor: actor() });
+    const settled = await orders.settle({ productionOrderId: orderId, actor: actor() });
 
     // --- Processed sale: meat at ₦18,000/kg, shell at ₦2,500/kg (INV-PROC, DEL-PROC) ---
     const processedRevenue = N(meatKg.mul(18_000).plus(shellKg.mul(2_500)).toFixed(2));
@@ -435,11 +435,68 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
           application: { pbtKobo: pl.profitBeforeTaxKobo, patKobo: pl.profitAfterTaxKobo },
           explained: { pbtKobo: causeTotal('REP-014').toString(), patKobo: causeTotal('REP-015').toString() },
           causes: Object.fromEntries(Object.entries(CAUSES).map(([k, c]) => [k, c.amount.toString()])),
+          figures: await figures(),
         },
         null,
         2,
       ),
     );
+
+
+    /** Every case figure the workbook's check sheets name, for run-uat.mjs (kobo, or a count). */
+    async function figures() {
+      const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id: orderId } });
+      const outputs = await prisma.productionOrderOutput.aggregate({ where: { productionOrderId: orderId }, _sum: { allocatedCostKobo: true } });
+      const tb = await services.tb.build({ companyId: fixture.companyId });
+      const valued = await prisma.biologicalAssetValuation.findUniqueOrThrow({ where: { id: valuationId } });
+      const yearToDate = { direct: 0n, indirect: 0n };
+      for (const periodId of fixture.periodIds) {
+        const month = await services.cf.build({ companyId: fixture.companyId, financialPeriodId: periodId });
+        yearToDate.direct += BigInt(month.direct.netCashFromOperationsKobo);
+        yearToDate.indirect += BigInt(month.netCashFromOperationsKobo);
+      }
+      // Snailery lifecycle cost (500_Assumptions): feed and medication, labour and facility — expensed as used on SPEC.
+      const lifecycle = async (n: string) => {
+        const a = await prisma.gLAccount.findFirst({ where: { companyId: fixture.companyId, accountNumber: n } });
+        return a ? ((await prisma.journalLine.aggregate({ where: { glAccountId: a.id }, _sum: { debitKobo: true } }))._sum.debitKobo ?? 0n) : 0n;
+      };
+      const rollForwards = await Promise.all([cohort.id, market.id].map((id) => assets.rollForward(id)));
+      const f: Record<string, bigint> = {
+        available: BigInt(available),
+        marketReady: BigInt(market.population),
+        liveSold: BigInt(liveSold),
+        processed: BigInt(processed),
+        carryingRatePerUnit: valued.currentFvlctsPerUnitKobo,
+        wacAvailable,
+        abcStandard: order.standardConversionCostKobo,
+        abcActual: order.actualLabourCostKobo + order.actualOverheadCostKobo,
+        abcVariance: BigInt(settled.variance),
+        wip: await balance('130410'),
+        recovery: await balance('219810'),
+        ap: -(await balance('210100')),
+        ar: await balance('120100'),
+        revenue: actual['REP-012'],
+        fvGain,
+        pbt: BigInt(pl.profitBeforeTaxKobo),
+        pat: BigInt(pl.profitAfterTaxKobo),
+        totalAssets: BigInt(bs.totalAssetsKobo),
+        totalLiabilitiesAndEquity: BigInt(bs.totalLiabilitiesAndEquityKobo),
+        balanceSheetDifference: BigInt(bs.totalAssetsKobo) - BigInt(bs.totalLiabilitiesAndEquityKobo),
+        cash: await balance('110100'),
+        cfDirectClosing: BigInt(cf.direct.closingCashKobo),
+        cfIndirectClosing: BigInt(cf.closingCashKobo),
+        cfoDirect: yearToDate.direct,
+        cfoIndirect: yearToDate.indirect,
+        cfDirectCheck: BigInt(cf.checks.directKobo),
+        cfIndirectCheck: BigInt(cf.checks.indirectKobo),
+        tbDifference: BigInt(tb.totalDebitKobo) - BigInt(tb.totalCreditKobo),
+        baRollForwardDifference: rollForwards.reduce((sum, r) => sum + BigInt(r.differenceKobo), 0n),
+        farmAbcTotal: (await lifecycle('611000')) + (await lifecycle('612000')),
+        jointAllocationDifference: order.finishedGoodsCostKobo - (outputs._sum.allocatedCostKobo ?? 0n),
+        materialUsageVariance: order.materialUsageVarianceKobo,
+      };
+      return Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.toString()]));
+    }
 
     // The application's own books hold together throughout.
     expect(bs.balanced).toBe(true);
