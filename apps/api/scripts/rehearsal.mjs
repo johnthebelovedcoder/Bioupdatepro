@@ -466,6 +466,77 @@ await step(11, 'Snail lifecycle', 'Transfer hatchlings through juvenile, grower 
   return { ref: 'HAT-1', actual: `30,000 hatched → 24,000 juveniles → 20,400 market-ready (${12 + 240} days old). Deaths recorded daily at about 1.5%. Early stage move refused. Roll-forward difference ${shown(rf.differenceKobo)}.` };
 });
 
+// ---------------------------------------------------------------- 12-15 Poultry
+
+await step(12, 'Poultry P2P', 'Purchase and receive 500 parent/day-old birds; invoice and pay supplier', async () => {
+  // P500_Assumptions: 500 broiler day-olds, NGN 650,000 (NGN 1,300 each); and 100 parent stock for the hatchery.
+  const { order } = await raiseOrder({
+    supplierId: ctx.supplier.birds, costCentre: 'CC-POL-BROIL', date: D(9),
+    lines: [{ itemId: ctx.item.liveChicks, quantity: 500, unitPriceKobo: naira(1_300) }, { itemId: ctx.item.liveChicks, quantity: 100, unitPriceKobo: naira(3_000) }],
+  });
+  const [broilers, parents] = [...order.lines].sort((a, b) => a.lineNumber - b.lineNumber);
+  const grn = await receive(order, D(10), [
+    { purchaseOrderLineId: broilers.id, receivedQuantity: '500', placement: { code: 'BLR-001', house: 'PH-1', stage: 'Chick', breed: 'Ross 308', purpose: 'Broiler' } },
+    { purchaseOrderLineId: parents.id, receivedQuantity: '100', placement: { code: 'PAR-1', house: 'PH-1', stage: 'Chick', breed: 'Parent stock', purpose: 'Breeder' } },
+  ]);
+  const inv = await invoice(grn, D(11), 'DOC-INV-001');
+  await pay(ctx.supplier.birds, [inv.invoice], D(25));
+  expect((await balance('130210')) === naira(950_000), `BA Poultry is ${shown(await balance('130210'))}.`);
+  expect((await balance('210200')) === 0n, `GRNI left at ${shown(await balance('210200'))}.`);
+  return { ref: `${order.orderNumber}; ${grn.grnNumber}; ${inv.invoice.invoiceNumber}; BLR-001, PAR-1`, actual: `600 birds received = accepted; BA—Poultry ${shown(naira(950_000))}; three-way match ${inv.matchStatus}; GRNI and AP cleared.` };
+});
+
+await step(13, 'Poultry lifecycle', 'Record flock, feed, weight, health and mortality', async () => {
+  const operations = svc('operations/operations.service.js', 'OperationsService');
+  const health = svc('operations/health-schedule.service.js', 'HealthScheduleService');
+  const event = await health.schedule({ companyId: ctx.companyId, actor: ctx.clerk, groupCode: 'BLR-001', kind: 'Vaccination', name: 'Newcastle (Lasota)', dueOn: D(17) });
+  await operations.recordTreatment({ companyId: ctx.companyId, actor: ctx.clerk, idempotencyKey: 'rehearsal-vaccine', payload: { groupCode: 'BLR-001', eventId: event.id, name: 'Newcastle (Lasota)', date: day(17), givenBy: 'Vet', route: 'Drinking water', treated: 500 } });
+  // P500: 30 deaths over the cycle, recorded daily.
+  await attrition('BLR-001', 'poultry', 30, 12);
+  await operations.recordRound({ companyId: ctx.companyId, actor: ctx.clerk, idempotencyKey: 'rehearsal-weigh', payload: { module: 'poultry', date: day(50), entries: [{ groupCode: 'BLR-001', weightSample: { sampleSize: 20, totalWeight: 44, unit: 'kg' } }] } });
+  await moveStage('BLR-001', 'Chick', 'Grower', 'PH-1', 10 + 15);
+  await moveStage('BLR-001', 'Grower', 'Market-ready', 'PH-1', 10 + 42);
+  const flock = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'BLR-001' } });
+  expect(flock.population === 470, `BLR-001 holds ${flock.population}.`);
+  const compliance = await health.compliance({ companyId: ctx.companyId, speciesKey: 'poultry', asOf: D(60) });
+  return { ref: 'BLR-001', actual: `470 of 500 alive (mortality 6.0%); vaccination done on schedule (compliance ${compliance.compliancePercent ?? compliance.percent ?? JSON.stringify(compliance.summary ?? '')}); sample weight 2.2 kg a bird; market-ready at day 42. Feed is issued in step 21, from the mill's output.` };
+});
+
+await step(14, 'Poultry eggs', 'Record laying, collect/grade hatching and table eggs', async () => {
+  const items = svc('masters/item.service.js', 'ItemService');
+  const eggPosting = svc('poultry-egg/egg-posting.service.js', 'EggPostingService');
+  const eggs = svc('poultry-egg/poultry-egg.service.js', 'PoultryEggService');
+  ctx.item.eggs = (await items.create({ companyId: ctx.companyId, code: 'EGGS', description: 'Eggs', unitOfMeasureCode: 'Crate', inventoryGlAccountId: ctx.account['130215'], actorId: ctx.clerk.userId })).id;
+  await eggPosting.setPolicy({ companyId: ctx.companyId, itemId: ctx.item.eggs, eggsPerUnit: 30, valuePerUnitKobo: naira(3_000), hatchingValuePerUnitKobo: naira(4_500), effectiveFrom: D(0), actor: ctx.controller });
+  await moveStage('PAR-1', 'Chick', 'Grower', 'PH-1', 10 + 42);
+  await moveStage('PAR-1', 'Grower', 'Layer', 'PH-1', 160);
+  const parents = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'PAR-1' } });
+  ctx.eggBatch = await eggs.recordCollection({ companyId: ctx.companyId, sourceGroupId: parents.id, code: 'PEG-1', collectedOn: D(165), hatchingCount: 300, tableCount: 600, rejectCount: 30, recordedById: ctx.clerk.userId, idempotencyKey: 'rehearsal-eggs' });
+  // As the screen does: record, then post (PCR-067).
+  await eggPosting.postCollection(ctx.eggBatch.id, ctx.clerk);
+  const eggValue = await balance('130215');
+  expect(eggValue > 0n, 'The collected eggs were not recognised.');
+  return { ref: 'PEG-1', actual: `930 collected: 300 hatching, 600 table, 30 rejected (no value). Recognised at the egg value policy: Dr Eggs (130215) / Cr Produce gain (420210) ${shown(eggValue)}; laying itself posts nothing.` };
+});
+
+await step(15, 'Hatchery', 'Set hatching eggs, hatch and transfer birds through stages', async () => {
+  const eggs = svc('poultry-egg/poultry-egg.service.js', 'PoultryEggService');
+  const eggPosting = svc('poultry-egg/egg-posting.service.js', 'EggPostingService');
+  const structure = svc('masters/farm-structure.service.js', 'FarmStructureService');
+  const house = await structure.createPen({ companyId: ctx.companyId, actor: ctx.owner, farmId: ctx.farm.id, code: 'PH-2', name: 'Poultry house 2', capacity: 1_000 });
+  const batch = ctx.eggBatch;
+  const set = await eggs.setIncubation({ companyId: ctx.companyId, eggBatchId: batch.id, code: 'PIN-1', setOn: D(166), setQuantity: 300, recordedById: ctx.clerk.userId, idempotencyKey: 'rehearsal-set' });
+  await eggPosting.postIncubation(set.id, ctx.clerk);
+  const hatch = await eggs.recordHatch({ companyId: ctx.companyId, incubationBatchId: set.id, hatchedOn: D(187), hatchedCount: 240, unhatchedCount: 50, damagedCount: 10, chickGroupCode: 'HCH-1', breed: 'Ross 308', purpose: 'Broiler', penHouseId: house.id, recordedById: ctx.clerk.userId, idempotencyKey: 'rehearsal-hatch' });
+  await eggPosting.postHatch(hatch.id, ctx.clerk);
+  await moveStage('HCH-1', 'Chick', 'Grower', 'PH-2', 187 + 15);
+  await moveStage('HCH-1', 'Grower', 'Market-ready', 'PH-2', 187 + 42);
+  const chicks = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'HCH-1' } });
+  expect(chicks.population === 240, `HCH-1 holds ${chicks.population}.`);
+  expect((await balance('130216')) === 0n, `Eggs in incubation not cleared: ${shown(await balance('130216'))}.`);
+  return { ref: 'PEG-1 → PIN-1 → HCH-1', actual: `Set 300 = hatched 240 + unhatched 50 + damaged 10. Dr Eggs in incubation / Cr Eggs on setting; Dr BA—Poultry / Cr Eggs in incubation on hatch (incubation cleared to zero). HCH-1 to market-ready at day 42.` };
+});
+
 /*@@STEPS@@*/
 
 // ---------------------------------------------------------------- evidence
