@@ -9,6 +9,7 @@ import {
   PurchaseOrderStatus,
   QualityStatus,
   StockDirection,
+  WorkflowStatus,
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -21,6 +22,7 @@ import { AccountingRuleViolation } from '../common/errors';
 import { expiryFromShelfLife, registerLot } from '../inventory/lots';
 import { kobo } from '../common/money';
 import { assertPenRoom } from '../operations/pen-capacity';
+import { chartVersionOf, numberFor } from '../chart/chart';
 
 export interface GrnLineInput {
   purchaseOrderLineId: string;
@@ -200,6 +202,10 @@ export class GoodsReceiptService {
         }
         placement = { code: p.code.trim(), house: p.house.trim(), stage: p.stage.trim(), breed: p.breed.trim(), purpose: p.purpose?.trim() || null };
       }
+      // A capital item becomes one asset card a unit, so it is counted whole.
+      if (orderLine.item.fixedAssetClass && !accepted.isInteger()) {
+        throw new AccountingRuleViolation('Consolidated Reference §5 — Goods receipt', `${orderLine.item.code} is a capital item, one asset a unit: ${accepted.toString()} accepted.`, {});
+      }
 
       prepared.push({
         lineNumber: lineNumber++,
@@ -369,17 +375,22 @@ export class GoodsReceiptService {
     };
 
     const inventoryLines = grn.lines.filter(
-      (line) => line.item.itemType === ItemType.INVENTORY && line.valueKobo > 0n && !line.item.livestockSpeciesKey,
+      (line) => line.item.itemType === ItemType.INVENTORY && line.valueKobo > 0n && !line.item.livestockSpeciesKey && !line.item.fixedAssetClass,
     );
 
     // Live animals: each accepted line becomes a batch, carried at what it cost,
     // and its debit goes to the biological-asset account for its species and stage.
     const livestockDebits = await this.placeLivestock({ tx: params.tx, grn, actor: params.actor });
+    // Capital items: an asset card a unit, the debit to property, plant and equipment.
+    const capex = await this.capitalise({ tx: params.tx, grn, actor: params.actor });
 
     let journalEntryId: string | null = null;
 
-    if (inventoryLines.length > 0 || livestockDebits.length > 0) {
-      const total = inventoryLines.reduce((s, l) => s + l.valueKobo, 0n) + livestockDebits.reduce((s, l) => s + l.debit, 0n);
+    if (inventoryLines.length > 0 || livestockDebits.length > 0 || capex.debits.length > 0) {
+      const total =
+        inventoryLines.reduce((s, l) => s + l.valueKobo, 0n) +
+        livestockDebits.reduce((s, l) => s + l.debit, 0n) +
+        capex.debits.reduce((s, l) => s + l.debit, 0n);
 
       /*
        * Every stocked line must name the account its value lands in.
@@ -424,6 +435,7 @@ export class GoodsReceiptService {
           itemId: line.itemId,
         })),
         ...livestockDebits,
+        ...capex.debits,
         {
           glAccountId: settings.grniGlAccountId,
           description: `Goods received not invoiced — ${grn.grnNumber}`,
@@ -454,14 +466,17 @@ export class GoodsReceiptService {
         params.tx,
       );
       journalEntryId = result.journalEntryId;
+      if (capex.assetIds.length > 0) {
+        await params.tx.fixedAsset.updateMany({ where: { id: { in: capex.assetIds } }, data: { journalEntryId } });
+      }
     }
 
     // The inward side of the stock ledger — the half that has been missing
     // since Phase 8 introduced it.
     for (const line of grn.lines) {
       if (line.item.itemType !== ItemType.INVENTORY) continue;
-      // Animals are a batch, not stock on a shelf.
-      if (line.item.livestockSpeciesKey) continue;
+      // Animals are a batch, and a capital item an asset card, not stock on a shelf.
+      if (line.item.livestockSpeciesKey || line.item.fixedAssetClass) continue;
       const accepted = new Decimal(line.acceptedQuantity.toString());
       if (accepted.lessThanOrEqualTo(0)) continue;
 
@@ -583,6 +598,65 @@ export class GoodsReceiptService {
 
     this.logger.log(`Posted goods receipt ${grn.grnNumber}`);
     return { journalEntryId };
+  }
+
+  /**
+   * Capital items on a receipt become asset cards (Test_Environment_Script
+   * step 24: capex bought on a PO, received and invoiced). One card a unit, at
+   * the unit price, in service from the receipt date, with the item's class
+   * and useful life and the order's cost centre; posted with the receipt, so
+   * it needs no approval of its own. The debit goes to property, plant and
+   * equipment and GRNI takes the credit, so the supplier's invoice clears it
+   * and the payable sits against the supplier — unlike a capitalisation
+   * entered directly, whose credit has no supplier behind it.
+   */
+  private async capitalise(params: {
+    tx: Prisma.TransactionClient;
+    grn: Prisma.GoodsReceiptNoteGetPayload<{ include: { lines: { include: { item: true } }; purchaseOrder: true } }>;
+    actor: WorkflowActor;
+  }) {
+    const { tx, grn } = params;
+    const lines = grn.lines.filter((l) => l.item.fixedAssetClass && l.valueKobo > 0n);
+    if (lines.length === 0) return { debits: [], assetIds: [] as string[] };
+    const ppeNumber = numberFor(await chartVersionOf(tx, grn.companyId), 'ppe');
+    const ppe = await tx.gLAccount.findFirst({ where: { companyId: grn.companyId, accountNumber: ppeNumber, active: true } });
+    if (!ppe) {
+      throw new AccountingRuleViolation('Posting-control PCR-029 — Fixed asset capitalisation', `No active property, plant and equipment account (${ppeNumber}) to capitalise ${grn.grnNumber} into.`, {});
+    }
+    let next = await tx.fixedAsset.count({ where: { companyId: grn.companyId } });
+    const assetIds: string[] = [];
+    const debits: Array<{ glAccountId: string; description: string; debit: bigint; itemId: string }> = [];
+    for (const line of lines) {
+      if (!line.item.usefulLifeMonths || line.item.usefulLifeMonths <= 0) {
+        throw new AccountingRuleViolation('Posting-control PCR-030 — Depreciation', `${line.item.code} is a capital item with no useful life. Set it on the item, then approve ${grn.grnNumber} again.`, { itemCode: line.item.code });
+      }
+      const units = Number(line.acceptedQuantity.toString());
+      for (let unit = 1; unit <= units; unit += 1) {
+        next += 1;
+        const asset = await tx.fixedAsset.create({
+          data: {
+            companyId: grn.companyId,
+            assetNumber: `FA-${String(next).padStart(5, '0')}`,
+            name: units > 1 ? `${line.item.description} (${unit} of ${units})` : line.item.description,
+            assetClass: line.item.fixedAssetClass!,
+            acquisitionDate: grn.receiptDate,
+            costKobo: line.unitPriceKobo,
+            usefulLifeMonths: line.item.usefulLifeMonths,
+            costCentreId: grn.purchaseOrder.costCentreId,
+            status: WorkflowStatus.POSTED,
+            goodsReceiptNoteLineId: line.id,
+            createdById: params.actor.userId,
+          },
+        });
+        assetIds.push(asset.id);
+        await this.audit.write(
+          { transactionId: asset.id, module: 'fixed-assets', entityType: 'FixedAsset', entityId: asset.id, status: asset.status, action: AuditAction.CREATE, userId: params.actor.userId, comments: `Capitalised ${asset.assetNumber} — ${asset.name} from ${grn.grnNumber}.` },
+          tx,
+        );
+      }
+      debits.push({ glAccountId: ppe.id, description: `Capitalised — ${line.item.code} (${grn.grnNumber})`, debit: line.valueKobo, itemId: line.itemId });
+    }
+    return { debits, assetIds };
   }
 
   /**

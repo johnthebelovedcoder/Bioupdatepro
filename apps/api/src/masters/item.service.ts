@@ -36,6 +36,9 @@ export class ItemService {
     isManufactured?: boolean;
     /** Live animals of this species (snail, poultry): received as a batch, not stock. */
     livestockSpeciesKey?: string | null;
+    /** A capital item: received as an asset card of this class, not stock. */
+    fixedAssetClass?: string | null;
+    usefulLifeMonths?: number | null;
     unitOfMeasureCode: string;
     vatTaxCode?: string | null;
     preferredSupplierId?: string | null;
@@ -85,8 +88,15 @@ export class ItemService {
     }
 
     // An item that cannot post is an item that will fail at the worst moment.
-    // Live animals post to the biological-asset account for their stage, not a stock account.
-    if (itemType === ItemType.INVENTORY && !input.inventoryGlAccountId && !input.livestockSpeciesKey) {
+    if (input.fixedAssetClass?.trim() && !(Number(input.usefulLifeMonths) > 0)) {
+      throw new AccountingRuleViolation(
+        'Posting-control PCR-030 — Depreciation',
+        `Capital item "${input.code}" needs a useful life in months: its assets are depreciated over it.`,
+        { itemCode: input.code },
+      );
+    }
+    // Live animals post to their stage account and capital items to PPE, not a stock account.
+    if (itemType === ItemType.INVENTORY && !input.inventoryGlAccountId && !input.livestockSpeciesKey && !input.fixedAssetClass?.trim()) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §5 — Item master',
         `Inventory item "${input.code}" needs a default inventory GL account: goods ` +
@@ -113,6 +123,8 @@ export class ItemService {
           isBiologicalFeed: input.isBiologicalFeed ?? false,
           isManufactured: input.isManufactured ?? false,
           livestockSpeciesKey: input.livestockSpeciesKey?.trim() || null,
+          fixedAssetClass: input.fixedAssetClass?.trim() || null,
+          usefulLifeMonths: input.fixedAssetClass?.trim() ? Number(input.usefulLifeMonths) : null,
           unitOfMeasureId: uom.id,
           vatTaxCodeId,
           preferredSupplierId: input.preferredSupplierId ?? null,

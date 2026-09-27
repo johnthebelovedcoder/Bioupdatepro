@@ -2213,6 +2213,11 @@ model Item {
   /// the biological-asset account instead of stock (Test_Environment_Script
   /// steps 5 and 12).
   livestockSpeciesKey String? @map("livestock_species_key")
+  /// A capital item (Test_Environment_Script step 24: capex PO, GRN and
+  /// invoice). Receiving it capitalises an asset card of this class and
+  /// useful life, debiting PPE instead of stock.
+  fixedAssetClass  String? @map("fixed_asset_class")
+  usefulLifeMonths Int?    @map("useful_life_months")
 
   unitOfMeasureId String @map("unit_of_measure_id") @db.Uuid
 
@@ -7288,6 +7293,8 @@ model FixedAsset {
   /// Opaque to the workflow engine, same convention as every other document
   /// type here — a bare id, not a Prisma relation (see PurchaseOrder).
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
+  /// The goods receipt line it was bought on, when it came through purchasing.
+  goodsReceiptNoteLineId String? @map("goods_receipt_note_line_id") @db.Uuid
   journalEntryId        String? @map("journal_entry_id") @db.Uuid
 
   createdById String   @map("created_by_id") @db.Uuid

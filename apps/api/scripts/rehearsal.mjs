@@ -697,17 +697,28 @@ await step(23, 'Payroll', 'Pay staff and remit statutory deductions', async () =
 });
 
 await step(24, 'Fixed assets', 'Acquire and capitalise farm/feed/processing assets', async () => {
+  const items = svc('masters/item.service.js', 'ItemService');
   const assets = svc('fixed-assets/fixed-asset.service.js', 'FixedAssetService');
+  // Capex through purchasing: an order per asset (each to its own cost centre), received, invoiced and paid.
   ctx.assets = {};
-  for (const [key, name, cost, months, cc] of [['mixer', 'Feed mixer', 1_200_000, 60, '130'], ['plucker', 'Poultry plucker', 900_000, 60, 'CC-POL-PROC'], ['pickup', 'Farm pickup', 3_600_000, 60, 'CC-CORP-FIN']]) {
-    const raised = await assets.capitalise({ companyId: ctx.companyId, actor: ctx.clerk, name, assetClass: 'Machinery', acquisitionDate: D(35), costKobo: naira(cost), usefulLifeMonths: months, costCentreId: ctx.cc[cc] });
-    await approveAll(raised.awaitingApproval);
-    ctx.assets[key] = raised.assetId;
+  const refs = [];
+  for (const [key, code, name, cost, cc] of [['mixer', 'CAPEX-MIXER', 'Feed mixer', 1_200_000, '130'], ['plucker', 'CAPEX-PLUCKER', 'Poultry plucker', 900_000, 'CC-POL-PROC'], ['pickup', 'CAPEX-PICKUP', 'Farm pickup', 3_600_000, 'CC-CORP-FIN']]) {
+    const item = await items.create({ companyId: ctx.companyId, code, description: name, unitOfMeasureCode: 'Unit', fixedAssetClass: 'Machinery', usefulLifeMonths: 60, actorId: ctx.clerk.userId });
+    const { order } = await raiseOrder({ supplierId: ctx.supplier.assets, costCentre: cc, date: D(33), lines: [{ itemId: item.id, quantity: 1, unitPriceKobo: naira(cost) }] });
+    const grn = await receive(order, D(35), [{ purchaseOrderLineId: order.lines[0].id, receivedQuantity: '1' }]);
+    const inv = await invoice(grn, D(36), `${code}-INV`);
+    await pay(ctx.supplier.assets, [inv.invoice], D(50));
+    ctx.assets[key] = (await prisma.fixedAsset.findFirstOrThrow({ where: { companyId: ctx.companyId, goodsReceiptNoteLineId: grn.lines[0].id } })).id;
+    refs.push(`${order.orderNumber}/${grn.grnNumber}/${inv.invoice.invoiceNumber}`);
   }
   await assets.setProcessingCycle({ companyId: ctx.companyId, assetId: ctx.assets.mixer, processingCycle: 'FEED_MILL', actor: ctx.controller });
   const register = await prisma.fixedAsset.aggregate({ where: { companyId: ctx.companyId }, _sum: { costKobo: true } });
   expect(register._sum.costKobo === (await balance('140100')), `Register ${shown(register._sum.costKobo)} ≠ PPE ${shown(await balance('140100'))}.`);
-  return { ref: 'Feed mixer, poultry plucker, farm pickup', actual: `Capitalised through approval: PPE (140100) ${shown(register._sum.costKobo)} = register. The mixer is the feed mill's.` };
+  expect((await balance('210200')) === 0n, `GRNI left at ${shown(await balance('210200'))}.`);
+  return {
+    ref: refs.join('; '),
+    actual: `Bought on capex orders, received and invoiced: an asset card created on each receipt, Dr PPE (140100) / Cr GRNI, cleared by the supplier invoice and paid. PPE ${shown(register._sum.costKobo)} = register. The mixer is the feed mill's.`,
+  };
 });
 
 await step(25, 'Fixed assets', 'Run depreciation and allocate manufacturing/admin shares', async () => {

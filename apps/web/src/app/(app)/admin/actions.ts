@@ -74,6 +74,8 @@ export async function createItem(
         expenseGlAccountId: value('expenseGlAccountId') || null,
         isBiologicalFeed: formData.get('isBiologicalFeed') === 'on',
         livestockSpeciesKey: value('livestockSpeciesKey') || null,
+        fixedAssetClass: value('fixedAssetClass') || null,
+        usefulLifeMonths: value('usefulLifeMonths') ? Number(value('usefulLifeMonths')) : null,
         reorderLevel: kept.reorderLevel || null,
         ...(cost !== null && cost > 0
           ? { standardCostKobo: String(cost), standardCostFrom: new Date().toISOString() }

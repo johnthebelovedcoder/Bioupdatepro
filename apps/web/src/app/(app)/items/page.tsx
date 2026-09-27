@@ -178,6 +178,19 @@ export default async function ItemsPage() {
                   half: true,
                 },
                 {
+                  name: 'fixedAssetClass',
+                  label: 'Capital item: asset class',
+                  hint: 'For equipment bought to keep, e.g. Machinery. A receipt creates the asset card instead of stock.',
+                  half: true,
+                },
+                {
+                  name: 'usefulLifeMonths',
+                  label: 'Useful life (months)',
+                  hint: 'Capital items only: depreciated over this.',
+                  type: 'number',
+                  half: true,
+                },
+                {
                   name: 'isBiologicalFeed',
                   label: 'This is animal feed',
                   hint: 'Feed issued to a population is costed against it',

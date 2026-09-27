@@ -1586,6 +1586,33 @@ describe('Procure-to-Pay (§5)', () => {
     });
   });
 
+  describe('capital items bought on a purchase order (Test_Environment_Script step 24)', () => {
+    it('capitalises an asset card a unit on receipt, into PPE, and the supplier invoice clears GRNI to a payable against the supplier', async () => {
+      const uom = await prisma.unitOfMeasure.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'Unit' } });
+      const ppe =
+        (await prisma.gLAccount.findFirst({ where: { companyId: fixture.companyId, accountNumber: '1701' } })) ??
+        (await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: '1701', name: 'Property, plant and equipment', accountType: 'ASSET', normalBalance: 'DEBIT' } }));
+      expect(ppe).toBeTruthy();
+      const mixer = await prisma.item.create({
+        data: { companyId: fixture.companyId, code: 'CAPEX-MIXER', description: 'Feed mixer', unitOfMeasureId: uom.id, itemType: ItemType.INVENTORY, fixedAssetClass: 'Machinery', usefulLifeMonths: 60 },
+      });
+      const order = await approvedOrder(mixer.id, 2, 600_000_00n);
+      const grn = await receiveAll(order.id, 'GRN-CAPEX');
+
+      const assets = await prisma.fixedAsset.findMany({ where: { companyId: fixture.companyId }, orderBy: { assetNumber: 'asc' } });
+      expect(assets.map((a) => [a.name, a.assetClass, a.costKobo, a.usefulLifeMonths, a.status])).toEqual([
+        ['Feed mixer (1 of 2)', 'Machinery', 600_000_00n, 60, 'POSTED'],
+        ['Feed mixer (2 of 2)', 'Machinery', 600_000_00n, 60, 'POSTED'],
+      ]);
+      expect(assets.every((a) => a.goodsReceiptNoteLineId === grn.lines[0]!.id && a.journalEntryId)).toBe(true);
+      expect(await accountBalance('1701')).toBe(1_200_000_00n);
+      expect(await prisma.stockMovement.count({ where: { companyId: fixture.companyId, itemId: mixer.id } })).toBe(0);
+
+      await invoiceFromGrn(order.id, grn.id, 'SI-CAPEX');
+      expect((await receipts.grniBalance(order.id)).outstandingKobo).toBe('0');
+    });
+  });
+
   describe('delivery performance and budget against spend (AGR-001, AGR-002)', () => {
     const day = (n: number) => new Date(JAN.getTime() + n * 86_400_000);
 
