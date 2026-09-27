@@ -72,6 +72,8 @@ export async function createItem(
         // and would otherwise have nowhere to put the debit.
         inventoryGlAccountId: value('inventoryGlAccountId') || null,
         expenseGlAccountId: value('expenseGlAccountId') || null,
+        revenueGlAccountId: value('revenueGlAccountId') || null,
+        costOfSalesGlAccountId: value('costOfSalesGlAccountId') || null,
         isBiologicalFeed: formData.get('isBiologicalFeed') === 'on',
         livestockSpeciesKey: value('livestockSpeciesKey') || null,
         fixedAssetClass: value('fixedAssetClass') || null,

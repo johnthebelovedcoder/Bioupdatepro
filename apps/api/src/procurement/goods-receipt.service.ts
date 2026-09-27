@@ -467,7 +467,7 @@ export class GoodsReceiptService {
       );
       journalEntryId = result.journalEntryId;
       if (capex.assetIds.length > 0) {
-        await params.tx.fixedAsset.updateMany({ where: { id: { in: capex.assetIds } }, data: { journalEntryId } });
+        await params.tx.fixedAsset.updateMany({ where: { companyId: grn.companyId, id: { in: capex.assetIds } }, data: { journalEntryId } });
       }
     }
 

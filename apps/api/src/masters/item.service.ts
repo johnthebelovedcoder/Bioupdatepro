@@ -47,6 +47,8 @@ export class ItemService {
     inventoryGlAccountId?: string | null;
     expenseGlAccountId?: string | null;
     revenueGlAccountId?: string | null;
+    /** Where a sale of it is costed; the sales default when not set. */
+    costOfSalesGlAccountId?: string | null;
     defaultWarehouseId?: string | null;
     standardCost?: Kobo | null;
     standardCostFrom?: Date | null;
@@ -133,6 +135,7 @@ export class ItemService {
           inventoryGlAccountId: input.inventoryGlAccountId ?? null,
           expenseGlAccountId: input.expenseGlAccountId ?? null,
           revenueGlAccountId: input.revenueGlAccountId ?? null,
+          costOfSalesGlAccountId: input.costOfSalesGlAccountId ?? null,
           defaultWarehouseId: input.defaultWarehouseId ?? null,
           ...(input.standardCost !== undefined && input.standardCost !== null
             ? {

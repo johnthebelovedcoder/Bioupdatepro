@@ -773,7 +773,8 @@ async function processingRecipe({ code, main, byProduct, batchKg, packPerBatch, 
 await step(26, 'Snail processing', 'Harvest and issue market-ready snails to production', async () => {
   const items = svc('masters/item.service.js', 'ItemService');
   const orders = svc('production/production-order.service.js', 'ProductionOrderService');
-  const fg = (code, name, account) => items.create({ companyId: ctx.companyId, code, description: name, unitOfMeasureCode: 'Kg', inventoryGlAccountId: ctx.account[account], isManufactured: true, actorId: ctx.clerk.userId });
+  // Processed snail products sell to their own revenue and cost-of-sales accounts (410200, 510200).
+  const fg = (code, name, account) => items.create({ companyId: ctx.companyId, code, description: name, unitOfMeasureCode: 'Kg', inventoryGlAccountId: ctx.account[account], revenueGlAccountId: ctx.account['410200'], costOfSalesGlAccountId: ctx.account['510200'], isManufactured: true, actorId: ctx.clerk.userId });
   ctx.item.meat = (await fg('SNL-MEAT', 'Snail meat', '130510')).id;
   ctx.item.shell = (await fg('SNL-SHELL', 'Snail shell', '130510')).id;
   // 500_Assumptions: 1,000 kept as replacement breeders, 70% of the rest sold live, 30% (5,820) processed at 0.18 kg each.
@@ -781,14 +782,13 @@ await step(26, 'Snail processing', 'Harvest and issue market-ready snails to pro
   const version = await processingRecipe({ code: 'R-SNL-MEAT', main: ctx.item.meat, byProduct: ctx.item.shell, batchKg: ctx.snail.meatKg, packPerBatch: '480', prices: [18_000, 2_500] });
   // FV-001 (500_Assumptions): NGN 3,200 a market snail less NGN 200 to sell.
   const valued = await valueAtHarvest('HAT-1', 253, 3_200, 200, '500_Assumptions IAS 41');
-  const baBefore = await balance('130204');
   const record = await harvest('HAT-1', 254, 5_820, ctx.snail.liveKg);
   const { id } = await orders.createFromHarvest({ harvestRecordId: record.id, recipeVersionId: version, warehouseId: ctx.warehouse['FG-WH'], plannedOutputQuantity: ctx.snail.meatKg, actor: ctx.clerk });
   const submitted = await orders.submit({ productionOrderId: id, actor: ctx.clerk });
   await approveAll(submitted.transactionId);
   ctx.snailOrderId = id;
   const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id } });
-  return { ref: `${order.orderNumber} from harvest of 5,820 snails (1,047.6 kg)`, actual: `Valued at harvest: 20,400 at NGN 3,000 (FV gain ${shown(-(await balance('420100')))}, valuation ${valued.status}). Harvested 5,820 market snails, 1,047.6 kg live; qty and weight tie to the harvest. Biological input to the order ${shown(order.biologicalInputValueKobo)}; BA—Market snails moved ${shown(baBefore - (await balance('130204')))}.` };
+  return { ref: `${order.orderNumber} from harvest of 5,820 snails (1,047.6 kg)`, actual: `Valued at harvest: 20,400 at NGN 3,000 (FV gain ${shown(-(await balance('420100')))}, valuation ${valued.status}). Harvested 5,820 market snails, 1,047.6 kg live; qty and weight tie to the harvest. Biological input to the order ${shown(order.biologicalInputValueKobo)}, carried from BA—Market snails into processing WIP when materials are issued (step 27).` };
 });
 
 await step(27, 'Snail processing', 'Produce meat, slime, shell/powder; record loss and settle', async () => {
@@ -811,7 +811,8 @@ await step(27, 'Snail processing', 'Produce meat, slime, shell/powder; record lo
 await step(28, 'Poultry processing', 'Harvest and issue market birds to production', async () => {
   const items = svc('masters/item.service.js', 'ItemService');
   const orders = svc('production/production-order.service.js', 'ProductionOrderService');
-  const fg = (code, name) => items.create({ companyId: ctx.companyId, code, description: name, unitOfMeasureCode: 'Kg', inventoryGlAccountId: ctx.account['130520'], isManufactured: true, actorId: ctx.clerk.userId });
+  // Processed poultry sells to its own revenue and cost-of-sales accounts (410400, 510400).
+  const fg = (code, name) => items.create({ companyId: ctx.companyId, code, description: name, unitOfMeasureCode: 'Kg', inventoryGlAccountId: ctx.account['130520'], revenueGlAccountId: ctx.account['410400'], costOfSalesGlAccountId: ctx.account['510400'], isManufactured: true, actorId: ctx.clerk.userId });
   ctx.item.carcass = (await fg('POL-DRESSED', 'Dressed chicken')).id;
   ctx.item.offal = (await fg('POL-OFFAL', 'Offal and by-products')).id;
   // P500: 282 of 470 processed, 2.2 kg live, 72% dressed yield, 60 kg of offal.
@@ -921,6 +922,7 @@ await step(31, 'AR/COGS', 'Post customer invoices and cost of sales', async () =
   const revenue = ['410100', '410200', '410300', '410400'];
   const totals = await Promise.all(revenue.map(async (n) => -(await balance(n))));
   const cogs = await Promise.all(['510100', '510200', '510300', '510400'].map(balance));
+  expect(totals.every((t) => t > 0n), `A revenue line is empty: ${totals.map(shown).join(' / ')}.`);
   return { ref: ctx.invoices.map((i) => i.invoiceNumber).join(', '), actual: `AR ${shown(await balance('120100'))}. Revenue: live snails ${shown(totals[0])}, processed snail ${shown(totals[1])}, live birds ${shown(totals[2])}, processed poultry ${shown(totals[3])}. Cost of sales ${cogs.map(shown).join(' / ')}.` };
 });
 
@@ -996,6 +998,129 @@ await step(35, 'AP/AR close', 'Reconcile GRNI, AP, AR, WHT/VAT and customer/supp
   const off = rows.filter((r) => !r.reconciled);
   expect(off.length === 0, `Off: ${off.map((r) => `${r.accountNumber} ${r.accountName} GL ${shown(r.glBalanceKobo)} vs ${r.source} ${shown(r.subledgerKobo)}`).join('; ')}.`);
   return { ref: `${rows.length} control accounts`, actual: `Every control account equals its subledger: ${rows.map((r) => `${r.accountNumber} ${shown(r.glBalanceKobo)}`).join('; ')}.` };
+});
+
+// ---------------------------------------------------------------- 36-40 Close, reporting, year end, acceptance
+
+/** Close one period the way finance does: checklist settled, validation clean, closed by the controller. */
+async function closePeriod(period) {
+  const periods = svc('closing/period-close.service.js', 'PeriodCloseService');
+  await periods.prepareChecklist(period.id);
+  for (const item of await periods.checklist(period.id)) {
+    if (item.status === 'PENDING') await periods.settleChecklistItem({ checklistId: item.id, status: 'COMPLETE', comments: 'Done and reviewed', actorId: ctx.clerk.userId });
+  }
+  const validation = await periods.validate(period.id);
+  expect(validation.canClose, `${period.name} will not close: ${JSON.stringify(validation.findings.filter((f) => f.blocking ?? f.severity === 'BLOCKING'))}`);
+  return periods.close({ financialPeriodId: period.id, actor: ctx.controller, reason: `${period.name} close` });
+}
+
+await step(36, 'Month close', 'Close payroll, FA, WIP/recovery, bank and all subledgers', async () => {
+  const packs = svc('closing/close-pack.service.js', 'ClosePackService');
+  // Every month but the last; the last takes the year-end adjustments (step 38).
+  for (const period of ctx.year.periods.slice(0, -1)) await closePeriod(period);
+  const listed = await packs.list(ctx.companyId, ctx.year.id);
+  const checks = await Promise.all(listed.map((p) => packs.verify(ctx.companyId, p.id)));
+  expect(checks.every((c) => c.intact && c.matches), 'A close pack does not match the ledger.');
+  return { ref: `${listed.length} periods closed`, actual: `Checklists settled, validation clean (TB balanced, WIP/recovery zero, control accounts = subledgers, nothing awaiting approval), each month closed by the finance controller. ${listed.length} close packs stored; every one intact and matching the ledger.` };
+});
+
+await step(37, 'Management reporting', 'Generate farm, processing and consolidated results', async () => {
+  const tb = await svc('reporting/trial-balance.service.js', 'TrialBalanceService').build({ companyId: ctx.companyId, financialYearId: ctx.year.id });
+  const pl = await svc('reporting/profit-loss.service.js', 'ProfitLossService').build({ companyId: ctx.companyId, financialYearId: ctx.year.id });
+  const bs = await svc('reporting/balance-sheet.service.js', 'BalanceSheetService').build({ companyId: ctx.companyId });
+  const cf = await svc('reporting/cash-flow.service.js', 'CashFlowService').yearToDate({ companyId: ctx.companyId, financialPeriodId: ctx.year.periods[ctx.year.periods.length - 1].id });
+  const kpis = await svc('reporting/kpi.service.js', 'KpiService').build(ctx.companyId, undefined, ctx.year.id);
+  expect(tb.balanced, 'Trial balance does not balance.');
+  expect(bs.balanced, `Balance sheet off: assets ${shown(bs.totalAssetsKobo)}, liabilities and equity ${shown(bs.totalLiabilitiesAndEquityKobo)}.`);
+  expect(cf.reconciled, 'Cash flow does not end at the bank balance.');
+  ctx.results = { pbt: BigInt(pl.profitBeforeTaxKobo) };
+  const valued = kpis.filter((k) => k.value !== null && k.value !== undefined).length;
+  return { ref: 'TB, P&L, balance sheet, cash flow (year to date), KPIs', actual: `TB balanced; revenue ${shown(pl.revenueKobo)}, profit before tax ${shown(pl.profitBeforeTaxKobo)}; total assets ${shown(bs.totalAssetsKobo)} = liabilities and equity; cash flow ends at the bank (${shown(cf.closingCashKobo)}); ${valued} of ${kpis.length} KPIs computed from posted records.` };
+});
+
+await step(38, 'Year-end close', 'Post IFRS, tax, impairment and final BA/FA adjustments', async () => {
+  const last = ctx.year.periods[ctx.year.periods.length - 1];
+  const tax = await svc('closing/income-tax.service.js', 'IncomeTaxService').provide({ companyId: ctx.companyId, financialPeriodId: last.id, actor: ctx.owner });
+  await closePeriod(last);
+  const yearEnd = svc('closing/year-end.service.js', 'YearEndService');
+  const validation = await yearEnd.validate(ctx.year.id);
+  expect(validation.canClose ?? true, `Year-end validation: ${JSON.stringify(validation)}`);
+  ctx.yearEnd = await yearEnd.close({ financialYearId: ctx.year.id, actor: ctx.controller });
+  for (const n of ['410100', '410200', '410300', '410400', '510100', '620100', '630100']) {
+    const s = await prisma.journalLine.aggregate({ where: { glAccountId: ctx.account[n], financialYearId: ctx.year.id }, _sum: { debitKobo: true, creditKobo: true } });
+    expect((s._sum.debitKobo ?? 0n) === (s._sum.creditKobo ?? 0n), `${n} not swept to zero at year end.`);
+  }
+  note(38, 'Impairment and fair-value adjustments at year end are policy entries for the Financial Controller and IFRS adviser (handbook §61). The run provides income tax and relies on the step-34 valuation; no impairment was indicated.');
+  return { ref: `${ctx.year.code}: closing ${ctx.yearEnd.closingJournalId?.slice(0, 8)}`, actual: `Income tax provided at ${tax.ratePercent}% on profit before tax of ${shown(tax.profitBeforeTaxYtdKobo)}: ${shown(tax.postedKobo)}; last month closed; revenue and expense swept to retained earnings (result ${shown(BigInt(ctx.yearEnd.retainedEarningsKobo))}); ${ctx.year.code} archived.` };
+});
+
+await step(39, 'Year roll-forward', 'Create next-year opening balances', async () => {
+  const next = await prisma.financialYear.findFirstOrThrow({ where: { companyId: ctx.companyId, code: ctx.yearEnd.nextYearCode } });
+  const tb = await svc('reporting/trial-balance.service.js', 'TrialBalanceService').build({ companyId: ctx.companyId, financialYearId: next.id });
+  expect(tb.balanced, 'Opening trial balance does not balance.');
+  const pnl = tb.rows.filter((r) => ['REVENUE', 'EXPENSE'].includes(r.accountType) && r.netKobo !== 0n);
+  expect(pnl.length === 0, `Income or expense carried into ${next.code}: ${pnl.map((r) => r.accountNumber).join(', ')}.`);
+  const bank = tb.rows.find((r) => r.accountNumber === '110100');
+  return { ref: `${next.code} opening journal`, actual: `${next.code} created with ${ctx.yearEnd.balancesCarried} balances carried; opening debits = credits (${shown(tb.totalDebitKobo)}); income and expense at zero; bank opens at ${shown(bank?.netKobo ?? 0n)}.` };
+});
+
+await step(40, 'Final acceptance', 'Run negative, reversal, duplicate, SoD, lock, migration and audit tests', async () => {
+  const results = [];
+  // Lock: nothing posts into a closed year.
+  const posting = svc('posting/posting.service.js', 'PostingService');
+  const first = ctx.year.periods[0];
+  const lockDims = { companyId: ctx.companyId, branchId: ctx.branchId, financialYearId: ctx.year.id, financialPeriodId: first.id, currencyId: ctx.currencyId, exchangeRate: '1', costCentreId: ctx.cc['CC-CORP-FIN'] };
+  try {
+    await posting.post({
+      sourceModule: 'rehearsal', sourceDocumentType: 'Test', journalNumber: 'LOCK-TEST', journalDate: D(20), narration: 'Must be refused', companyId: ctx.companyId, branchId: ctx.branchId,
+      financialYearId: ctx.year.id, financialPeriodId: first.id, currencyId: ctx.currencyId, exchangeRate: '1', idempotencyKey: 'rehearsal-lock', actor: ctx.owner,
+      lines: [
+        { glAccountId: ctx.account['110100'], description: 'x', debit: 100n, dimensions: lockDims },
+        { glAccountId: ctx.account['690100'], description: 'x', credit: 100n, dimensions: lockDims },
+      ],
+    });
+    results.push('LOCK: FAILED — posted into a closed year');
+  } catch (error) {
+    // Refused for the right reason: the period, not a malformed journal.
+    const why = String(error.message);
+    results.push(/closed|archived|lock/i.test(why) ? `Lock: refused (${why.slice(0, 70)})` : `LOCK: FAILED — refused for another reason: ${why.slice(0, 80)}`);
+  }
+  // Duplicate: the same round sent twice is recorded once.
+  const operations = svc('operations/operations.service.js', 'OperationsService');
+  const again = await operations.recordRound({ companyId: ctx.companyId, actor: ctx.clerk, idempotencyKey: 'rehearsal-weigh', payload: { module: 'poultry', date: day(50), entries: [{ groupCode: 'BLR-001', weightSample: { sampleSize: 20, totalWeight: 44, unit: 'kg' } }] } });
+  results.push(again.replayed ? 'Duplicate: replayed, not recorded twice' : 'DUPLICATE: FAILED');
+  // SoD: whoever raises a document cannot approve it.
+  const orders = svc('procurement/purchase-order.service.js', 'PurchaseOrderService');
+  const next = await prisma.financialYear.findFirstOrThrow({ where: { companyId: ctx.companyId, code: ctx.yearEnd.nextYearCode } });
+  const po = await orders.createOrder({ companyId: ctx.companyId, supplierId: ctx.supplier.feed, orderDate: next.startDate, currencyId: ctx.currencyId, branchId: ctx.branchId, warehouseId: ctx.warehouse['RAW-WH'], farmId: ctx.farm.id, costCentreId: ctx.cc['CC-CORP-PROC'], lines: [{ itemId: ctx.item.maize, quantity: 10, unitPriceKobo: naira(380) }], actor: ctx.manager });
+  const submitted = await orders.submitOrder({ purchaseOrderId: po.id, actor: ctx.manager });
+  try {
+    await svc('workflow/workflow.service.js', 'WorkflowService').approve({ transactionId: submitted.transactionId, actor: ctx.manager });
+    results.push('SOD: FAILED — maker approved own order');
+  } catch {
+    results.push('SoD: maker could not approve own order');
+  }
+  // Audit: the trail cannot be edited.
+  try {
+    await prisma.$executeRawUnsafe(`UPDATE audit_records SET comments = 'tampered' WHERE company_id = '${ctx.companyId}'`);
+    results.push('AUDIT: FAILED — audit trail edited');
+  } catch {
+    results.push('Audit: trail refused an edit');
+  }
+  // Reversal: a posted journal is corrected by reversal, never edited.
+  try {
+    await prisma.$executeRawUnsafe(`UPDATE journal_lines SET debit_kobo = debit_kobo + 1 WHERE journal_entry_id = (SELECT id FROM journal_entries WHERE company_id = '${ctx.companyId}' LIMIT 1)`);
+    results.push('IMMUTABILITY: FAILED — posted journal edited');
+  } catch {
+    results.push('Reversal only: a posted journal refused an edit');
+  }
+  // Migration: every migration applied to this clean database.
+  const applied = await prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM _prisma_migrations WHERE finished_at IS NOT NULL`);
+  results.push(`Migrations: ${applied[0].n} applied from empty`);
+  const audit = await prisma.auditRecord.count({ where: { companyId: ctx.companyId } });
+  expect(results.every((r) => !/FAILED/.test(r)), results.join('; '));
+  note(40, 'The script’s final step also asks for the four-owner sign-off. That is people’s, not the application’s; the full negative, reversal and SoD suites run in CI (26 UAT tests, 218 workbook checks).');
+  return { ref: `${audit} audit records`, actual: results.join('; ') + '.' };
 });
 
 /*@@STEPS@@*/

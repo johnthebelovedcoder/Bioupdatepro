@@ -80,6 +80,14 @@ export default async function ItemsPage() {
         label: `${account.accountNumber} — ${account.name}`,
       })),
   ];
+  // Where a sale of it lands: live snails, processed snail products, live birds and
+  // processed poultry each have their own revenue and cost-of-sales accounts.
+  const byType = (type: string, noneLabel: string) => [
+    { value: '', label: noneLabel },
+    ...accounts.filter((account) => account.accountType === type).map((account) => ({ value: account.id, label: `${account.accountNumber} — ${account.name}` })),
+  ];
+  const revenueOptions = byType('REVENUE', 'The sales default');
+  const costOfSalesOptions = byType('EXPENSE', 'The sales default');
 
   const unitOptions = units.map((unit) => ({ value: unit.code, label: unit.name || unit.code }));
   const vatOptions = [
@@ -143,6 +151,20 @@ export default async function ItemsPage() {
                     assetOptions.length > 0
                       ? assetOptions
                       : [{ value: '', label: 'No accounts found' }],
+                  half: true,
+                },
+                {
+                  name: 'revenueGlAccountId',
+                  label: 'Revenue account',
+                  hint: 'Where a sale of it is credited.',
+                  options: revenueOptions,
+                  half: true,
+                },
+                {
+                  name: 'costOfSalesGlAccountId',
+                  label: 'Cost of sales account',
+                  hint: 'Where its cost goes when it is sold.',
+                  options: costOfSalesOptions,
                   half: true,
                 },
                 {

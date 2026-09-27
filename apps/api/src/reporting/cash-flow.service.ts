@@ -140,6 +140,7 @@ const TAX_ACCOUNTS = [...allNumbersFor('payePayable', 'outputVat', 'whtPayable',
 const SUPPLIER_ACCOUNTS = allNumbersFor('tradePayables', 'grni');
 const PPE_ACCOUNTS = ['1701', '140100'];
 const DEPRECIATION_ACCOUNTS = ['5501', '630100'];
+const ACCUMULATED_DEPRECIATION_ACCOUNTS = ['1702', '149100'];
 /** Fair-value gain/loss on snails and poultry, and the gain on eggs at collection. */
 const FAIR_VALUE_ACCOUNTS = ['420100', '420200', '420210'];
 
@@ -275,9 +276,27 @@ export class CashFlowService {
     // This period's own depreciation charge, read off the same single-period
     // P&L rather than `closing.depreciationExpense`'s year-to-date balance —
     // an add-back is a flow for the period, not a cumulative balance.
-    const depreciationAddBackKobo = netIncome.operatingExpenseLines
+    //
+    // Plus depreciation charged somewhere other than the expense account — an
+    // asset whose charge goes to production (a feed mill's mixer) is just as
+    // non-cash. Read as the depreciation runs' credits to accumulated
+    // depreciation, less what the expense account already counted. Missing it
+    // left the indirect method short by exactly that charge (the 40-step
+    // rehearsal, step 37).
+    const expensed = netIncome.operatingExpenseLines
       .filter((line) => DEPRECIATION_ACCOUNTS.includes(line.accountNumber))
       .reduce((sum, line) => sum + BigInt(line.amountKobo), 0n);
+    const charged = await this.prisma.journalLine.aggregate({
+      where: {
+        companyId: params.companyId,
+        financialPeriodId: params.financialPeriodId,
+        glAccount: { companyId: params.companyId, accountNumber: { in: ACCUMULATED_DEPRECIATION_ACCOUNTS } },
+        journalEntry: { companyId: params.companyId, status: 'POSTED', sourceDocumentType: 'DepreciationRun' },
+      },
+      _sum: { creditKobo: true, debitKobo: true },
+    });
+    const chargedKobo = (charged._sum.creditKobo ?? 0n) - (charged._sum.debitKobo ?? 0n);
+    const depreciationAddBackKobo = chargedKobo > expensed ? chargedKobo : expensed;
 
     // Gains are revenue here, so a gain is added back as a negative.
     const fairValueAdjustmentKobo = -netIncome.revenueLines
