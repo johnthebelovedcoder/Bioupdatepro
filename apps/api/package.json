@@ -14,7 +14,8 @@
     "test:watch": "vitest",
     "uat": "node test/uat/run-uat.mjs",
     "uat:score": "node test/uat/run-uat.mjs --score",
-    "boot-check": "node scripts/boot-check.cjs"
+    "boot-check": "node scripts/boot-check.cjs",
+    "rehearsal": "node scripts/rehearsal.mjs"
   },
   "dependencies": {
     "@bioassetpro/database": "*",
