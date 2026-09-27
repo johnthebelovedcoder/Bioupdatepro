@@ -843,7 +843,7 @@
         },
         {
           "check": "Catalogue reports fully built",
-          "gap": "Built in part: budget against actual spend (AGR-001), sales margin by product (AGR-011), year-to-date cash flow (AGR-016). Not built: delivery performance (AGR-002).",
+          "gap": "Built in part: sales margin by product (AGR-011), year-to-date cash flow (AGR-016).",
           "phase": 3
         },
         {

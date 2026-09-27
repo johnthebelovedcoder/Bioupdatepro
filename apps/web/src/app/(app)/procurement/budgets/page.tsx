@@ -9,7 +9,7 @@ export const metadata = { title: 'Purchase budgets — BioAssetPro' };
 
 interface Budgets {
   financialYear: string;
-  budgets: Array<{ id: string; costCentre: string; amountKobo: string; committedKobo: string; remainingKobo: string; note: string | null }>;
+  budgets: Array<{ id: string; costCentre: string; amountKobo: string; committedKobo: string; spentKobo: string; remainingKobo: string; note: string | null }>;
 }
 
 /**
@@ -68,7 +68,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
         {data ? (
           <Card
             title={`${data.financialYear} budgets`}
-            subtitle="Committed is every purchase order submitted or beyond and not cancelled, at its value before VAT. A cost centre with no budget is not controlled."
+            subtitle="Committed is every purchase order submitted or beyond and not cancelled; invoiced is what suppliers have actually billed and been posted — both before VAT. A cost centre with no budget is not controlled."
             padded={false}
           >
             <div className="table-wrap">
@@ -78,6 +78,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
                     <th>Cost centre</th>
                     <th className="right" style={{ width: 150 }}>Budget</th>
                     <th className="right" style={{ width: 150 }}>Committed</th>
+                    <th className="right" style={{ width: 150 }}>Invoiced</th>
                     <th className="right" style={{ width: 150 }}>Remaining</th>
                     <th>Note</th>
                   </tr>
@@ -85,7 +86,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
                 <tbody>
                   {data.budgets.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="faint">
+                      <td colSpan={6} className="faint">
                         No budgets for this year. Orders are not checked against a budget until one is set.
                       </td>
                     </tr>
@@ -95,6 +96,7 @@ export default async function BudgetsPage({ searchParams }: { searchParams: Prom
                         <td style={{ textAlign: 'left' }}>{b.costCentre}</td>
                         <td className="num right">{formatNaira(b.amountKobo)}</td>
                         <td className="num right">{formatNaira(b.committedKobo)}</td>
+                        <td className="num right">{formatNaira(b.spentKobo)}</td>
                         <td className="num right" style={BigInt(b.remainingKobo) < 0n ? { color: 'var(--error-700)' } : undefined}>
                           <strong>{formatNaira(b.remainingKobo)}</strong>
                         </td>

@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '
 import { ProcurementFlowService } from './procurement-flow.service';
 import { PurchaseOrderService } from './purchase-order.service';
 import { SupplierReturnService } from './supplier-return.service';
+import { DeliveryPerformanceService } from './delivery-performance.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { OwnedRecord } from '../auth/owned-record.guard';
 import { AnyRole, Roles } from '../auth/roles.guard';
@@ -20,6 +21,7 @@ export class ProcurementController {
     private readonly flow: ProcurementFlowService,
     private readonly purchaseOrders: PurchaseOrderService,
     private readonly returns: SupplierReturnService,
+    private readonly delivery: DeliveryPerformanceService,
   ) {}
 
   // --- Returns to suppliers and debit notes (handbook §35) -----------------
@@ -66,6 +68,19 @@ export class ProcurementController {
   ) {
     if (body?.decision !== 'APPROVE' && body?.decision !== 'REJECT') throw new BadRequestException('decision is APPROVE or REJECT.');
     return this.returns.decide({ companyId, returnId: id, decision: body.decision, note: body.note ?? null, actor });
+  }
+
+  /** Supplier delivery performance: fill rate, rejections, on time (AGR-002). */
+  @AnyRole('Who delivers short or late matters to whoever orders from them.')
+  @Get('delivery-performance')
+  async deliveryPerformance(@CurrentCompany() companyId: string, @Query('from') from?: string, @Query('to') to?: string) {
+    const date = (v?: string) => {
+      if (!v) return undefined;
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`${v} is not a date.`);
+      return d;
+    };
+    return this.delivery.bySupplier({ companyId, from: date(from), to: date(to) });
   }
 
   // --- Purchase budgets (INT-002) ------------------------------------------

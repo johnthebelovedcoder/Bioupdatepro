@@ -6,6 +6,7 @@ import { SupplierInvoiceService } from './supplier-invoice.service';
 import { SupplierPaymentService } from './supplier-payment.service';
 import { ProcurementFlowService } from './procurement-flow.service';
 import { SupplierReturnService } from './supplier-return.service';
+import { DeliveryPerformanceService } from './delivery-performance.service';
 import {
   GoodsReceiptExceptionPostingHandler,
   GoodsReceiptPostingHandler,
@@ -25,6 +26,7 @@ import { WorkflowService } from '../workflow/workflow.service';
     SupplierPaymentService,
     ProcurementFlowService,
     SupplierReturnService,
+    DeliveryPerformanceService,
     GoodsReceiptPostingHandler,
     GoodsReceiptExceptionPostingHandler,
     SupplierInvoicePostingHandler,
@@ -40,6 +42,7 @@ import { WorkflowService } from '../workflow/workflow.service';
     // Exported because ProcurementController is registered in AppModule.
     ProcurementFlowService,
     SupplierReturnService,
+    DeliveryPerformanceService,
   ],
 })
 export class ProcurementModule implements OnModuleInit {

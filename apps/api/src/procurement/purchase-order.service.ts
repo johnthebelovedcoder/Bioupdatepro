@@ -7,6 +7,7 @@ import {
   Prisma,
   PurchaseOrderStatus,
   RequisitionStatus,
+  SupplierInvoiceStatus,
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -737,6 +738,7 @@ export class PurchaseOrderService {
     const result = [];
     for (const row of rows) {
       const committed = await this.committed(companyId, row.costCentreId, year, null);
+      const spent = await this.spent(companyId, row.costCentreId, year);
       const centre = centres.find((c) => c.id === row.costCentreId);
       result.push({
         id: row.id,
@@ -744,6 +746,8 @@ export class PurchaseOrderService {
         costCentre: centre ? `${centre.code} — ${centre.name}` : row.costCentreId,
         amountKobo: row.amountKobo.toString(),
         committedKobo: committed.toString(),
+        /** AGR-001: what suppliers have actually invoiced (posted), not only what is on order. */
+        spentKobo: spent.toString(),
         remainingKobo: (row.amountKobo - committed).toString(),
         note: row.note,
       });
@@ -769,6 +773,27 @@ export class PurchaseOrderService {
     });
     return orders.reduce(
       (sum, o) => sum + BigInt(new Decimal(o.netAmountKobo.toString()).mul(o.exchangeRate.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0)),
+      0n,
+    );
+  }
+
+  /**
+   * Actual spend against a cost centre's budget (REPORT_KPI_CATALOG AGR-001):
+   * supplier invoices posted in the year, net of VAT, in base currency — the
+   * invoice's own cost centre, else its order's.
+   */
+  private async spent(companyId: string, costCentreId: string, year: { startDate: Date; endDate: Date }) {
+    const invoices = await this.prisma.supplierInvoice.findMany({
+      where: {
+        companyId,
+        status: { in: [SupplierInvoiceStatus.POSTED, SupplierInvoiceStatus.PART_PAID, SupplierInvoiceStatus.PAID] },
+        invoiceDate: { gte: year.startDate, lte: year.endDate },
+        OR: [{ costCentreId }, { costCentreId: null, purchaseOrder: { costCentreId } }],
+      },
+      select: { netAmountKobo: true, exchangeRate: true },
+    });
+    return invoices.reduce(
+      (sum, i) => sum + BigInt(new Decimal(i.netAmountKobo.toString()).mul(i.exchangeRate.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0)),
       0n,
     );
   }

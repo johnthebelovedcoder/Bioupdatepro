@@ -30,6 +30,7 @@ import { GoodsReceiptService } from '../../src/procurement/goods-receipt.service
 import { StockMovementService } from '../../src/inventory/stock-movement.service';
 import { SupplierInvoiceService } from '../../src/procurement/supplier-invoice.service';
 import { SupplierPaymentService } from '../../src/procurement/supplier-payment.service';
+import { DeliveryPerformanceService } from '../../src/procurement/delivery-performance.service';
 import { SupplierReturnService } from '../../src/procurement/supplier-return.service';
 import { PaymentFileService } from '../../src/banking/payment-file.service';
 import {
@@ -1531,6 +1532,45 @@ describe('Procure-to-Pay (§5)', () => {
         companyId: fixture.companyId, supplierId, bankName: 'GTBank', accountNumber: '0123456789', accountName: 'Shell Supplies Ltd', reason: 'Changed', actorId: fixture.makerId,
       });
       expect((await files.download({ companyId: fixture.companyId, fileId: file.id, actor: finance() })).matchesIssued).toBe(false);
+    });
+  });
+
+  describe('delivery performance and budget against spend (AGR-001, AGR-002)', () => {
+    const day = (n: number) => new Date(JAN.getTime() + n * 86_400_000);
+
+    it('scores each supplier on fill rate, rejections and timeliness, and names what is overdue', async () => {
+      const onTime = await approvedOrder();
+      await prisma.purchaseOrder.update({ where: { id: onTime.id }, data: { expectedDeliveryDate: day(5) } });
+      await receiveAll(onTime.id, 'GRN-A'); // received on the 15th, due the 20th
+      const late = await approvedOrder();
+      await prisma.purchaseOrder.update({ where: { id: late.id }, data: { expectedDeliveryDate: day(-3) } });
+      await receiveAll(late.id, 'GRN-B', 100, 10); // three days late, ten bags rejected
+      const never = await approvedOrder();
+      await prisma.purchaseOrder.update({ where: { id: never.id }, data: { expectedDeliveryDate: day(-1) } });
+
+      const [row] = await new DeliveryPerformanceService(prisma).bySupplier({ companyId: fixture.companyId });
+      expect(row).toMatchObject({
+        orders: 3,
+        orderedQuantity: '300.000',
+        acceptedQuantity: '190.000',
+        fillRatePercent: '63.3', // 190 of 300
+        rejectionRatePercent: '5.0', // 10 of 200 received
+        onTimePercent: '50.0', // one of the two received
+        averageDaysLate: '3.0',
+        overdueOrders: [never.orderNumber, late.orderNumber].sort(),
+      });
+    });
+
+    it('shows what has actually been invoiced against a budget, beside what is on order', async () => {
+      const finance = { userId: fixture.financeUserId, roles: ['FINANCE_CONTROLLER'] };
+      await orders.setBudget({ companyId: fixture.companyId, financialYearId: fixture.financialYearId, costCentreId: fixture.costCentreId, amountKobo: 1_000_000_00n, actor: finance });
+      const invoiced = await approvedOrder();
+      const grn = await receiveAll(invoiced.id, 'GRN-S');
+      const { invoice } = await invoiceFromGrn(invoiced.id, grn.id);
+      await approvedOrder(); // on order, not yet invoiced
+
+      const { budgets } = await orders.budgets(fixture.companyId, fixture.financialYearId);
+      expect(budgets[0]).toMatchObject({ committedKobo: String(2n * 60_000_00n), spentKobo: invoice.netAmountKobo.toString() });
     });
   });
 });

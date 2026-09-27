@@ -50,8 +50,8 @@ const r = (
 
 export const REPORT_CATALOGUE: ReportEntry[] = [
   // --- AgriPro ---------------------------------------------------------------
-  r('AGR-001', 'requisitions-budget', 'AgriPro', 'Purchase requisitions and budget', 'Approve demand and confirm the cost centre’s budget can take it.', 'Farm Manager', 'On demand', '/procurement/budgets', 'PARTIAL', 'Shows each budget’s committed orders; spend actually invoiced against it is not shown yet.'),
-  r('AGR-002', 'delivery-performance', 'AgriPro', 'PO/GRN delivery performance', 'See which suppliers deliver short or late.', 'Procurement', 'Monthly', null, 'NOT_BUILT', 'Fill rate and days late by supplier are not reported yet.'),
+  r('AGR-001', 'requisitions-budget', 'AgriPro', 'Purchase requisitions and budget', 'Each cost centre’s budget for the year, what orders have committed against it, and what suppliers have actually invoiced; an order that would pass its budget is refused.', 'Farm Manager', 'On demand', '/procurement/budgets', 'BUILT'),
+  r('AGR-002', 'delivery-performance', 'AgriPro', 'PO/GRN delivery performance', 'Fill rate, rejections, on-time delivery and overdue orders, supplier by supplier.', 'Procurement', 'Monthly', '/procurement/delivery', 'BUILT'),
   r('AGR-003', 'three-way-match', 'AgriPro', 'Three-way match exceptions', 'Resolve differences between the order, the receipt and the invoice before paying.', 'Accounts Payable', 'Daily', '/procurement/invoices', 'BUILT'),
   r('AGR-004', 'ap-ageing', 'AgriPro', 'Supplier ageing (AP)', 'Who the farm owes, and how overdue.', 'Finance Manager', 'Weekly', '/ledger/ap-ageing', 'BUILT', null, { exportSupported: true }),
   r('AGR-005', 'bank-reconciliation', 'AgriPro', 'Payments and bank reconciliation', 'Confirm payments and the books agree with the bank.', 'Treasury', 'Monthly', '/finance/banking', 'BUILT'),

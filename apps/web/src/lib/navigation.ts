@@ -150,8 +150,14 @@ export const SECTIONS: NavSection[] = [
       {
         href: '/procurement/budgets',
         label: 'Budgets',
-        hint: 'What each cost centre may commit on purchase orders this year',
-        keywords: ['budget', 'purchase budget', 'commitment', 'spend limit', 'cost centre'],
+        hint: 'What each cost centre may commit this year, and what has been invoiced against it',
+        keywords: ['budget', 'purchase budget', 'commitment', 'spend limit', 'cost centre', 'actual spend', 'invoiced'],
+      },
+      {
+        href: '/procurement/delivery',
+        label: 'Delivery performance',
+        hint: 'Which suppliers deliver short, rejected or late',
+        keywords: ['delivery', 'supplier performance', 'fill rate', 'late', 'on time', 'otif', 'rejected', 'grn'],
       },
       {
         href: '/suppliers',
