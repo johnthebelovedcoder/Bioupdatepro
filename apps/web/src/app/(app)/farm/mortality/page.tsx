@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
+import { getActiveModule } from '@/lib/active-module';
 import { Card, EmptyState, PageHeader, Stat } from '@/components/ui';
+import { Tabs } from '@/components/tabs';
 import { IconAlert } from '@/components/icons';
 
 export const metadata = { title: 'Mortality and cull — BioAssetPro' };
@@ -36,8 +38,10 @@ const pct = (v: string | null) => (v === null ? '—' : `${v}%`);
  * batch, by cause and by the stage the animals were at when they died.
  */
 export default async function MortalityPage({ searchParams }: { searchParams: Promise<{ species?: string }> }) {
+  const activeModule = await getActiveModule();
+  const speciesOptions = activeModule ? [{ key: activeModule.key, label: activeModule.productName.replace(/Pro$/, '') === 'Poultry' ? 'Poultry' : 'Snails' }] : SPECIES;
   const { species: asked } = await searchParams;
-  const species = SPECIES.find((s) => s.key === asked) ?? SPECIES[0]!;
+  const species = speciesOptions.find((s) => s.key === asked) ?? speciesOptions[0]!;
   let report: Report | null = null;
   let error: string | null = null;
   try {
@@ -48,9 +52,10 @@ export default async function MortalityPage({ searchParams }: { searchParams: Pr
 
   return (
     <>
+      <Tabs />
       <PageHeader title="Mortality and cull" subtitle="Deaths and culls by batch, cause and stage — each as a share of what was placed" />
       <div className="chip-row" role="group" aria-label="Species" style={{ marginBottom: 'var(--sp-4)' }}>
-        {SPECIES.map((s) => (
+        {speciesOptions.map((s) => (
           <Link key={s.key} href={`/farm/mortality?species=${s.key}`} className="chip" aria-pressed={s.key === species.key}>
             {s.label}
           </Link>

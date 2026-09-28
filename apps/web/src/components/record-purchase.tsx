@@ -5,6 +5,7 @@ import type { Supplier } from '@/lib/demo-trade';
 import type { StockItem as InventoryItem } from '@/lib/masters';
 import { formatNaira, parseNairaToKobo, toKobo } from '@/lib/money';
 import { enqueue, flush } from '@/lib/sync-queue';
+import { Tabs } from './tabs';
 import { Card, PageHeader } from './ui';
 import { Sheet } from './sheet';
 
@@ -168,6 +169,7 @@ export function RecordPurchase({
 
   return (
     <>
+      <Tabs />
       <PageHeader title="Buy supplies" subtitle="Feed, medication and everything else" />
 
       <div className="stack">

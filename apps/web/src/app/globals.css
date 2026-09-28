@@ -177,6 +177,7 @@ a:hover {
   flex-direction: column;
   position: sticky;
   top: 0;
+  z-index: 15;
   height: 100vh;
   height: 100dvh;
 }
@@ -2892,7 +2893,7 @@ body:has(.offline-banner) .app-sidebar {
 .menu-overlay {
   position: fixed;
   inset: 0;
-  z-index: 19;
+  z-index: 9;
   background: rgb(16 24 40 / 0.28);
   animation: menu-overlay-in 120ms ease-out;
 }
