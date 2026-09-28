@@ -223,7 +223,7 @@ a:hover {
 .page {
   flex: 1;
   width: 100%;
-  max-width: var(--content-max);
+  max-width: none;
   padding: var(--sp-6) var(--sp-6) var(--sp-10);
   min-width: 0;
 }
