@@ -180,6 +180,17 @@ function FeedForm({
       </label>
 
       <label className="field">
+        Feed for
+        <select name="speciesKey" defaultValue="" required>
+          <option value="" disabled>
+            Snail or poultry
+          </option>
+          <option value="snail">Snails (absorbs to S_Feed_Recovery_GL)</option>
+          <option value="poultry">Poultry (absorbs to P_Feed_Recovery_GL)</option>
+        </select>
+      </label>
+
+      <label className="field">
         Recipe
         <select name="recipeVersionId" defaultValue="" required>
           <option value="" disabled>

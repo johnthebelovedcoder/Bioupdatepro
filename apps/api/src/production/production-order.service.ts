@@ -121,6 +121,15 @@ const PROCESSING_CYCLE_RULES: Record<ProductionOrderCycle, ProcessingCycleRules>
  * raw ingredients milled into one finished feed product; see `createFeedOrder()`.
  * See the schema's file-level comment for the full rationale.
  */
+/** Feed-mill recovery by species (FeedMill_Setup: S_Feed_Recovery_GL / P_Feed_Recovery_GL). */
+const FEED_RECOVERY: Record<string, string> = { snail: '219831', poultry: '219832' };
+
+/** The recovery account an order absorbs to and settles against. */
+function recoveryNumberFor(order: { processingCycle: ProductionOrderCycle; speciesKey?: string | null }, rules: { recoveryAccountNumber: string }): string {
+  if (order.processingCycle === ProductionOrderCycle.FEED_MILL && order.speciesKey && FEED_RECOVERY[order.speciesKey]) return FEED_RECOVERY[order.speciesKey]!;
+  return rules.recoveryAccountNumber;
+}
+
 @Injectable()
 export class ProductionOrderService {
   constructor(
@@ -265,8 +274,13 @@ export class ProductionOrderService {
     /** Given by NumberingService when not supplied (Numbering_Parameters). */
     orderNumber?: string;
     plannedOutputQuantity: Decimal.Value;
+    /** snail or poultry: which species' feed recovery account the order absorbs to (S-FMO / P-FMO). */
+    speciesKey?: string | null;
     actor: WorkflowActor;
   }): Promise<{ id: string; orderNumber: string }> {
+    if (params.speciesKey && !FEED_RECOVERY[params.speciesKey]) {
+      throw new AccountingRuleViolation('FeedMill_Setup — species recovery', 'A feed order is for snail or poultry feed.', { speciesKey: params.speciesKey });
+    }
     const orderNumber =
       params.orderNumber?.trim() ||
       (await nextReference(this.prisma, {
@@ -291,6 +305,7 @@ export class ProductionOrderService {
           orderNumber,
           recipeVersionId: params.recipeVersionId,
           processingCycle: ProductionOrderCycle.FEED_MILL,
+          speciesKey: params.speciesKey ?? null,
           plannedOutputQuantity: new Prisma.Decimal(new Decimal(params.plannedOutputQuantity).toFixed(6)),
           biologicalInputValueKobo: 0n,
           createdById: params.actor.userId,
@@ -789,6 +804,11 @@ export class ProductionOrderService {
 
     const on = new Date();
     const standardRule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.standardRuleId, on });
+    // Feed orders credit their species' recovery account; the rule's own account (219830) otherwise.
+    const standardCreditAccountId =
+      recoveryNumberFor(order, rules) !== rules.recoveryAccountNumber
+        ? await this.recoveryAccount(order.companyId, recoveryNumberFor(order, rules))
+        : this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId;
 
     let postLines: Array<{ glAccountId: string; description: string; debit?: Kobo; credit?: Kobo; dimensions: ReturnType<ProductionOrderService['dimensions']> }>;
 
@@ -806,7 +826,7 @@ export class ProductionOrderService {
           dimensions,
         },
         {
-          glAccountId: this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId,
+          glAccountId: standardCreditAccountId,
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
           credit: kobo(standardConversionCostKobo),
           dimensions,
@@ -831,7 +851,7 @@ export class ProductionOrderService {
           dimensions,
         },
         {
-          glAccountId: this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId,
+          glAccountId: standardCreditAccountId,
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
           credit: kobo(standardConversionCostKobo),
           dimensions,
@@ -865,7 +885,7 @@ export class ProductionOrderService {
           dimensions,
         },
         {
-          glAccountId: this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId,
+          glAccountId: standardCreditAccountId,
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
           credit: kobo(standardConversionCostKobo),
           dimensions,
@@ -1801,7 +1821,7 @@ export class ProductionOrderService {
     // credited for this order.
     const [varianceAccount, recoveryAccount] = await Promise.all([
       this.resolvePostingKeyAccount(order.companyId, rules.settleDebitKey),
-      this.recoveryAccount(order.companyId, rules.recoveryAccountNumber),
+      this.recoveryAccount(order.companyId, recoveryNumberFor(order, rules)),
     ]);
     // The pools the order's own conversion step charged, and how much to each.
     const pools: Array<{ account: string; amount: bigint }> = !clearsPools

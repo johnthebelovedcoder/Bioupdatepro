@@ -311,6 +311,8 @@ export class ProductionOrderController {
       recipeVersionId: string;
       orderNumber: string;
       plannedOutputQuantity: string;
+      /** snail or poultry feed. */
+      speciesKey?: string | null;
     },
   ) {
     return this.orders.createFeedOrder({ ...body, orderNumber: undefined, companyId, actor });

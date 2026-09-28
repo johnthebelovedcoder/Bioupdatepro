@@ -53,8 +53,10 @@ export async function createFeedOrder(_previous: FlowState, formData: FormData):
   const farmId = String(formData.get('farmId') ?? '');
   const recipeVersionId = String(formData.get('recipeVersionId') ?? '');
   const plannedOutputQuantity = String(formData.get('plannedOutputQuantity') ?? '').trim();
+  const speciesKey = String(formData.get('speciesKey') ?? '');
 
   if (!farmId) return { error: 'Choose which farm this feed is for.', message: null };
+  if (speciesKey !== 'snail' && speciesKey !== 'poultry') return { error: 'Say whether this is snail or poultry feed.', message: null };
   if (!recipeVersionId) return { error: 'Choose a recipe.', message: null };
   if (!plannedOutputQuantity || Number(plannedOutputQuantity) <= 0) {
     return { error: 'Enter a planned output quantity greater than zero.', message: null };
@@ -70,6 +72,7 @@ export async function createFeedOrder(_previous: FlowState, formData: FormData):
         warehouseId: '00000000-0000-0000-0000-000000000000',
         recipeVersionId,
         plannedOutputQuantity,
+        speciesKey,
       },
     }));
   } catch (caught) {

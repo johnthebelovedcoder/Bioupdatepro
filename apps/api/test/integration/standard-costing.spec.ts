@@ -322,6 +322,37 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     await expect(prisma.$executeRawUnsafe(`UPDATE costing_policies SET method = 'ACTUAL' WHERE id = $1::uuid`, locked.id)).rejects.toThrow();
   });
 
+  it('absorbs snail feed to S_Feed_Recovery_GL and poultry feed to P_Feed_Recovery_GL, each cleared at settlement (FeedMill_Setup)', async () => {
+    await releasedStandard();
+    const run = async (speciesKey: string, quantity: string) => {
+      const { id } = await orders.createFeedOrder({
+        companyId: fixture.companyId, branchId: fixture.branchId, farmId: fixture.farmId, warehouseId: feedStore, recipeVersionId: versionId, plannedOutputQuantity: quantity, speciesKey, actor: maker,
+      });
+      const submitted = await orders.submit({ productionOrderId: id, actor: maker });
+      await workflow.approve({ transactionId: submitted.transactionId, actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
+      await orders.issueMaterials({ productionOrderId: id, actor: maker });
+      await orders.confirmConversion({ productionOrderId: id, actualLabourCostKobo: 30_000_00n, actualOverheadCostKobo: 40_000_00n, actor: maker });
+      return id;
+    };
+    const snail = await run('snail', '500');
+    const poultry = await run('poultry', '400');
+    // Absorbed to each species' own account, nothing to the shared one.
+    expect(await balanceOf('219831')).toBeLessThan(0n);
+    expect(await balanceOf('219832')).toBeLessThan(0n);
+    expect(await balanceOf('219830')).toBe(0n);
+
+    for (const [id, qty] of [[snail, '490'], [poultry, '392']] as const) {
+      await orders.recordOutputs({ productionOrderId: id, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: qty }], warehouseId: feedStore, actor: maker });
+      await orders.settle({ productionOrderId: id, varianceReason: 'Test run', actor: maker });
+    }
+    expect(await balanceOf('219831')).toBe(0n);
+    expect(await balanceOf('219832')).toBe(0n);
+    expect(await balanceOf('130430')).toBe(0n);
+    await expect(
+      orders.createFeedOrder({ companyId: fixture.companyId, branchId: fixture.branchId, farmId: fixture.farmId, warehouseId: feedStore, recipeVersionId: versionId, plannedOutputQuantity: '1', speciesKey: 'goat', actor: maker }),
+    ).rejects.toThrow(/snail or poultry feed/);
+  });
+
   it('puts extra material used at standard rate into usage variance (PCR-052)', async () => {
     await releasedStandard();
     const { id } = await orders.createFeedOrder({

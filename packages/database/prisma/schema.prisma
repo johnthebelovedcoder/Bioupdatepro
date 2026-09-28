@@ -3063,6 +3063,11 @@ model ProductionOrder {
   /// Feed Mill manufacturing. Set once at creation; `ProductionOrderService`
   /// resolves every PCR rule id from this rather than from `sourceGroup`.
   processingCycle ProductionOrderCycle @default(SNAILPRO) @map("processing_cycle")
+  /// A feed order's species (snail or poultry): which feed-mill recovery
+  /// account its standard absorption credits — S_Feed_Recovery_GL 219831 or
+  /// P_Feed_Recovery_GL 219832 (FeedMill_Setup: species-specific recovery).
+  /// Null on orders raised before the split, which used 219830.
+  speciesKey String? @map("species_key")
 
   /// QUANTITY of finished output planned, in the primary output item's UoM —
   /// what `RecipeService.explode()` scales the packaging BOM against.
