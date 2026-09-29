@@ -4,6 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'BioAssetPro',
   description: 'Farm management and accounting, built for how farms actually work',
+  icons: { icon: '/favicon.ico' },
 };
 
 /**
