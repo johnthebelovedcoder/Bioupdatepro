@@ -370,10 +370,11 @@ export class OperationsReadService {
       .reduce((sum, f) => sum + f.valueKobo, 0n);
     const treatmentKobo = group.treatments.reduce((sum, t) => sum + t.costKobo, 0n);
 
+    const normalizedSpeciesKey = group.speciesKey.trim().toLowerCase();
     return {
       id: group.code,
       code: group.code,
-      species: group.speciesKey === 'snail' ? ('SNAIL' as const) : ('POULTRY' as const),
+      species: normalizedSpeciesKey === 'snail' ? ('SNAIL' as const) : ('POULTRY' as const),
       breed: group.breed,
       purpose: group.purpose,
       house: group.penHouse.name,

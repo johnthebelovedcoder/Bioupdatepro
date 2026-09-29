@@ -28,8 +28,70 @@ import EmbeddedPostgres from 'embedded-postgres';
 let postgres: EmbeddedPostgres | undefined;
 let dataDir: string | undefined;
 
+export function shouldUseEmbeddedPostgres(databaseUrl?: string): boolean {
+  if (!databaseUrl) return true;
+  if (process.env.TEST_DATABASE_URL) return false;
+  if (process.env.CI === 'true') return false;
+
+  try {
+    const url = new URL(databaseUrl);
+    return (
+      (url.hostname === '127.0.0.1' || url.hostname === 'localhost') &&
+      url.port === '5433' &&
+      url.username === 'postgres' &&
+      url.password === 'postgres' &&
+      url.pathname === '/postgres'
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function waitForDatabaseReady(
+  probe: () => Promise<boolean>,
+  timeoutMs = 30_000,
+  intervalMs = 500,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+
+  while (Date.now() < deadline) {
+    attempt += 1;
+    if (await probe()) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(
+    `PostgreSQL did not become ready within ${timeoutMs}ms after ${attempt} attempts.`,
+  );
+}
+
+async function resetTestDatabase(port: number): Promise<void> {
+  const pg = await import('pg');
+  const client = new pg.Client({
+    connectionString: `postgresql://postgres:postgres@127.0.0.1:${port}/postgres`,
+  });
+
+  await client.connect();
+  try {
+    await client.query(
+      `SELECT pg_terminate_backend(pid)
+       FROM pg_stat_activity
+       WHERE datname = 'bioassetpro_test' AND pid <> pg_backend_pid();`,
+    );
+    try {
+      await client.query('DROP DATABASE "bioassetpro_test"');
+    } catch (error) {
+      if ((error as { code?: string }).code !== '3D000') throw error;
+    }
+    await client.query('CREATE DATABASE "bioassetpro_test"');
+  } finally {
+    await client.end();
+  }
+}
+
 export async function setup(): Promise<void> {
-  if (!process.env.DATABASE_URL) {
+  if (shouldUseEmbeddedPostgres(process.env.DATABASE_URL)) {
     // Claim a free port rather than a fixed one. A run that was killed mid-way
     // can leave a postmaster holding the port, and a fixed port turns that into
     // "no tests ran" with no useful message — the failure mode is far more
@@ -51,7 +113,19 @@ export async function setup(): Promise<void> {
 
     await postgres.initialise();
     await postgres.start();
-    await postgres.createDatabase('bioassetpro_test');
+    await waitForDatabaseReady(async () => {
+      const net = await import('node:net');
+      return await new Promise<boolean>((resolve) => {
+        const socket = net.createConnection({ port, host: '127.0.0.1' });
+        socket.once('connect', () => {
+          socket.end();
+          resolve(true);
+        });
+        socket.once('error', () => resolve(false));
+      });
+    }, 30_000, 500);
+
+    await resetTestDatabase(port);
 
     process.env.DATABASE_URL =
       `postgresql://postgres:postgres@127.0.0.1:${port}/bioassetpro_test`;
@@ -62,12 +136,15 @@ export async function setup(): Promise<void> {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
   await new Promise<void>((resolvePush, rejectPush) => {
     // Migrations, not db push: every test run proves the migration files
-    // build exactly the schema the code expects.
-    const child = spawn('npm', ['run', 'migrate:deploy', '-w', '@bioassetpro/database'], {
+    // build exactly the schema the code expects. Run npm through Node itself so
+    // Windows does not need a shell wrapper for the `.cmd` shim, which is the
+    // path that still trips `spawn` in this environment.
+    const npmExec = process.env.npm_execpath ?? join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    const child = spawn(process.execPath, [npmExec, 'run', 'migrate:deploy', '-w', '@bioassetpro/database'], {
       stdio: 'inherit',
       env: { ...process.env },
       cwd: repoRoot,
-      shell: process.platform === 'win32',
+      shell: false,
     });
     child.on('error', rejectPush);
     child.on('exit', (code) =>

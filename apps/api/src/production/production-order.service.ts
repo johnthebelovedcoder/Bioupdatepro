@@ -126,7 +126,8 @@ const FEED_RECOVERY: Record<string, string> = { snail: '219831', poultry: '21983
 
 /** The recovery account an order absorbs to and settles against. */
 function recoveryNumberFor(order: { processingCycle: ProductionOrderCycle; speciesKey?: string | null }, rules: { recoveryAccountNumber: string }): string {
-  if (order.processingCycle === ProductionOrderCycle.FEED_MILL && order.speciesKey && FEED_RECOVERY[order.speciesKey]) return FEED_RECOVERY[order.speciesKey]!;
+  const speciesKey = order.speciesKey?.trim().toLowerCase() ?? null;
+  if (order.processingCycle === ProductionOrderCycle.FEED_MILL && speciesKey && FEED_RECOVERY[speciesKey]) return FEED_RECOVERY[speciesKey]!;
   return rules.recoveryAccountNumber;
 }
 
@@ -278,7 +279,8 @@ export class ProductionOrderService {
     speciesKey?: string | null;
     actor: WorkflowActor;
   }): Promise<{ id: string; orderNumber: string }> {
-    if (params.speciesKey && !FEED_RECOVERY[params.speciesKey]) {
+    const speciesKey = params.speciesKey?.trim().toLowerCase() ?? null;
+    if (speciesKey && !FEED_RECOVERY[speciesKey]) {
       throw new AccountingRuleViolation('FeedMill_Setup — species recovery', 'A feed order is for snail or poultry feed.', { speciesKey: params.speciesKey });
     }
     const orderNumber =
@@ -305,7 +307,7 @@ export class ProductionOrderService {
           orderNumber,
           recipeVersionId: params.recipeVersionId,
           processingCycle: ProductionOrderCycle.FEED_MILL,
-          speciesKey: params.speciesKey ?? null,
+          speciesKey: speciesKey ?? null,
           plannedOutputQuantity: new Prisma.Decimal(new Decimal(params.plannedOutputQuantity).toFixed(6)),
           biologicalInputValueKobo: 0n,
           createdById: params.actor.userId,
@@ -1938,8 +1940,9 @@ export class ProductionOrderService {
 
   /** SnailPro/PoultryPro orders derive their cycle from the source population's species. */
   private cycleForSpecies(speciesKey: string): ProductionOrderCycle {
-    if (speciesKey === 'poultry') return ProductionOrderCycle.POULTRYPRO;
-    if (speciesKey === 'snail') return ProductionOrderCycle.SNAILPRO;
+    const normalized = speciesKey.trim().toLowerCase();
+    if (normalized === 'poultry') return ProductionOrderCycle.POULTRYPRO;
+    if (normalized === 'snail') return ProductionOrderCycle.SNAILPRO;
     throw new AccountingRuleViolation(
       'Consolidated Reference §9 — Production order',
       `No processing cycle is defined for species "${speciesKey}" — only snail and poultry processing are built.`,

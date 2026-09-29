@@ -437,7 +437,7 @@ export class ChartUnificationService {
     const speciesOfPen = new Map<string, Set<Species>>();
     const speciesOfFarm = new Map<string, Set<Species>>();
     for (const p of populations) {
-      const s: Species = p.speciesKey === 'snail' ? 'snail' : 'poultry';
+      const s: Species = p.speciesKey.trim().toLowerCase() === 'snail' ? 'snail' : 'poultry';
       if (p.penHouseId) speciesOfPen.set(p.penHouseId, (speciesOfPen.get(p.penHouseId) ?? new Set()).add(s));
       speciesOfFarm.set(p.farmId, (speciesOfFarm.get(p.farmId) ?? new Set()).add(s));
     }

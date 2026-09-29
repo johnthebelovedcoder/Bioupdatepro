@@ -196,7 +196,8 @@ export class BiologicalAssetService {
     speciesKey: string,
     stage: string,
   ): Promise<{ glAccountId: string; accountNumber: string; accountName: string } | null> {
-    const table = speciesKey === 'snail' ? SNAIL_STAGE_ACCOUNTS : POULTRY_STAGE_ACCOUNTS;
+    const normalizedSpeciesKey = speciesKey.trim().toLowerCase();
+    const table = normalizedSpeciesKey === 'snail' ? SNAIL_STAGE_ACCOUNTS : POULTRY_STAGE_ACCOUNTS;
     const accountNumber = table[stage];
     if (!accountNumber) return null;
 
@@ -303,7 +304,8 @@ export class BiologicalAssetService {
   ): Promise<{ glAccountId: string }> {
     // 420100 Snails, 420200 Poultry — the same numbering pattern the workbook
     // uses throughout (species offset by 100).
-    const accountNumber = speciesKey === 'snail' ? '420100' : '420200';
+    const normalizedSpeciesKey = speciesKey.trim().toLowerCase();
+    const accountNumber = normalizedSpeciesKey === 'snail' ? '420100' : '420200';
     const account = await this.ensureAccount(companyId, accountNumber);
     if (!account) {
       throw new AccountingRuleViolation(
@@ -319,7 +321,8 @@ export class BiologicalAssetService {
     companyId: string,
     speciesKey: string,
   ): Promise<{ glAccountId: string }> {
-    const accountNumber = speciesKey === 'snail' ? '640300' : '640500';
+    const normalizedSpeciesKey = speciesKey.trim().toLowerCase();
+    const accountNumber = normalizedSpeciesKey === 'snail' ? '640300' : '640500';
     const account = await this.ensureAccount(companyId, accountNumber);
     if (!account) {
       throw new AccountingRuleViolation(
@@ -806,7 +809,8 @@ export class BiologicalAssetService {
     // read straight off POSTING_COA_MASTER — not the usual species-offset-by-
     // 100 pattern the other resolvers here use, so this is looked up by its
     // actual stated code rather than derived.
-    const accountNumber = speciesKey === 'snail' ? '510100' : '510300';
+    const normalizedSpeciesKey = speciesKey.trim().toLowerCase();
+    const accountNumber = normalizedSpeciesKey === 'snail' ? '510100' : '510300';
     const account = await this.prisma.gLAccount.findFirst({
       where: { companyId, accountNumber, active: true },
       select: { id: true },

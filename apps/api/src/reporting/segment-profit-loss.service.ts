@@ -301,7 +301,7 @@ export class SegmentProfitLossService {
       where: { id: { in: movements.map((m) => m.sourceDocumentId) }, dailyRecord: { companyId: filter.companyId } },
       select: { id: true, dailyRecord: { select: { group: { select: { speciesKey: true } } } } },
     });
-    const speciesOf = new Map(issues.map((i) => [i.id, i.dailyRecord.group.speciesKey === 'snail' ? 'snail' : 'poultry'] as const));
+    const speciesOf = new Map(issues.map((i) => [i.id, i.dailyRecord.group.speciesKey.trim().toLowerCase() === 'snail' ? 'snail' : 'poultry'] as const));
     for (const m of movements) {
       const species = speciesOf.get(m.sourceDocumentId);
       if (species) out[species] += m.valueKobo;
@@ -336,7 +336,7 @@ export class SegmentProfitLossService {
     const pens = new Map<string, Set<Species>>();
     const farms = new Map<string, Set<Species>>();
     for (const p of populations) {
-      const species: Species = p.speciesKey === 'snail' ? 'snail' : 'poultry';
+      const species: Species = p.speciesKey.trim().toLowerCase() === 'snail' ? 'snail' : 'poultry';
       if (p.penHouseId) pens.set(p.penHouseId, (pens.get(p.penHouseId) ?? new Set()).add(species));
       farms.set(p.farmId, (farms.get(p.farmId) ?? new Set()).add(species));
     }

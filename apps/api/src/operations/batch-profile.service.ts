@@ -177,7 +177,7 @@ export class BatchProfileService {
       fcr: await this.fcr(group.id, group.population, first, current),
       henDay: await this.henDay(companyId, group.id, group.population),
       epef:
-        group.speciesKey === 'snail'
+        group.speciesKey.trim().toLowerCase() === 'snail'
           ? null
           : await this.epef(group.id, group.openingPopulation, group.population, mortality.reduce((s, m) => s + m.quantity, 0), age.days, current),
     };

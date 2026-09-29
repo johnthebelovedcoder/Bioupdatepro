@@ -348,7 +348,7 @@ export class SearchService {
     const listFor: Record<string, string> = { snail: 'cohorts', poultry: 'flocks' };
 
     return rows.map((row) => ({
-      type: row.speciesKey === 'snail' ? 'Cohort' : 'Flock',
+      type: row.speciesKey.trim().toLowerCase() === 'snail' ? 'Cohort' : 'Flock',
       title: row.code,
       subtitle: `${row.breed} · ${plain(row.stage)} · ${row.population.toLocaleString()} alive`,
       href: `/m/${row.speciesKey}/${listFor[row.speciesKey] ?? 'flocks'}`,

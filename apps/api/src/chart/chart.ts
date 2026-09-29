@@ -140,6 +140,7 @@ export function numberFor(version: ChartVersion, role: AccountRole): string {
 
 export function speciesNumberFor(version: ChartVersion, role: SpeciesRole, species: string): string | null {
   const [legacy, spec] = SPECIES_ACCOUNTS[role];
+  const normalized = species.trim().toLowerCase();
   if (version === 'LEGACY') return legacy;
-  return spec[species === 'snail' ? 'snail' : 'poultry'];
+  return spec[normalized === 'snail' ? 'snail' : 'poultry'];
 }

@@ -1,0 +1,264 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90mc:/Users/Admin/Bioupdatepro/apps/api[39m
+
+The files belonging to this database system will be owned by user "Admin".
+This user must also own the server process.
+
+
+The database cluster will be initialized with this locale configuration:
+  locale provider:   libc
+  LC_COLLATE:  English_United States.1252
+  LC_CTYPE:    English_United States.1252
+  LC_MESSAGES: C
+  LC_MONETARY: English_United States.1252
+  LC_NUMERIC:  English_United States.1252
+  LC_TIME:     English_United States.1252
+The default database encoding has accordingly been set to "WIN1252".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+
+
+fixing permissions on existing directory C:/Users/Admin/AppData/Local/Temp/bap-pg-Ge1H9b ... ok
+
+creating subdirectories ... 
+ok
+
+selecting dynamic shared memory implementation ... windows
+selecting default "max_connections" ... 
+100
+selecting default "shared_buffers" ... 
+128MB
+selecting default time zone ... 
+Africa/Lagos
+creating configuration files ... 
+ok
+running bootstrap script ... 
+ok
+
+performing post-bootstrap initialization ... 
+ok
+syncing data to disk ... 
+ok
+
+
+Success. You can now start the database server using:
+
+    ^"c^:^\Users^\Admin^\Bioupdatepro^\node^_modules^\^@embedded^-postgres^\windows^-x64^\native^\bin^\pg^_ctl^" -D ^"C^:^\Users^\Admin^\AppData^\Local^\Temp^\bap^-pg^-Ge1H9b^" -l logfile start
+
+
+2026-09-28 12:32:10.541 WAT [17356] LOG:  starting PostgreSQL 17.10 on x86_64-windows, compiled by msvc-19.44.35226, 64-bit
+
+2026-09-28 12:32:10.544 WAT [17356] LOG:  listening on IPv6 address "::1", port 54329
+
+2026-09-28 12:32:10.545 WAT [17356] LOG:  listening on IPv4 address "127.0.0.1", port 54329
+
+2026-09-28 12:32:10.581 WAT [13468] LOG:  database system was shut down at 2026-09-28 12:32:08 WAT
+
+2026-09-28 12:32:10.599 WAT [17356] LOG:  database system is ready to accept connections
+
+
+[test] PostgreSQL started on 127.0.0.1:54329
+(node:13076) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+> @bioassetpro/database@0.1.0 migrate:deploy
+> node ./scripts/migrate.mjs
+
+Prisma schema loaded from prisma\schema.prisma
+Datasource "db": PostgreSQL database "bioassetpro_test", schema "public" at "127.0.0.1:54329"
+
+37 migrations found in prisma/migrations
+
+Applying migration `0000_baseline`
+Applying migration `0001_rearing_cost_banking_snail_breeding`
+Applying migration `0002_resolve_farm_posting_keys`
+Applying migration `0003_egg_value_farm_allocation_machine_lines`
+Applying migration `0004_self_approval_crate_unit`
+Applying migration `0005_timesheets_machine_hours_hatching_price`
+Applying migration `0006_notifications_own_company_only`
+Applying migration `0007_timesheet_approval`
+Applying migration `0008_self_approval_setting`
+Applying migration `0009_chart_version`
+Applying migration `0010_batch_master_data`
+Applying migration `0011_document_numbering`
+Applying migration `0012_pen_capacity`
+Applying migration `0013_income_tax_rate`
+Applying migration `0014_joint_cost_controls`
+Applying migration `0015_employee_onboarding`
+Applying migration `0016_standard_costing`
+Applying migration `0017_cost_breakdown`
+Applying migration `0018_variance_reason`
+Applying migration `0019_stock_counts`
+Applying migration `0020_write_off_approval`
+Applying migration `0021_leave`
+Applying migration `0022_budgets_bank_verification`
+Applying migration `0023_notification_consent`
+Applying migration `0024_operational_features`
+Applying migration `0025_stock_lots_incubation_log`
+Applying migration `0026_incubators`
+Applying migration `0027_partial_controls`
+Applying migration `0028_notification_read`
+Applying migration `0029_farm_abc_rates`
+Applying migration `0030_sensitive_numbers`
+Applying migration `0031_close_packs`
+Applying migration `0032_nin_nhia`
+Applying migration `0033_livestock_receipts`
+Applying migration `0034_missing_workflow_routes`
+Applying migration `0035_capex_receipts`
+Applying migration `0036_feed_recovery_by_species`
+
+The following migration(s) have been applied:
+
+migrations/
+  └─ 0000_baseline/
+    └─ migration.sql
+  └─ 0001_rearing_cost_banking_snail_breeding/
+    └─ migration.sql
+  └─ 0002_resolve_farm_posting_keys/
+    └─ migration.sql
+  └─ 0003_egg_value_farm_allocation_machine_lines/
+    └─ migration.sql
+  └─ 0004_self_approval_crate_unit/
+    └─ migration.sql
+  └─ 0005_timesheets_machine_hours_hatching_price/
+    └─ migration.sql
+  └─ 0006_notifications_own_company_only/
+    └─ migration.sql
+  └─ 0007_timesheet_approval/
+    └─ migration.sql
+  └─ 0008_self_approval_setting/
+    └─ migration.sql
+  └─ 0009_chart_version/
+    └─ migration.sql
+  └─ 0010_batch_master_data/
+    └─ migration.sql
+  └─ 0011_document_numbering/
+    └─ migration.sql
+  └─ 0012_pen_capacity/
+    └─ migration.sql
+  └─ 0013_income_tax_rate/
+    └─ migration.sql
+  └─ 0014_joint_cost_controls/
+    └─ migration.sql
+  └─ 0015_employee_onboarding/
+    └─ migration.sql
+  └─ 0016_standard_costing/
+    └─ migration.sql
+  └─ 0017_cost_breakdown/
+    └─ migration.sql
+  └─ 0018_variance_reason/
+    └─ migration.sql
+  └─ 0019_stock_counts/
+    └─ migration.sql
+  └─ 0020_write_off_approval/
+    └─ migration.sql
+  └─ 0021_leave/
+    └─ migration.sql
+  └─ 0022_budgets_bank_verification/
+    └─ migration.sql
+  └─ 0023_notification_consent/
+    └─ migration.sql
+  └─ 0024_operational_features/
+    └─ migration.sql
+  └─ 0025_stock_lots_incubation_log/
+    └─ migration.sql
+  └─ 0026_incubators/
+    └─ migration.sql
+  └─ 0027_partial_controls/
+    └─ migration.sql
+  └─ 0028_notification_read/
+    └─ migration.sql
+  └─ 0029_farm_abc_rates/
+    └─ migration.sql
+  └─ 0030_sensitive_numbers/
+    └─ migration.sql
+  └─ 0031_close_packs/
+    └─ migration.sql
+  └─ 0032_nin_nhia/
+    └─ migration.sql
+  └─ 0033_livestock_receipts/
+    └─ migration.sql
+  └─ 0034_missing_workflow_routes/
+    └─ migration.sql
+  └─ 0035_capex_receipts/
+    └─ migration.sql
+  └─ 0036_feed_recovery_by_species/
+    └─ migration.sql
+      
+All migrations have been successfully applied.
+  applied 010_constraints.sql
+  applied 020_workflow_constraints.sql
+  applied 030_tax_constraints.sql
+  applied 040_master_constraints.sql
+  applied 050_journal_constraints.sql
+  applied 060_payroll_constraints.sql
+  applied 070_o2c_constraints.sql
+  applied 080_p2p_constraints.sql
+  applied 090_closing_constraints.sql
+  applied 100_tenant_constraints.sql
+  applied 110_biological_event_constraints.sql
+  applied 120_joint_cost_constraints.sql
+  applied 130_standard_cost_constraints.sql
+  applied 140_stock_count_constraints.sql
+  applied 150_write_off_constraints.sql
+  applied 160_leave_constraints.sql
+  applied 170_supplier_bank_constraints.sql
+  applied 180_close_pack_constraints.sql
+Applied 18 SQL file(s).
+(node:18068) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[32m[Nest] 14004  - [39m09/28/2026, 12:32:16 PM [32m    LOG[39m [38;5;3m[PostingControlProvisioningService] [39m[32mCompany e71f8df1-bbcb-4601-86cf-f35cad6a4ffc: 86 rules, 172 keys, 77 accounts added.[39m
+[32m[Nest] 14004  - [39m09/28/2026, 12:32:17 PM [32m    LOG[39m [38;5;3m[PostingControlProvisioningService] [39m[32mCompany 8266846f-aab7-4f55-96af-bdbd46f16b0a: 86 rules, 172 keys, 77 accounts added.[39m
+2026-09-28 12:32:18.190 WAT [13248] ERROR:  new row for relation "standard_cost_versions" violates check constraint "standard_cost_versions_amounts"
+2026-09-28 12:32:18.190 WAT [13248] DETAIL:  Failing row contains (ec13963c-e223-4b42-bf7d-8b7bfe8acb45, 8266846f-aab7-4f55-96af-bdbd46f16b0a, 3b721567-081d-4a11-a4a6-17bf21434e54, 45bc27cb-1fb7-48df-9c9a-bf20b53d9831, 5b182f18-18aa-4a07-aa00-924a002ba28b, 99, 2026-01-01, 1000.000000, 39900000, 0, 0, 39900000, 41700, null, [{"kind": "MATERIAL", "unit": "KG", "costKobo": "39900000", "qua..., PENDING, 216972bb-4b86-4966-9400-dbd16f871550, null, null, null, 2026-09-28 12:32:18.191, 1200000, 0, 600000).
+2026-09-28 12:32:18.190 WAT [13248] STATEMENT:  INSERT INTO standard_cost_versions (id, company_id, item_id, recipe_version_id, financial_year_id, version_number, effective_from, output_quantity,
+	          material_kobo, packaging_kobo, labour_kobo, machine_kobo, overhead_kobo, depreciation_kobo, total_kobo, unit_cost_kobo, lines, prepared_by_id)
+	         SELECT gen_random_uuid(), company_id, item_id, recipe_version_id, financial_year_id, 99, effective_from, output_quantity,
+	          material_kobo, packaging_kobo, labour_kobo, machine_kobo, overhead_kobo, depreciation_kobo, material_kobo, unit_cost_kobo, lines, prepared_by_id
+	         FROM standard_cost_versions WHERE id = $1::uuid
+
+[32m[Nest] 14004  - [39m09/28/2026, 12:32:19 PM [32m    LOG[39m [38;5;3m[PostingControlProvisioningService] [39m[32mCompany f8c36f41-e729-4bd8-bac0-ca34861b6f91: 86 rules, 172 keys, 77 accounts added.[39m
+2026-09-28 12:32:20.063 WAT [108] ERROR:  Standard-cost version fe519674-f169-4bab-b310-05c662285ad5 cannot be changed once prepared. Prepare a new version.
+2026-09-28 12:32:20.063 WAT [108] CONTEXT:  PL/pgSQL function bap_standard_cost_controlled() line 27 at RAISE
+2026-09-28 12:32:20.063 WAT [108] STATEMENT:  UPDATE "public"."standard_cost_versions" SET "unit_cost_kobo" = $1 WHERE ("public"."standard_cost_versions"."id" = $2 AND 1=1) RETURNING "public"."standard_cost_versions"."id", "public"."standard_cost_versions"."company_id", "public"."standard_cost_versions"."item_id", "public"."standard_cost_versions"."recipe_version_id", "public"."standard_cost_versions"."financial_year_id", "public"."standard_cost_versions"."version_number", "public"."standard_cost_versions"."effective_from", "public"."standard_cost_versions"."output_quantity", "public"."standard_cost_versions"."material_kobo", "public"."standard_cost_versions"."packaging_kobo", "public"."standard_cost_versions"."labour_kobo", "public"."standard_cost_versions"."machine_kobo", "public"."standard_cost_versions"."overhead_kobo", "public"."standard_cost_versions"."depreciation_kobo", "public"."standard_cost_versions"."total_kobo", "public"."standard_cost_versions"."unit_cost_kobo", "public"."standard_cost_versions"."previous_unit_cost_kobo", "public"."standard_cost_versions"."lines", "public"."standard_cost_versions"."status", "public"."standard_cost_versions"."prepared_by_id", "public"."standard_cost_versions"."approved_by_id", "public"."standard_cost_versions"."approved_at", "public"."standard_cost_versions"."rejection_reason", "public"."standard_cost_versions"."created_at"
+
+[32m[Nest] 14004  - [39m09/28/2026, 12:32:21 PM [32m    LOG[39m [38;5;3m[PostingControlProvisioningService] [39m[32mCompany 9a97f11b-ded3-43bc-8d5e-4a63e0dcbcc9: 86 rules, 172 keys, 77 accounts added.[39m
+[32m[Nest] 14004  - [39m09/28/2026, 12:32:23 PM [32m    LOG[39m [38;5;3m[PostingControlProvisioningService] [39m[32mCompany bfb1de34-274a-4b37-af98-2a29cf394d2c: 86 rules, 172 keys, 77 accounts added.[39m
+2026-09-28 12:32:23.792 WAT [10916] ERROR:  The costing policy for this year is locked; a change takes effect from next year's policy.
+2026-09-28 12:32:23.792 WAT [10916] CONTEXT:  PL/pgSQL function bap_costing_policy_locked() line 21 at RAISE
+2026-09-28 12:32:23.792 WAT [10916] STATEMENT:  UPDATE "public"."costing_policies" SET "variance_tolerance_percent" = $1 WHERE ("public"."costing_policies"."id" = $2 AND 1=1) RETURNING "public"."costing_policies"."id", "public"."costing_policies"."company_id", "public"."costing_policies"."financial_year_id", "public"."costing_policies"."method", "public"."costing_policies"."variance_disposition", "public"."costing_policies"."proration_threshold_kobo", "public"."costing_policies"."variance_tolerance_percent", "public"."costing_policies"."configured_by_id", "public"."costing_policies"."configured_at", "public"."costing_policies"."locked_at"
+
+2026-09-28 12:32:23.794 WAT [10916] ERROR:  The costing policy for this year is locked; a change takes effect from next year's policy.
+2026-09-28 12:32:23.794 WAT [10916] CONTEXT:  PL/pgSQL function bap_costing_policy_locked() line 21 at RAISE
+2026-09-28 12:32:23.794 WAT [10916] STATEMENT:  UPDATE costing_policies SET method = 'ACTUAL' WHERE id = $1::uuid
+
+[32m[Nest] 14004  - [39m09/28/2026, 12:32:25 PM [32m    LOG[39m [38;5;3m[PostingControlProvisioningService] [39m[32mCompany 541d13e0-02f3-4ca2-99ef-e495a1555991: 86 rules, 172 keys, 77 accounts added.[39m
+[32m[Nest] 14004  - [39m09/28/2026, 12:32:27 PM [32m    LOG[39m [38;5;3m[PostingControlProvisioningService] [39m[32mCompany 7bb749ff-3f44-4756-a54a-aeeaee9666fa: 86 rules, 172 keys, 77 accounts added.[39m
+[32m[Nest] 14004  - [39m09/28/2026, 12:32:28 PM [32m    LOG[39m [38;5;3m[PostingControlProvisioningService] [39m[32mCompany 3d3a0188-a734-40d7-a6c0-88fc2ba0aad1: 86 rules, 172 keys, 77 accounts added.[39m
+[32m[Nest] 14004  - [39m09/28/2026, 12:32:30 PM [32m    LOG[39m [38;5;3m[PostingControlProvisioningService] [39m[32mCompany 77cdb041-f3d7-4493-97cf-e2f2326a1c08: 86 rules, 172 keys, 77 accounts added.[39m
+ [32m✓[39m test/integration/standard-costing.spec.ts [2m([22m[2m9 tests[22m[2m)[22m[33m 15468[2mms[22m[39m
+   [33m[2m✓[22m[39m Standard costing (POL-001–004, SOP-049/050, PCR-032–036)[2m > [22mrolls the feed standard up from recipe and routing: ₦544 a kg (FeedMill_Cost_Model) [33m1371[2mms[22m[39m
+   [33m[2m✓[22m[39m Standard costing (POL-001–004, SOP-049/050, PCR-032–036)[2m > [22mreports the six parts of POL-003: material, packaging, labour, machine, overhead, depreciation [33m1545[2mms[22m[39m
+   [33m[2m✓[22m[39m Standard costing (POL-001–004, SOP-049/050, PCR-032–036)[2m > [22mreceives good feed at standard and shows every variance, WIP and recovery at zero [33m2005[2mms[22m[39m
+   [33m[2m✓[22m[39m Standard costing (POL-001–004, SOP-049/050, PCR-032–036)[2m > [22msettles a variance beyond the year’s tolerance only with a reason [33m1993[2mms[22m[39m
+   [33m[2m✓[22m[39m Standard costing (POL-001–004, SOP-049/050, PCR-032–036)[2m > [22mrefuses production in a year with no costing policy, and locks it at the first posting (AC-MFG-002) [33m1598[2mms[22m[39m
+   [33m[2m✓[22m[39m Standard costing (POL-001–004, SOP-049/050, PCR-032–036)[2m > [22mabsorbs snail feed to S_Feed_Recovery_GL and poultry feed to P_Feed_Recovery_GL, each cleared at settlement (FeedMill_Setup) [33m2187[2mms[22m[39m
+   [33m[2m✓[22m[39m Standard costing (POL-001–004, SOP-049/050, PCR-032–036)[2m > [22mputs extra material used at standard rate into usage variance (PCR-052) [33m1448[2mms[22m[39m
+   [33m[2m✓[22m[39m Standard costing (POL-001–004, SOP-049/050, PCR-032–036)[2m > [22mholds milled feed in quarantine until a sample passes and someone other than the tester releases it (handbook §26) [33m1628[2mms[22m[39m
+   [33m[2m✓[22m[39m Standard costing (POL-001–004, SOP-049/050, PCR-032–036)[2m > [22mprorates the year’s variance over cost of sales, finished goods and WIP when the policy says so (POL-009) [33m1688[2mms[22m[39m
+2026-09-28 12:32:30.760 WAT [108] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-28 12:32:30.760 WAT [10916] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-28 12:32:30.760 WAT [13248] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m9 passed[39m[22m[90m (9)[39m
+[2m   Start at [22m 12:32:06
+[2m   Duration [22m 24.58s[2m (transform 516ms, setup 0ms, collect 929ms, tests 15.47s, environment 0ms, prepare 73ms)[22m
+

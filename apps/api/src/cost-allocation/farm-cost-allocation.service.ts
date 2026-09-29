@@ -233,13 +233,14 @@ export class FarmCostAllocationService {
 
     const debitLines = shares.map((share) => {
       const group = groupById.get(share.groupId)!;
-      const glAccountId = share.speciesKey === 'poultry' ? targets.poultry! : targets.snail!;
+      const normalizedSpeciesKey = share.speciesKey.trim().toLowerCase();
+      const glAccountId = normalizedSpeciesKey === 'poultry' ? targets.poultry! : targets.snail!;
       // (A snail share is expensed on either chart, so no rearing cost is held for it.)
       return {
         share,
         line: {
           glAccountId,
-          description: `${share.speciesKey === 'poultry' ? 'PCR-064' : 'PCR-043'} — farm labour/overhead to ${group.code} (${share.hours ? `${share.hours.toFixed(2)} hours` : `${share.animalDays.toFixed(0)} animal-days`})`,
+          description: `${normalizedSpeciesKey === 'poultry' ? 'PCR-064' : 'PCR-043'} — farm labour/overhead to ${group.code} (${share.hours ? `${share.hours.toFixed(2)} hours` : `${share.animalDays.toFixed(0)} animal-days`})`,
           debit: kobo(share.amountKobo),
           dimensions: {
             ...header,

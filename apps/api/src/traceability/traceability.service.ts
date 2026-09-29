@@ -333,9 +333,10 @@ class TraceRun {
       },
     });
     if (!group) return gap('Population not found.');
+    const normalizedSpeciesKey = group.speciesKey.trim().toLowerCase();
     const node: TraceNode = {
       kind: 'POPULATION',
-      title: `${group.speciesKey === 'snail' ? 'Cohort' : 'Flock'} ${group.code} — ${group.breed}, ${group.purpose.toLowerCase()}`,
+      title: `${normalizedSpeciesKey === 'snail' ? 'Cohort' : 'Flock'} ${group.code} — ${group.breed}, ${group.purpose.toLowerCase()}`,
       reference: group.code,
       date: iso(group.startedOn),
       quantity: String(group.openingPopulation),
