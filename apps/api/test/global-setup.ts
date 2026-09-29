@@ -29,19 +29,22 @@ let postgres: EmbeddedPostgres | undefined;
 let dataDir: string | undefined;
 
 export function shouldUseEmbeddedPostgres(databaseUrl?: string): boolean {
-  if (!databaseUrl) return true;
-  if (process.env.TEST_DATABASE_URL) return false;
-  if (process.env.CI === 'true') return false;
-
   try {
-    const url = new URL(databaseUrl);
-    return (
+    const rawUrl = databaseUrl ?? process.env.DATABASE_URL;
+    if (!rawUrl) return true;
+    if (process.env.TEST_DATABASE_URL) return false;
+
+    const url = new URL(rawUrl);
+    const isDefaultLocalDevUrl =
       (url.hostname === '127.0.0.1' || url.hostname === 'localhost') &&
       url.port === '5433' &&
       url.username === 'postgres' &&
       url.password === 'postgres' &&
-      url.pathname === '/postgres'
-    );
+      url.pathname === '/postgres';
+
+    if (isDefaultLocalDevUrl) return true;
+    if (process.env.CI === 'true') return false;
+    return false;
   } catch {
     return false;
   }

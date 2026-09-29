@@ -12,6 +12,20 @@ describe('global setup database selection', () => {
     expect(shouldUseEmbeddedPostgres(url)).toBe(false);
   });
 
+  it('keeps the embedded database available in CI when no external database URL is configured', () => {
+    const previousCi = process.env.CI;
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.CI = 'true';
+    delete process.env.DATABASE_URL;
+
+    try {
+      expect(shouldUseEmbeddedPostgres()).toBe(true);
+    } finally {
+      if (previousCi === undefined) delete process.env.CI; else process.env.CI = previousCi;
+      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+  });
+
   it('retries until the Postgres instance is actually accepting connections', async () => {
     let attempts = 0;
 
