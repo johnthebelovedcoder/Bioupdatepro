@@ -94,6 +94,7 @@ export function TrendChart({
   const barWidth = Math.max(3, barSlot - 3); // ~2–3px surface gap between bars
 
   const active = hover === null ? null : points[hover];
+  const dateIndexes = [...new Set([0, Math.floor(points.length / 2), points.length - 1])];
 
   return (
     <div style={{ position: 'relative' }}>
@@ -201,9 +202,9 @@ export function TrendChart({
 
         {/* Only the first, middle and last dates are labelled — a label under
             every bar is noise at this width. */}
-        {[0, Math.floor(points.length / 2), points.length - 1].map((index) => (
+        {dateIndexes.map((index) => (
           <text
-            key={index}
+            key={`date-${index}`}
             x={scaleX(index)}
             y={H - 6}
             textAnchor={index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle'}
