@@ -154,6 +154,30 @@ export interface FlowState {
   message: string | null;
 }
 
+/** Add a company-wide, explicitly classified benefit-in-kind earning. */
+export async function createBenefitInKind(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const employeeId = String(formData.get('employeeId') ?? '').trim();
+  const code = String(formData.get('code') ?? '').trim();
+  const name = String(formData.get('name') ?? '').trim();
+  if (!code || !name) return { error: 'Enter a code and name for the benefit.', message: null };
+  try {
+    await api('/masters/salary-components/benefit-in-kind', {
+      method: 'POST',
+      body: {
+        code, name,
+        taxable: formData.get('taxable') === 'on',
+        pensionable: formData.get('pensionable') === 'on',
+        nhfBase: formData.get('nhfBase') === 'on',
+      },
+    });
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not add that benefit.', message: null };
+  }
+  revalidatePath('/staff/employees');
+  if (employeeId) revalidatePath(`/staff/employees/${employeeId}`);
+  return { error: null, message: `${code.toUpperCase()} added. You can now assign its effective-dated value.` };
+}
+
 /** Turn on payroll for an employee who already clears every §7 blocker. */
 export async function activateEmployeePayroll(
   _previous: FlowState,

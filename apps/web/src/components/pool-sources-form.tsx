@@ -24,13 +24,13 @@ export function PoolSourcesForm({
 }: {
   poolId: string;
   poolCode: string;
-  current: Array<{ glAccountId: string; costCentreId: string | null }>;
+  current: Array<{ glAccountId: string; costCentreId: string | null; resourceType: string }>;
   accounts: Array<{ id: string; label: string }>;
   costCentres: Array<{ id: string; label: string }>;
 }) {
   const [state, action] = useActionState<PoolSourceState, FormData>(setPoolSources, { error: null, message: null });
   const [open, setOpen] = useState(false);
-  const [rows, setRows] = useState(current.length ? current.map((c) => ({ ...c })) : [{ glAccountId: '', costCentreId: null as string | null }]);
+  const [rows, setRows] = useState(current.length ? current.map((c) => ({ ...c })) : [{ glAccountId: '', costCentreId: null as string | null, resourceType: 'OVERHEAD' }]);
   return (
     <>
       <button type="button" className="btn btn-sm btn-ghost" onClick={() => setOpen(true)}>
@@ -74,10 +74,23 @@ export function PoolSourcesForm({
                   ))}
                 </select>
               </label>
+              <label className="field">
+                Cost type
+                <select
+                  name="resourceType"
+                  value={row.resourceType}
+                  onChange={(e) => setRows((r) => r.map((x, j) => (j === i ? { ...x, resourceType: e.target.value } : x)))}
+                >
+                  <option value="LABOUR">Labour</option>
+                  <option value="MACHINE">Machine</option>
+                  <option value="OVERHEAD">Overhead</option>
+                  <option value="DEPRECIATION">Depreciation</option>
+                </select>
+              </label>
             </div>
           ))}
           <div>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRows((r) => [...r, { glAccountId: '', costCentreId: null }])}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRows((r) => [...r, { glAccountId: '', costCentreId: null, resourceType: 'OVERHEAD' }])}>
               + Another account
             </button>
           </div>

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BiologicalAssetService } from './biological-asset.service';
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
@@ -37,6 +37,10 @@ export class BiologicalAssetController {
         population: true,
         currentFvlctsPerUnitKobo: true,
         acquisitionCostKobo: true,
+        measurementBasis: true,
+        fairValueUnreliableReason: true,
+        fairValueReliabilityReviewedOn: true,
+        fairValueReliabilityEvidence: true,
       },
     });
     return rows.map((row) => ({
@@ -53,6 +57,10 @@ export class BiologicalAssetController {
           : null,
       acquisitionCostKobo: row.acquisitionCostKobo.toString(),
       acquisitionPosted: row.currentFvlctsPerUnitKobo !== null,
+      measurementBasis: row.measurementBasis,
+      fairValueUnreliableReason: row.fairValueUnreliableReason,
+      fairValueReliabilityReviewedOn: row.fairValueReliabilityReviewedOn?.toISOString().slice(0, 10) ?? null,
+      fairValueReliabilityEvidence: row.fairValueReliabilityEvidence,
     }));
   }
 
@@ -61,6 +69,75 @@ export class BiologicalAssetController {
   @Get('groups/:id/roll-forward')
   async rollForward(@Param('id') id: string) {
     return this.assets.rollForward(id);
+  }
+
+  /** Monthly reporting-date valuation queue, including groups with no posted valuation yet. */
+  @AnyRole('Groups needing a reporting-date or pre-harvest biological-asset valuation.')
+  @Get('valuation-due')
+  async valuationDue(@CurrentCompany() companyId: string, @Query('asOf') asOf?: string) {
+    const date = asOf ? new Date(asOf) : new Date();
+    if (Number.isNaN(date.getTime())) throw new AccountingRuleViolation('IAS 41 — Valuation schedule', 'Use a valid reporting date.', {});
+    date.setUTCHours(0, 0, 0, 0);
+    const [groups, valuations] = await Promise.all([
+      this.prisma.livestockGroup.findMany({
+        where: { companyId, status: 'ACTIVE', startedOn: { lte: date } },
+        orderBy: { expectedHarvestDate: 'asc' },
+        select: { id: true, code: true, speciesKey: true, breed: true, stage: true, population: true, startedOn: true, expectedHarvestDate: true, currentFvlctsPerUnitKobo: true, measurementBasis: true, fairValueReliabilityReviewedOn: true },
+      }),
+      this.prisma.biologicalAssetValuation.findMany({
+        where: { companyId, status: 'POSTED', valuationDate: { lte: date } },
+        orderBy: { valuationDate: 'desc' },
+        select: { groupId: true, valuationDate: true },
+      }),
+    ]);
+    const latest = new Map<string, Date>();
+    for (const valuation of valuations) if (!latest.has(valuation.groupId)) latest.set(valuation.groupId, valuation.valuationDate);
+    const preHarvestWindow = new Date(date.getTime() + 7 * 24 * 60 * 60 * 1000);
+    return groups.map((group) => {
+      const lastValuationDate = latest.get(group.id) ?? null;
+      const monthlyDue = group.measurementBasis === 'ATTRIBUTABLE_COST'
+        ? !group.fairValueReliabilityReviewedOn || group.fairValueReliabilityReviewedOn.getTime() !== date.getTime()
+        : !lastValuationDate || lastValuationDate < date;
+      const preHarvestDue = !!group.expectedHarvestDate && group.expectedHarvestDate >= date && group.expectedHarvestDate <= preHarvestWindow;
+      return {
+        id: group.id,
+        code: group.code,
+        speciesKey: group.speciesKey,
+        breed: group.breed,
+        stage: group.stage,
+        population: group.population,
+        measurementBasis: group.measurementBasis,
+        fairValueReliabilityReviewedOn: group.fairValueReliabilityReviewedOn?.toISOString().slice(0, 10) ?? null,
+        lastValuationDate,
+        currentFvlctsPerUnitKobo: group.currentFvlctsPerUnitKobo?.toString() ?? null,
+        unvalued: group.currentFvlctsPerUnitKobo === null,
+        monthlyDue,
+        preHarvestDue,
+        due: monthlyDue || preHarvestDue,
+      };
+    }).filter((row) => row.due || row.unvalued);
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('groups/:id/fair-value-reliability-review')
+  async reviewFairValueReliability(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') groupId: string,
+    @Body() body: { reviewedOn: string; stillUnreliable: boolean; reason: string; evidenceReference: string },
+  ) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body?.reviewedOn ?? '') || Number.isNaN(new Date(`${body.reviewedOn}T00:00:00.000Z`).getTime())) {
+      throw new AccountingRuleViolation('IAS 41 — Cost exception reliability review', 'Use a valid review date in YYYY-MM-DD format.', {});
+    }
+    return this.assets.reviewFairValueReliability({
+      companyId,
+      groupId,
+      reviewedOn: new Date(`${body.reviewedOn}T00:00:00.000Z`),
+      stillUnreliable: body.stillUnreliable === true,
+      reason: body.reason,
+      evidenceReference: body.evidenceReference,
+      actor,
+    });
   }
 
   /*

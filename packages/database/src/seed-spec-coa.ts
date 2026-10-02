@@ -116,11 +116,15 @@ export async function seedSpecChart(prisma: PrismaClient, companyId: string) {
   let created = 0;
   let existing = 0;
   for (const [code, account] of wanted) {
+    const requiresCostCentre = costCentreRequired(code);
     const already = await prisma.gLAccount.findFirst({
       where: { companyId, accountNumber: code },
-      select: { id: true },
+      select: { id: true, requiresCostCentre: true },
     });
     if (already) {
+      if (requiresCostCentre && !already.requiresCostCentre) {
+        await prisma.gLAccount.update({ where: { id: already.id }, data: { requiresCostCentre: true } });
+      }
       existing += 1;
       continue;
     }
@@ -133,9 +137,7 @@ export async function seedSpecChart(prisma: PrismaClient, companyId: string) {
         normalBalance: account.normal,
         isPostingAccount: true,
         active: true,
-        // Work in progress must be attributable. §10.5, and the same rule the
-        // four-digit chart already applies to 1501.
-        requiresCostCentre: code.startsWith('1304'),
+        requiresCostCentre,
       },
     });
     created += 1;
@@ -143,6 +145,11 @@ export async function seedSpecChart(prisma: PrismaClient, companyId: string) {
 
   const stated = [...wanted.values()].filter((a) => a.stated).length;
   return { total: wanted.size, created, existing, stated, derived: wanted.size - stated };
+}
+
+/** Approved COA policy: activity and production balances require a centre. */
+function costCentreRequired(code: string): boolean {
+  return /^[456]/.test(code) || code.startsWith('12') || code.startsWith('13') || code.startsWith('2198');
 }
 
 /* Runnable on its own: `tsx packages/database/src/seed-spec-coa.ts`. */

@@ -53,6 +53,7 @@ export interface ProductionOrderOutputRow {
   id: string;
   item: { code: string; description: string };
   outputType: 'MAIN' | 'BY_PRODUCT';
+  isImmaterialByProduct: boolean;
   quantity: string;
   allocatedCostKobo: string;
   grade: string | null;

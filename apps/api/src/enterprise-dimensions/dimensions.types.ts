@@ -41,6 +41,8 @@ export interface BusinessDimensions {
   supplierId?: string | null;
   employeeId?: string | null;
   itemId?: string | null;
+  /** Production species analysis; batch is journal sourceDocumentId. */
+  speciesKey?: string | null;
 }
 
 export type EnterpriseDimensions = MandatoryDimensions &
@@ -76,4 +78,5 @@ export const DIMENSION_LABELS: Record<string, string> = {
   supplierId: 'Supplier',
   employeeId: 'Employee',
   itemId: 'Inventory Item',
+  speciesKey: 'Species',
 };

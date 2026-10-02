@@ -32,6 +32,29 @@ export class RoutingController {
     return this.routing.listCostPools(companyId);
   }
 
+  /** Freeze shared Feed Mill source costs and allocate them across completed orders. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('costing/feed-mill/actual-cost-runs')
+  async allocateFeedMillActualCosts(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { financialPeriodId: string },
+  ) {
+    if (!body?.financialPeriodId) throw new BadRequestException('Choose the soft-closed financial period to allocate.');
+    return this.routing.allocateFeedMillActualCosts({ companyId, financialPeriodId: body.financialPeriodId, actorId: actor.userId });
+  }
+
+  /** Reconcile the single recovery GL by species, formula, production batch and work centre. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Get('costing/feed-mill/recovery-analysis')
+  async feedMillRecoveryAnalysis(
+    @CurrentCompany() companyId: string,
+    @Query('financialPeriodId') financialPeriodId?: string,
+  ) {
+    if (!financialPeriodId) throw new BadRequestException('Choose the financial period to analyse.');
+    return this.routing.feedMillRecoveryAnalysis({ companyId, financialPeriodId });
+  }
+
   /** AC-MFG-004: each pool's ledger cost against absorbed plus unused capacity. */
   @Get('costing/cost-pools/reconciliation')
   async reconcilePools(@CurrentCompany() companyId: string, @Query('asOf') asOf?: string) {
@@ -45,7 +68,7 @@ export class RoutingController {
     @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
     @Param('id') id: string,
-    @Body() body: { sources: Array<{ glAccountId: string; costCentreId?: string | null }> },
+    @Body() body: { sources: Array<{ glAccountId: string; costCentreId?: string | null; resourceType?: RoutingResourceType }> },
   ) {
     if (!Array.isArray(body?.sources)) throw new BadRequestException('sources is a list of ledger accounts.');
     return this.routing.setPoolSources({ companyId, poolId: id, sources: body.sources, actorId: actor.userId });

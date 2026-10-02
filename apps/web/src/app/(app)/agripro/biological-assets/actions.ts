@@ -63,6 +63,29 @@ export async function requestValuation(
   return { error: null, message: 'Raised. It now needs a Finance Controller to approve it.' };
 }
 
+export async function reviewFairValueReliability(
+  _previous: ValuationState,
+  formData: FormData,
+): Promise<ValuationState> {
+  const groupId = String(formData.get('groupId') ?? '');
+  const reviewedOn = String(formData.get('reviewedOn') ?? '');
+  const reason = String(formData.get('reason') ?? '').trim();
+  const evidenceReference = String(formData.get('evidenceReference') ?? '').trim();
+  if (!groupId || !reviewedOn || !reason || !evidenceReference) {
+    return { error: 'Complete the review date, unreliability assessment and evidence reference.', message: null };
+  }
+  try {
+    await api(`/biological-assets/groups/${groupId}/fair-value-reliability-review`, {
+      method: 'POST',
+      body: { reviewedOn, stillUnreliable: true, reason, evidenceReference },
+    });
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not record the IAS 41 review.', message: null };
+  }
+  revalidatePath('/agripro/biological-assets');
+  return { error: null, message: `Fair-value reliability reviewed for ${reviewedOn}.` };
+}
+
 export interface MarketPriceState {
   error: string | null;
   message: string | null;

@@ -15,7 +15,6 @@ import { ClosedPeriodError } from '../common/errors';
 export const SOFT_CLOSE_POSTING_ROLES = [
   'FINANCE_MANAGER',
   'FINANCE_CONTROLLER',
-  'ADMINISTRATOR',
 ] as const;
 
 @Injectable()
@@ -43,6 +42,7 @@ export class PeriodService {
     userRoles: string[],
     tx?: Prisma.TransactionClient,
     isClosingEntry = false,
+    sourceModule?: string,
   ): Promise<void> {
     const client = tx ?? this.prisma;
     const period = await client.financialPeriod.findUnique({
@@ -70,13 +70,21 @@ export class PeriodService {
         return;
 
       case PeriodStatus.SOFT_CLOSED: {
+        // A soft close is an adjustment window, not a second open period.
+        // Operational journals must not continue posting after the close.
+        if (sourceModule !== 'journals' && sourceModule !== 'feed-mill-costing' && !isClosingEntry) {
+          throw new ClosedPeriodError(
+            period.name,
+            'SOFT_CLOSED (only approved adjustment journals and allocated Feed Mill settlements may post)',
+          );
+        }
         const permitted = userRoles.some((role) =>
           (SOFT_CLOSE_POSTING_ROLES as readonly string[]).includes(role),
-        );
+        ) || ((isClosingEntry || sourceModule === 'feed-mill-costing') && userRoles.includes('CFO'));
         if (!permitted) {
           throw new ClosedPeriodError(
             period.name,
-            'SOFT_CLOSED (only Finance Manager, Finance Controller or Administrator may post)',
+            'SOFT_CLOSED (only Finance Manager or Finance Controller may post)',
           );
         }
         return;

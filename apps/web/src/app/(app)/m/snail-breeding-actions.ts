@@ -21,6 +21,14 @@ export async function recordBreedingCycle(_previous: FlowState, formData: FormDa
     setOn: String(formData.get('setOn') ?? ''),
     breeders: Number(formData.get('breeders') ?? 0),
     eggsLaid: Number(formData.get('eggsLaid') ?? 0),
+    valueBasis: String(formData.get('valueBasis') ?? 'FVLCTS'),
+    fairValueUnreliableReason: String(formData.get('fairValueUnreliableReason') ?? '').trim() || null,
+    valuePerEggKobo: (() => {
+      const naira = Number(formData.get('valuePerEggKobo') ?? 0);
+      return Number.isFinite(naira) ? String(Math.round(naira * 100)) : '0';
+    })(),
+    valueEvidence: String(formData.get('valueEvidence') ?? '').trim(),
+    costSourceAccountId: String(formData.get('costSourceAccountId') ?? '') || null,
     notes: String(formData.get('notes') ?? '').trim() || null,
   };
   try {
@@ -51,6 +59,25 @@ export async function recordSnailHatch(_previous: FlowState, formData: FormData)
     error: null,
     message: body.hatchedCount > 0 ? `${body.hatchedCount} hatchlings placed as ${body.hatchlingGroupCode}.` : 'Recorded.',
   };
+}
+
+export async function valueLegacySnailEggCycle(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const cycleId = String(formData.get('cycleId') ?? '');
+  const naira = Number(formData.get('valuePerEggNaira') ?? 0);
+  const body = {
+    valueBasis: String(formData.get('valueBasis') ?? 'FVLCTS'),
+    fairValueUnreliableReason: String(formData.get('fairValueUnreliableReason') ?? '').trim() || null,
+    valuePerEggKobo: Number.isFinite(naira) ? String(Math.round(naira * 100)) : '0',
+    valueEvidence: String(formData.get('valueEvidence') ?? '').trim(),
+    costSourceAccountId: String(formData.get('costSourceAccountId') ?? '') || null,
+  };
+  try {
+    await api(`/snail-breeding/cycles/${cycleId}/value`, { method: 'POST', body });
+  } catch (caught) {
+    return fail(caught, 'Could not value that legacy egg cycle.');
+  }
+  revalidatePath(PATH);
+  return { error: null, message: 'Legacy egg cohort valued and posted.' };
 }
 
 export async function failBreedingCycle(_previous: FlowState, formData: FormData): Promise<FlowState> {

@@ -120,7 +120,7 @@ const PAYABLE_ACCOUNTS = [
   // bucket here. Missing these understated "change in payables" by exactly
   // their period movement, breaking the closing-cash reconciliation this
   // service exists to prove.
-  '219810', '219820', '219830', '219831', '219832',
+  '219810', '219820', '219830',
   // Income tax provided for but not yet paid (PCR-084-CR).
   '227100',
   // Accrued expenses: actual conversion cost accrued at confirmation

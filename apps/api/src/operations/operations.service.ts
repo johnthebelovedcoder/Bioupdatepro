@@ -619,6 +619,15 @@ export class OperationsService {
 
       const group = await this.resolveGroup(tx, companyId, payload.groupCode);
 
+      await this.biologicalAssets.assertValuedOn({
+        companyId,
+        groupId: group.id,
+        startedOn: group.startedOn,
+        currentFvlctsPerUnitKobo: group.currentFvlctsPerUnitKobo,
+        on: asDate(payload.date),
+        tx,
+      });
+
       if (payload.count > group.population) {
         throw new BadRequestException(
           `${group.code} has ${group.population} — cannot harvest ${payload.count}.`,

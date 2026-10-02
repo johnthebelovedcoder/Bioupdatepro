@@ -180,6 +180,7 @@ export async function recordLoss(_previous: FlowState, formData: FormData): Prom
 interface OutputLine {
   itemId: string;
   outputType: 'MAIN' | 'BY_PRODUCT';
+  isImmaterialByProduct?: boolean;
   quantity: string;
   grade?: string;
   expiryDate?: string;
@@ -286,7 +287,11 @@ export async function recordOutputs(_previous: FlowState, formData: FormData): P
   for (let i = 1; i <= 2; i++) {
     const itemId = String(formData.get(`byProductItemId${i}`) ?? '');
     const quantity = String(formData.get(`byProductQuantity${i}`) ?? '').trim();
-    if (itemId && quantity && Number(quantity) > 0) outputs.push({ itemId, outputType: 'BY_PRODUCT', quantity, ...coldStore(formData, `byProduct${i}`) });
+    if (itemId && quantity && Number(quantity) > 0) outputs.push({
+      itemId, outputType: 'BY_PRODUCT', quantity,
+      isImmaterialByProduct: formData.get(`byProductImmaterial${i}`) === 'on',
+      ...coldStore(formData, `byProduct${i}`),
+    });
   }
 
   try {

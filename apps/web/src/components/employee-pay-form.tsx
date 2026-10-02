@@ -3,7 +3,7 @@
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { Sheet } from './sheet';
-import { setEmployeePay, type FlowState } from '@/app/(app)/staff/employees/actions';
+import { createBenefitInKind, setEmployeePay, type FlowState } from '@/app/(app)/staff/employees/actions';
 import { formatNaira } from '@/lib/money';
 
 export interface PayComponentOption {
@@ -13,10 +13,11 @@ export interface PayComponentOption {
   isTaxable: boolean;
   isPensionable: boolean;
   isNhfBase: boolean;
+  isBenefitInKind: boolean;
 }
 
 export interface PaySnapshot {
-  components: Array<{ code: string; name: string; amountKobo: string }>;
+  components: Array<{ code: string; name: string; amountKobo: string; isBenefitInKind?: boolean }>;
   grossPayKobo: string;
   pensionableEmolumentsKobo: string;
   nhfBaseKobo: string;
@@ -46,7 +47,12 @@ export function EmployeePayForm({
     error: null,
     message: null,
   });
+  const [benefitState, benefitAction] = useActionState<FlowState, FormData>(createBenefitInKind, {
+    error: null,
+    message: null,
+  });
   const [open, setOpen] = useState(false);
+  const [addingBenefit, setAddingBenefit] = useState(false);
   const [code, setCode] = useState(options[0]?.code ?? '');
   const selected = options.find((option) => option.code === code);
   const basis = selected?.basis ?? 'FIXED';
@@ -66,7 +72,7 @@ export function EmployeePayForm({
                 <tbody>
                   {snapshot.components.map((component) => (
                     <tr key={component.code}>
-                      <td style={{ textAlign: 'left' }}>{component.name}</td>
+                      <td style={{ textAlign: 'left' }}>{component.name}{component.isBenefitInKind ? ' · in kind' : ''}</td>
                       <td className="num">{formatNaira(component.amountKobo)}</td>
                     </tr>
                   ))}
@@ -109,6 +115,7 @@ export function EmployeePayForm({
                     selected.isTaxable ? 'taxable' : 'not taxable',
                     selected.isPensionable ? 'pensionable' : null,
                     selected.isNhfBase ? 'NHF base' : null,
+                    selected.isBenefitInKind ? 'benefit in kind (not paid in cash)' : null,
                   ]
                     .filter(Boolean)
                     .join(' · ')}
@@ -119,7 +126,7 @@ export function EmployeePayForm({
 
             {basis === 'FIXED' ? (
               <label className="field">
-                Amount a month (₦)
+                {selected?.isBenefitInKind ? 'Monthly benefit value (₦)' : 'Amount a month (₦)'}
                 <input key={code} name="amount" inputMode="decimal" placeholder="0.00" required />
               </label>
             ) : (
@@ -136,18 +143,36 @@ export function EmployeePayForm({
 
             <Submit />
           </form>
+
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAddingBenefit((value) => !value)}>
+            {addingBenefit ? 'Close benefit setup' : 'Configure a benefit in kind'}
+          </button>
+          {addingBenefit ? (
+            <form action={benefitAction} className="stack" style={{ gap: 'var(--sp-3)', borderTop: '1px solid var(--line)', paddingTop: 'var(--sp-3)' }}>
+              <input type="hidden" name="employeeId" value={employeeId} />
+              {benefitState.error ? <div className="notice notice-error">{benefitState.error}</div> : null}
+              {benefitState.message ? <div className="notice notice-success">{benefitState.message}</div> : null}
+              <p className="faint" style={{ margin: 0 }}>Set up the company component once, then assign each employee an effective-dated monthly value above. In-kind value is included in configured tax bases and excluded from cash pay.</p>
+              <label className="field">Code<input name="code" placeholder="COMPANY-CAR" required /></label>
+              <label className="field">Name<input name="name" placeholder="Company vehicle benefit" required /></label>
+              <label className="field"><span><input type="checkbox" name="taxable" defaultChecked /> Taxable for PAYE</span></label>
+              <label className="field"><span><input type="checkbox" name="pensionable" /> Include in pension base</span></label>
+              <label className="field"><span><input type="checkbox" name="nhfBase" /> Include in NHF base</span></label>
+              <Submit label="Add benefit component" pendingLabel="Saving…" />
+            </form>
+          ) : null}
         </div>
       </Sheet>
     </>
   );
 }
 
-function Submit() {
+function Submit({ label = 'Send for approval', pendingLabel = 'Saving…' }: { label?: string; pendingLabel?: string }) {
   const { pending } = useFormStatus();
   return (
     <div>
       <button type="submit" className="btn btn-primary" disabled={pending}>
-        {pending ? 'Saving…' : 'Send for approval'}
+        {pending ? pendingLabel : label}
       </button>
     </div>
   );

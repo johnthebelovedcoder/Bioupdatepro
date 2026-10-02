@@ -8,6 +8,11 @@ export interface SnailBreedingCycle {
   setOn: string;
   breeders: number;
   eggsLaid: number;
+  eggGroupCode: string | null;
+  eggValueBasis: 'FVLCTS' | 'ATTRIBUTABLE_COST' | null;
+  eggValuePerUnitKobo: string;
+  eggValueEvidence: string | null;
+  eggFairValueUnreliableReason: string | null;
   status: 'SET' | 'HATCHED' | 'FAILED';
   hatchedOn: string | null;
   hatchedCount: number | null;
@@ -25,6 +30,8 @@ export interface BreederGroup {
   population: number;
 }
 
+export interface SnailEggCostSource { id: string; accountNumber: string; name: string }
+
 export async function getSnailBreedingCycles(): Promise<SnailBreedingCycle[]> {
   try {
     return await api<SnailBreedingCycle[]>('/snail-breeding/cycles');
@@ -39,4 +46,8 @@ export async function getBreederGroups(): Promise<BreederGroup[]> {
   } catch {
     return [];
   }
+}
+
+export async function getSnailEggCostSources(): Promise<SnailEggCostSource[]> {
+  try { return await api<SnailEggCostSource[]>('/snail-breeding/egg-cost-sources'); } catch { return []; }
 }

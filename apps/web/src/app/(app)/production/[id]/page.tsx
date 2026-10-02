@@ -322,7 +322,7 @@ export default async function ProductionOrderDetailPage({
                       <td style={{ textAlign: 'left' }}>
                         {o.item.code} — {o.item.description}
                       </td>
-                      <td>{o.outputType === 'MAIN' ? 'Main' : 'By-product'}</td>
+                      <td>{o.outputType === 'MAIN' ? 'Main' : o.isImmaterialByProduct ? 'By-product · immaterial' : 'By-product'}</td>
                       <td className="num">{formatQuantity(o.quantity)}</td>
                       <td className="num">{formatNaira(o.allocatedCostKobo)}</td>
                       <td>{o.grade ?? '—'}</td>
@@ -436,6 +436,7 @@ function StageAction({
       return (
         <ConfirmConversionForm
           orderId={order.id}
+          feedMill={order.processingCycle === 'FEED_MILL'}
           operations={routing.map((line) => ({
             name: line.routingOperation.operationName,
             standardHours: line.standardHours,

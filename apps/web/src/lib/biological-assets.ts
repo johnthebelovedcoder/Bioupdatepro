@@ -6,9 +6,9 @@ import { api } from './api';
  *
  * Every figure here is a real posted position: a population's carrying value
  * came from an actual `Dr biological asset / Cr GRNI` journal at acquisition,
- * moved by an actual mortality or stage-transfer entry, and revalued only
- * through an approved FVLCTS valuation. Nothing on this page is computed for
- * display and left unposted.
+ * moved by an actual mortality or stage-transfer entry, and measured under
+ * IAS 41 at FVLCTS or the documented, periodically reviewed cost exception.
+ * Nothing on this page is computed for display and left unposted.
  */
 
 export interface BiologicalAssetGroup {
@@ -22,6 +22,10 @@ export interface BiologicalAssetGroup {
   carryingValueKobo: string | null;
   acquisitionCostKobo: string;
   acquisitionPosted: boolean;
+  measurementBasis: 'FVLCTS' | 'ATTRIBUTABLE_COST';
+  fairValueUnreliableReason: string | null;
+  fairValueReliabilityReviewedOn: string | null;
+  fairValueReliabilityEvidence: string | null;
 }
 
 export interface RollForward {

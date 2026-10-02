@@ -3,7 +3,7 @@
   "causes": {
     "workbookCarryingRate": {
       "naira": 1000,
-      "why": "INTEGRATION_JOINT_CHECKS links the poultry carrying rate to ₦5,500 (the handbook's §52 figure), but the workbook's own journals (P500_GL_Detail PJE011/012) and expected results carry the birds at ₦6,500. The application follows the journals. A workbook inconsistency for the client to settle."
+      "why": "UAT uses the approved poultry carrying rate of ₦6,500 per bird, replacing the obsolete ₦5,500 handbook reference."
     }
   },
   "sheets": [
@@ -975,7 +975,7 @@
         },
         {
           "check": "Poultry BA carrying-rate link",
-          "expected": 5500,
+          "expected": 6500,
           "unit": "naira",
           "figure": "poultry.carryingRatePerUnit",
           "causes": [

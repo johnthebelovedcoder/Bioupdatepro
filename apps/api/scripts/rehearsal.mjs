@@ -201,6 +201,8 @@ await step(1, 'Foundation', 'Create entity, farms, warehouses, fiscal year, NGN 
 
 await step(2, 'Foundation', 'Load COA, cost centres, posting profiles, dimensions and all four recovery GLs', async () => {
   const company = await prisma.company.findUniqueOrThrow({ where: { id: ctx.companyId } });
+  const approvedEngine = await svc('posting-control/posting-control-provisioning.service.js', 'PostingControlProvisioningService').provision(ctx.companyId, ctx.controller.userId);
+  expect(approvedEngine.approved.accounts > 0 && approvedEngine.approved.accountMaps > 0, 'The newer approved posting workbook was not loaded.');
   const accounts = await prisma.gLAccount.count({ where: { companyId: ctx.companyId, active: true } });
   const recovery = await prisma.gLAccount.findMany({ where: { companyId: ctx.companyId, active: true, accountNumber: { in: ['219810', '219820', '219830'] } }, select: { accountNumber: true, name: true } });
   const rules = await prisma.postingRule.count({ where: { companyId: ctx.companyId } });
@@ -224,9 +226,9 @@ await step(2, 'Foundation', 'Load COA, cost centres, posting profiles, dimension
   expect(recovery.length === 3, `Recovery accounts missing: have ${recovery.map((r) => r.accountNumber).join(', ')}.`);
   note(
     2,
-    'The script asks for four recovery GLs and FeedMill_Accounting names separate S_Feed_Recovery_GL and P_Feed_Recovery_GL, but POSTING_COA_MASTER resolves feed-mill absorption to one account, 219830 (PCR-033, PCR-036). The application follows the posting master, and feed orders do not carry a species. Client to confirm which the workbook intends.',
+    'The approved policy uses one Feed Mill Recovery GL (219830), with species/formula/batch/work-centre analysis in dimensions.',
   );
-  return { ref: `Chart ${company.chartVersion}`, actual: `${accounts} active accounts on the six-digit chart; ${centres} cost centres; ${rules ?? 'n/a'} posting rules; recovery accounts ${recovery.map((r) => `${r.accountNumber} ${r.name}`).join('; ')}.` };
+  return { ref: `Approved posting workbook + chart ${company.chartVersion}`, actual: `${approvedEngine.approved.accounts} approved-workbook accounts and ${approvedEngine.approved.accountMaps} account maps loaded; ${accounts} legacy six-digit accounts retained for this compatibility case; ${centres} cost centres; ${rules ?? 'n/a'} legacy posting rules; recovery accounts ${recovery.map((r) => `${r.accountNumber} ${r.name}`).join('; ')}.` };
 });
 
 await step(3, 'Masters', 'Create vendors, customers, employees, items, assets, species, stages and UOM', async () => {
@@ -419,36 +421,43 @@ await step(8, 'Snail lifecycle', 'Record laying observation', async () => {
   const breeding = svc('snail-breeding/snail-breeding.service.js', 'SnailBreedingService');
   const breeders = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'BRD-1' } });
   // 500_Assumptions: 80 eggs a breeder.
-  ctx.cycle = await breeding.record({ companyId: ctx.companyId, actorId: ctx.clerk.userId, code: 'CYC-1', breederGroupId: breeders.id, setOn: day(5), breeders: 500, eggsLaid: 40_000 });
+  // UAT-only value from S500_BA_LIFECYCLE: ₦30 market value less ₦10 costs to sell = ₦20 per egg.
+  // This illustrative amount is not a default for production egg cohorts.
+  ctx.cycle = await breeding.record({
+    companyId: ctx.companyId, actor: ctx.controller, code: 'CYC-1', breederGroupId: breeders.id,
+    setOn: day(5), breeders: 500, eggsLaid: 40_000, valueBasis: 'FVLCTS',
+    valuePerEggKobo: naira(20), valueEvidence: 'UAT-only S500_BA_LIFECYCLE assumption: ₦30 market value less ₦10 costs to sell per egg.',
+  });
   const after = await prisma.livestockGroup.findFirstOrThrow({ where: { id: breeders.id } });
   expect(after.population === 500, `Laying reduced the breeders to ${after.population}.`);
-  return { ref: 'CYC-1', actual: '500 breeders laid 40,000 eggs; breeders not reduced; no journal.' };
+  return { ref: 'CYC-1', actual: '500 breeders laid 40,000 eggs; UAT-only FVLCTS is ₦20 each (₦800,000 total); breeders not reduced.' };
 });
 
 await step(9, 'Snail lifecycle', 'Collect, count, grade and value eggs', async () => {
   const cycle = await prisma.snailBreedingCycle.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'CYC-1' } });
   expect(cycle.eggsLaid === 40_000, `CYC-1 holds ${cycle.eggsLaid} eggs.`);
-  note(9, 'Snail eggs are counted on the breeding cycle but not recognised as a biological asset, so no Dr BA—Eggs / Cr FV gain is posted. The script posts it only "when policy permits", and the workbook’s own 500-snail case does not value eggs either. Client to confirm the policy; if eggs are to be valued, this is a build item.');
-  return { ref: 'CYC-1', actual: '40,000 eggs counted on the cycle. Not valued: no policy permitting egg recognition (see note).' };
+  expect(cycle.eggValuePerUnitKobo === naira(20), `CYC-1 egg value is ${cycle.eggValuePerUnitKobo} kobo per egg.`);
+  const lines = await prisma.journalLine.findMany({ where: { journalEntryId: ctx.cycle.journalEntryId } });
+  const debits = lines.reduce((sum, line) => sum + line.debitKobo, 0n);
+  const credits = lines.reduce((sum, line) => sum + line.creditKobo, 0n);
+  expect(debits === naira(800_000) && credits === naira(800_000), `Egg recognition journal is Dr ${shown(debits)} / Cr ${shown(credits)}.`);
+  return { ref: 'CYC-1', actual: `40,000 viable eggs recognised at ₦20 each; balanced Dr/Cr ${shown(debits)}.` };
 });
 
 await step(10, 'Snail lifecycle', 'Transfer eggs to incubation and record hatch', async () => {
   const breeding = svc('snail-breeding/snail-breeding.service.js', 'SnailBreedingService');
   // 500_Assumptions: 75% hatch.
-  await breeding.hatch({ companyId: ctx.companyId, actorId: ctx.clerk.userId, cycleId: ctx.cycle.id, hatchedOn: day(12), hatchedCount: 30_000, unhatchedCount: 10_000, hatchlingGroupCode: 'HAT-1' });
-  const hatchlings = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'HAT-1' } });
-  expect(hatchlings.population === 30_000, `HAT-1 holds ${hatchlings.population}.`);
-  // Set = hatched + unhatched + loss, refused otherwise.
-  const breeding2 = svc('snail-breeding/snail-breeding.service.js', 'SnailBreedingService');
-  const other = await breeding2.record({ companyId: ctx.companyId, actorId: ctx.clerk.userId, code: 'CYC-CHK', breederGroupId: (await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'BRD-1' } })).id, setOn: day(6), breeders: 500, eggsLaid: 100 });
   let refused = false;
   try {
-    await breeding2.hatch({ companyId: ctx.companyId, actorId: ctx.clerk.userId, cycleId: other.id, hatchedOn: day(13), hatchedCount: 90, unhatchedCount: 20 });
+    await breeding.hatch({ companyId: ctx.companyId, actor: ctx.controller, cycleId: ctx.cycle.id, hatchedOn: day(12), hatchedCount: 30_000, unhatchedCount: 10_001, hatchlingGroupCode: 'HAT-1' });
   } catch {
     refused = true;
   }
-  expect(refused, 'A hatch of more than were set was accepted.');
-  return { ref: 'CYC-1 → HAT-1', actual: 'Set 40,000 = hatched 30,000 + unhatched 10,000. A hatch exceeding eggs set was refused. No journal: eggs carry no value (step 9).' };
+  expect(refused, 'A hatch of more eggs than were set was accepted.');
+  await breeding.hatch({ companyId: ctx.companyId, actor: ctx.controller, cycleId: ctx.cycle.id, hatchedOn: day(12), hatchedCount: 30_000, unhatchedCount: 10_000, hatchlingGroupCode: 'HAT-1' });
+  const hatchlings = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: ctx.companyId, code: 'HAT-1' } });
+  expect(hatchlings.population === 30_000, `HAT-1 holds ${hatchlings.population}.`);
+  return { ref: 'CYC-1 → HAT-1', actual: 'Set 40,000 = hatched 30,000 + unhatched 10,000; an over-count was refused; egg carrying value transferred or expensed.' };
 });
 
 await step(11, 'Snail lifecycle', 'Transfer hatchlings through juvenile, grower and market-ready', async () => {
@@ -818,7 +827,7 @@ await step(28, 'Poultry processing', 'Harvest and issue market birds to producti
   // P500: 282 of 470 processed, 2.2 kg live, 72% dressed yield, 60 kg of offal.
   ctx.poultry = { liveKg: 282 * 2.2, dressedKg: '446.688', offalKg: '60.000' };
   const version = await processingRecipe({ code: 'R-POL-DRESSED', main: ctx.item.carcass, byProduct: ctx.item.offal, batchKg: ctx.poultry.dressedKg, packPerBatch: '40', prices: [5_200, 1_500] });
-  // P500: carried at NGN 5,500 a bird (Phase 0: the client is to confirm 5,500 against 6,500).
+  // P500: carried at NGN 6,500 a bird for the approved UAT case.
   await valueAtHarvest('BLR-001', 54, 5_500, 0, 'P500_Assumptions IAS 41');
   const record = await harvest('BLR-001', 55, 282, ctx.poultry.liveKg);
   const { id } = await orders.createFromHarvest({ harvestRecordId: record.id, recipeVersionId: version, warehouseId: ctx.warehouse['FG-WH'], plannedOutputQuantity: ctx.poultry.dressedKg, actor: ctx.clerk });

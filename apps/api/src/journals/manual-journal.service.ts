@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import {
   AuditAction,
   ManualJournalKind,
@@ -85,6 +85,9 @@ export class ManualJournalService {
   // -------------------------------------------------------------------------
 
   async create(input: CreateManualJournalInput) {
+    if (!input.actor.roles.includes('FINANCIAL_ACCOUNTANT')) {
+      throw new ForbiddenException('Only the GL/Financial Accountant may prepare adjustment journals.');
+    }
     const journalType = await this.prisma.journalType.findUnique({
       where: {
         companyId_code: { companyId: input.companyId, code: input.journalTypeCode },

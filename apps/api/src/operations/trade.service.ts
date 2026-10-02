@@ -103,10 +103,17 @@ export class TradeService {
           if (!line.batchId || !line.animalsRemoved) continue;
           const group = await this.prisma.livestockGroup.findFirst({
             where: { companyId, OR: [...(isUuid(line.batchId) ? [{ id: line.batchId }] : []), { code: line.batchId }] },
-            select: { id: true, code: true },
+            select: { id: true, code: true, startedOn: true, currentFvlctsPerUnitKobo: true },
           });
           if (group) {
             await assertNoWithdrawal(this.prisma, { companyId, groupId: group.id, groupCode: group.code, on: new Date(payload.date), doing: 'sold' });
+            await this.biologicalAssets.assertValuedOn({
+              companyId,
+              groupId: group.id,
+              startedOn: group.startedOn,
+              currentFvlctsPerUnitKobo: group.currentFvlctsPerUnitKobo,
+              on: new Date(payload.date),
+            });
           }
         }
 

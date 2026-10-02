@@ -185,8 +185,8 @@ function FeedForm({
           <option value="" disabled>
             Snail or poultry
           </option>
-          <option value="snail">Snails (absorbs to S_Feed_Recovery_GL)</option>
-          <option value="poultry">Poultry (absorbs to P_Feed_Recovery_GL)</option>
+          <option value="snail">Snails (Feed Mill Recovery GL; analyzed by species)</option>
+          <option value="poultry">Poultry (Feed Mill Recovery GL; analyzed by species)</option>
         </select>
       </label>
 

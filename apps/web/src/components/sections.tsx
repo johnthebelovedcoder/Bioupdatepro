@@ -4,8 +4,8 @@ import { title } from '@/lib/modules';
 // Snail breeding has no model behind it yet, so it stays on the fixture and
 // keeps its Demo data badge. Poultry breeding (egg collection, incubation,
 // hatch) is real — see getEggBatches/getIncubationBatches below.
-import { getBreederGroups, getSnailBreedingCycles } from '@/lib/snail-breeding';
-import { RecordBreedingCycleForm, SnailHatchForm } from './snail-breeding-forms';
+import { getBreederGroups, getSnailBreedingCycles, getSnailEggCostSources } from '@/lib/snail-breeding';
+import { RecordBreedingCycleForm, SnailHatchForm, ValueLegacySnailEggCycleForm } from './snail-breeding-forms';
 import { getEggBatches, getIncubationBatches, getLayingGroups } from '@/lib/poultry-eggs';
 import {
   getFeeding,
@@ -491,7 +491,7 @@ export async function PerformanceSection({ module }: { module: SpeciesModule }) 
 export async function BreedingSection({ module }: { module: SpeciesModule }) {
   if (module.key === 'poultry') return <PoultryBreedingSection module={module} />;
 
-  const [cycles, breeders] = await Promise.all([getSnailBreedingCycles(), getBreederGroups()]);
+  const [cycles, breeders, eggCostSources] = await Promise.all([getSnailBreedingCycles(), getBreederGroups(), getSnailEggCostSources()]);
   const t = module.terms;
   const today = new Date().toISOString().slice(0, 10);
 
@@ -505,7 +505,7 @@ export async function BreedingSection({ module }: { module: SpeciesModule }) {
       <PageHeader
         title={module.nav.find((n) => n.slug === 'breeding')?.label ?? 'Breeding'}
         subtitle={`${t.breeding}s, the eggs laid, and what hatched`}
-        actions={<RecordBreedingCycleForm breeders={breeders} today={today} />}
+        actions={<RecordBreedingCycleForm breeders={breeders} costSources={eggCostSources} today={today} />}
       />
 
       <div className="stack">
@@ -570,7 +570,10 @@ export async function BreedingSection({ module }: { module: SpeciesModule }) {
                       <td className="num">{cycle.hatchRate !== null ? `${cycle.hatchRate}%` : '—'}</td>
                       <td>
                         {cycle.status === 'SET' ? (
-                          <SnailHatchForm cycleId={cycle.id} code={cycle.code} eggsLaid={cycle.eggsLaid} today={today} />
+                          <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+                            {cycle.eggValuePerUnitKobo === '0' ? <ValueLegacySnailEggCycleForm cycleId={cycle.id} code={cycle.code} costSources={eggCostSources} /> : null}
+                            <SnailHatchForm cycleId={cycle.id} code={cycle.code} eggsLaid={cycle.eggsLaid} today={today} />
+                          </div>
                         ) : (
                           <>
                             <span className={`badge ${cycle.status === 'HATCHED' ? 'badge-success' : 'badge-danger'}`}>

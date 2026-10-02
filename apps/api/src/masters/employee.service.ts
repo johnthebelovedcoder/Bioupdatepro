@@ -34,20 +34,23 @@ export interface SalarySnapshot {
     isTaxable: boolean;
     isPensionable: boolean;
     isNhfBase: boolean;
+    isBenefitInKind: boolean;
   }>;
   /** MONEY, all integer kobo. The bases Phase 9's engines read. */
   grossPayKobo: string;
   taxableGrossKobo: string;
   pensionableEmolumentsKobo: string;
-  /** MONEY. Basic salary alone — the NHF base, not gross. */
+  /** MONEY. Statutory income base for NHF, configured on salary components. */
   nhfBaseKobo: string;
+  /** Non-cash earnings remain in taxable/statutory bases but are not paid in cash. */
+  benefitInKindKobo: string;
 }
 
 /** The earning components a company gets on first use of payroll. */
 const DEFAULT_EARNINGS = [
   { code: 'BASIC', name: 'Basic salary', taxable: true, pensionable: true, nhfBase: true },
-  { code: 'HOUSING', name: 'Housing allowance', taxable: true, pensionable: true, nhfBase: false },
-  { code: 'TRANSPORT', name: 'Transport', taxable: true, pensionable: true, nhfBase: false },
+  { code: 'HOUSING', name: 'Housing allowance', taxable: true, pensionable: true, nhfBase: true },
+  { code: 'TRANSPORT', name: 'Transport', taxable: true, pensionable: true, nhfBase: true },
   { code: 'UTILITY', name: 'Utility', taxable: true, pensionable: false, nhfBase: false },
   { code: 'MEAL', name: 'Meal', taxable: true, pensionable: false, nhfBase: false },
   { code: 'RESPONSIBILITY', name: 'Responsibility', taxable: true, pensionable: false, nhfBase: false },
@@ -85,6 +88,7 @@ export class EmployeeService {
         isTaxable: true,
         isPensionable: true,
         isNhfBase: true,
+        isBenefitInKind: true,
       },
     });
     if (rows.length > 0) return rows;
@@ -96,7 +100,51 @@ export class EmployeeService {
       isTaxable: spec.taxable,
       isPensionable: spec.pensionable,
       isNhfBase: spec.nhfBase,
+      isBenefitInKind: false,
     }));
+  }
+
+  /** Configure a BIK component; employee values follow the existing effective-dated approval flow. */
+  async createBenefitInKindComponent(params: {
+    companyId: string; code: string; name: string; taxable: boolean;
+    pensionable: boolean; nhfBase: boolean; actorId: string;
+  }) {
+    const code = params.code.trim().toUpperCase();
+    if (!/^[A-Z0-9_-]{2,30}$/.test(code) || !params.name.trim()) {
+      throw new BadRequestException('Provide a valid component code and name.');
+    }
+    const version = await chartVersionOf(this.prisma, params.companyId);
+    const expenseNumber = numberFor(version, 'salaryExpense');
+    const payableNumber = numberFor(version, 'salaryPayable');
+    const [expense, payable, existing] = await Promise.all([
+      this.prisma.gLAccount.findFirst({
+        where: { companyId: params.companyId, accountNumber: expenseNumber, active: true, isPostingAccount: true }, select: { id: true },
+      }),
+      this.prisma.gLAccount.findFirst({
+        where: { companyId: params.companyId, accountNumber: payableNumber, active: true, isPostingAccount: true }, select: { id: true },
+      }),
+      this.prisma.salaryComponent.findUnique({ where: { companyId_code: { companyId: params.companyId, code } }, select: { id: true } }),
+    ]);
+    if (existing) throw new BadRequestException(`Salary component ${code} already exists.`);
+    if (!expense || !payable) {
+      throw new AccountingRuleViolation('Consolidated Reference §7 — Payroll setup',
+        `Configure active posting accounts ${expenseNumber} (salary expense) and ${payableNumber} (salary payable) before adding a benefit-in-kind component.`,
+        { expenseNumber, payableNumber });
+    }
+    const created = await this.prisma.salaryComponent.create({ data: {
+      companyId: params.companyId, code, name: params.name.trim(),
+      type: SalaryComponentType.EARNING, basis: SalaryComponentBasis.FIXED,
+      isBenefitInKind: true, isTaxable: params.taxable,
+      isPensionable: params.pensionable, isNhfBase: params.nhfBase,
+      isGrossPayComponent: true, expenseGlAccountId: expense.id, payableGlAccountId: payable.id,
+    } });
+    await this.audit.write({
+      transactionId: created.id, module: 'payroll', entityType: 'SalaryComponent',
+      entityId: created.id, status: 'ACTIVE', action: AuditAction.CREATE,
+      userId: params.actorId, comments: `Configured benefit-in-kind component ${code}.`,
+      newValue: { code, isBenefitInKind: true, isTaxable: params.taxable, isPensionable: params.pensionable, isNhfBase: params.nhfBase },
+    });
+    return created;
   }
 
   constructor(
@@ -531,6 +579,7 @@ export class EmployeeService {
     let taxable = 0n;
     let pensionable = 0n;
     let nhfBase = 0n;
+    let benefitInKind = 0n;
 
     const components = assignments
       .filter((a) => a.salaryComponent.type === SalaryComponentType.EARNING)
@@ -540,6 +589,7 @@ export class EmployeeService {
         if (a.salaryComponent.isTaxable) taxable += amount;
         if (a.salaryComponent.isPensionable) pensionable += amount;
         if (a.salaryComponent.isNhfBase) nhfBase += amount;
+        if (a.salaryComponent.isBenefitInKind) benefitInKind += amount;
 
         return {
           code: a.salaryComponent.code,
@@ -549,6 +599,7 @@ export class EmployeeService {
           isTaxable: a.salaryComponent.isTaxable,
           isPensionable: a.salaryComponent.isPensionable,
           isNhfBase: a.salaryComponent.isNhfBase,
+          isBenefitInKind: a.salaryComponent.isBenefitInKind,
         };
       });
 
@@ -561,6 +612,7 @@ export class EmployeeService {
       taxableGrossKobo: taxable.toString(),
       pensionableEmolumentsKobo: pensionable.toString(),
       nhfBaseKobo: nhfBase.toString(),
+      benefitInKindKobo: benefitInKind.toString(),
     };
   }
 

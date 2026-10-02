@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import { allocateKobo, Kobo } from '../common/money';
+import { allocateKobo, kobo, Kobo } from '../common/money';
 import { AccountingRuleViolation } from '../common/errors';
 
 export type CostAllocationMethod =
@@ -20,6 +20,8 @@ export interface AllocationOutput {
   costsToSellPerUnitKobo?: bigint;
   /** Required for WEIGHT. */
   weight?: Decimal.Value;
+  /** Immaterial by-products carry zero cost and are excluded from the joint-cost pool. */
+  isImmaterialByProduct?: boolean;
 }
 
 export interface AllocatedOutput {
@@ -28,18 +30,15 @@ export interface AllocatedOutput {
   quantity: string;
   allocationWeightKobo: string;
   allocatedCostKobo: string;
+  isImmaterialByProduct: boolean;
 }
 
 /**
  * Splits one order's residual WIP cost across its joint/by-product outputs
  * (US-897-019).
  *
- * The addendum names five methods; the client's own approved posting rules
- * (PCR-057/079 — "Allocated standard joint cost using approved NRV method")
- * name NRV specifically, so that is the one this pass actually implements,
- * plus the trivial WEIGHT case. The other three throw rather than fake a
- * result — same honesty this codebase already applies everywhere a spec
- * names something with no data behind it yet.
+ * Sales value at split-off is the default joint-product method. By-products
+ * are measured at NRV and deducted from the pool before the main-product split.
  *
  * `totalKobo` MUST be the residual WIP after abnormal loss is removed, not
  * an independently priced total — that is what makes Rule 7
@@ -61,7 +60,39 @@ export class CostAllocationService {
       );
     }
 
-    const weights = params.outputs.map((output, index) => this.weightOf(params.method, output, index));
+    // IAS 2's by-product policy is independent of how the main products are
+    // allocated: value material by-products at NRV and deduct it from the
+    // joint-cost pool first. Immaterial by-products remain at zero cost and
+    // their proceeds are recognized as other operating income on sale.
+    if (params.outputs.some((o) => o.outputType === 'BY_PRODUCT')) {
+      const byProducts = params.outputs.filter((o) => o.outputType === 'BY_PRODUCT' && !o.isImmaterialByProduct);
+      const immaterial = params.outputs.filter((o) => o.outputType === 'BY_PRODUCT' && o.isImmaterialByProduct);
+      const mainProducts = params.outputs.filter((o) => o.outputType === 'MAIN');
+      if (!mainProducts.length) throw new AccountingRuleViolation('Consolidated Reference §9 — Joint-cost allocation', 'A by-product cannot be the only output in a joint-cost allocation.', {});
+      const byProductNrv = byProducts.map((output, index) => {
+        if (output.salePricePerUnitKobo === undefined) throw new AccountingRuleViolation('Consolidated Reference §9 — By-product valuation', `By-product ${index + 1} needs an NRV price.`, { method: params.method });
+        const nrvPerUnit = new Decimal(output.salePricePerUnitKobo.toString()).minus(new Decimal((output.costsToSellPerUnitKobo ?? 0n).toString()));
+        return BigInt((nrvPerUnit.lessThan(0) ? new Decimal(0) : nrvPerUnit).mul(output.quantity).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+      });
+      const byProductTotal = byProductNrv.reduce((sum, value) => sum + value, 0n);
+      const recognizedByProductValue = byProductTotal > params.totalKobo ? params.totalKobo : byProductTotal;
+      const mainAllocations = this.allocate({ method: params.method, totalKobo: kobo(params.totalKobo - recognizedByProductValue), outputs: mainProducts });
+      let remaining = recognizedByProductValue;
+      const byProductAllocations = byProducts.map((output, index) => {
+        const value = byProductNrv[index] ?? 0n;
+        const allocated = value > remaining ? remaining : value;
+        remaining -= allocated;
+        return { itemId: output.itemId, outputType: output.outputType, quantity: new Decimal(output.quantity).toFixed(6), allocationWeightKobo: value.toString(), allocatedCostKobo: allocated.toString(), isImmaterialByProduct: false };
+      });
+      return [...mainAllocations, ...byProductAllocations, ...immaterial.map((output) => ({
+        itemId: output.itemId, outputType: output.outputType,
+        quantity: new Decimal(output.quantity).toFixed(6), allocationWeightKobo: '0',
+        allocatedCostKobo: '0', isImmaterialByProduct: true,
+      }))];
+    }
+
+    const allocatable = params.outputs.filter((o) => !o.isImmaterialByProduct);
+    const weights = allocatable.map((output, index) => this.weightOf(params.method, output, index));
 
     if (weights.every((w) => w.isZero())) {
       throw new AccountingRuleViolation(
@@ -74,7 +105,7 @@ export class CostAllocationService {
 
     const allocated = allocateKobo(params.totalKobo, weights);
 
-    return params.outputs.map((output, index) => ({
+    const allocatedOutputs = allocatable.map((output, index) => ({
       itemId: output.itemId,
       outputType: output.outputType,
       quantity: new Decimal(output.quantity).toFixed(6),
@@ -82,7 +113,13 @@ export class CostAllocationService {
         (weights[index] ?? new Decimal(0)).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0),
       ).toString(),
       allocatedCostKobo: (allocated[index] ?? 0n).toString(),
+      isImmaterialByProduct: false,
     }));
+    return [...allocatedOutputs, ...params.outputs.filter((o) => o.isImmaterialByProduct).map((output) => ({
+      itemId: output.itemId, outputType: output.outputType,
+      quantity: new Decimal(output.quantity).toFixed(6), allocationWeightKobo: '0',
+      allocatedCostKobo: '0', isImmaterialByProduct: true,
+    }))];
   }
 
   private weightOf(method: CostAllocationMethod, output: AllocationOutput, index: number): Decimal {
@@ -113,6 +150,17 @@ export class CostAllocationService {
       );
       const clamped = netPerUnit.lessThan(0) ? new Decimal(0) : netPerUnit;
       return clamped.mul(quantity);
+    }
+
+    if (method === 'SALES_VALUE') {
+      if (output.salePricePerUnitKobo === undefined) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §9 — Joint-cost allocation',
+          `Output ${index + 1} needs an approved split-off sales price for SALES_VALUE allocation.`,
+          { method },
+        );
+      }
+      return new Decimal(output.salePricePerUnitKobo.toString()).mul(quantity);
     }
 
     throw new AccountingRuleViolation(

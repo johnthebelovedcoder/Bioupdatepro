@@ -154,12 +154,14 @@ export class ClosingController {
   }
 
   @OwnedRecord('periodReopenRequest', 'requestId')
+  @Roles('CFO')
   @Post('period/reopen-requests/:requestId/approve')
   async approveReopen(@Param('requestId') requestId: string, @CurrentUser() actor: WorkflowActor) {
     return this.periods.approveReopenRequest({ reopenRequestId: requestId, actor });
   }
 
   @OwnedRecord('periodReopenRequest', 'requestId')
+  @Roles('CFO')
   @Post('period/reopen-requests/:requestId/reopen')
   async reopen(@Param('requestId') requestId: string, @CurrentUser() actor: WorkflowActor) {
     return this.periods.reopen({ reopenRequestId: requestId, actor });

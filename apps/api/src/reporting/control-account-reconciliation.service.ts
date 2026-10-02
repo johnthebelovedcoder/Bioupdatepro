@@ -189,13 +189,11 @@ export class ControlAccountReconciliationService {
       const expected = -open.reduce((n, o) => n + o.standardConversionCostKobo, 0n);
       rows.push(this.row(meta.accountNumber, meta.name, balanceOf(meta.accountNumber), expected, `${open.length} unsettled of ${cycleOrders.length} production orders`));
     }
-    // Feed-mill recovery, by species (219831 snail, 219832 poultry; 219830 before the split).
+    // Feed-mill recovery uses one GL account, with analysis held in dimensions.
     const feed = orders.filter((o) => o.processingCycle === 'FEED_MILL');
-    for (const [number, name, species] of [['219830', 'Feed Mill Recovery GL', null], ['219831', 'S_Feed_Recovery_GL', 'snail'], ['219832', 'P_Feed_Recovery_GL', 'poultry']] as const) {
-      const mine = feed.filter((o) => (species === null ? !o.speciesKey : o.speciesKey === species));
-      if (mine.length === 0) continue;
-      const open = mine.filter((o) => o.settledAt === null);
-      rows.push(this.row(number, name, balanceOf(number), -open.reduce((n, o) => n + o.standardConversionCostKobo, 0n), `${open.length} unsettled of ${mine.length} feed orders`));
+    if (feed.length > 0) {
+      const open = feed.filter((o) => o.settledAt === null);
+      rows.push(this.row('219830', 'Feed Mill Recovery GL', balanceOf('219830'), -open.reduce((n, o) => n + o.standardConversionCostKobo, 0n), `${open.length} unsettled of ${feed.length} feed orders`));
     }
     return rows;
   }

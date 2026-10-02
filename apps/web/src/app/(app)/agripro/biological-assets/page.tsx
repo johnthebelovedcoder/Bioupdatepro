@@ -5,6 +5,7 @@ import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
 import { IconBox } from '@/components/icons';
 import { RetryPostingButton } from '@/components/retry-posting-button';
+import { CostBasisReviewForm } from '@/components/cost-basis-review-form';
 
 export const metadata = { title: 'Biological assets — BioAssetPro' };
 
@@ -71,6 +72,7 @@ export default async function BiologicalAssetsPage() {
                       <th className="right" style={{ width: 160 }}>
                         Carrying value
                       </th>
+                      <th style={{ width: 230 }}>Measurement basis</th>
                       <th style={{ width: 140 }}>Ledger</th>
                     </tr>
                   </thead>
@@ -88,6 +90,15 @@ export default async function BiologicalAssetsPage() {
                         </td>
                         <td className="num">
                           {g.carryingValueKobo ? formatNaira(g.carryingValueKobo) : '—'}
+                        </td>
+                        <td>
+                          <span className="badge">{g.measurementBasis === 'ATTRIBUTABLE_COST' ? 'Attributable cost' : 'FVLCTS'}</span>
+                          {g.measurementBasis === 'ATTRIBUTABLE_COST' ? (
+                            <div className="stack" style={{ gap: 'var(--sp-1)', marginTop: 'var(--sp-2)' }}>
+                              <span className="faint">Reviewed {g.fairValueReliabilityReviewedOn ?? 'not yet reviewed'}</span>
+                              <CostBasisReviewForm groupId={g.id} code={g.code} reviewedOn={g.fairValueReliabilityReviewedOn} />
+                            </div>
+                          ) : null}
                         </td>
                         <td>
                           {g.acquisitionPosted ? (

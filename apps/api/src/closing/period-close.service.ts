@@ -404,6 +404,59 @@ export class PeriodCloseService {
           : `${openPayroll} payroll run(s) for this period have not been posted.`,
     });
 
+    // IAS 41: remeasure living biological assets at each reporting date. Make
+    // period-end evidence a close control so a monthly/financial close cannot
+    // silently carry forward stale per-unit values. Harvest/sale dates have a
+    // separate pre-disposal valuation gate in BiologicalAssetService.
+    const biologicalGroups = await this.prisma.livestockGroup.findMany({
+      where: {
+        companyId,
+        status: 'ACTIVE',
+        population: { gt: 0 },
+        startedOn: { lte: period.endDate },
+        OR: [{ closedOn: null }, { closedOn: { gte: period.endDate } }],
+      },
+      select: {
+        id: true,
+        code: true,
+        measurementBasis: true,
+        fairValueUnreliableReason: true,
+        fairValueReliabilityReviewedOn: true,
+        fairValueReliabilityEvidence: true,
+      },
+      orderBy: { code: 'asc' },
+    });
+    const endDateValuations = biologicalGroups.length
+      ? await this.prisma.biologicalAssetValuation.findMany({
+          where: {
+            companyId,
+            groupId: { in: biologicalGroups.map((group) => group.id) },
+            valuationDate: period.endDate,
+            status: 'POSTED',
+          },
+          select: { groupId: true },
+        })
+      : [];
+    const valuedGroupIds = new Set(endDateValuations.map((valuation) => valuation.groupId));
+    const fairValueGroups = biologicalGroups.filter((group) => group.measurementBasis !== 'ATTRIBUTABLE_COST');
+    const unvaluedGroups = fairValueGroups.filter((group) => !valuedGroupIds.has(group.id));
+    const unreviewedCostGroups = biologicalGroups.filter((group) => group.measurementBasis === 'ATTRIBUTABLE_COST'
+      && (group.fairValueReliabilityReviewedOn?.getTime() !== period.endDate.getTime()
+        || !group.fairValueUnreliableReason?.trim()
+        || !group.fairValueReliabilityEvidence?.trim()));
+    findings.push({
+      code: 'BIOLOGICAL_ASSETS_VALUED_AT_PERIOD_END',
+      name: 'Biological assets measured or reviewed at the reporting date',
+      blocking: true,
+      passed: unvaluedGroups.length === 0 && unreviewedCostGroups.length === 0,
+      detail: unvaluedGroups.length === 0 && unreviewedCostGroups.length === 0
+        ? `${fairValueGroups.length} active population(s) have posted FVLCTS valuations and ${biologicalGroups.length - fairValueGroups.length} cost-basis population(s) have Finance reliability reviews, all dated ${period.endDate.toISOString().slice(0, 10)}.`
+        : [
+            unvaluedGroups.length ? `Post an evidenced FVLCTS valuation dated ${period.endDate.toISOString().slice(0, 10)} for: ${unvaluedGroups.map((group) => group.code).join(', ')}.` : null,
+            unreviewedCostGroups.length ? `Finance must review why fair value remains clearly unreliable dated ${period.endDate.toISOString().slice(0, 10)} for: ${unreviewedCostGroups.map((group) => group.code).join(', ')}.` : null,
+          ].filter(Boolean).join(' '),
+    });
+
     // --- Goods received but not invoiced -----------------------------------
     // Not blocking: GRNI is a legitimate balance to carry. Worth surfacing
     // because an unexpectedly large one usually means invoices are missing.
@@ -560,6 +613,9 @@ export class PeriodCloseService {
     reopenRequestId: string;
     actor: WorkflowActor;
   }) {
+    if (!params.actor.roles.includes('CFO')) {
+      throw new AccountingRuleViolation('Consolidated Reference §8 — Period reopen', 'Only the CFO may authorize reopening a period.', {});
+    }
     const request = await this.prisma.periodReopenRequest.findUniqueOrThrow({
       where: { id: params.reopenRequestId },
       include: { financialPeriod: { include: { financialYear: true } } },
@@ -667,6 +723,9 @@ export class PeriodCloseService {
     reopenRequestId: string;
     actor: WorkflowActor;
   }) {
+    if (!params.actor.roles.includes('CFO')) {
+      throw new AccountingRuleViolation('Consolidated Reference §8 — Period reopen', 'Only the CFO may approve a period reopen request.', {});
+    }
     const request = await this.prisma.periodReopenRequest.findUniqueOrThrow({
       where: { id: params.reopenRequestId },
     });

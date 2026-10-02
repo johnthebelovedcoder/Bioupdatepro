@@ -390,6 +390,7 @@ const WORKFLOW_ROLES = {
   financeManager: 'FINANCE_MANAGER',
   controller: 'FINANCE_CONTROLLER',
   cfo: 'CFO',
+  md: 'MD_CEO',
   administrator: 'ADMINISTRATOR',
 } as const;
 
@@ -399,19 +400,16 @@ const WORKFLOW_ROLES = {
  *   Farm Manager        up to      ₦250,000
  *   Finance Manager     up to    ₦2,000,000
  *   Finance Controller  up to   ₦10,000,000
- *   CFO                 unlimited
+ *   MD/CEO               unlimited
  *
  * Each figure is that rung's approval ceiling: a document climbs from level 1
- * up to the first rung whose ceiling covers it. The top rung is CFO, not CEO —
- * `Posting_Control` names "CFO/Controller" and "CFO/Board authority" as the
- * threshold-holder 60+ times; "CEO" appears in the workbook only as a report
- * recipient alongside Controller/CFO, never as an approver.
+ * up to the first rung whose ceiling covers it.
  */
 const APPROVAL_LADDER = [
   { level: 1, roleCode: WORKFLOW_ROLES.farmManager, name: 'Farm Manager', maxAmountKobo: 250_000_00n },
-  { level: 2, roleCode: WORKFLOW_ROLES.financeManager, name: 'Finance Manager', maxAmountKobo: 2_000_000_00n },
-  { level: 3, roleCode: WORKFLOW_ROLES.controller, name: 'Finance Controller', maxAmountKobo: 10_000_000_00n },
-  { level: 4, roleCode: WORKFLOW_ROLES.cfo, name: 'CFO', maxAmountKobo: null },
+  { level: 2, roleCode: WORKFLOW_ROLES.financeManager, name: 'Finance/Operations Manager', maxAmountKobo: 2_000_000_00n },
+  { level: 3, roleCode: WORKFLOW_ROLES.controller, name: 'FC/CFO', maxAmountKobo: 10_000_000_00n },
+  { level: 4, roleCode: WORKFLOW_ROLES.md, name: 'MD/CEO', maxAmountKobo: null },
 ];
 
 /**
@@ -981,14 +979,12 @@ async function seedMasters(companyId: string, accounts: Record<string, string>) 
   }
 
   // --- Salary components (§7 Payroll Setup) --------------------------------
-  // Every §7 earning and deduction is a row. The pensionable flags follow the
-  // statutory workbook exactly: the pension base is Basic + Housing +
-  // Transport, NOT gross — and the NHF base is Basic ALONE
-  // (`NG_PAYE_2026!K5` = `Basic x rate`, not gross and not the pension base).
+  // Every §7 earning and deduction is a row. Pension and NHF use Basic,
+  // Housing and Transport as the applicable statutory income base.
   const SALARY_COMPONENTS = [
     { code: 'BASIC', name: 'Basic', type: 'EARNING', taxable: true, pensionable: true, nhfBase: true },
-    { code: 'HOUSING', name: 'Housing', type: 'EARNING', taxable: true, pensionable: true, nhfBase: false },
-    { code: 'TRANSPORT', name: 'Transport', type: 'EARNING', taxable: true, pensionable: true, nhfBase: false },
+    { code: 'HOUSING', name: 'Housing', type: 'EARNING', taxable: true, pensionable: true, nhfBase: true },
+    { code: 'TRANSPORT', name: 'Transport', type: 'EARNING', taxable: true, pensionable: true, nhfBase: true },
     { code: 'UTILITY', name: 'Utility', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },
     { code: 'MEAL', name: 'Meal', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },
     { code: 'RESPONSIBILITY', name: 'Responsibility', type: 'EARNING', taxable: true, pensionable: false, nhfBase: false },

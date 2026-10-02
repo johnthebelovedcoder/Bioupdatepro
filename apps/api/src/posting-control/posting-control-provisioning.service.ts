@@ -51,6 +51,18 @@ interface RuleRow {
   basis: string; dimensions: string; maker: string; approver: string; blocking: string;
   reversal: string; reportImpact: string; status: string;
 }
+type ApprovedRow = Record<string, string | number | null>;
+interface ApprovedWorkbook {
+  source: string;
+  sheets: {
+    accounts: ApprovedRow[];
+    postingControls: ApprovedRow[];
+    postingKeys: ApprovedRow[];
+    postingGroups: ApprovedRow[];
+    accountMaps: ApprovedRow[];
+    costCentres: ApprovedRow[];
+  };
+}
 
 /** Copied from seed-posting-control.ts — see its own comments for each entry's reason. */
 const DYNAMIC_RESOLUTION: Record<string, string> = {
@@ -107,10 +119,14 @@ export class PostingControlProvisioningService {
   ) {}
 
   async status(companyId: string) {
-    const [rules, keys, company] = await Promise.all([
+    const [rules, keys, company, approvedMaps, approvedLines, approvedAccounts, approvedCentres] = await Promise.all([
       this.prisma.postingRule.count({ where: { companyId } }),
       this.prisma.postingKey.count({ where: { companyId } }),
       this.prisma.company.findUnique({ where: { id: companyId }, select: { chartVersion: true } }),
+      this.prisma.approvedPostingMap.count({ where: { companyId } }),
+      this.prisma.approvedPostingControlLine.count({ where: { companyId } }),
+      this.prisma.gLAccount.count({ where: { companyId, approvedStatement: { not: null } } }),
+      this.prisma.costCentre.count({ where: { companyId, approvedApplication: { not: null } } }),
     ]);
     const data = load();
     return {
@@ -119,6 +135,18 @@ export class PostingControlProvisioningService {
       keys,
       expectedRules: data.rules.length,
       expectedKeys: data.keys.length,
+      approvedEngine: {
+        source: data.approved.source,
+        accounts: approvedAccounts,
+        expectedAccounts: data.approved.sheets.accounts.filter((r) => text(r.Status) === 'Active').length,
+        accountMaps: approvedMaps,
+        expectedAccountMaps: data.approved.sheets.accountMaps.length,
+        postingControlLines: approvedLines,
+        expectedPostingControlLines: data.approved.sheets.postingControls.length,
+        costCentres: approvedCentres,
+        expectedCostCentres: data.approved.sheets.costCentres.length,
+        loaded: approvedMaps >= data.approved.sheets.accountMaps.length && approvedLines >= data.approved.sheets.postingControls.length,
+      },
       /** LEGACY until the farm is moved to the six-digit chart (ChartUnificationService). */
       chartVersion: company?.chartVersion ?? 'LEGACY',
     };
@@ -126,6 +154,7 @@ export class PostingControlProvisioningService {
 
   async provision(companyId: string, actorId: string | null) {
     const data = load();
+    const approved = await this.loadApprovedEngine(companyId, data.approved);
     const chart = await this.loadSpecChart(companyId, data);
     const control = await this.loadKeysAndRules(companyId, data);
 
@@ -141,11 +170,109 @@ export class PostingControlProvisioningService {
         comments:
           `Loaded ${control.rules} posting rules and ${control.keys} keys ` +
           `(${control.linked} linked to an account); ${chart.created} specification accounts added.`,
-        metadata: { ...chart, ...control },
+        metadata: { ...chart, ...control, approved },
       });
     }
     this.logger.log(`Company ${companyId}: ${control.rules} rules, ${control.keys} keys, ${chart.created} accounts added.`);
-    return { accountsCreated: chart.created, accountsExisting: chart.existing, ...control };
+    return { accountsCreated: chart.created, accountsExisting: chart.existing, ...control, approved };
+  }
+
+  /** Import the approved workbook chart, account maps, posting lines and centres without remapping old posted GL balances. */
+  private async loadApprovedEngine(companyId: string, workbook: ApprovedWorkbook) {
+    const accounts = workbook.sheets.accounts.filter((r) => text(r.Status) === 'Active');
+    const accountIds = new Map<string, string>();
+    for (const row of accounts) {
+      const code = text(row['GL Code']);
+      const accountType = approvedAccountType(text(row['Account Type']), code);
+      const normalBalance = text(row['Normal Balance']).toLowerCase().startsWith('credit') ? NormalBalance.CREDIT : NormalBalance.DEBIT;
+      const flags = {
+        name: text(row['GL Name']), accountType, normalBalance,
+        isPostingAccount: yes(row['Posting Account']), isControlAccount: yes(row['Control Account']),
+        manualJournalAllowed: yes(row['Manual Journal']),
+        approvedStatement: text(row.Statement), ifrsCategory: text(row['IFRS Category']),
+        ifrsLine: text(row['IFRS Line / Subcategory']), approvedPostingGroup: text(row['Posting Group']),
+        applicationScope: text(row['Application Scope']), businessStream: text(row['Business Stream']),
+        legalEntityScope: text(row['Legal Entity']), costCentreRule: text(row['Cost Centre Rule']),
+        approvedEffectiveFrom: dateValue(row['Effective Date']),
+        requiresCostCentre: text(row['Cost Centre Rule']).toLowerCase().startsWith('required'),
+        active: true,
+      };
+      const account = await this.prisma.gLAccount.upsert({
+        where: { companyId_accountNumber: { companyId, accountNumber: code } },
+        create: { companyId, accountNumber: code, ...flags },
+        update: flags,
+        select: { id: true },
+      });
+      accountIds.set(code, account.id);
+    }
+
+    const maps = workbook.sheets.accountMaps;
+    for (const row of maps) {
+      const date = dateValue(row['Effective Date']);
+      if (!date) continue;
+      const application = text(row.Application), postingGroup = text(row['Posting Group']), postingKey = text(row['Posting Key']);
+      const accountCode = text(row['GL Code']);
+      await this.prisma.approvedPostingMap.upsert({
+        where: { companyId_application_postingGroup_postingKey_effectiveFrom: { companyId, application, postingGroup, postingKey, effectiveFrom: date } },
+        create: {
+          companyId, application, postingGroup, postingKey, effectiveFrom: date,
+          mapKey: text(row['Map Key']), accountCode, glAccountId: accountIds.get(accountCode) ?? null,
+          status: text(row.Status), resolutionNote: text(row['Resolution Note']) || null,
+        },
+        update: {
+          mapKey: text(row['Map Key']), accountCode, glAccountId: accountIds.get(accountCode) ?? null,
+          status: text(row.Status), resolutionNote: text(row['Resolution Note']),
+        },
+      });
+    }
+
+    const controls = workbook.sheets.postingControls;
+    for (const row of controls) {
+      const application = text(row.Application), applicationRuleId = text(row['Application Rule ID']);
+      const lineNumber = intValue(row['Line No.']);
+      await this.prisma.approvedPostingControlLine.upsert({
+        where: { companyId_application_applicationRuleId_lineNumber: { companyId, application, applicationRuleId, lineNumber } },
+        create: controlLineData(companyId, row), update: controlLineData(companyId, row),
+      });
+    }
+
+    const centres = workbook.sheets.costCentres;
+    const centreIds = new Map<string, string>();
+    for (const row of centres) {
+      const code = text(row['Cost Centre Code']);
+      const centre = await this.prisma.costCentre.upsert({
+        where: { companyId_code: { companyId, code } },
+        create: {
+          companyId, code, name: text(row['Cost Centre Name']), effectiveDate: dateValue(new Date())!,
+          approvedApplication: text(row.Application), businessUnit: text(row['Business Unit']),
+          functionName: text(row.Function), activityStage: text(row['Activity or Stage']),
+          location: text(row.Location), responsibilityOwner: text(row['Responsibility Owner']),
+          postingAllowed: yes(row['Posting Allowed']), active: text(row.Status) === 'Active',
+        },
+        update: {
+          name: text(row['Cost Centre Name']), approvedApplication: text(row.Application),
+          businessUnit: text(row['Business Unit']), functionName: text(row.Function),
+          activityStage: text(row['Activity or Stage']), location: text(row.Location),
+          responsibilityOwner: text(row['Responsibility Owner']), postingAllowed: yes(row['Posting Allowed']),
+          active: text(row.Status) === 'Active',
+        }, select: { id: true },
+      });
+      centreIds.set(code, centre.id);
+    }
+    for (const row of centres) {
+      const code = text(row['Cost Centre Code']), parentCode = text(row['Parent Cost Centre']);
+      const parentId = centreIds.get(parentCode);
+      await this.prisma.costCentre.update({
+        where: { id: centreIds.get(code)! },
+        data: { parentId: parentId ?? null },
+      });
+    }
+
+    return {
+      source: workbook.source, accounts: accounts.length, accountMaps: maps.length,
+      postingControlLines: controls.length, costCentres: centres.length,
+      mappedAccounts: maps.filter((row) => accountIds.has(text(row['GL Code']))).length,
+    };
   }
 
   /* --- 1. The specification chart ------------------------------------- */
@@ -268,7 +395,7 @@ export class PostingControlProvisioningService {
 
 /* --- The workbook files ------------------------------------------------ */
 
-interface Loaded { coa: CoaRow[]; keys: KeyRow[]; rules: RuleRow[] }
+interface Loaded { coa: CoaRow[]; keys: KeyRow[]; rules: RuleRow[]; approved: ApprovedWorkbook }
 let cache: Loaded | null = null;
 
 /** Find packages/database/src from wherever the API is running (src in dev, dist in production). */
@@ -283,12 +410,49 @@ function load(): Loaded {
         keys: KeyRow[];
       };
       const coa = JSON.parse(readFileSync(join(candidate, 'recommended-coa.json'), 'utf8')) as CoaRow[];
-      cache = { coa, keys: control.keys, rules: control.rules };
+      const approved = JSON.parse(readFileSync(join(candidate, 'approved-posting-engine.json'), 'utf8')) as ApprovedWorkbook;
+      cache = { coa, keys: control.keys, rules: control.rules, approved };
       return cache;
     }
     dir = dirname(dir);
   }
   throw new Error('Could not find packages/database/src/posting-control.json from ' + __dirname);
+}
+
+function text(value: unknown): string { return value === null || value === undefined ? '' : String(value).trim(); }
+function yes(value: unknown): boolean { return text(value).toLowerCase() === 'yes'; }
+function intValue(value: unknown): number { const number = Number(value); return Number.isInteger(number) ? number : 0; }
+function dateValue(value: unknown): Date | null {
+  const date = value instanceof Date ? value : value ? new Date(String(value)) : null;
+  return date && Number.isFinite(date.getTime()) ? new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())) : null;
+}
+function approvedAccountType(type: string, code: string): AccountType {
+  const kind = type.toLowerCase();
+  if (kind === 'asset' || kind === 'contra asset') return AccountType.ASSET;
+  if (kind === 'liability') return AccountType.LIABILITY;
+  if (kind === 'equity') return AccountType.EQUITY;
+  if (kind === 'income') return AccountType.REVENUE;
+  if (kind === 'expense' || kind === 'contra expense') return AccountType.EXPENSE;
+  // Mixed settlement/clearing and suspense accounts are non-posting by policy;
+  // their statement class follows the approved balance-sheet caption.
+  if (kind === 'asset/liability') return code.startsWith('1') ? AccountType.ASSET : AccountType.LIABILITY;
+  throw new Error(`Unsupported approved COA account type "${type}" for ${code}.`);
+}
+function controlLineData(companyId: string, row: ApprovedRow) {
+  return {
+    companyId, application: text(row.Application), applicationRuleId: text(row['Application Rule ID']),
+    baseRuleId: text(row['Base Rule ID']), module: text(row['Module / Category']),
+    businessEvent: text(row['Business Event']), sequence: intValue(row.Sequence),
+    sourceDocument: text(row['Source Document']), requiredStatus: text(row['Required Status']),
+    requiredFields: text(row['Required Fields Before Posting']), lineNumber: intValue(row['Line No.']),
+    side: text(row.Side), postingKey: text(row['Posting Key']), groupSource: text(row['Group Source']),
+    postingGroup: text(row['Resolved Posting Group']), mapKey: text(row['Unique Link Key']),
+    resolvedGl: text(row['Resolved GL']), amountBasis: text(row['Amount Basis']),
+    reversalCorrection: text(row['Reversal / Correction']), blockingControls: text(row['Blocking Controls']),
+    postingMode: text(row['Posting Mode']), auditRequirements: text(row['Audit Requirements']),
+    costCentreRequirement: text(row['Cost Centre Requirement']), costCentreSource: text(row['Cost Centre Source']),
+    costCentreValidation: text(row['Cost Centre Validation']),
+  };
 }
 
 /* --- Copied from seed-spec-coa.ts / seed-posting-control.ts ------------ */
@@ -300,9 +464,6 @@ function load(): Loaded {
 const EXTRA_ACCOUNTS: Array<[string, string]> = [
   ['420210', 'Agricultural Produce Gain — Eggs'], // PCR-067-CR "130210/420210"
   ['623100', 'Feed Mill Overhead Expense'], // PCR-031-DR "Processing/Feed-mill OH Expense"
-  // Feed-mill recovery by species (FeedMill_Setup; client decision 2026-09-28). No spec number.
-  ['219831', 'S_Feed_Recovery_GL'],
-  ['219832', 'P_Feed_Recovery_GL'],
   ['125200', 'WHT Receivable'], // the old chart's 1602, which the spec chart lacks
   ['690100', 'Operating Expenses'], // the old chart's 5401, which the spec chart lacks
   ['630200', 'Impairment Loss - Fixed Assets'], // IAS 36; the spec chart names no impairment account

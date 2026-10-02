@@ -213,11 +213,14 @@ export class DelegationService {
         reason: `User holds ${roleAdministrator}.`,
       };
     }
-    if (params.userRoles.includes(params.roleCode)) {
+    const acceptedRoles = params.roleCode === 'FINANCE_CONTROLLER'
+      ? ['FINANCE_CONTROLLER', 'CFO']
+      : [params.roleCode];
+    if (acceptedRoles.some((role) => params.userRoles.includes(role))) {
       return {
         permitted: true,
         onBehalfOfId: null,
-        reason: `User holds role ${params.roleCode}.`,
+        reason: `User holds an accepted role for ${params.roleCode}.`,
       };
     }
 
@@ -239,7 +242,7 @@ export class DelegationService {
 
     const client = params.tx ?? this.prisma;
     const holders = await client.user.findMany({
-      where: { id: { in: delegators }, active: true, roles: { has: params.roleCode } },
+      where: { id: { in: delegators }, active: true, roles: { hasSome: acceptedRoles } },
       select: { id: true, fullName: true },
     });
 

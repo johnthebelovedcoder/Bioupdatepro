@@ -348,16 +348,16 @@ export class ProductionOrderController {
       standardConversionCostKobo?: string;
       /** Actual hours per routing operation, by operation name or line id. */
       actualHours?: Record<string, string | number>;
-      actualLabourCostKobo: string;
-      actualOverheadCostKobo: string;
+      actualLabourCostKobo?: string;
+      actualOverheadCostKobo?: string;
     },
   ) {
     return this.orders.confirmConversion({
       productionOrderId: id,
       ...(body.standardConversionCostKobo ? { standardConversionCostKobo: BigInt(body.standardConversionCostKobo) } : {}),
       ...(body.actualHours ? { actualHours: body.actualHours } : {}),
-      actualLabourCostKobo: BigInt(body.actualLabourCostKobo),
-      actualOverheadCostKobo: BigInt(body.actualOverheadCostKobo),
+      actualLabourCostKobo: BigInt(body.actualLabourCostKobo ?? '0'),
+      actualOverheadCostKobo: BigInt(body.actualOverheadCostKobo ?? '0'),
       actor,
     });
   }
@@ -428,6 +428,7 @@ export class ProductionOrderController {
       outputs: Array<{
         itemId: string;
         outputType: 'MAIN' | 'BY_PRODUCT';
+        isImmaterialByProduct?: boolean;
         quantity: string;
         salePricePerUnitKobo?: string;
         costsToSellPerUnitKobo?: string;
@@ -447,6 +448,7 @@ export class ProductionOrderController {
     const outputs: AllocationOutput[] = body.outputs.map((o) => ({
       itemId: o.itemId,
       outputType: o.outputType,
+      isImmaterialByProduct: o.isImmaterialByProduct === true,
       quantity: o.quantity,
       salePricePerUnitKobo: o.salePricePerUnitKobo !== undefined ? BigInt(o.salePricePerUnitKobo) : undefined,
       costsToSellPerUnitKobo: o.costsToSellPerUnitKobo !== undefined ? BigInt(o.costsToSellPerUnitKobo) : undefined,
@@ -468,7 +470,7 @@ export class ProductionOrderController {
     });
   }
 
-  @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT')
+  @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @OwnedRecord('productionOrder', 'id')
   @Post(':id/settle')
   async settle(@Param('id') id: string, @CurrentUser() actor: WorkflowActor, @Body() body: { varianceReason?: string } = {}) {

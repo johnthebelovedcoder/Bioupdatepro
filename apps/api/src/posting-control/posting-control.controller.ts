@@ -85,6 +85,24 @@ export class PostingControlController {
     return this.provisioning.status(companyId);
   }
 
+  @AnyRole('The approved workbook account map for an application posting group and purpose.')
+  @Get('approved-account')
+  async approvedAccount(
+    @CurrentCompany() companyId: string,
+    @Query('application') application: string,
+    @Query('postingGroup') postingGroup: string,
+    @Query('postingKey') postingKey: string,
+    @Query('on') on?: string,
+  ) {
+    if (!application?.trim() || !postingGroup?.trim() || !postingKey?.trim()) {
+      throw new BadRequestException('application, postingGroup and postingKey are required.');
+    }
+    return this.control.resolveApprovedAccount({
+      companyId, application: application.trim(), postingGroup: postingGroup.trim(), postingKey: postingKey.trim(),
+      ...(on ? { on: parseDay(on) } : {}),
+    });
+  }
+
   /**
    * Load the client's posting rules, keys and six-digit chart into this
    * company — what a farm that signed up before sign-up did this never got.

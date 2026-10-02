@@ -175,9 +175,10 @@ export class PayeEngineService {
     const exempt = input.monthlyTaxableGrossKobo <= config.minimumWageMonthlyKobo;
     if (exempt) annualTax = 0n;
 
-    const monthlyPaye = this.round(
-      new Decimal(annualTax.toString()).div(12),
-      config.rounding,
+    // Monthly PAYE is rounded to whole naira, then returned as kobo.
+    const monthlyPaye = BigInt(
+      new Decimal(annualTax.toString()).div(1200)
+        .toDecimalPlaces(0, Decimal.ROUND_HALF_UP).mul(100).toFixed(0),
     );
 
     const effectiveRate =
@@ -244,7 +245,10 @@ export class PayeEngineService {
 
     const expected =
       (params.annualPayeKobo * BigInt(params.monthsWorked)) / 12n;
-    const current = expected - params.priorYtdDeductedKobo;
+    const current = BigInt(
+      new Decimal((expected - params.priorYtdDeductedKobo).toString())
+        .div(100).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).mul(100).toFixed(0),
+    );
 
     return {
       expectedYtdKobo: expected.toString(),

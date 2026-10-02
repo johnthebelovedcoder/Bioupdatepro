@@ -4,10 +4,12 @@ import { useActionState, useEffect, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Sheet } from './sheet';
+import type { SnailEggCostSource } from '@/lib/snail-breeding';
 import {
   failBreedingCycle,
   recordBreedingCycle,
   recordSnailHatch,
+  valueLegacySnailEggCycle,
   type FlowState,
 } from '@/app/(app)/m/snail-breeding-actions';
 
@@ -27,13 +29,16 @@ function useCloseOnSuccess(message: string | null, close: () => void) {
 
 export function RecordBreedingCycleForm({
   breeders,
+  costSources,
   today,
 }: {
   breeders: Array<{ id: string; code: string; stage: string; population: number }>;
+  costSources: SnailEggCostSource[];
   today: string;
 }) {
   const [state, formAction] = useActionState<FlowState, FormData>(recordBreedingCycle, EMPTY);
   const [open, setOpen] = useState(false);
+  const [valueBasis, setValueBasis] = useState<'FVLCTS' | 'ATTRIBUTABLE_COST'>('FVLCTS');
   useCloseOnSuccess(state.message, () => setOpen(false));
 
   return (
@@ -60,6 +65,37 @@ export function RecordBreedingCycleForm({
               <input name="setOn" type="date" defaultValue={today} max={today} required />
             </label>
           </div>
+
+          <div className="row" style={{ gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+            <label className="field" style={{ flex: 1, minWidth: 180 }}>
+              Egg valuation basis
+              <select name="valueBasis" value={valueBasis} onChange={(event) => setValueBasis(event.target.value as 'FVLCTS' | 'ATTRIBUTABLE_COST')} required>
+                <option value="FVLCTS">Fair value less costs to sell</option>
+                <option value="ATTRIBUTABLE_COST">Attributable cost (when fair value is unreliable)</option>
+              </select>
+            </label>
+            <label className="field" style={{ flex: 1, minWidth: 140 }}>
+              Value per viable egg (₦)
+              <input name="valuePerEggKobo" type="number" min="0.01" step="0.01" required />
+            </label>
+          </div>
+          <label className="field">
+            Valuation evidence / cost support
+            <input name="valueEvidence" placeholder="Market quote, valuation, or attributable cost basis" required />
+          </label>
+          {valueBasis === 'ATTRIBUTABLE_COST' ? (
+            <label className="field">
+              Why is fair value clearly unreliable for these eggs?
+              <input name="fairValueUnreliableReason" placeholder="Describe why a reliable fair value cannot be determined at initial recognition" required />
+            </label>
+          ) : null}
+          <label className="field">
+            Cost source account <span className="faint">(attributable cost only)</span>
+            <select name="costSourceAccountId" defaultValue="">
+              <option value="">Choose expense account</option>
+              {costSources.map((source) => <option key={source.id} value={source.id}>{source.accountNumber} — {source.name}</option>)}
+            </select>
+          </label>
 
           <label className="field">
             Breeder cohort
@@ -180,6 +216,29 @@ export function SnailHatchForm({
       </Sheet>
     </>
   );
+}
+
+export function ValueLegacySnailEggCycleForm({ cycleId, code, costSources }: { cycleId: string; code: string; costSources: SnailEggCostSource[] }) {
+  const [state, action] = useActionState<FlowState, FormData>(valueLegacySnailEggCycle, EMPTY);
+  const [open, setOpen] = useState(false);
+  const [valueBasis, setValueBasis] = useState<'FVLCTS' | 'ATTRIBUTABLE_COST'>('FVLCTS');
+  useCloseOnSuccess(state.message, () => setOpen(false));
+  return <>
+    <button type="button" className="btn btn-sm btn-secondary" onClick={() => setOpen(true)}>Value existing eggs</button>
+    <Sheet open={open} onClose={() => setOpen(false)} title={`Value legacy eggs — ${code}`}>
+      <form action={action} className="stack" style={{ gap: 'var(--sp-4)' }}>
+        <input type="hidden" name="cycleId" value={cycleId} />
+        <p className="faint">This posts a current-period opening recognition for the cycle’s remaining viable eggs. Use current FVLCTS evidence, or attributable costs supported by posted expense.</p>
+        {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+        <label className="field">Valuation basis<select name="valueBasis" value={valueBasis} onChange={(event) => setValueBasis(event.target.value as 'FVLCTS' | 'ATTRIBUTABLE_COST')}><option value="FVLCTS">Fair value less costs to sell</option><option value="ATTRIBUTABLE_COST">Attributable cost</option></select></label>
+        <label className="field">Value per egg (₦)<input name="valuePerEggNaira" type="number" min="0.01" step="0.01" required /></label>
+        <label className="field">Evidence / cost support<input name="valueEvidence" required /></label>
+        {valueBasis === 'ATTRIBUTABLE_COST' ? <label className="field">Why is fair value clearly unreliable for these eggs?<input name="fairValueUnreliableReason" placeholder="Explain why a reliable fair value cannot be determined" required /></label> : null}
+        <label className="field">Expense source account (cost basis)<select name="costSourceAccountId" defaultValue=""><option value="">Choose expense account</option>{costSources.map((a) => <option key={a.id} value={a.id}>{a.accountNumber} — {a.name}</option>)}</select></label>
+        <Submit label="Value and post" pending="Posting…" />
+      </form>
+    </Sheet>
+  </>;
 }
 
 function FailSubmit() {

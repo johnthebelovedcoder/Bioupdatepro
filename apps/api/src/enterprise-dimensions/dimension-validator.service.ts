@@ -12,6 +12,9 @@ export interface DimensionValidationTarget {
   lineNumber: number;
   glAccountId: string;
   dimensions: EnterpriseDimensions;
+  /** Approved system/subledger event; manual journals never set this. */
+  allowControlAccount?: boolean;
+  sourceDocumentId?: string | null;
 }
 
 /**
@@ -75,6 +78,7 @@ export class DimensionValidatorService {
         name: true,
         active: true,
         isPostingAccount: true,
+        isControlAccount: true,
         requiresCostCentre: true,
         requiresDepartment: true,
         requiresFarm: true,
@@ -111,10 +115,10 @@ export class DimensionValidatorService {
       }
       // Summary accounts exist for reporting rollup. Posting to one would make
       // the hierarchy double-count.
-      if (!account.isPostingAccount) {
+      if (!account.isPostingAccount && !(target.allowControlAccount && account.isControlAccount)) {
         throw new MissingDimensionError(
           'GL Account',
-          `account ${account.accountNumber} (${account.name}) is a summary account and cannot be posted to`,
+          `account ${account.accountNumber} (${account.name}) is a summary account or a control account without an approved system/subledger posting route`,
           target.lineNumber,
         );
       }
@@ -133,6 +137,24 @@ export class DimensionValidatorService {
             `account ${account.accountNumber} (${account.name}) is configured to require it`,
             target.lineNumber,
           );
+        }
+      }
+
+      if (['219830', '54300'].includes(account.accountNumber)) {
+        if (!target.sourceDocumentId) {
+          throw new MissingDimensionError('Batch / source document', `Feed Mill recovery account ${account.accountNumber} must link to its production order`, target.lineNumber);
+        }
+        for (const key of ['speciesKey', 'itemId', 'costCentreId'] as const) {
+          if (!target.dimensions[key]) {
+            throw new MissingDimensionError(
+              DIMENSION_LABELS[key] ?? key,
+              `Feed Mill recovery account ${account.accountNumber} requires species, formula, batch work centre and source-order analysis`,
+              target.lineNumber,
+            );
+          }
+        }
+        if (!['snail', 'poultry'].includes(target.dimensions.speciesKey ?? '')) {
+          throw new MissingDimensionError('Species', 'Feed Mill recovery supports snail or poultry feed only', target.lineNumber);
         }
       }
     }
@@ -186,7 +208,7 @@ export class DimensionValidatorService {
         }),
         db.costCentre.findMany({
           where: { id: { in: costCentreIds } },
-          select: { id: true, companyId: true, active: true, code: true },
+          select: { id: true, companyId: true, active: true, code: true, postingAllowed: true },
         }),
         db.farm.findMany({
           where: { id: { in: farmIds } },
@@ -236,6 +258,11 @@ export class DimensionValidatorService {
     check('Branch', branchIds, branches);
     check('Department', departmentIds, departments);
     check('Cost Centre', costCentreIds, costCentres);
+    for (const centre of costCentres) {
+      if (!centre.postingAllowed) {
+        throw new MissingDimensionError('Cost Centre', `"${centre.code}" is marked non-posting in the approved cost-centre master`);
+      }
+    }
     check('Farm', farmIds, farms);
     check('Project', projectIds, projects);
     check(

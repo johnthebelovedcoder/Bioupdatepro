@@ -90,8 +90,9 @@ export async function setPoolSources(_previous: PoolSourceState, formData: FormD
   const poolId = String(formData.get('poolId') ?? '');
   const accounts = formData.getAll('glAccountId').map(String);
   const centres = formData.getAll('costCentreId').map(String);
+  const types = formData.getAll('resourceType').map(String);
   const sources = accounts
-    .map((glAccountId, i) => ({ glAccountId, costCentreId: centres[i] || null }))
+    .map((glAccountId, i) => ({ glAccountId, costCentreId: centres[i] || null, resourceType: types[i] || 'OVERHEAD' }))
     .filter((s) => s.glAccountId);
   try {
     await api(`/costing/cost-pools/${poolId}/sources`, { method: 'POST', body: { sources } });
@@ -100,4 +101,21 @@ export async function setPoolSources(_previous: PoolSourceState, formData: FormD
   }
   revalidatePath('/production/cost-pools');
   return { error: null, message: `${sources.length} source${sources.length === 1 ? '' : 's'} saved.` };
+}
+
+export interface FeedMillActualCostState { error: string | null; message: string | null; }
+
+/** Freeze and allocate actual ledger source costs after period soft close. */
+export async function allocateFeedMillActualCosts(_previous: FeedMillActualCostState, formData: FormData): Promise<FeedMillActualCostState> {
+  const financialPeriodId = String(formData.get('financialPeriodId') ?? '');
+  if (!financialPeriodId) return { error: 'Choose a soft-closed financial period.', message: null };
+  try {
+    const result = await api<{ alreadyAllocated: boolean; orders: number; allocations: number }>('/costing/feed-mill/actual-cost-runs', {
+      method: 'POST', body: { financialPeriodId },
+    });
+    revalidatePath('/production/cost-pools');
+    return { error: null, message: result.alreadyAllocated ? `This period already has a frozen allocation for ${result.orders} orders.` : `Allocated ${result.allocations} source-cost shares across ${result.orders} feed orders.` };
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not allocate feed-mill actual costs.', message: null };
+  }
 }

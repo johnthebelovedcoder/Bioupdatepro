@@ -408,6 +408,20 @@ export class MasterDataController {
     return this.employees.listEarningComponents(companyId);
   }
 
+  @Roles('HR_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('salary-components/benefit-in-kind')
+  async createBenefitInKindComponent(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { code: string; name: string; taxable?: boolean; pensionable?: boolean; nhfBase?: boolean },
+  ) {
+    return this.employees.createBenefitInKindComponent({
+      companyId, actorId: actor.userId, code: body.code, name: body.name,
+      taxable: body.taxable ?? true, pensionable: body.pensionable ?? false,
+      nhfBase: body.nhfBase ?? false,
+    });
+  }
+
   @OwnedRecord('employee', 'id')
   @Post('employees/:id/salary-component')
   async setSalaryComponent(

@@ -89,8 +89,10 @@ export function SettleOrderForm({ orderId, needsReason, summary }: { orderId: st
 export function ConfirmConversionForm({
   orderId,
   operations = [],
+  feedMill = false,
 }: {
   orderId: string;
+  feedMill?: boolean;
   /** The order's routing: with one, the standard is actual hours × approved rates (PCR-053). */
   operations?: Array<{ name: string; standardHours: string; ratePerHourKobo: string }>;
 }) {
@@ -126,14 +128,22 @@ export function ConfirmConversionForm({
           <span className="faint">This recipe has no routing. Set one up (Production → Recipes) and this is worked out for you.</span>
         </label>
       )}
-      <label className="field">
-        Actual labour cost (₦)
-        <input name="actualLabourCost" type="number" step="0.01" min="0" defaultValue="0" />
-      </label>
-      <label className="field">
-        Actual overhead cost (₦)
-        <input name="actualOverheadCost" type="number" step="0.01" min="0" defaultValue="0" />
-      </label>
+      {feedMill ? (
+        <p className="faint" style={{ fontSize: 13 }}>
+          Actual labour, machine and overhead costs are drawn from the period ledger and allocated across completed feed orders after soft close.
+        </p>
+      ) : (
+        <>
+          <label className="field">
+            Actual labour cost (₦)
+            <input name="actualLabourCost" type="number" step="0.01" min="0" defaultValue="0" />
+          </label>
+          <label className="field">
+            Actual overhead cost (₦)
+            <input name="actualOverheadCost" type="number" step="0.01" min="0" defaultValue="0" />
+          </label>
+        </>
+      )}
 
       <Submit label="Confirm conversion" pendingLabel="Confirming…" />
     </form>
@@ -246,6 +256,11 @@ export function RecordOutputsForm({
             <label className="field">
               Kilograms
               <input name={`byProductQuantity${n}`} type="number" step="0.001" min="0" />
+            </label>
+            <label className="field">
+              <span>Cost treatment</span>
+              <span><input name={`byProductImmaterial${n}`} type="checkbox" /> Immaterial: zero inventory value</span>
+              <span className="faint">Map this item to an other-operating-income account before receiving it.</span>
             </label>
             <ColdStoreFields prefix={`byProduct${n}`} required={false} />
           </div>

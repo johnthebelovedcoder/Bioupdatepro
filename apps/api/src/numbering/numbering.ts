@@ -5,6 +5,7 @@ import type { Prisma, PrismaClient } from '@bioassetpro/database';
  * Controlled references (Numbering_Parameters, Transaction_Number_Master).
  *
  *   TYPE-ENTITY-SITE-YYYY-SEQ      e.g. PO-AGR-LAG-2026-000001
+ *   ENTITY-GL-JV-YYYY-SEQ          e.g. SNP-GL-JV-2026-000001
  *
  * TYPE is an approved prefix from DOCUMENT_TYPES — never free text. ENTITY is
  * the company's three-letter reference code; SITE the farm's or branch's code;
@@ -57,7 +58,7 @@ export async function nextReference(
     select: { referenceCode: true, code: true },
   });
   const entity = company.referenceCode ?? codeOf(company.code, 3);
-  const site = codeOf(params.site, 6);
+  const site = params.type === 'JV' ? 'GL' : codeOf(params.site, 6);
   const year = params.date.getUTCFullYear();
 
   const rows = await client.$queryRaw<Array<{ last_value: number }>>`
@@ -67,6 +68,7 @@ export async function nextReference(
     DO UPDATE SET last_value = document_sequences.last_value + 1, updated_at = now()
     RETURNING last_value`;
   const sequence = Number(rows[0]!.last_value);
+  if (params.type === 'JV') return `${entity}-GL-JV-${year}-${String(sequence).padStart(6, '0')}`;
   return `${params.type}-${entity}-${site}-${year}-${String(sequence).padStart(6, '0')}`;
 }
 

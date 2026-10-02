@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AuditAction, JournalStatus, RoutingResourceType } from '@bioassetpro/database';
+import { AuditAction, JournalStatus, PeriodStatus, ProductionOrderCycle, ProductionOrderStatus, RoutingResourceType } from '@bioassetpro/database';
+import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
-import { Kobo } from '../common/money';
+import { allocateKobo, Kobo } from '../common/money';
 
 /** Long enough for a create plus its audit record on a cold connection pool — same margin every other master-data write in this codebase uses. */
 const TRANSACTION_OPTIONS = { timeout: 20_000 };
@@ -302,7 +303,7 @@ export class RoutingService {
    * The ledger accounts a pool's cost comes from (AC-MFG-004), replacing what
    * was set before. A cost centre narrows an account to that centre's cost.
    */
-  async setPoolSources(params: { companyId: string; poolId: string; sources: Array<{ glAccountId: string; costCentreId?: string | null }>; actorId: string }) {
+  async setPoolSources(params: { companyId: string; poolId: string; sources: Array<{ glAccountId: string; costCentreId?: string | null; resourceType?: RoutingResourceType }>; actorId: string }) {
     const pool = await this.prisma.costPool.findFirst({ where: { id: params.poolId, companyId: params.companyId } });
     if (!pool) throw new NotFoundException('No such cost pool.');
     const accountIds = [...new Set(params.sources.map((s) => s.glAccountId))];
@@ -317,7 +318,7 @@ export class RoutingService {
     await this.prisma.$transaction([
       this.prisma.costPoolSource.deleteMany({ where: { poolId: pool.id, pool: { companyId: params.companyId } } }),
       this.prisma.costPoolSource.createMany({
-        data: [...unique.values()].map((s) => ({ poolId: pool.id, glAccountId: s.glAccountId, costCentreId: s.costCentreId ?? null })),
+        data: [...unique.values()].map((s) => ({ poolId: pool.id, glAccountId: s.glAccountId, costCentreId: s.costCentreId ?? null, resourceType: s.resourceType ?? RoutingResourceType.OVERHEAD })),
       }),
     ]);
     await this.audit.write({
@@ -332,6 +333,187 @@ export class RoutingService {
       comments: `Ledger sources for pool ${pool.code}.`,
     });
     return { poolId: pool.id, sources: unique.size };
+  }
+
+  /**
+   * Freeze actual source-account costs across every Feed Mill order converted
+   * in a soft-closed period. Source accounts are allocated by actual routing
+   * hours (and source cost centre when configured); orders never re-enter the
+   * same payroll, AP, depreciation or GL amounts by hand.
+   */
+  async allocateFeedMillActualCosts(params: { companyId: string; financialPeriodId: string; actorId: string }) {
+    const period = await this.prisma.financialPeriod.findFirst({
+      where: { id: params.financialPeriodId, financialYear: { companyId: params.companyId } },
+    });
+    if (!period) throw new NotFoundException('No such financial period.');
+    if (period.status !== PeriodStatus.SOFT_CLOSED) {
+      throw new AccountingRuleViolation('Feed Mill actual-cost allocation', 'Soft-close the period first so its ledger source balances are stable.', { period: period.name });
+    }
+    const existing = await this.prisma.feedMillActualCostRun.findUnique({
+      where: { companyId_financialPeriodId: { companyId: params.companyId, financialPeriodId: period.id } },
+    });
+    if (existing) {
+      const allocations = await this.prisma.feedMillActualCostAllocation.findMany({ where: { runId: existing.id }, select: { productionOrderId: true } });
+      return { runId: existing.id, alreadyAllocated: true, orders: new Set(allocations.map((a) => a.productionOrderId)).size, allocations: allocations.length };
+    }
+
+    const pools = await this.prisma.costPool.findMany({ where: { companyId: params.companyId, active: true, sources: { some: {} } }, include: { sources: true } });
+    const sources = pools.flatMap((pool) => pool.sources.map((source) => ({ pool, source })));
+    if (!sources.length) throw new AccountingRuleViolation('Feed Mill actual-cost allocation', 'Configure the shared cost-pool ledger sources before allocating actual costs.', {});
+    const keys = sources.map(({ source }) => `${source.glAccountId}|${source.costCentreId ?? ''}`);
+    if (new Set(keys).size !== keys.length) {
+      throw new AccountingRuleViolation('Feed Mill actual-cost allocation', 'A GL account and cost centre cannot feed more than one cost pool; remove duplicate source assignments to avoid double allocation.', {});
+    }
+
+    const conversions = await this.prisma.productionOrder.findMany({
+      where: {
+        companyId: params.companyId,
+        processingCycle: ProductionOrderCycle.FEED_MILL,
+        status: ProductionOrderStatus.COMPLETED,
+        conversionJournalEntry: { financialPeriodId: period.id },
+      },
+      include: { routingLines: { include: { routingOperation: { select: { costPoolId: true, costCentreId: true, resourceType: true } } } } },
+      orderBy: { orderNumber: 'asc' },
+    });
+    if (!conversions.length) throw new AccountingRuleViolation('Feed Mill actual-cost allocation', `No completed Feed Mill orders were converted in ${period.name}.`, {});
+    const incomplete = await this.prisma.productionOrder.count({
+      where: { companyId: params.companyId, processingCycle: ProductionOrderCycle.FEED_MILL, status: ProductionOrderStatus.IN_PRODUCTION, conversionJournalEntry: { financialPeriodId: period.id } },
+    });
+    if (incomplete) throw new AccountingRuleViolation('Feed Mill actual-cost allocation', `${incomplete} Feed Mill order(s) in ${period.name} have not completed; finish them before freezing shared actual costs.`, { incomplete });
+    if (conversions.some((order) => !order.routingLines.length || order.routingLines.some((line) => line.actualHours === null))) {
+      throw new AccountingRuleViolation('Feed Mill actual-cost allocation', 'Every completed Feed Mill order needs confirmed actual routing hours before the pool can be allocated.', {});
+    }
+
+    const accountIds = [...new Set(sources.map(({ source }) => source.glAccountId))];
+    const accounts = await this.prisma.gLAccount.findMany({ where: { companyId: params.companyId, id: { in: accountIds } }, select: { id: true, accountNumber: true, requiresCostCentre: true } });
+    const accountById = new Map(accounts.map((account) => [account.id, account]));
+    if (accounts.length !== accountIds.length) throw new AccountingRuleViolation('Feed Mill actual-cost allocation', 'A configured pool source account is missing from this company.', {});
+    const ledgerLines = await this.prisma.journalLine.findMany({
+      where: { companyId: params.companyId, financialPeriodId: period.id, glAccountId: { in: accountIds }, journalEntry: { status: JournalStatus.POSTED } },
+      select: { glAccountId: true, costCentreId: true, debitKobo: true, creditKobo: true },
+    });
+    const prepared: Array<{ productionOrderId: string; costPoolId: string; sourceGlAccountId: string; sourceCostCentreId: string | null; sourceCostCentreKey: string; resourceType: RoutingResourceType; driverHours: string; amountKobo: bigint }> = [];
+    for (const { pool, source } of sources) {
+      const account = accountById.get(source.glAccountId)!;
+      if (account.requiresCostCentre && !source.costCentreId) throw new AccountingRuleViolation('Feed Mill actual-cost allocation', `${account.accountNumber} requires a cost centre in its pool source setup.`, { account: account.accountNumber });
+      const balance = ledgerLines
+        .filter((line) => line.glAccountId === source.glAccountId && (source.costCentreId ? line.costCentreId === source.costCentreId : true))
+        .reduce((sum, line) => sum + line.debitKobo - line.creditKobo, 0n);
+      if (balance < 0n) throw new AccountingRuleViolation('Feed Mill actual-cost allocation', `${account.accountNumber} has a credit balance for ${period.name}; review the source account setup before allocation.`, { account: account.accountNumber, balanceKobo: balance.toString() });
+      if (balance === 0n) continue;
+      const drivers = conversions.map((order) => {
+        const matching = order.routingLines.filter((line) => line.routingOperation.costPoolId === pool.id && line.routingOperation.resourceType === source.resourceType && (!source.costCentreId || line.routingOperation.costCentreId === source.costCentreId));
+        const hours = matching.reduce((sum, line) => sum.plus(line.actualHours!.toString()), new Decimal(0));
+        return { order, hours };
+      });
+      const eligible = drivers.filter((driver) => driver.hours.gt(0));
+      if (!eligible.length) throw new AccountingRuleViolation('Feed Mill actual-cost allocation', `${account.accountNumber} has actual cost but no matching Feed Mill driver hours in ${period.name}.`, { account: account.accountNumber, pool: pool.code });
+      const shares = allocateKobo(balance as Kobo, eligible.map((driver) => driver.hours.toString()));
+      eligible.forEach((driver, index) => {
+        const amountKobo = BigInt(shares[index] ?? 0n);
+        if (amountKobo > 0n) prepared.push({
+          productionOrderId: driver.order.id, costPoolId: pool.id, sourceGlAccountId: source.glAccountId,
+          sourceCostCentreId: source.costCentreId, sourceCostCentreKey: source.costCentreId ?? '',
+          resourceType: source.resourceType, driverHours: driver.hours.toFixed(6), amountKobo,
+        });
+      });
+    }
+    if (!prepared.length) throw new AccountingRuleViolation('Feed Mill actual-cost allocation', 'No positive actual source costs were found for this period.', {});
+
+    const run = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.feedMillActualCostRun.create({ data: { companyId: params.companyId, financialPeriodId: period.id, preparedById: params.actorId } });
+      await tx.feedMillActualCostAllocation.createMany({ data: prepared.map((line) => ({ runId: created.id, ...line })) });
+      for (const order of conversions) {
+        const orderLines = prepared.filter((line) => line.productionOrderId === order.id);
+        const labour = orderLines.filter((line) => line.resourceType === RoutingResourceType.LABOUR).reduce((sum, line) => sum + line.amountKobo, 0n);
+        const overhead = orderLines.filter((line) => line.resourceType !== RoutingResourceType.LABOUR).reduce((sum, line) => sum + line.amountKobo, 0n);
+        await tx.productionOrder.update({ where: { id: order.id }, data: { actualLabourCostKobo: labour, actualOverheadCostKobo: overhead } });
+      }
+      return created;
+    }, TRANSACTION_OPTIONS);
+    await this.audit.write({
+      transactionId: run.id, module: 'routing', entityType: 'FeedMillActualCostRun', entityId: run.id,
+      status: 'ALLOCATED', action: AuditAction.POST, userId: params.actorId,
+      comments: `Allocated shared Feed Mill actual source costs across ${conversions.length} completed order(s) for ${period.name}.`,
+      metadata: { periodId: period.id, orderCount: conversions.length, allocationCount: prepared.length },
+    });
+    return { runId: run.id, alreadyAllocated: false, orders: conversions.length, allocations: prepared.length };
+  }
+
+  /** One-account recovery analysis by species, formula, batch and work centre. */
+  async feedMillRecoveryAnalysis(params: { companyId: string; financialPeriodId: string }) {
+    const period = await this.prisma.financialPeriod.findFirst({
+      where: { id: params.financialPeriodId, financialYear: { companyId: params.companyId } },
+      select: { id: true, name: true, startDate: true, endDate: true },
+    });
+    if (!period) throw new NotFoundException('No such financial period.');
+    const lines = await this.prisma.journalLine.findMany({
+      where: {
+        companyId: params.companyId,
+        financialPeriodId: period.id,
+        glAccount: { accountNumber: { in: ['219830', '54300'] } },
+        journalEntry: { status: JournalStatus.POSTED },
+      },
+      include: {
+        item: { select: { id: true, code: true, description: true } },
+        costCentre: { select: { code: true, name: true } },
+        glAccount: { select: { accountNumber: true, name: true } },
+        journalEntry: { select: { sourceDocumentId: true, journalNumber: true, journalDate: true } },
+      },
+      orderBy: [{ journalEntry: { journalDate: 'asc' } }, { lineNumber: 'asc' }],
+    });
+    const batchIds = [...new Set(lines.flatMap((line) => line.journalEntry.sourceDocumentId ? [line.journalEntry.sourceDocumentId] : []))];
+    const batches = await this.prisma.productionOrder.findMany({
+      where: { companyId: params.companyId, id: { in: batchIds }, processingCycle: ProductionOrderCycle.FEED_MILL },
+      select: { id: true, orderNumber: true, speciesKey: true },
+    });
+    const batchById = new Map(batches.map((batch) => [batch.id, batch]));
+    const groups = new Map<string, {
+      accountNumber: string; speciesKey: string | null; formulaCode: string | null; formulaName: string | null;
+      batchId: string | null; batchNumber: string | null; workCentreCode: string | null; workCentreName: string | null;
+      debits: bigint; credits: bigint; journals: Set<string>;
+    }>();
+    for (const line of lines) {
+      const batchId = line.journalEntry.sourceDocumentId;
+      const batch = batchId ? batchById.get(batchId) : undefined;
+      const speciesKey = batch?.speciesKey ?? line.speciesKey;
+      const key = [line.glAccount.accountNumber, speciesKey ?? '', line.itemId ?? '', batchId ?? '', line.costCentreId ?? ''].join('|');
+      const row = groups.get(key) ?? {
+        accountNumber: line.glAccount.accountNumber,
+        speciesKey,
+        formulaCode: line.item?.code ?? null,
+        formulaName: line.item?.description ?? null,
+        batchId,
+        batchNumber: batch?.orderNumber ?? null,
+        workCentreCode: line.costCentre?.code ?? null,
+        workCentreName: line.costCentre?.name ?? null,
+        debits: 0n,
+        credits: 0n,
+        journals: new Set<string>(),
+      };
+      row.debits += line.debitKobo;
+      row.credits += line.creditKobo;
+      row.journals.add(line.journalEntry.journalNumber);
+      groups.set(key, row);
+    }
+    return {
+      period: { id: period.id, name: period.name, startDate: period.startDate, endDate: period.endDate },
+      account: 'one shared Feed Mill recovery account per chart (219830 legacy / 54300 approved COA)',
+      rows: [...groups.values()].map((row) => ({
+        accountNumber: row.accountNumber,
+        speciesKey: row.speciesKey,
+        formulaCode: row.formulaCode,
+        formulaName: row.formulaName,
+        batchId: row.batchId,
+        batchNumber: row.batchNumber,
+        workCentreCode: row.workCentreCode,
+        workCentreName: row.workCentreName,
+        debitsKobo: row.debits.toString(),
+        creditsKobo: row.credits.toString(),
+        recoveryBalanceKobo: (row.credits - row.debits).toString(),
+        journalCount: row.journals.size,
+      })),
+    };
   }
 
   /**
@@ -358,7 +540,7 @@ export class RoutingService {
       });
       const sources = pool.sources.map((s) => {
         const a = accounts.find((x) => x.id === s.glAccountId);
-        return { glAccountId: s.glAccountId, costCentreId: s.costCentreId, account: a ? `${a.accountNumber} ${a.name}` : '' };
+        return { glAccountId: s.glAccountId, costCentreId: s.costCentreId, resourceType: s.resourceType, account: a ? `${a.accountNumber} ${a.name}` : '' };
       });
       if (!rate) {
         rows.push({ poolId: pool.id, code: pool.code, name: pool.name, sources, hasRate: false as const, reconciled: false, note: 'No rate in force.' });

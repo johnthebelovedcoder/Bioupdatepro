@@ -1,10 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { RoutingService } from '../routing/routing.service';
 import { JointCostService } from './joint-cost.service';
 import { StandardCostService } from './standard-cost.service';
 import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
-import { AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
+import { AccountType, AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
 import { chartVersionOf, speciesNumberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -121,16 +121,6 @@ const PROCESSING_CYCLE_RULES: Record<ProductionOrderCycle, ProcessingCycleRules>
  * raw ingredients milled into one finished feed product; see `createFeedOrder()`.
  * See the schema's file-level comment for the full rationale.
  */
-/** Feed-mill recovery by species (FeedMill_Setup: S_Feed_Recovery_GL / P_Feed_Recovery_GL). */
-const FEED_RECOVERY: Record<string, string> = { snail: '219831', poultry: '219832' };
-
-/** The recovery account an order absorbs to and settles against. */
-function recoveryNumberFor(order: { processingCycle: ProductionOrderCycle; speciesKey?: string | null }, rules: { recoveryAccountNumber: string }): string {
-  const speciesKey = order.speciesKey?.trim().toLowerCase() ?? null;
-  if (order.processingCycle === ProductionOrderCycle.FEED_MILL && speciesKey && FEED_RECOVERY[speciesKey]) return FEED_RECOVERY[speciesKey]!;
-  return rules.recoveryAccountNumber;
-}
-
 @Injectable()
 export class ProductionOrderService {
   constructor(
@@ -275,13 +265,13 @@ export class ProductionOrderService {
     /** Given by NumberingService when not supplied (Numbering_Parameters). */
     orderNumber?: string;
     plannedOutputQuantity: Decimal.Value;
-    /** snail or poultry: which species' feed recovery account the order absorbs to (S-FMO / P-FMO). */
+    /** Required analysis on the single feed-mill recovery account. */
     speciesKey?: string | null;
     actor: WorkflowActor;
   }): Promise<{ id: string; orderNumber: string }> {
     const speciesKey = params.speciesKey?.trim().toLowerCase() ?? null;
-    if (speciesKey && !FEED_RECOVERY[speciesKey]) {
-      throw new AccountingRuleViolation('FeedMill_Setup — species recovery', 'A feed order is for snail or poultry feed.', { speciesKey: params.speciesKey });
+    if (!speciesKey || !['snail', 'poultry'].includes(speciesKey)) {
+      throw new AccountingRuleViolation('FeedMill_Setup — species dimension', 'Choose snail or poultry as the feed order species so recovery can be analysed without separate GL accounts.', { speciesKey: params.speciesKey });
     }
     const orderNumber =
       params.orderNumber?.trim() ||
@@ -743,7 +733,7 @@ export class ProductionOrderService {
   }) {
     const order = await this.prisma.productionOrder.findUniqueOrThrow({
       where: { id: params.productionOrderId },
-      include: { sourceGroup: true },
+      include: { sourceGroup: true, recipeVersion: { include: { recipe: { select: { outputItemId: true } } } } },
     });
 
     if (order.status !== ProductionOrderStatus.RELEASED) {
@@ -760,9 +750,17 @@ export class ProductionOrderService {
     await routing.snapshotRouting(order.id);
     const lines = await this.prisma.productionOrderRoutingLine.findMany({
       where: { productionOrderId: order.id },
-      include: { routingOperation: { select: { operationName: true } } },
+      include: { routingOperation: { select: { operationName: true, costCentreId: true } } },
     });
+    if (order.processingCycle === ProductionOrderCycle.FEED_MILL && (!order.speciesKey || lines.length === 0)) {
+      throw new AccountingRuleViolation(
+        'Feed Mill actual-cost recovery dimensions',
+        `${order.orderNumber} needs species analysis and an approved routing with work centres so actual payroll, depreciation, AP and GL costs can be recovered from source-ledger balances.`,
+        { orderNumber: order.orderNumber, speciesKey: order.speciesKey },
+      );
+    }
     let standardConversionCostKobo: bigint;
+    let feedAbsorptionLines: Array<{ costCentreId: string; costKobo: bigint }> = [];
     if (lines.length > 0) {
       const absorbed = lines.map((line) => {
         const given = params.actualHours?.[line.id] ?? params.actualHours?.[line.routingOperation.operationName];
@@ -771,8 +769,9 @@ export class ProductionOrderService {
           throw new AccountingRuleViolation('ABC_Pools_Drivers — driver quantity', `${line.routingOperation.operationName}: hours cannot be negative.`, {});
         }
         const cost = BigInt(hours.mul(line.ratePerHourKobo.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
-        return { id: line.id, hours, cost };
+        return { id: line.id, hours, cost, costCentreId: line.routingOperation.costCentreId };
       });
+      feedAbsorptionLines = absorbed.map((line) => ({ costCentreId: line.costCentreId, costKobo: line.cost }));
       standardConversionCostKobo = absorbed.reduce((sum, a) => sum + a.cost, 0n);
       if (params.standardConversionCostKobo !== undefined && params.standardConversionCostKobo !== standardConversionCostKobo) {
         throw new AccountingRuleViolation(
@@ -802,15 +801,17 @@ export class ProductionOrderService {
     if (!context) {
       throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', `No open period for ${order.orderNumber}.`, {});
     }
-    const dimensions = this.dimensions(order, context);
+    const dimensions = {
+      ...this.dimensions(order, context),
+      ...(order.processingCycle === ProductionOrderCycle.FEED_MILL
+        ? { speciesKey: order.speciesKey, itemId: order.recipeVersion.recipe.outputItemId }
+        : {}),
+    };
 
     const on = new Date();
     const standardRule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.standardRuleId, on });
-    // Feed orders credit their species' recovery account; the rule's own account (219830) otherwise.
-    const standardCreditAccountId =
-      recoveryNumberFor(order, rules) !== rules.recoveryAccountNumber
-        ? await this.recoveryAccount(order.companyId, recoveryNumberFor(order, rules))
-        : this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId;
+    // One Feed Mill Recovery GL (219830) carries all species; dimensions hold analysis.
+    const standardCreditAccountId = this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId;
 
     let postLines: Array<{ glAccountId: string; description: string; debit?: Kobo; credit?: Kobo; dimensions: ReturnType<ProductionOrderService['dimensions']> }>;
 
@@ -820,20 +821,21 @@ export class ProductionOrderService {
       // — post the standard absorption line and nothing else. The caller's
       // actual cost figures are still stored on the order row below, unposted,
       // for settle()'s variance calculation to read later.
-      postLines = [
-        {
-          glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
-          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          debit: kobo(standardConversionCostKobo),
-          dimensions,
-        },
-        {
-          glAccountId: standardCreditAccountId,
-          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          credit: kobo(standardConversionCostKobo),
-          dimensions,
-        },
-      ];
+      const standardDebitAccountId = this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId;
+      const byWorkCentre = new Map<string, bigint>();
+      for (const line of feedAbsorptionLines) byWorkCentre.set(line.costCentreId, (byWorkCentre.get(line.costCentreId) ?? 0n) + line.costKobo);
+      postLines = byWorkCentre.size
+        ? [...byWorkCentre.entries()].flatMap(([costCentreId, amount]) => {
+            const workCentreDimensions = { ...dimensions, costCentreId };
+            return [
+              { glAccountId: standardDebitAccountId, description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`, debit: kobo(amount), dimensions: workCentreDimensions },
+              { glAccountId: standardCreditAccountId, description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`, credit: kobo(amount), dimensions: workCentreDimensions },
+            ];
+          })
+        : [
+            { glAccountId: standardDebitAccountId, description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`, debit: kobo(standardConversionCostKobo), dimensions },
+            { glAccountId: standardCreditAccountId, description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`, credit: kobo(standardConversionCostKobo), dimensions },
+          ];
     } else if (rules.actualConversionRuleId) {
       // Poultry: one combined actual-conversion line (PCR-077). Its credit
       // key ("Payroll/AP/FA source") is non-atomic — resolve() validates both
@@ -1343,6 +1345,11 @@ export class ProductionOrderService {
       include: { sourceGroup: true },
     });
     const details = params.outputs.map((_, i) => params.details?.[i] ?? {});
+    for (const output of params.outputs) {
+      if (output.isImmaterialByProduct && output.outputType !== 'BY_PRODUCT') {
+        throw new BadRequestException('Only a by-product can be marked immaterial.');
+      }
+    }
 
     if (order.status !== ProductionOrderStatus.IN_PRODUCTION) {
       throw new AccountingRuleViolation(
@@ -1444,13 +1451,19 @@ export class ProductionOrderService {
       );
     }
     let outputs = params.outputs;
-    if (method === 'NRV' && !feedAtStandard) {
-      const prices = await joint.pricesOn(order.companyId, [...new Set(outputs.map((o) => o.itemId))], new Date());
-      outputs = outputs.map((o) => ({
-        ...o,
-        salePricePerUnitKobo: prices.get(o.itemId)!.sellingPricePerUnitKobo,
-        costsToSellPerUnitKobo: prices.get(o.itemId)!.furtherCostPerUnitKobo,
-      }));
+    if (!feedAtStandard) {
+      const needsAllocationPrices = method === 'NRV' || method === 'SALES_VALUE';
+      const pricedIds = [...new Set(outputs
+        .filter((o) => !o.isImmaterialByProduct && (needsAllocationPrices || o.outputType === 'BY_PRODUCT'))
+        .map((o) => o.itemId))];
+      if (pricedIds.length) {
+        const prices = await joint.pricesOn(order.companyId, pricedIds, new Date());
+        outputs = outputs.map((o) => !prices.has(o.itemId) ? o : ({
+          ...o,
+          salePricePerUnitKobo: prices.get(o.itemId)!.sellingPricePerUnitKobo,
+          costsToSellPerUnitKobo: prices.get(o.itemId)!.furtherCostPerUnitKobo,
+        }));
+      }
     }
     if (order.harvestRecordId) {
       const harvest = await this.prisma.harvestRecord.findUniqueOrThrow({ where: { id: order.harvestRecordId }, select: { weightKg: true } });
@@ -1526,13 +1539,14 @@ export class ProductionOrderService {
       for (const output of outputs) {
         const version = await standardCosts.releasedFor(this.prisma, order.companyId, output.itemId, new Date());
         if (output.outputType === 'MAIN' || !standardVersionId) standardVersionId = version.id;
-        const value = BigInt(new Decimal(output.quantity).mul(version.unitCostKobo.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+        const value = output.isImmaterialByProduct ? 0n : BigInt(new Decimal(output.quantity).mul(version.unitCostKobo.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
         allocated.push({
           itemId: output.itemId,
           outputType: output.outputType,
           quantity: new Decimal(output.quantity).toFixed(6),
           allocationWeightKobo: version.unitCostKobo.toString(),
           allocatedCostKobo: value.toString(),
+          isImmaterialByProduct: output.isImmaterialByProduct === true,
         });
       }
     } else {
@@ -1559,8 +1573,32 @@ export class ProductionOrderService {
       await standardCosts.requirePolicy(tx, order.companyId, new Date());
       const outputItems = await tx.item.findMany({
         where: { companyId: order.companyId, id: { in: allocated.map((o) => o.itemId) } },
-        select: { id: true, shelfLifeDays: true },
+        select: { id: true, shelfLifeDays: true, revenueGlAccountId: true },
       });
+      const immaterialItemIds = allocated.filter((o) => o.isImmaterialByProduct).map((o) => o.itemId);
+      const immaterialItems = outputItems.filter((item) => immaterialItemIds.includes(item.id));
+      if (immaterialItems.some((item) => !item.revenueGlAccountId)) {
+        throw new AccountingRuleViolation(
+          'IAS 2 — Immaterial by-product proceeds',
+          'Map each immaterial by-product item to an other-operating-income account before receiving it. Its inventory value will be zero and sales proceeds will post through that item account.',
+          { items: immaterialItems.filter((item) => !item.revenueGlAccountId).map((item) => item.id) },
+        );
+      }
+      const immaterialRevenueIds = immaterialItems.flatMap((item) => item.revenueGlAccountId ? [item.revenueGlAccountId] : []);
+      if (immaterialRevenueIds.length) {
+        const revenueAccounts = await tx.gLAccount.findMany({
+          where: { companyId: order.companyId, id: { in: immaterialRevenueIds }, accountType: AccountType.REVENUE, active: true, isPostingAccount: true },
+          select: { id: true, ifrsCategory: true, ifrsLine: true },
+        });
+        const otherOperatingIncomeIds = new Set(revenueAccounts
+          .filter((account) => account.ifrsCategory?.trim().toLowerCase() === 'other income'
+            && account.ifrsLine?.trim().toLowerCase() === 'other operating income')
+          .map((account) => account.id));
+        if (revenueAccounts.length !== new Set(immaterialRevenueIds).size
+          || otherOperatingIncomeIds.size !== new Set(immaterialRevenueIds).size) {
+          throw new AccountingRuleViolation('IAS 2 — Immaterial by-product proceeds', 'Each immaterial by-product must map to an active posting revenue account configured for other operating income.', {});
+        }
+      }
       for (const [index, output] of allocated.entries()) {
         const detail = details[index] ?? {};
         // A dated output is a lot, named by the order (FR-FM-02, §29 cold store).
@@ -1599,6 +1637,7 @@ export class ProductionOrderService {
             productionOrderId: order.id,
             itemId: output.itemId,
             outputType: output.outputType,
+            isImmaterialByProduct: output.isImmaterialByProduct,
             quantity: new Prisma.Decimal(output.quantity),
             allocationWeightKobo: BigInt(output.allocationWeightKobo),
             allocatedCostKobo: BigInt(output.allocatedCostKobo),
@@ -1732,7 +1771,7 @@ export class ProductionOrderService {
   async settle(params: { productionOrderId: string; varianceReason?: string; actor: WorkflowActor }) {
     const order = await this.prisma.productionOrder.findUniqueOrThrow({
       where: { id: params.productionOrderId },
-      include: { sourceGroup: true },
+      include: { sourceGroup: true, recipeVersion: { include: { recipe: { select: { outputItemId: true } } } } },
     });
 
     if (order.status !== ProductionOrderStatus.COMPLETED) {
@@ -1764,7 +1803,28 @@ export class ProductionOrderService {
     // A positive figure means the order cost more than standard and the
     // recovery account needs a further debit from the variance line to bring
     // it to zero for this order; negative means the reverse.
-    const actualIncurred = order.actualLabourCostKobo + order.actualOverheadCostKobo;
+    const feedPool = order.processingCycle === ProductionOrderCycle.FEED_MILL;
+    let feedAllocations: Array<{ sourceGlAccountId: string; sourceCostCentreId: string | null; amountKobo: bigint; runId: string }> = [];
+    let feedRunPeriodId: string | null = null;
+    let feedRunPeriodEndDate: Date | null = null;
+    if (feedPool) {
+      if (!params.actor.roles.some((role) => ['FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO'].includes(role))) {
+        throw new AccountingRuleViolation('Feed Mill actual-cost settlement', 'Only Finance Manager, Finance Controller or CFO may settle a period-allocated Feed Mill order.', {});
+      }
+      feedAllocations = await this.prisma.feedMillActualCostAllocation.findMany({
+        where: { productionOrderId: order.id },
+        select: { sourceGlAccountId: true, sourceCostCentreId: true, amountKobo: true, runId: true },
+      });
+      if (!feedAllocations.length) throw new AccountingRuleViolation('Feed Mill actual-cost settlement', 'Allocate the shared ledger actuals for this soft-closed period before settling this order.', { orderNumber: order.orderNumber });
+      const run = await this.prisma.feedMillActualCostRun.findUniqueOrThrow({ where: { id: feedAllocations[0]!.runId } });
+      const runPeriod = await this.prisma.financialPeriod.findFirst({ where: { id: run.financialPeriodId, status: 'SOFT_CLOSED' }, select: { id: true, endDate: true } });
+      if (!runPeriod) throw new AccountingRuleViolation('Feed Mill actual-cost settlement', 'The allocated source period must remain soft-closed until its orders are settled.', {});
+      feedRunPeriodId = runPeriod.id;
+      feedRunPeriodEndDate = runPeriod.endDate;
+    }
+    const actualIncurred = feedPool
+      ? feedAllocations.reduce((sum, line) => sum + line.amountKobo, 0n)
+      : order.actualLabourCostKobo + order.actualOverheadCostKobo;
     const variance = actualIncurred - order.standardConversionCostKobo;
     /*
      * PCR-058 / PCR-080: settlement clears the recovery account AND the
@@ -1786,7 +1846,6 @@ export class ProductionOrderService {
      * (FeedMill_Accounting: "WIP=0; recovery=0"). Until 2026-09-26 only the
      * variance was posted, which left recovery holding the actual cost.
      */
-    const feedPool = order.processingCycle === ProductionOrderCycle.FEED_MILL;
     const clearsPools = rules.actualLabourRuleId !== null || rules.actualConversionRuleId !== null || feedPool;
 
     /*
@@ -1810,11 +1869,18 @@ export class ProductionOrderService {
       return { journalEntryId: null, variance: '0' };
     }
 
-    const context = await this.postingContext(order.companyId, new Date());
+    const context = feedPool && feedRunPeriodId
+      ? await this.feedMillSettlementContext(order.companyId, feedRunPeriodId)
+      : await this.postingContext(order.companyId, new Date());
     if (!context) {
       throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', `No open period for ${order.orderNumber}.`, {});
     }
-    const dimensions = this.dimensions(order, context);
+    const dimensions = {
+      ...this.dimensions(order, context),
+      ...(feedPool
+        ? { speciesKey: order.speciesKey, itemId: order.recipeVersion.recipe.outputItemId }
+        : {}),
+    };
     // The settlement rule as a whole is NOT resolved through
     // PostingControlService, same reason as the actual-conversion rule: its
     // credit key ("recovery/actual pool") is non-atomic, and resolve()
@@ -1823,19 +1889,35 @@ export class ProductionOrderService {
     // credited for this order.
     const [varianceAccount, recoveryAccount] = await Promise.all([
       this.resolvePostingKeyAccount(order.companyId, rules.settleDebitKey),
-      this.recoveryAccount(order.companyId, recoveryNumberFor(order, rules)),
+      this.recoveryAccount(order.companyId, rules.recoveryAccountNumber),
     ]);
     // The pools the order's own conversion step charged, and how much to each.
-    const pools: Array<{ account: string; amount: bigint }> = !clearsPools
+    const pools: Array<{ account: string; amount: bigint; costCentreId?: string | null }> = !clearsPools
       ? []
       : feedPool
-        ? [{ account: await this.recoveryAccount(order.companyId, '623100'), amount: actualIncurred }]
+        ? feedAllocations.map((line) => ({ account: line.sourceGlAccountId, amount: line.amountKobo, costCentreId: line.sourceCostCentreId }))
         : rules.actualConversionRuleId
         ? [{ account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`), amount: actualIncurred }]
         : [
             { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualLabourRuleId}-DR`), amount: order.actualLabourCostKobo },
             { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualOverheadRuleId}-DR`), amount: order.actualOverheadCostKobo },
           ];
+    const feedRecoveryLines = feedPool
+      ? await this.prisma.productionOrderRoutingLine.findMany({
+          where: { productionOrderId: order.id },
+          select: { absorbedCostKobo: true, routingOperation: { select: { costCentreId: true } } },
+        })
+      : [];
+    const recoveryByCentre = new Map<string, bigint>();
+    for (const line of feedRecoveryLines) {
+      if ((line.absorbedCostKobo ?? 0n) > 0n) {
+        const costCentreId = line.routingOperation.costCentreId;
+        recoveryByCentre.set(costCentreId, (recoveryByCentre.get(costCentreId) ?? 0n) + line.absorbedCostKobo!);
+      }
+    }
+    if (feedPool && recoveryByCentre.size && [...recoveryByCentre.values()].reduce((sum, amount) => sum + amount, 0n) !== order.standardConversionCostKobo) {
+      throw new AccountingRuleViolation('Feed Mill recovery dimensions', `${order.orderNumber}'s work-centre standard absorption does not equal its stored standard conversion cost.`, {});
+    }
 
     const rule = rules.settleDebitKey.replace('-DR', '');
     return this.prisma.$transaction(async (tx) => {
@@ -1844,11 +1926,11 @@ export class ProductionOrderService {
 
       const result = await this.posting.post(
         {
-          sourceModule: 'production',
+          sourceModule: feedPool ? 'feed-mill-costing' : 'production',
           sourceDocumentType: 'ProductionOrder',
           sourceDocumentId: order.id,
           journalNumber: `${order.orderNumber}-SETTLE`,
-          journalDate: new Date(),
+          journalDate: feedRunPeriodEndDate ?? new Date(),
           narration: `Settle processing order ${order.orderNumber}: recovery and actual pools cleared, variance ${variance} kobo`,
           ...dimensions,
           idempotencyKey: `production-order:${order.id}:settle`,
@@ -1856,12 +1938,19 @@ export class ProductionOrderService {
           lines: clearsPools
             ? [
                 ...(order.standardConversionCostKobo > 0n
-                  ? [{
-                      glAccountId: recoveryAccount,
-                      description: `${rule} — recovery cleared (${order.orderNumber})`,
-                      debit: kobo(order.standardConversionCostKobo),
-                      dimensions,
-                    }]
+                  ? (feedPool && recoveryByCentre.size
+                    ? [...recoveryByCentre.entries()].map(([costCentreId, amount]) => ({
+                        glAccountId: recoveryAccount,
+                        description: `${rule} — recovery cleared (${order.orderNumber})`,
+                        debit: kobo(amount),
+                        dimensions: { ...dimensions, costCentreId },
+                      }))
+                    : [{
+                        glAccountId: recoveryAccount,
+                        description: `${rule} — recovery cleared (${order.orderNumber})`,
+                        debit: kobo(order.standardConversionCostKobo),
+                        dimensions,
+                      }])
                   : []),
                 ...(magnitude > 0n
                   ? [{
@@ -1877,7 +1966,7 @@ export class ProductionOrderService {
                     glAccountId: pool.account,
                     description: `${rule} — actual pool cleared (${order.orderNumber})`,
                     credit: kobo(pool.amount),
-                    dimensions,
+                    dimensions: { ...dimensions, ...(pool.costCentreId ? { costCentreId: pool.costCentreId } : {}) },
                   })),
               ]
             : [
@@ -2023,6 +2112,17 @@ export class ProductionOrderService {
     ]);
     if (!period || !costCentre) return null;
     return { period, costCentre, company };
+  }
+
+  private async feedMillSettlementContext(companyId: string, financialPeriodId: string) {
+    const [period, costCentre, company] = await Promise.all([
+      this.prisma.financialPeriod.findFirst({ where: { id: financialPeriodId, financialYear: { companyId }, status: 'SOFT_CLOSED' }, select: { id: true, financialYearId: true } }),
+      this.prisma.costCentre.findFirst({ where: { companyId, active: true, postingAllowed: true }, orderBy: { code: 'asc' }, select: { id: true } }),
+      this.prisma.company.findUniqueOrThrow({ where: { id: companyId } }),
+    ]);
+    if (!period || !costCentre) return null;
+    const fullPeriod = await this.prisma.financialPeriod.findUniqueOrThrow({ where: { id: financialPeriodId }, select: { endDate: true } });
+    return { period, costCentre, company, endDate: fullPeriod.endDate };
   }
 
   private async baseCurrencyId(companyId: string): Promise<string> {

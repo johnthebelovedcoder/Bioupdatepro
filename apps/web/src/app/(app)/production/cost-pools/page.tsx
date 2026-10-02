@@ -8,12 +8,14 @@ import { IconChart } from '@/components/icons';
 import { PoolSourcesForm } from '@/components/pool-sources-form';
 import { api } from '@/lib/api';
 import { getGlAccounts } from '@/lib/trade';
+import { getContext } from '@/lib/org';
+import { FeedMillActualCostRunForm } from '@/components/feed-mill-actual-cost-run-form';
 
 interface PoolReconciliation {
   poolId: string;
   code: string;
   name: string;
-  sources: Array<{ glAccountId: string; costCentreId: string | null; account: string }>;
+  sources: Array<{ glAccountId: string; costCentreId: string | null; resourceType: string; account: string }>;
   hasRate: boolean;
   window?: { from: string; to: string };
   ledgerKobo?: string;
@@ -24,6 +26,24 @@ interface PoolReconciliation {
   rateVsLedgerKobo?: string;
   reconciled: boolean;
   note: string | null;
+}
+
+interface FeedMillRecoveryAnalysis {
+  period: { id: string; name: string };
+  rows: Array<{
+    accountNumber: string;
+    speciesKey: string | null;
+    formulaCode: string | null;
+    formulaName: string | null;
+    batchId: string | null;
+    batchNumber: string | null;
+    workCentreCode: string | null;
+    workCentreName: string | null;
+    debitsKobo: string;
+    creditsKobo: string;
+    recoveryBalanceKobo: string;
+    journalCount: number;
+  }>;
 }
 
 export const metadata = { title: 'Cost pools — BioAssetPro' };
@@ -38,6 +58,13 @@ export const metadata = { title: 'Cost pools — BioAssetPro' };
  */
 export default async function CostPoolsPage() {
   const pools = await getCostPools();
+  const context = await getContext().catch(() => null);
+  const softClosedPeriods = (context?.financialYears ?? []).flatMap((year) => year.periods
+    .filter((period) => period.status === 'SOFT_CLOSED')
+    .map((period) => ({ id: period.id, label: `${year.code} · ${period.name}` })));
+  const recoveryPeriod = (context?.financialYears ?? []).flatMap((year) => year.periods
+    .filter((period) => period.status === 'SOFT_CLOSED' || period.status === 'CLOSED'))
+    .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
   // Capacity paid for but not absorbed by any order — the cost ABC exists to
   // make visible, since it would otherwise sit silently inside the rate.
   const idle = await Promise.all(pools.map((pool) => getUnusedCapacity(pool.id)));
@@ -48,6 +75,9 @@ export default async function CostPoolsPage() {
   ]);
   const accountOptions = accounts.filter((a) => a.accountType === 'EXPENSE').map((a) => ({ id: a.id, label: `${a.accountNumber} ${a.name}` }));
   const centreOptions = dimensions.costCentres.map((c) => ({ id: c.id, label: `${c.code} — ${c.name}` }));
+  const recoveryAnalysis = recoveryPeriod
+    ? await api<FeedMillRecoveryAnalysis>(`/costing/feed-mill/recovery-analysis?financialPeriodId=${encodeURIComponent(recoveryPeriod.id)}`).catch(() => null)
+    : null;
 
   return (
     <>
@@ -132,6 +162,12 @@ export default async function CostPoolsPage() {
             </div>
           )}
         </Card>
+        <Card title="Feed Mill actual-cost allocation">
+          <p className="faint" style={{ marginTop: 0 }}>
+            After every feed order converted in a period is complete, freeze posted payroll, depreciation, AP and GL source costs and allocate them by confirmed routing hours.
+          </p>
+          <FeedMillActualCostRunForm periods={softClosedPeriods} />
+        </Card>
 
         <Card
           title="Pools against the ledger"
@@ -186,7 +222,7 @@ export default async function CostPoolsPage() {
                       <PoolSourcesForm
                         poolId={r.poolId}
                         poolCode={r.code}
-                        current={r.sources.map((s) => ({ glAccountId: s.glAccountId, costCentreId: s.costCentreId }))}
+                        current={r.sources.map((s) => ({ glAccountId: s.glAccountId, costCentreId: s.costCentreId, resourceType: s.resourceType }))}
                         accounts={accountOptions}
                         costCentres={centreOptions}
                       />
@@ -196,6 +232,30 @@ export default async function CostPoolsPage() {
               </tbody>
             </table>
           </div>
+        </Card>
+
+        <Card title={`Feed Mill recovery analysis${recoveryAnalysis ? ` · ${recoveryAnalysis.period.name}` : ''}`} padded={false}>
+          {!recoveryPeriod ? (
+            <EmptyState icon={<IconChart size={22} />} title="No settled period yet" body="Feed Mill recovery analysis appears after a period has been soft-closed and its actual costs allocated." />
+          ) : !recoveryAnalysis?.rows.length ? (
+            <EmptyState icon={<IconChart size={22} />} title="No Feed Mill recovery postings" body="There are no shared recovery-account postings for the latest soft-closed or closed period." />
+          ) : (
+            <div className="table-wrap">
+              <table className="data wide">
+                <thead><tr><th>Species</th><th>Formula</th><th>Batch</th><th>Work centre</th><th>GL</th><th className="right">Debits</th><th className="right">Credits</th><th className="right">Balance</th></tr></thead>
+                <tbody>{recoveryAnalysis.rows.map((row) => <tr key={`${row.accountNumber}-${row.speciesKey}-${row.formulaCode}-${row.batchId}-${row.workCentreCode}`}>
+                  <td>{row.speciesKey ?? 'Unclassified'}</td>
+                  <td>{row.formulaCode ? `${row.formulaCode} — ${row.formulaName ?? ''}` : 'Unclassified'}</td>
+                  <td>{row.batchNumber ?? row.batchId ?? 'Unlinked'}</td>
+                  <td>{row.workCentreCode ? `${row.workCentreCode} — ${row.workCentreName ?? ''}` : 'Unassigned'}</td>
+                  <td>{row.accountNumber}</td>
+                  <td className="num">{formatNaira(row.debitsKobo)}</td>
+                  <td className="num">{formatNaira(row.creditsKobo)}</td>
+                  <td className="num">{formatNaira(row.recoveryBalanceKobo)}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          )}
         </Card>
       </div>
     </>

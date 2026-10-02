@@ -340,9 +340,11 @@ export class PayrollRunService {
       const employeePension = BigInt(statutoryResult.employeePensionKobo);
       const nhf = BigInt(statutoryResult.nhfKobo);
 
-      // Net pay is gross less the EMPLOYEE-side deductions only. Employer
-      // contributions are a company cost and never reduce take-home pay.
-      const net = grossKobo - monthlyPaye - employeePension - nhf;
+      // BIK remains in taxable/statutory bases and gross expense, but is not
+      // cash paid to the employee. Employer contributions also do not reduce
+      // take-home pay.
+      const benefitInKindKobo = kept(BigInt(salary.benefitInKindKobo));
+      const net = grossKobo - benefitInKindKobo - monthlyPaye - employeePension - nhf;
 
       if (net < 0n) {
         throw new AccountingRuleViolation(

@@ -57,8 +57,8 @@ const PHASES = [
     webPath: '/m/poultry/flocks',
   },
   {
-    code: 'DEV-07', sequence: 7, name: 'Implement production costing',
-    scope: 'Orders, WIP, operations, loss, recovery and completion',
+    code: 'DEV-07', sequence: 7, name: 'Processing and Joint-Cost Allocation',
+    scope: 'Orders, WIP, operations, loss, recovery, joint-cost allocation and completion',
     owner: 'Core + Species Teams',
     exitEvidence: 'WIP and separate recovery GLs close',
     dependencyCodes: ['DEV-04', 'DEV-05', 'DEV-06'], evidenceSheet: 'Lifecycle_Transactions',

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   AccountType,
   AuditAction,
@@ -135,6 +135,48 @@ export class BiologicalAssetService {
     /** Weighted-average rearing cost; exposed for the callers that remove animals. */
     readonly rearing: RearingCostService,
   ) {}
+
+  /** Require an IAS 41 carrying value evidenced on the reporting/disposal date. */
+  async assertValuedOn(params: {
+    companyId: string;
+    groupId: string;
+    startedOn: Date;
+    currentFvlctsPerUnitKobo: bigint | null;
+    on: Date;
+    tx?: Prisma.TransactionClient;
+  }): Promise<void> {
+    const start = new Date(Date.UTC(params.on.getUTCFullYear(), params.on.getUTCMonth(), params.on.getUTCDate()));
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    if (params.currentFvlctsPerUnitKobo === null || params.currentFvlctsPerUnitKobo <= 0n) {
+      throw new AccountingRuleViolation('IAS 41 — Biological asset valuation', 'This population has no carrying value. Record attributable cost or an evidenced FVLCTS valuation before harvest or sale.', { groupId: params.groupId });
+    }
+    // Initial recognition is valid on the placement date. Later FVLCTS exits
+    // need that day's posted valuation; populations on the narrow cost
+    // exception need a dated Finance review that fair value remains unreliable.
+    const placedThatDay = params.startedOn >= start && params.startedOn < end;
+    if (placedThatDay) return;
+    const db = params.tx ?? this.prisma;
+    const group = await db.livestockGroup.findFirst({
+      where: { id: params.groupId, companyId: params.companyId },
+      select: { measurementBasis: true, fairValueUnreliableReason: true, fairValueReliabilityReviewedOn: true, fairValueReliabilityEvidence: true },
+    });
+    if (group?.measurementBasis === 'ATTRIBUTABLE_COST') {
+      const reviewedToday = group.fairValueReliabilityReviewedOn?.getTime() === start.getTime();
+      if (reviewedToday && group.fairValueUnreliableReason?.trim() && group.fairValueReliabilityEvidence?.trim()) return;
+      throw new AccountingRuleViolation(
+        'IAS 41 — Cost exception reliability review',
+        `Finance must document that fair value remains clearly unreliable on ${start.toISOString().slice(0, 10)}, or post an FVLCTS valuation before harvest or sale.`,
+        { groupId: params.groupId, on: start.toISOString().slice(0, 10) },
+      );
+    }
+    const valuation = await db.biologicalAssetValuation.findFirst({
+      where: { companyId: params.companyId, groupId: params.groupId, status: WorkflowStatus.POSTED, valuationDate: { gte: start, lt: end } },
+      select: { id: true },
+    });
+    if (!valuation) {
+      throw new AccountingRuleViolation('IAS 41 — Pre-harvest/pre-sale valuation', 'Record and post an evidenced FVLCTS valuation for this population on the harvest or sale date before removing animals.', { groupId: params.groupId, on: start.toISOString().slice(0, 10) });
+    }
+  }
 
   /* ------------------------------------------------------------------ */
   /* Account resolution                                                  */
@@ -1078,6 +1120,62 @@ export class BiologicalAssetService {
   /* Valuation — PCR-046/047/070/071, maker-checker via WorkflowService  */
   /* ------------------------------------------------------------------ */
 
+  /** Finance's dated reassessment for a population using IAS 41's cost exception. */
+  async reviewFairValueReliability(params: {
+    companyId: string;
+    groupId: string;
+    reviewedOn: Date;
+    stillUnreliable: boolean;
+    reason: string;
+    evidenceReference: string;
+    actor: WorkflowActor;
+  }) {
+    if (!params.actor.roles.some((role) => ['FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO'].includes(role))) {
+      throw new ForbiddenException('Only Finance Manager, Finance Controller or CFO may approve the IAS 41 cost exception.');
+    }
+    if (!params.stillUnreliable) {
+      throw new AccountingRuleViolation(
+        'IAS 41 — Fair value is now reliable',
+        'Record and post an FVLCTS valuation dated on the review date. That moves the population back to fair-value measurement.',
+        { groupId: params.groupId, reviewedOn: params.reviewedOn.toISOString().slice(0, 10) },
+      );
+    }
+    if (!params.reason?.trim() || !params.evidenceReference?.trim()) {
+      throw new BadRequestException('Record why fair value remains clearly unreliable and cite the review evidence.');
+    }
+    const group = await this.prisma.livestockGroup.findFirst({
+      where: { id: params.groupId, companyId: params.companyId, status: 'ACTIVE', population: { gt: 0 } },
+    });
+    if (!group) throw new NotFoundException('No active biological-asset population to review.');
+    if (group.measurementBasis !== 'ATTRIBUTABLE_COST') {
+      throw new AccountingRuleViolation('IAS 41 — Cost exception review', `${group.code} is not measured at attributable cost. Use an FVLCTS valuation for this population.`, {});
+    }
+    const reviewedOn = new Date(Date.UTC(params.reviewedOn.getUTCFullYear(), params.reviewedOn.getUTCMonth(), params.reviewedOn.getUTCDate()));
+    if (reviewedOn > new Date(new Date().setUTCHours(0, 0, 0, 0))) {
+      throw new BadRequestException('A fair-value reliability review cannot be dated in the future.');
+    }
+    const updated = await this.prisma.livestockGroup.update({
+      where: { id: group.id },
+      data: {
+        fairValueUnreliableReason: params.reason.trim(),
+        fairValueReliabilityReviewedOn: reviewedOn,
+        fairValueReliabilityEvidence: params.evidenceReference.trim(),
+      },
+    });
+    await this.audit.write({
+      transactionId: group.id,
+      module: 'biological-assets',
+      entityType: 'LivestockGroup',
+      entityId: group.id,
+      status: 'REVIEWED',
+      action: AuditAction.CONFIG_CHANGE,
+      userId: params.actor.userId,
+      comments: `Finance confirmed fair value remains clearly unreliable for ${group.code} as of ${reviewedOn.toISOString().slice(0, 10)}.`,
+      metadata: { measurementBasis: 'ATTRIBUTABLE_COST', reason: params.reason.trim(), evidenceReference: params.evidenceReference.trim() },
+    });
+    return { groupId: updated.id, measurementBasis: updated.measurementBasis, reviewedOn: reviewedOn.toISOString().slice(0, 10) };
+  }
+
   /**
    * Raise a valuation. Computes formulas 1, 2 and 4-5 immediately so the
    * preparer sees the effect before submitting; posts nothing until it is
@@ -1298,7 +1396,13 @@ export class BiologicalAssetService {
     });
     await params.tx.livestockGroup.update({
       where: { id: valuation.groupId },
-      data: { currentFvlctsPerUnitKobo: valuation.currentFvlctsPerUnitKobo },
+      data: {
+        currentFvlctsPerUnitKobo: valuation.currentFvlctsPerUnitKobo,
+        measurementBasis: 'FVLCTS',
+        fairValueUnreliableReason: null,
+        fairValueReliabilityReviewedOn: null,
+        fairValueReliabilityEvidence: null,
+      },
     });
 
     // The rearing cost this valuation measured against is now part of the

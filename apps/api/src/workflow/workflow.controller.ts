@@ -92,7 +92,7 @@ export class WorkflowController {
    */
 
   @OwnedRecord('workflowTransaction', 'transactionId')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'MD_CEO')
   @Post(':transactionId/approve')
   async approve(
     @Param('transactionId') transactionId: string,
@@ -103,7 +103,7 @@ export class WorkflowController {
   }
 
   @OwnedRecord('workflowTransaction', 'transactionId')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'MD_CEO')
   @Post(':transactionId/reject')
   async reject(
     @Param('transactionId') transactionId: string,
@@ -114,7 +114,7 @@ export class WorkflowController {
   }
 
   @OwnedRecord('workflowTransaction', 'transactionId')
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'MD_CEO')
   @Post(':transactionId/return')
   async returnToMaker(
     @Param('transactionId') transactionId: string,
@@ -216,7 +216,7 @@ export class WorkflowController {
    * personal surface; there is no legitimate reason to ask for someone else's.
    */
   /** Whether makers may approve their own work when nobody else can. Readable by the finance roles that live with it. */
-  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Roles('FARM_MANAGER', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO', 'MD_CEO')
   @Get('settings')
   async settings(@CurrentCompany() companyId: string) {
     return this.workflow.approvalSettings(companyId);

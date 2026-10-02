@@ -37,7 +37,9 @@ export const ROLE_CATALOGUE: RoleCatalogueEntry[] = [
     summary: 'Full ledger, period close and statutory returns',
     canSeeMoney: true,
   },
-  { code: 'CFO', name: 'CFO', summary: 'Everything, with unlimited approval authority', canSeeMoney: true },
+  { code: 'CFO', name: 'CFO', summary: 'Finance approval authority through ₦10 million; authorizes period reopening', canSeeMoney: true },
+  { code: 'MD_CEO', name: 'MD/CEO', summary: 'Approves transactions above ₦10 million', canSeeMoney: true },
+  { code: 'FINANCIAL_ACCOUNTANT', name: 'GL/Financial Accountant', summary: 'Prepares accounting adjustment journals', canSeeMoney: true },
   {
     code: 'ADMINISTRATOR',
     name: 'Administrator',

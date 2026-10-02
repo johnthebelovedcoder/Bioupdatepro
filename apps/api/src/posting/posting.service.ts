@@ -67,7 +67,25 @@ export class PostingService {
     request: PostingRequest,
     externalTx?: Prisma.TransactionClient,
   ): Promise<PostingResult> {
+    if (request.actor.roles.includes('ADMINISTRATOR')) {
+      throw new AccountingRuleViolation(
+        'Accounting access policy — administrator posting',
+        'Administrators may manage configuration but cannot post accounting entries.',
+        {},
+      );
+    }
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: request.companyId },
+      select: { baseCurrencyId: true, baseCurrency: { select: { code: true } } },
+    });
     this.assertStructure(request);
+    if (company.baseCurrency.code !== 'NGN' || request.currencyId !== company.baseCurrencyId || !new Prisma.Decimal(request.exchangeRate).equals(1)) {
+      throw new AccountingRuleViolation(
+        'Pilot currency policy — NGN only',
+        'The pilot accepts NGN transactions only, posted at the NGN base rate. Foreign-currency support is reserved for a later phase.',
+        { baseCurrency: company.baseCurrency.code, transactionCurrencyId: request.currencyId },
+      );
+    }
     const { totalDebit, totalCredit } = this.assertBalanced(request);
 
     await this.periods.assertPostingAllowed(
@@ -75,13 +93,35 @@ export class PostingService {
       request.actor.roles,
       externalTx,
       request.isClosingEntry ?? false,
+      request.sourceModule,
     );
+
+    if (request.sourceModule !== 'feed-mill-costing') {
+      const sourceAccountIds = [...new Set(request.lines.map((line) => line.glAccountId))];
+      const run = await this.prisma.feedMillActualCostRun.findUnique({
+        where: { companyId_financialPeriodId: { companyId: request.companyId, financialPeriodId: request.financialPeriodId } },
+        select: { id: true },
+      });
+      const frozenPoolSource = run ? await this.prisma.feedMillActualCostAllocation.findFirst({
+        where: { runId: run.id, sourceGlAccountId: { in: sourceAccountIds } },
+        select: { id: true },
+      }) : null;
+      if (frozenPoolSource) {
+        throw new AccountingRuleViolation(
+          'Feed Mill actual-cost allocation — source period frozen',
+          'This ledger source account is frozen into the period Feed Mill allocation. Reopen the period under CFO authority before adjusting it.',
+          { financialPeriodId: request.financialPeriodId },
+        );
+      }
+    }
 
     await this.dimensions.validate(
       request.lines.map((line, index) => ({
         lineNumber: index + 1,
         glAccountId: line.glAccountId,
         dimensions: line.dimensions,
+        allowControlAccount: request.sourceModule !== 'journals',
+        sourceDocumentId: request.sourceDocumentId,
       })),
       externalTx,
     );
@@ -134,7 +174,7 @@ export class PostingService {
       const entry = await tx.journalEntry.create({
         data: {
           companyId: request.companyId,
-          journalNumber: request.journalNumber,
+          journalNumber: voucherNumber,
           voucherNumber,
           journalDate: request.journalDate,
           narration: request.narration,
@@ -175,6 +215,7 @@ export class PostingService {
               supplierId: line.dimensions.supplierId ?? null,
               employeeId: line.dimensions.employeeId ?? null,
               itemId: line.dimensions.itemId ?? null,
+              speciesKey: line.dimensions.speciesKey ?? null,
             })),
           },
         },

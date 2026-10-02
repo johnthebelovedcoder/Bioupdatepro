@@ -6,7 +6,7 @@ import { WorkflowActor } from '../workflow/workflow.types';
 import { AccountingRuleViolation } from '../common/errors';
 import type { CostAllocationMethod } from './cost-allocation.service';
 
-export const JOINT_COST_METHODS: CostAllocationMethod[] = ['NRV', 'WEIGHT', 'SALES_VALUE', 'STANDARD_PERCENTAGE'];
+export const JOINT_COST_METHODS: CostAllocationMethod[] = ['SALES_VALUE', 'NRV', 'WEIGHT'];
 
 /** Who may approve a joint-cost price: those who answer for costing. */
 const PRICE_APPROVERS = ['FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'CFO', 'ADMINISTRATOR'];
@@ -28,6 +28,13 @@ export class JointCostService {
 
   async releasedMethod(companyId: string): Promise<CostAllocationMethod> {
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { jointCostMethod: true } });
+    if (!JOINT_COST_METHODS.includes(company.jointCostMethod as CostAllocationMethod)) {
+      throw new AccountingRuleViolation(
+        'JOINT_COST_ALLOCATION — supported released method',
+        `The stored method ${company.jointCostMethod} is not implemented. Finance must release SALES_VALUE, NRV or WEIGHT before processing outputs.`,
+        { method: company.jointCostMethod },
+      );
+    }
     return company.jointCostMethod as CostAllocationMethod;
   }
 
