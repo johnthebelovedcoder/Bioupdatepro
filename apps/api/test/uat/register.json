@@ -80,7 +80,7 @@
     "id": "UAT-008",
     "title": "Payroll and statutory liabilities — run, approve, pay; inactive employee or unposted run blocked",
     "positive": [
-      "calculates EMP001 exactly as both workbooks do",
+      "calculates EMP001 using statutory workbook rules and naira PAYE rounding",
       "posts the §7 accrual and leaves the trial balance balanced",
       "clears the salary payable and moves cash, dollar for dollar"
     ],
@@ -113,7 +113,7 @@
   {
     "id": "UAT-011",
     "title": "Snail egg to hatchling lifecycle — hatch exceeding eggs blocked",
-    "positive": ["records a cycle, then places its hatchlings as their own cohort at no cost"],
+    "positive": ["records viable eggs at FVLCTS, then carries the value into the hatchling cohort"],
     "negative": [
       "refuses a hatch that does not account for every egg",
       "refuses more breeders than the cohort has, and a second hatch of the same cycle"

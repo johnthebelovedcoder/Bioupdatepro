@@ -813,7 +813,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       });
     }
 
-    it('calculates EMP001 exactly as both workbooks do', async () => {
+    it('calculates EMP001 using statutory workbook rules and naira PAYE rounding', async () => {
       await makeEmployee({
         number: 'EMP001',
         firstName: 'Amina',
@@ -863,8 +863,9 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       // Only three employees, so ITF (25+) does not apply.
       expect(line.itfKobo).toBe(0n);
 
-      // PAYE workbook column AC: net before other deductions = 262,153.30
-      expect(line.netPayKobo).toBe(26_215_330n);
+      // Final monthly PAYE is rounded to ₦32,912 (not the workbook's ₦32,911.70
+      // intermediate amount), so net before other deductions is ₦262,153.00.
+      expect(line.netPayKobo).toBe(26_215_300n);
     });
 
     it('takes approved unpaid leave off gross before PAYE, and keeps it on the payslip (AC-HR-003)', async () => {

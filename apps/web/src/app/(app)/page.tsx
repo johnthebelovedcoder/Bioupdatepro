@@ -9,7 +9,7 @@ import {
   getUpcomingHealthTasks,
   type TodayActivityItem,
 } from '@/lib/operations';
-import { Card, CardLink, PageHeader, Stat } from '@/components/ui';
+import { Card, CardLink, EmptyState, PageHeader, Stat } from '@/components/ui';
 import { HelpTerm } from '@/components/help';
 import { NeedsAttention, FeedRunwayCard } from '@/components/attention';
 import { CoreOperations } from '@/components/core-operations';
@@ -212,6 +212,12 @@ export default async function DashboardPage() {
       <div className="stack">
         <NeedsAttention alerts={alerts} />
 
+        <QuickActions
+          allowedSections={allowedSections}
+          moduleKey={modules[0]?.key ?? null}
+          hasSpecies={hasSpecies}
+        />
+
         {/*
           Absent, not blanked out.
 
@@ -346,9 +352,17 @@ export default async function DashboardPage() {
                 entries are feeding, mortality, egg collection and harvest. */}
             {hasSpecies ? (
               <Card title="Recent activity" subtitle="Today on the farm" padded={false}>
-                {activity.map((entry) => (
+                {activity.length > 0 ? activity.map((entry) => (
                   <ActivityRow key={entry.id} entry={entry} />
-                ))}
+                )) : (
+                  <div className="card-body">
+                    <EmptyState
+                      title="No farm activity yet today"
+                      body="Record feed, production, health or mortality to build today's farm log."
+                      action={<Link className="btn" href={`/m/${modules[0]?.key}/records`}>Open daily round</Link>}
+                    />
+                  </div>
+                )}
               </Card>
             ) : null}
           </div>
@@ -397,7 +411,7 @@ export default async function DashboardPage() {
 
             {hasSpecies ? (
             <Card title="Upcoming tasks" padded={false}>
-              {tasks.map((task) => (
+              {tasks.length > 0 ? tasks.map((task) => (
                 <div className="list-row" key={task.id}>
                   <span
                     className={`list-icon ${
@@ -416,7 +430,7 @@ export default async function DashboardPage() {
                   </div>
                   <span className="list-time">{task.due}</span>
                 </div>
-              ))}
+              )) : <div className="card-body muted">No scheduled tasks are due. New health and vaccination tasks appear here.</div>}
             </Card>
             ) : null}
           </div>
@@ -430,6 +444,39 @@ export default async function DashboardPage() {
         )}
       </div>
     </>
+  );
+}
+
+function QuickActions({
+  allowedSections,
+  moduleKey,
+  hasSpecies,
+}: {
+  allowedSections: ReadonlySet<string>;
+  moduleKey: string | null;
+  hasSpecies: boolean;
+}) {
+  const actions: Array<{ label: string; href: string; detail: string }> = [];
+  if (allowedSections.has('approvals')) actions.push({ label: 'Review approvals', href: '/approvals', detail: 'Decide what is waiting' });
+  if (hasSpecies && moduleKey && allowedSections.has('recording')) actions.push({ label: "Record today's round", href: `/m/${moduleKey}/records`, detail: 'Feed, output and losses' });
+  if (allowedSections.has('ledger')) actions.push({ label: 'Open the books', href: '/ledger/trial-balance', detail: 'Review balances and reports' });
+  else if (allowedSections.has('money')) actions.push({ label: 'Open money', href: '/finance', detail: 'Payments, payroll and cash' });
+  if (allowedSections.has('inventory')) actions.push({ label: 'Check store', href: '/inventory', detail: 'Stock, receipts and counts' });
+  if (allowedSections.has('trade')) actions.push({ label: 'Start a purchase', href: '/procurement/new', detail: 'Request or order supplies' });
+  if (actions.length === 0) return null;
+
+  return (
+    <section aria-label="Quick actions">
+      <div className="faint" style={{ textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, marginBottom: 'var(--sp-3)' }}>Start here</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))', gap: 'var(--sp-3)' }}>
+        {actions.slice(0, 4).map((action) => (
+          <Link key={action.href} href={action.href} className="card" style={{ padding: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontWeight: 600 }}>{action.label}</span>
+            <span className="faint" style={{ fontSize: 13 }}>{action.detail}</span>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 

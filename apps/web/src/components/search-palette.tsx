@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { allEntries } from '@/lib/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { allEntries, entryFor } from '@/lib/navigation';
 import { applyOverrides, sectionsFor } from '@/lib/permissions';
 import { useRoleSectionOverrides } from './roles-context';
 import { IconSearch } from './icons';
@@ -40,6 +40,62 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
   const [searching, setSearching] = useState(false);
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pathname = usePathname();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const recentLoaded = useRef(false);
+  const wasOpen = useRef(false);
+  const [recentPaths, setRecentPaths] = useState<string[]>([]);
+  const [shortcutLabel, setShortcutLabel] = useState('Ctrl K');
+
+  useEffect(() => {
+    setShortcutLabel(/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K');
+    try {
+      const stored = JSON.parse(localStorage.getItem('bioassetpro.recentRoutes') ?? '[]');
+      if (Array.isArray(stored)) setRecentPaths(stored.filter((path): path is string => typeof path === 'string').slice(0, 5));
+    } catch {
+      setRecentPaths([]);
+    }
+    recentLoaded.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      wasOpen.current = true;
+      inputRef.current?.focus();
+    } else {
+      setQuery('');
+      setRecords([]);
+      setCursor(0);
+      if (wasOpen.current) {
+        wasOpen.current = false;
+        triggerRef.current?.focus();
+      }
+    }
+  }, [open]);
+
+  const allowed = useMemo(
+    () => applyOverrides(sectionsFor(roles), roles, roleSectionOverrides),
+    [roles, roleSectionOverrides],
+  );
+  const allowedEntries = useMemo(
+    () => allEntries().filter((entry) => allowed.has(entry.section.section)),
+    [allowed],
+  );
+  const currentEntry = entryFor(pathname);
+
+  useEffect(() => {
+    if (!recentLoaded.current || !currentEntry || !allowed.has(currentEntry.section.section)) return;
+    const route = currentEntry.entry.href;
+    if (recentPaths[0] === route) return;
+    const next = [route, ...recentPaths.filter((path) => path !== route)].slice(0, 5);
+    try {
+      localStorage.setItem('bioassetpro.recentRoutes', JSON.stringify(next));
+    } catch {
+      // Recent navigation is a convenience; private browsing may disable storage.
+    }
+    setRecentPaths(next);
+  }, [pathname, currentEntry?.entry.href, allowed, recentPaths]);
 
   /* Ctrl-K / Cmd-K anywhere, Escape to leave. */
   useEffect(() => {
@@ -54,15 +110,6 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-    else {
-      setQuery('');
-      setRecords([]);
-      setCursor(0);
-    }
-  }, [open]);
-
   /*
    * Screens, matched in memory against everything the role can reach.
    *
@@ -73,9 +120,7 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
   const screens = useMemo(() => {
     const term = query.trim().toLowerCase();
     if (term.length < 1) return [];
-    const allowed = applyOverrides(sectionsFor(roles), roles, roleSectionOverrides);
-    return allEntries()
-      .filter((entry) => allowed.has(entry.section.section))
+    return allowedEntries
       .map((entry) => {
         const haystack = [
           entry.label,
@@ -100,7 +145,7 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
         href: entry.hidden ? entry.section.href : entry.href,
         rank: -1,
       }));
-  }, [query, roles, roleSectionOverrides]);
+  }, [query, allowedEntries]);
 
   /* Records, debounced so a fast typist makes one request rather than nine. */
   useEffect(() => {
@@ -131,7 +176,24 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
     };
   }, [query]);
 
-  const results = useMemo(() => [...screens, ...records], [screens, records]);
+  const recent = useMemo(
+    () => recentPaths.flatMap((path) => {
+      const entry = allowedEntries.find((candidate) => candidate.href === path);
+      return entry ? [{
+        type: 'Recent', title: entry.label, subtitle: entry.hint ?? entry.section.label,
+        href: entry.hidden ? entry.section.href : entry.href, rank: -2,
+      }] : [];
+    }),
+    [recentPaths, allowedEntries],
+  );
+  const suggestions = recent.length > 0 ? recent : allowedEntries.slice(0, 4).map((entry) => ({
+    type: entry.section.label, title: entry.label, subtitle: entry.hint ?? null,
+    href: entry.hidden ? entry.section.href : entry.href, rank: -2,
+  }));
+  const results = useMemo(
+    () => query.trim() ? [...screens, ...records] : suggestions,
+    [query, screens, records, suggestions],
+  );
 
   useEffect(() => setCursor(0), [query]);
 
@@ -161,6 +223,7 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         className="search-trigger"
         onClick={() => setOpen(true)}
@@ -168,7 +231,7 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
       >
         <IconSearch size={16} />
         <span className="search-trigger-label">Search anything</span>
-        <kbd className="search-trigger-key">Ctrl K</kbd>
+        <kbd className="search-trigger-key">{shortcutLabel}</kbd>
       </button>
 
       {open ? (
@@ -179,7 +242,27 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
             if (event.target === event.currentTarget) setOpen(false);
           }}
         >
-          <div className="palette" role="dialog" aria-modal="true" aria-label="Search">
+          <div
+            ref={dialogRef}
+            className="palette"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Search"
+            onKeyDownCapture={(event) => {
+              if (event.key !== 'Tab') return;
+              const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+                'input:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+              );
+              if (!focusable?.length) return;
+              const first = focusable[0]!;
+              const last = focusable[focusable.length - 1]!;
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault(); last.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault(); first.focus();
+              }
+            }}
+          >
             <div className="palette-input">
               <IconSearch size={18} />
               <input
@@ -187,6 +270,9 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={onKeyDown}
+                aria-autocomplete="list"
+                aria-controls="search-results"
+                aria-activedescendant={results[cursor] ? `search-hit-${cursor}` : undefined}
                 placeholder="An order number, a vendor, an item, a page…"
                 aria-label="Search"
                 autoComplete="off"
@@ -194,21 +280,20 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
               {searching ? <span className="faint">searching…</span> : null}
             </div>
 
-            <div className="palette-results">
-              {query.trim().length === 0 ? (
-                <p className="palette-empty">
-                  Type a document number, a name, or what you want to do.
-                </p>
-              ) : results.length === 0 && !searching ? (
+            <div className="palette-results" id="search-results" role="listbox" aria-label="Search suggestions">
+              {query.trim().length > 0 && results.length === 0 && !searching ? (
                 <p className="palette-empty">
                   Nothing matches “{query.trim()}”. Records you are not allowed to open are
                   never listed here, so it may exist and belong to somebody else.
                 </p>
-              ) : (
+              ) : results.length > 0 ? (
                 results.map((hit, index) => (
                   <button
                     type="button"
                     key={`${hit.href}:${hit.title}:${index}`}
+                    id={`search-hit-${index}`}
+                    role="option"
+                    aria-selected={index === cursor}
                     className={`palette-hit${index === cursor ? ' is-active' : ''}`}
                     onMouseEnter={() => setCursor(index)}
                     onClick={() => go(hit.href)}
@@ -222,6 +307,8 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
                     <span className="badge">{hit.type}</span>
                   </button>
                 ))
+              ) : (
+                <p className="palette-empty">Type a document number, a name, or what you want to do.</p>
               )}
             </div>
 

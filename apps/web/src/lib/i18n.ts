@@ -78,6 +78,41 @@ export type MessageKey =
   | 'nav.record'
   | 'nav.store'
   | 'nav.more'
+  | 'nav.approvals'
+  | 'nav.buying'
+  | 'nav.books'
+  | 'nav.selling'
+  | 'nav.money'
+  // Processing order flow
+  | 'order.raise'
+  | 'order.dialog'
+  | 'order.harvestMode'
+  | 'order.feedMode'
+  | 'order.stepSource'
+  | 'order.stepRecipe'
+  | 'order.stepOutput'
+  | 'order.harvest'
+  | 'order.product'
+  | 'order.noHarvest'
+  | 'order.checkHarvest'
+  | 'order.farm'
+  | 'order.branch'
+  | 'order.feedFor'
+  | 'order.snail'
+  | 'order.poultry'
+  | 'order.feedRecipe'
+  | 'order.plannedOutput'
+  | 'order.outputHint'
+  | 'order.progressHint'
+  | 'order.stepProgress'
+  | 'order.harvestPlaceholder'
+  | 'order.productPlaceholder'
+  | 'order.recipeMissing'
+  | 'order.outputTitle'
+  | 'common.back'
+  | 'common.continue'
+  | 'common.done'
+  | 'common.raising'
   // Outbox
   | 'outbox.offline'
   | 'outbox.waiting'
@@ -134,6 +169,40 @@ const EN: Catalogue = {
   'nav.record': 'Record',
   'nav.store': 'Store',
   'nav.more': 'More',
+  'nav.approvals': 'Approvals',
+  'nav.buying': 'Buy',
+  'nav.books': 'Books',
+  'nav.selling': 'Sell',
+  'nav.money': 'Money',
+  'order.raise': 'Raise an order',
+  'order.dialog': 'Raise a processing order',
+  'order.harvestMode': 'From a harvest',
+  'order.feedMode': 'Feed mill',
+  'order.stepSource': 'Source',
+  'order.stepRecipe': 'Recipe',
+  'order.stepOutput': 'Output',
+  'order.harvest': 'Choose the harvest',
+  'order.product': 'Choose the product',
+  'order.noHarvest': 'No harvest is waiting for processing. Record or review a harvest first.',
+  'order.checkHarvest': 'Check harvest readiness',
+  'order.farm': 'Farm',
+  'order.branch': 'Branch',
+  'order.feedFor': 'Feed for',
+  'order.snail': 'Snails',
+  'order.poultry': 'Poultry',
+  'order.feedRecipe': 'Choose the feed recipe',
+  'order.plannedOutput': 'Planned output quantity',
+  'order.outputHint': 'Enter the expected finished quantity in the recipe’s output unit.',
+  'order.progressHint': 'Your entries stay in place if you go back.',
+  'order.stepProgress': 'Step {step} of {total} · {label}',
+  'order.harvestPlaceholder': 'Choose the harvest this order will process',
+  'order.productPlaceholder': 'Choose the product for this batch',
+  'order.recipeMissing': 'No active recipe is ready. Add and activate a recipe before continuing.',
+  'order.outputTitle': 'Set the planned output',
+  'common.back': 'Back',
+  'common.continue': 'Continue',
+  'common.done': 'Done',
+  'common.raising': 'Raising…',
 
   'outbox.offline': 'No connection. Your work is saved on this phone.',
   'outbox.waiting': '{n} waiting to send',
@@ -189,6 +258,40 @@ const HA: Catalogue = {
   'nav.record': 'Rubuta',
   'nav.store': 'Ajiya',
   'nav.more': 'Ƙari',
+  'nav.approvals': 'Amincewa',
+  'nav.buying': 'Sayayya',
+  'nav.books': 'Littattafai',
+  'nav.selling': 'Sayarwa',
+  'nav.money': 'Kuɗi',
+  'order.raise': 'Ɗaga oda',
+  'order.dialog': 'Ɗaga odar sarrafawa',
+  'order.harvestMode': 'Daga girbi',
+  'order.feedMode': 'Niƙa abinci',
+  'order.stepSource': 'Asali',
+  'order.stepRecipe': 'Hanyar hadawa',
+  'order.stepOutput': 'Abin da aka samar',
+  'order.harvest': 'Zaɓi girbin',
+  'order.product': 'Zaɓi samfurin',
+  'order.noHarvest': 'Babu girbin da ke jiran sarrafawa. Yi ko duba girbi tukuna.',
+  'order.checkHarvest': 'Duba shirye-shiryen girbi',
+  'order.farm': 'Gona',
+  'order.branch': 'Reshe',
+  'order.feedFor': 'Abincin don',
+  'order.snail': 'Katantanwa',
+  'order.poultry': 'Kaji',
+  'order.feedRecipe': 'Zaɓi hanyar haɗa abincin',
+  'order.plannedOutput': 'Yawan abin da ake shirin samarwa',
+  'order.outputHint': 'Shigar da yawan abin da ake sa ran samu bisa ma’aunin hanyar haɗin.',
+  'order.progressHint': 'Abin da ka shigar zai tsaya idan ka koma baya.',
+  'order.stepProgress': 'Mataki {step} cikin {total} · {label}',
+  'order.harvestPlaceholder': 'Zaɓi girbin da wannan oda zai sarrafa',
+  'order.productPlaceholder': 'Zaɓi samfurin wannan rukuni',
+  'order.recipeMissing': 'Babu hanyar haɗawa mai aiki. Ƙara ta kuma kunna ta kafin ci gaba.',
+  'order.outputTitle': 'Saita abin da ake shirin samarwa',
+  'common.back': 'Baya',
+  'common.continue': 'Ci gaba',
+  'common.done': 'An gama',
+  'common.raising': 'Ana ɗagawa…',
 
   'outbox.offline': 'Babu haɗi. An ajiye aikinka a wannan wayar.',
   'outbox.waiting': '{n} suna jira a aika',
@@ -244,6 +347,40 @@ const YO: Catalogue = {
   'nav.record': 'Kọ',
   'nav.store': 'Ilé ìtajà',
   'nav.more': 'Sí i',
+  'nav.approvals': 'Ìfọwọ́sí',
+  'nav.buying': 'Rírà',
+  'nav.books': 'Ìwé ìṣúná',
+  'nav.selling': 'Títà',
+  'nav.money': 'Owó',
+  'order.raise': 'Ṣẹ̀dá iṣẹ́',
+  'order.dialog': 'Ṣẹ̀dá iṣẹ́ ìṣelọ́pọ̀',
+  'order.harvestMode': 'Láti inú ìkórè',
+  'order.feedMode': 'Ilé iṣẹ́ oúnjẹ ẹranko',
+  'order.stepSource': 'Orísun',
+  'order.stepRecipe': 'Ìlànà ìdàpọ̀',
+  'order.stepOutput': 'Èso iṣẹ́',
+  'order.harvest': 'Yan ìkórè',
+  'order.product': 'Yan ọjà',
+  'order.noHarvest': 'Kò sí ìkórè tó ń dúró de ìṣelọ́pọ̀. Kọ ìkórè sílẹ̀ tàbí ṣàyẹ̀wò rẹ̀ kọ́kọ́.',
+  'order.checkHarvest': 'Ṣàyẹ̀wò ìmúrasílẹ̀ ìkórè',
+  'order.farm': 'Oko',
+  'order.branch': 'Ẹ̀ka',
+  'order.feedFor': 'Oúnjẹ fún',
+  'order.snail': 'Ìgbín',
+  'order.poultry': 'Adìẹ',
+  'order.feedRecipe': 'Yan ìlànà ìdàpọ̀ oúnjẹ',
+  'order.plannedOutput': 'Iye èso iṣẹ́ tí a retí',
+  'order.outputHint': 'Tẹ iye èso tí a retí ní ìwọ̀n ìlànà ìdàpọ̀ náà.',
+  'order.progressHint': 'Àwọn ohun tí o ti tẹ yóò dúró síbẹ̀ bí o bá padà sẹ́yìn.',
+  'order.stepProgress': 'Ìgbésẹ̀ {step} nínú {total} · {label}',
+  'order.harvestPlaceholder': 'Yan ìkórè tí iṣẹ́ yìí yóò lò',
+  'order.productPlaceholder': 'Yan ọjà fún ìpele yìí',
+  'order.recipeMissing': 'Kò sí ìlànà tó ṣiṣẹ́. Fi ìlànà kún un kí o sì mú un ṣiṣẹ́ kí o tó tẹ̀síwájú.',
+  'order.outputTitle': 'Ṣètò iye èso iṣẹ́ tí a retí',
+  'common.back': 'Padà',
+  'common.continue': 'Tẹ̀síwájú',
+  'common.done': 'Parí',
+  'common.raising': 'A ń ṣẹ̀dá…',
 
   'outbox.offline': 'Kò sí ìsopọ̀. A ti fi iṣẹ́ rẹ pamọ́ sí fóònù yìí.',
   'outbox.waiting': '{n} ń dúró láti ránṣẹ́',
@@ -299,6 +436,40 @@ const IG: Catalogue = {
   'nav.record': 'Dee',
   'nav.store': 'Ụlọ nkwakọba',
   'nav.more': 'Ọzọ',
+  'nav.approvals': 'Nkwado',
+  'nav.buying': 'Ịzụ',
+  'nav.books': 'Akwụkwọ ndekọ',
+  'nav.selling': 'Ịre',
+  'nav.money': 'Ego',
+  'order.raise': 'Mepụta iwu',
+  'order.dialog': 'Mepụta iwu nhazi',
+  'order.harvestMode': 'Site nʼowuwe',
+  'order.feedMode': 'Igwe nri anụmanụ',
+  'order.stepSource': 'Isi mmalite',
+  'order.stepRecipe': 'Ntụziaka',
+  'order.stepOutput': 'Ihe e mepụtara',
+  'order.harvest': 'Họrọ owuwe',
+  'order.product': 'Họrọ ngwaahịa',
+  'order.noHarvest': 'Enweghị owuwe na-eche nhazi. Buru ụzọ dekọọ owuwe ma ọ bụ lelee ya.',
+  'order.checkHarvest': 'Lelee njikere owuwe',
+  'order.farm': 'Ugbo',
+  'order.branch': 'Alaka',
+  'order.feedFor': 'Nri maka',
+  'order.snail': 'Ejula',
+  'order.poultry': 'Ọkụkọ',
+  'order.feedRecipe': 'Họrọ ntụziaka nri',
+  'order.plannedOutput': 'Ọnụọgụ ihe a na-atụ anya imepụta',
+  'order.outputHint': 'Tinye ọnụọgụ ngwaahịa a tụrụ anya ya nʼotu nha ntụziaka ahụ.',
+  'order.progressHint': 'Ihe i tinyere ga-adị ma ị laghachi azụ.',
+  'order.stepProgress': 'Nzọụkwụ {step} n’ime {total} · {label}',
+  'order.harvestPlaceholder': 'Họrọ owuwe iwu a ga-eji hazie',
+  'order.productPlaceholder': 'Họrọ ngwaahịa maka ogbe a',
+  'order.recipeMissing': 'Enweghị ntụziaka na-arụ ọrụ. Tinye ya ma mee ka ọ rụọ ọrụ tupu ịga n’ihu.',
+  'order.outputTitle': 'Debe ihe a na-atụ anya imepụta',
+  'common.back': 'Laghachi',
+  'common.continue': 'Gaa nʼihu',
+  'common.done': 'Emechaala',
+  'common.raising': 'A na-emepụta…',
 
   'outbox.offline': 'Enweghị njikọ. Echekwara ọrụ gị na ekwentị a.',
   'outbox.waiting': '{n} na-echere izipu',

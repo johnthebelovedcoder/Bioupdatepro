@@ -4,6 +4,7 @@ import { formatDate, formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { IconBox } from '@/components/icons';
+import { HelpTerm } from '@/components/help';
 
 export const metadata = { title: 'Goods received — BioAssetPro' };
 
@@ -168,7 +169,7 @@ export default async function GoodsReceivedPage({
                             <div className="faint num">
                               {receipt.journalNumber ?? 'journal written'}
                             </div>
-                            <div className="faint">Dr Inventory / Cr GRNI</div>
+                            <div className="faint row" style={{ gap: 'var(--sp-2)' }}>Dr Inventory / Cr GRNI <HelpTerm k="grni" /></div>
                             <Link
                               href={`/procurement/receipts/${receipt.id}`}
                               className="faint"

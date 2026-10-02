@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation';
+import Link from 'next/link';
 import { getModule, title } from '@/lib/modules';
 import { getGroups, getModuleSummary, getModuleTrend } from '@/lib/operations';
-import { Card, PageHeader, Stat } from '@/components/ui';
+import { Card, EmptyState, PageHeader, Stat } from '@/components/ui';
 import { TrendChart } from '@/components/trend-chart';
 import { PeriodFilter } from '@/components/period-filter';
 import { resolvePeriod, type PeriodKey } from '@/lib/period';
@@ -115,7 +116,15 @@ export default async function ModuleOverviewPage({
           subtitle={`Every active ${module.terms.group.one}`}
           padded={false}
         >
-          <div className="table-wrap">
+          {active.length === 0 ? (
+            <div className="card-body">
+              <EmptyState
+                title={`No active ${module.terms.group.many.toLowerCase()} yet`}
+                body={`Add your first ${module.terms.group.one} to start tracking feed, health, production and carrying value.`}
+                action={<Link className="btn" href={`/m/${module.key}/${module.registerSlug}/new`}>Add a {module.terms.group.one}</Link>}
+              />
+            </div>
+          ) : <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
@@ -157,7 +166,7 @@ export default async function ModuleOverviewPage({
                 ))}
               </tbody>
             </table>
-          </div>
+          </div>}
         </Card>
       </div>
     </>

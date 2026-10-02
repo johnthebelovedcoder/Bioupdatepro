@@ -8,6 +8,7 @@ import { Tabs } from '@/components/tabs';
 import { TableSearch } from '@/components/table-search';
 import { IconBox } from '@/components/icons';
 import { CreateProductionOrderForm } from '@/components/create-production-order-form';
+import { getFarmConfig } from '@/lib/farm-config.server';
 
 export const metadata = { title: 'Processing orders — BioAssetPro' };
 
@@ -35,12 +36,13 @@ const STATUS_TONE: Record<string, string> = {
  * action offered.
  */
 export default async function ProductionOrdersPage() {
-  const [orders, harvests, recipes, farms, context] = await Promise.all([
+  const [orders, harvests, recipes, farms, context, config] = await Promise.all([
     getProductionOrders(),
     getAvailableHarvests(),
     getRecipes(),
     getFarms(),
     getContext(),
+    getFarmConfig(),
   ]);
 
   return (
@@ -61,6 +63,7 @@ export default async function ProductionOrdersPage() {
               recipes={recipes}
               farms={farms}
               branches={context.branches}
+              language={config.organisation.workerLanguage}
             />
           }
         >

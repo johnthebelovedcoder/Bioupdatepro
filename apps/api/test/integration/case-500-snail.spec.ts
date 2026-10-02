@@ -441,6 +441,8 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     );
     // For the enterprise (V896) scoring in run-uat.mjs, beside the poultry replay's.
     const causeTotal = (id: RepId) => (explained[id] ?? []).reduce((sum, [, amount]) => sum + amount, 0n);
+    const caseFigures = await figures();
+    expect(caseFigures.baRollForwardDifference).toBe('0');
     writeFileSync(
       join(__dirname, '..', 'uat', 'case-500-snail.json'),
       JSON.stringify(
@@ -451,7 +453,7 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
           application: { pbtKobo: pl.profitBeforeTaxKobo, patKobo: pl.profitAfterTaxKobo },
           explained: { pbtKobo: causeTotal('REP-014').toString(), patKobo: causeTotal('REP-015').toString() },
           causes: Object.fromEntries(Object.entries(CAUSES).map(([k, c]) => [k, c.amount.toString()])),
-          figures: await figures(),
+          figures: caseFigures,
         },
         null,
         2,

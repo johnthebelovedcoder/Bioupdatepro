@@ -1532,7 +1532,18 @@ export class BiologicalAssetService {
       rearingHeldKobo = await this.rearing.remaining(groupId);
     }
 
-    const openingBaKobo = group.acquisitionCostKobo;
+    // Hatchlings inherit the carrying amount of the viable eggs transferred
+    // into their cohort. FVLCTS-recognized eggs have no historical acquisition
+    // cost, so acquisitionCostKobo alone understated the cohort's opening BA
+    // and made the stage roll-forward differ by the inherited egg value.
+    const breedingTransfer = await this.prisma.snailBreedingCycle.findFirst({
+      where: { companyId: group.companyId, hatchlingGroupId: group.id, status: 'HATCHED' },
+      select: { hatchedCount: true, eggValuePerUnitKobo: true },
+    });
+    const transferredEggCarryingAmount = breedingTransfer
+      ? BigInt(breedingTransfer.hatchedCount ?? 0) * breedingTransfer.eggValuePerUnitKobo
+      : 0n;
+    const openingBaKobo = group.acquisitionCostKobo + transferredEggCarryingAmount;
     const closingBaKobo = BigInt(group.population) * (group.currentFvlctsPerUnitKobo ?? 0n) + awaitingProcessingKobo + rearingHeldKobo;
     // Formula 7: Closing BA = Opening BA + rearing capitalised − mortality
     // loss − rearing relieved + growth/price gain − disposal carrying amount

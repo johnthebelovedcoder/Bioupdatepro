@@ -3,6 +3,9 @@ import { getFarmConfig, hasSavedSettings } from '@/lib/farm-config.server';
 import { getContext } from '@/lib/org';
 import { subscribedModules } from '@/lib/modules';
 import { getFeeding, getGroups, getProduction } from '@/lib/operations';
+import { getCostCentres, getStockItems } from '@/lib/masters';
+import { getTaxSetup } from '@/lib/tax';
+import { getPostingControlStatus } from '@/lib/controls';
 import { getTeamSize } from '@/app/(app)/staff/actions';
 import { Card, PageHeader } from '@/components/ui';
 import { IconArrowRight, IconCheckCircle, IconClipboard } from '@/components/icons';
@@ -58,18 +61,30 @@ export default async function WelcomePage() {
   // whether this particular browser has, which is what the cookie this
   // replaced could actually answer.
   const hasConfiguredSettings = await hasSavedSettings();
+  const [stockItems, costCentres, taxSetup, chartStatus] = await Promise.all([
+    getStockItems(),
+    getCostCentres(),
+    getTaxSetup(),
+    getPostingControlStatus(),
+  ]);
+  const hasInventoryItems = stockItems.length > 0;
+  const hasCostCentres = costCentres.some((centre) => centre.active);
+  const hasTaxSetup = taxSetup.ok && taxSetup.data.configured;
+  const chartReady = chartStatus.ok && chartStatus.data.targetChart.ready;
 
   // A headcount, not the roster `listPeople` returns — that endpoint is
   // restricted to the roles that manage staff, so asking it here silently
   // told every other role their fully-staffed farm still needed a first
   // invitation.
   const hasTeam = (await getTeamSize()) > 1;
+  const steps = [hasPopulations, hasWalkedRound, hasInventoryItems, hasCostCentres, hasConfiguredSettings, chartReady, hasTaxSetup, hasTeam];
+  const completeSteps = steps.filter(Boolean).length;
 
   return (
     <>
       <PageHeader
         title={`Welcome to ${farmName}`}
-        subtitle="Four steps and the farm is running"
+        subtitle={`${completeSteps} of ${steps.length} setup steps complete · pick up where you left off`}
       />
 
       <div className="stack">
@@ -79,10 +94,9 @@ export default async function WelcomePage() {
               <IconCheckCircle size={16} />
             </span>
             <div>
-              <div style={{ fontWeight: 500 }}>Your books are ready</div>
+              <div style={{ fontWeight: 500 }}>Your farm workspace is ready</div>
               <p className="muted" style={{ fontSize: 14, margin: '4px 0 0' }}>
-                A chart of accounts, cost centres and twelve open months have been set up.
-                Every cost you record from here lands in them automatically.
+                Initial books, cost centres and open periods are available. Review account mappings and reconcile historical balances with Finance before migrating opening balances.
               </p>
             </div>
           </div>
@@ -107,8 +121,26 @@ export default async function WelcomePage() {
         />
 
         <Step
-          done={hasConfiguredSettings}
+          done={hasInventoryItems}
           number={3}
+          title="Add the items you keep in store"
+          body="Set up feed, medicine and packaging so receipts and issues can update the right stock records."
+          href="/items"
+          cta="Set up store items"
+        />
+
+        <Step
+          done={hasCostCentres}
+          number={4}
+          title="Cost centres are available"
+          body="Cost centres show where money is earned and spent. Review the supplied list and add any missing areas before entering costed transactions."
+          href="/admin/cost-centres"
+          cta="Review cost centres"
+        />
+
+        <Step
+          done={hasConfiguredSettings}
+          number={5}
           title="Set the farm up your way"
           body="Feed lead times, what counts as an unusual death, which language your workers see. The warnings you get are only as good as these."
           href="/settings"
@@ -116,8 +148,26 @@ export default async function WelcomePage() {
         />
 
         <Step
+          done={chartReady}
+          number={6}
+          title="Review approved chart readiness"
+          body="Check the target account mapping and its blockers. This check does not approve or migrate historical balances; those need reconciliation evidence and Finance sign-off."
+          href="/ledger/chart"
+          cta="Review chart readiness"
+        />
+
+        <Step
+          done={hasTaxSetup}
+          number={7}
+          title="Set your tax policy before invoicing"
+          body="Tax treatment and rates depend on your registration and Finance guidance. Review the configured policy and active codes before raising taxable documents."
+          href="/ledger/tax"
+          cta="Review tax setup"
+        />
+
+        <Step
           done={hasTeam}
-          number={4}
+          number={8}
           title="Invite your team"
           body="You are the only person who can see this farm right now. Bring in whoever else needs to record a round, approve an order or see the books."
           href="/staff"
@@ -132,14 +182,13 @@ export default async function WelcomePage() {
           farm's money — neither is something this product should guess at, so
           neither has been.
         */}
-        <Card title="Not set up yet">
-          <p className="muted" style={{ fontSize: 14, margin: 0 }}>
-            Tax codes and rates, and the approval limits that decide who can sign off what,
-            are left blank on purpose — they carry legal consequences and depend on your own
-            accountant&apos;s advice. You can record everything on the farm without them. You
-            will need them before you raise an invoice with VAT on it.
-          </p>
-        </Card>
+        {!hasTaxSetup ? (
+          <Card title="Before your first taxable invoice">
+            <p className="muted" style={{ fontSize: 14, margin: 0 }}>
+              Tax codes, rates and approval limits depend on your organisation&apos;s policy. They are not guessed for you. Confirm them with Finance before issuing a taxable invoice; farm records can still be entered while setup is in progress.
+            </p>
+          </Card>
+        ) : null}
 
         <div>
           <Link href="/" className="faint">

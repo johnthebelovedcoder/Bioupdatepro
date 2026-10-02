@@ -929,13 +929,13 @@
         {
           "check": "Snail allocation basis",
           "tests": [
-            "costs by the one released method, from approved prices"
+            "Processing and production-order close (UAT-015 / UAT-024) > costs by the one released method, from approved prices"
           ]
         },
         {
           "check": "Poultry allocation basis",
           "tests": [
-            "costs by the one released method, from approved prices"
+            "Processing and production-order close (UAT-015 / UAT-024) > costs by the one released method, from approved prices"
           ]
         }
       ]
@@ -985,13 +985,13 @@
         {
           "check": "Snail joint allocation",
           "tests": [
-            "costs by the one released method, from approved prices"
+            "Processing and production-order close (UAT-015 / UAT-024) > costs by the one released method, from approved prices"
           ]
         },
         {
           "check": "Poultry joint allocation",
           "tests": [
-            "costs by the one released method, from approved prices"
+            "Processing and production-order close (UAT-015 / UAT-024) > costs by the one released method, from approved prices"
           ]
         },
         {

@@ -4,6 +4,7 @@ import { formatNaira } from '@/lib/money';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { JointCostControls, ProposePriceForm } from '@/components/joint-cost-forms';
+import { HelpTerm } from '@/components/help';
 
 export const metadata = { title: 'Joint-cost prices — BioAssetPro' };
 
@@ -41,7 +42,7 @@ export default async function JointCostPage() {
 
   return (
     <>
-      <PageHeader title="Joint-cost prices" subtitle="How a processing order's cost is shared between meat and by-products" />
+      <PageHeader title="Joint-cost prices" subtitle="How a processing order's cost is shared between meat and by-products" actions={<div className="row" style={{ gap: 'var(--sp-3)' }}><HelpTerm k="jointCost" /><HelpTerm k="nrv" /></div>} />
       <Tabs />
       <div className="stack">
         <Card title="Released method" subtitle="Every processing order uses this one method">

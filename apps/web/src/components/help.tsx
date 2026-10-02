@@ -105,6 +105,22 @@ export const TERMS = {
     term: 'Runway',
     body: 'How many days the feed in the store will last at the rate it is being used now.',
   },
+  fvlcts: {
+    term: 'Fair value less costs to sell (FVLCTS)',
+    body: 'The amount expected from selling the animals in an orderly market, less the direct costs needed to sell them. Use current market evidence and review it at the reporting date and before harvest or sale.',
+  },
+  grni: {
+    term: 'Goods received, not invoiced (GRNI)',
+    body: 'The liability recorded when goods have arrived but the supplier invoice has not yet been entered. Match the later invoice to the receipt so the liability is cleared once, not duplicated.',
+  },
+  jointCost: {
+    term: 'Joint cost allocation',
+    body: 'A shared processing cost is split across products using each product’s relative sales value at split-off. A by-product’s net realisable value is deducted from the shared cost pool first.',
+  },
+  nrv: {
+    term: 'Net realisable value (NRV)',
+    body: 'Expected selling proceeds less further processing and selling costs. For an immaterial by-product, the approved policy may use zero inventory value and recognise proceeds as other operating income.',
+  },
   variance: {
     term: 'Variance',
     body: 'A figure that does not match what comparable populations did. It is a discrepancy to look into, not an accusation — over-feeding, spillage, a broken feeder and a miscount all look the same from here.',

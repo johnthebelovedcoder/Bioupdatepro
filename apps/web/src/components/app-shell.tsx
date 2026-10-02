@@ -75,7 +75,7 @@ export function AppShell({
         />
       ) : null}
 
-      <nav className="app-sidebar" data-open={navOpen} aria-label="Main">
+      <nav id="app-primary-nav" className="app-sidebar" data-open={navOpen} aria-label="Main">
         <div className="sidebar-head">
           <div className="brand">
             <span className="brand-mark">BA</span>
@@ -158,6 +158,9 @@ export function AppShell({
       <BottomNav
         activeModule={activeModule}
         language={workerLanguage}
+        roles={user.roles}
+        roleSectionOverrides={roleSectionOverrides}
+        navOpen={navOpen}
         onMore={() => setNavOpen(true)}
       />
     </div>

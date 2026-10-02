@@ -8,6 +8,7 @@ import { ValuationForm } from '@/components/valuation-form';
 import { MarketPriceForm } from '@/components/market-price-form';
 import { TableSearch } from '@/components/table-search';
 import { IconBox } from '@/components/icons';
+import { HelpTerm } from '@/components/help';
 
 export const metadata = { title: 'Valuations — BioAssetPro' };
 
@@ -33,6 +34,7 @@ export default async function ValuationsPage() {
       <PageHeader
         title="Valuations"
         subtitle="Fair value less costs to sell, raised per population and approved before it reaches the ledger"
+        actions={<HelpTerm k="fvlcts" />}
       />
 
       <div className="stack">

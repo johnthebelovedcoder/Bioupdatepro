@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getModule, type ModuleKey } from '@/lib/modules';
-import { sectionFor } from '@/lib/navigation';
+import { SECTIONS, sectionFor } from '@/lib/navigation';
 import { translator } from '@/lib/i18n';
 import type { LanguageCode } from '@/lib/farm-config';
 import { IconBox, IconDashboard, IconMenu, IconPlus, IconWallet } from './icons';
+import { applyOverrides, sectionsFor, type RoleSectionOverride } from '@/lib/permissions';
 
 /**
  * The phone's main navigation.
@@ -32,16 +33,51 @@ export function BottomNav({
   activeModule,
   onMore,
   language = 'en',
+  roles = [],
+  roleSectionOverrides = [],
+  navOpen = false,
 }: {
   activeModule: ModuleKey | null;
   onMore: () => void;
   /** The worker's language — this bar is the worker's navigation. */
   language?: LanguageCode;
+  roles?: readonly string[];
+  roleSectionOverrides?: readonly RoleSectionOverride[];
+  navOpen?: boolean;
 }) {
   const pathname = usePathname();
   const say = translator(language);
   const module = getModule(activeModule);
-  if (!module) return null;
+  if (!module) {
+    const allowed = applyOverrides(sectionsFor(roles), roles, roleSectionOverrides);
+    const shortcutOrder = ['approvals', 'stock', 'buying', 'books', 'selling', 'money'];
+    const shortcuts = shortcutOrder
+      .map((key) => SECTIONS.find((section) => section.key === key))
+      .filter((section): section is (typeof SECTIONS)[number] => Boolean(section && allowed.has(section.section)))
+      .slice(0, 3);
+    if (!allowed.has('dashboard')) return null;
+    return (
+      <nav className="bottom-nav" aria-label="Main" style={{ gridTemplateColumns: `repeat(${shortcuts.length + 2}, minmax(0, 1fr))` }}>
+        <Item href="/" label={say('nav.home')} active={pathname === '/'} icon={<IconDashboard size={20} />} />
+        {shortcuts.map((section) => {
+          const Icon = section.icon;
+          return (
+            <Item
+              key={section.key}
+              href={section.href}
+              label={coreLabel(section.key, say)}
+              active={sectionFor(pathname)?.key === section.key}
+              icon={<Icon size={20} />}
+            />
+          );
+        })}
+        <button type="button" className="bottom-nav-item" onClick={onMore} aria-expanded={navOpen} aria-controls="app-primary-nav">
+          <IconMenu size={20} />
+          <span className="bottom-nav-label">{say('nav.more')}</span>
+        </button>
+      </nav>
+    );
+  }
 
   const livestockHref = `/m/${module.key}/${module.registerSlug}`;
   const recordHref = `/m/${module.key}/records`;
@@ -86,12 +122,23 @@ export function BottomNav({
 
       <Item href="/inventory" label={say('nav.store')} active={isStore} icon={<IconBox size={20} />} />
 
-      <button type="button" className="bottom-nav-item" onClick={onMore}>
+      <button type="button" className="bottom-nav-item" onClick={onMore} aria-expanded={navOpen} aria-controls="app-primary-nav">
         <IconMenu size={20} />
         <span className="bottom-nav-label">{say('nav.more')}</span>
       </button>
     </nav>
   );
+}
+
+function coreLabel(key: string, say: ReturnType<typeof translator>): string {
+  switch (key) {
+    case 'approvals': return say('nav.approvals');
+    case 'stock': return say('nav.store');
+    case 'buying': return say('nav.buying');
+    case 'books': return say('nav.books');
+    case 'selling': return say('nav.selling');
+    default: return say('nav.money');
+  }
 }
 
 function Item({
@@ -116,5 +163,3 @@ function Item({
     </Link>
   );
 }
-
-export { IconWallet };

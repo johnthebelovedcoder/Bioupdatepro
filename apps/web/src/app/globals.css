@@ -1019,6 +1019,23 @@ label.field {
   color: var(--gray-700);
 }
 
+.form-step {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.form-step[hidden] {
+  display: none;
+}
+.field-label {
+  padding: 0;
+  margin-bottom: var(--sp-2);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 /*
  * The help line under a field, when it has become an error.
  *
