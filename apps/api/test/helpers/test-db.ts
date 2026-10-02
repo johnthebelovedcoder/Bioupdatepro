@@ -33,17 +33,6 @@ export function pushSchema(): void {
 }
 
 export async function resetDatabase(prisma: PrismaClient): Promise<void> {
-  // Some tests start async work and keep a connection alive while the next
-  // reset is already running. That leaves the shared integration database with a
-  // live transaction holding locks on workflow/history tables, which deadlocks
-  // the next TRUNCATE. Clear those lingering sessions before truncating so each
-  // spec starts from a clean, idle database.
-  await prisma.$executeRawUnsafe(`
-    SELECT pg_terminate_backend(pid)
-    FROM pg_stat_activity
-    WHERE datname = current_database() AND pid <> pg_backend_pid();
-  `);
-
   // Order matters: audit and journal lines reference everything else.
   // TRUNCATE bypasses the row-level immutability triggers by design — those
   // guard the application's DML, not a test harness reset. Production never

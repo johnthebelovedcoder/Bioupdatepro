@@ -239,14 +239,14 @@ describe('PostingService — period status gate (§8)', () => {
     );
   });
 
-  it('accepts a Finance Manager into a soft-closed period', async () => {
+  it('does not let a Finance Manager post an operational issue into a soft-closed period', async () => {
     await prisma.financialPeriod.update({
       where: { id: fixture.periodIds[0] },
       data: { status: 'SOFT_CLOSED' },
     });
     const request = materialIssue(fixture, 100_00n);
     request.actor = { userId: fixture.financeUserId, roles: ['FINANCE_MANAGER'] };
-    await expect(posting.post(request)).resolves.toBeDefined();
+    await expect(posting.post(request)).rejects.toThrow(/only approved adjustment journals and allocated Feed Mill settlements may post/i);
   });
 
   it('rejects everyone when the financial year itself is closed', async () => {

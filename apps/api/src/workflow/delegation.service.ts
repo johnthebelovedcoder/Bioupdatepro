@@ -242,7 +242,7 @@ export class DelegationService {
 
     const client = params.tx ?? this.prisma;
     const holders = await client.user.findMany({
-      where: { id: { in: delegators }, active: true, roles: { hasSome: acceptedRoles } },
+      where: { companyId: params.companyId, id: { in: delegators }, active: true, roles: { hasSome: acceptedRoles } },
       select: { id: true, fullName: true },
     });
 

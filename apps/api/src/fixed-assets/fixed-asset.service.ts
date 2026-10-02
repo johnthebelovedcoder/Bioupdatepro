@@ -841,7 +841,7 @@ export class FixedAssetService {
     const wanted = keys.map((key) => numbers[key]!);
     const accounts = await tx.gLAccount.findMany({
       where: { companyId, accountNumber: { in: wanted } },
-      select: { id: true, accountNumber: true, active: true, isPostingAccount: true },
+      select: { id: true, accountNumber: true, active: true, isPostingAccount: true, isControlAccount: true },
     });
     const byNumber = new Map(accounts.map((a) => [a.accountNumber, a]));
 
@@ -849,10 +849,10 @@ export class FixedAssetService {
     for (const key of keys) {
       const number = numbers[key]!;
       const account = byNumber.get(number);
-      if (!account || !account.active || !account.isPostingAccount) {
+      if (!account || !account.active || (!account.isPostingAccount && !account.isControlAccount)) {
         throw new AccountingRuleViolation(
           'Posting-control — Fixed assets',
-          `Fixed assets need GL account ${number} (${key}) and it is missing, inactive or not a posting account.`,
+          `Fixed assets need active GL account ${number} (${key}) configured as a posting or control account.`,
           { accountNumber: number, purpose: key },
         );
       }

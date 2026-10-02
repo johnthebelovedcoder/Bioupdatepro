@@ -22,7 +22,9 @@ import { RoutingService } from '../../src/routing/routing.service';
 import { kobo } from '../../src/common/money';
 import { FeedQualityService } from '../../src/production/feed-quality.service';
 import { VarianceProrationService } from '../../src/production/variance-proration.service';
-import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { PeriodCloseService } from '../../src/closing/period-close.service';
+import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
+import { resetDatabase, seedFixture, TestFixture, dims } from '../helpers/test-db';
 
 /**
  * Standard costing (Costing_Policy_v2 POL-001–004, SOP-049/050, PCR-032–036,
@@ -38,6 +40,7 @@ let prisma: PrismaService;
 let orders: ProductionOrderService;
 let standards: StandardCostService;
 let workflow: WorkflowService;
+let posting: PostingService;
 let fixture: TestFixture;
 let maker: { userId: string; roles: string[] };
 let finance: { userId: string; roles: string[] };
@@ -48,7 +51,7 @@ let feedStore: string;
 beforeAll(() => {
   prisma = new PrismaService();
   const audit = new AuditService(prisma);
-  const posting = new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma));
+  posting = new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma));
   workflow = new WorkflowService(prisma, new WorkflowRoutingService(prisma), new DelegationService(prisma, audit), new NotificationService(prisma), audit);
   const recipes = new RecipeService(prisma, audit);
   orders = new ProductionOrderService(prisma, audit, posting, workflow, recipes, new PostingControlService(prisma), new StockMovementService(prisma), new CostAllocationService());
@@ -135,13 +138,69 @@ async function releasedStandard() {
 
 async function throughConversion() {
   const { id } = await orders.createFeedOrder({
-    companyId: fixture.companyId, branchId: fixture.branchId, farmId: fixture.farmId, warehouseId: feedStore, recipeVersionId: versionId, plannedOutputQuantity: '1000', actor: maker,
+    companyId: fixture.companyId, branchId: fixture.branchId, farmId: fixture.farmId, warehouseId: feedStore, recipeVersionId: versionId, plannedOutputQuantity: '1000', speciesKey: 'snail', actor: maker,
   });
   const submitted = await orders.submit({ productionOrderId: id, actor: maker });
   await workflow.approve({ transactionId: submitted.transactionId, actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
   await orders.issueMaterials({ productionOrderId: id, actor: maker });
   await orders.confirmConversion({ productionOrderId: id, actualLabourCostKobo: 62_500_00n, actualOverheadCostKobo: 92_000_00n, actor: maker });
   return id;
+}
+
+/** Post shared payroll/depreciation actuals to their source ledgers, freeze the
+ * period at soft close, then allocate those balances to completed orders. */
+async function allocateActualCosts(orderIds: string[]) {
+  const converted = await prisma.productionOrder.findMany({
+    where: { id: { in: orderIds }, companyId: fixture.companyId },
+    include: { conversionJournalEntry: { select: { financialPeriodId: true } } },
+  });
+  if (converted.length !== orderIds.length || converted.some((order) => !order.conversionJournalEntry)) {
+    throw new Error('Every allocation fixture order must have a conversion journal.');
+  }
+  const periodId = converted[0]!.conversionJournalEntry!.financialPeriodId;
+  if (converted.some((order) => order.conversionJournalEntry!.financialPeriodId !== periodId)) {
+    throw new Error('One shared actual-cost run can only cover orders in one period.');
+  }
+  const periodIndex = fixture.periodIds.indexOf(periodId);
+  if (periodIndex < 0) throw new Error('Conversion period is outside the fixture financial year.');
+  const sourceTotals = converted.reduce(
+    (sum, order) => ({ labour: sum.labour + order.actualLabourCostKobo, overhead: sum.overhead + order.actualOverheadCostKobo }),
+    { labour: 0n, overhead: 0n },
+  );
+  const account = async (number: string, name: string) => {
+    const existing = await prisma.gLAccount.findFirst({ where: { companyId: fixture.companyId, accountNumber: number } });
+    return existing ?? prisma.gLAccount.create({
+      data: { companyId: fixture.companyId, accountNumber: number, name, accountType: 'EXPENSE', normalBalance: 'DEBIT', requiresCostCentre: true },
+    });
+  };
+  const [labourAccount, overheadAccount, bankAccount] = await Promise.all([
+    account('621100', 'Feed Mill Labour Actual'), account('623100', 'Feed Mill Overhead Actual'),
+    prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '1101' } }),
+  ]);
+  const routing = new RoutingService(prisma, new AuditService(prisma));
+  const pools = await prisma.costPool.findMany({ where: { companyId: fixture.companyId, code: { in: ['SFM-LAB', 'SFM-OH'] } } });
+  const labourPool = pools.find((pool) => pool.code === 'SFM-LAB')!;
+  const overheadPool = pools.find((pool) => pool.code === 'SFM-OH')!;
+  await routing.setPoolSources({ companyId: fixture.companyId, poolId: labourPool.id, sources: [{ glAccountId: labourAccount.id, costCentreId: fixture.costCentreId, resourceType: 'LABOUR' }], actorId: fixture.financeUserId });
+  await routing.setPoolSources({ companyId: fixture.companyId, poolId: overheadPool.id, sources: [{ glAccountId: overheadAccount.id, costCentreId: fixture.costCentreId, resourceType: 'OVERHEAD' }], actorId: fixture.financeUserId });
+
+  const dimensions = dims(fixture, periodIndex, { costCentreId: fixture.costCentreId });
+  const period = await prisma.financialPeriod.findUniqueOrThrow({ where: { id: periodId } });
+  await posting.post({
+    sourceModule: 'test-payroll-fixed-assets', sourceDocumentType: 'ActualCostSources', journalNumber: `TEST-FM-ACT-${period.periodNumber}`,
+    journalDate: period.startDate, narration: 'Feed mill actual labour and overhead from source ledgers', companyId: fixture.companyId,
+    branchId: fixture.branchId, financialYearId: fixture.financialYearId, financialPeriodId: periodId, currencyId: fixture.currencyId,
+    exchangeRate: '1.00000000', idempotencyKey: `standard-costing:actual-source:${periodId}`, actor: finance,
+    lines: [
+      ...(sourceTotals.labour > 0n ? [{ glAccountId: labourAccount.id, description: 'Payroll actuals', debit: kobo(sourceTotals.labour), dimensions }] : []),
+      ...(sourceTotals.overhead > 0n ? [{ glAccountId: overheadAccount.id, description: 'Depreciation and operating overhead actuals', debit: kobo(sourceTotals.overhead), dimensions }] : []),
+      { glAccountId: bankAccount.id, description: 'Settlement of feed mill actual costs', credit: kobo(sourceTotals.labour + sourceTotals.overhead), dimensions },
+    ],
+  });
+  const audit = new AuditService(prisma);
+  const close = new PeriodCloseService(prisma, audit, new TrialBalanceService(prisma), workflow);
+  await close.softClose({ financialPeriodId: periodId, actor: finance, reason: 'Freeze actual cost source ledgers for UAT allocation.' });
+  return routing.allocateFeedMillActualCosts({ companyId: fixture.companyId, financialPeriodId: periodId, actorId: fixture.financeUserId });
 }
 
 describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
@@ -249,14 +308,16 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     expect(completed.finishedGoodsCostKobo).toBe(533_120_00n); // 980 kg × ₦544
     expect(completed.yieldVarianceKobo).toBe(10_880_00n); // the 20 kg short, at standard
 
-    const settled = await orders.settle({ productionOrderId: id, actor: maker });
+    await allocateActualCosts([id]);
+    const settled = await orders.settle({ productionOrderId: id, actor: finance });
     expect(settled.variance).toBe(9_500_00n.toString()); // ₦154,500 actual conversion vs ₦145,000 absorbed
 
     expect(await balanceOf('130430')).toBe(0n); // Feed Mill WIP
     expect(await balanceOf('219830')).toBe(0n); // Feed Mill Recovery GL
-    // The order's ₦154,500 of actual cost leaves the feed-mill pool, where
-    // payroll and depreciation put it at source (not posted in this test).
-    expect(await balanceOf('623100')).toBe(-154_500_00n);
+    // Payroll and overhead were posted to their source ledgers, then cleared
+    // against the order's allocation at settlement.
+    expect(await balanceOf('621100')).toBe(0n);
+    expect(await balanceOf('623100')).toBe(0n);
     // The workbook's total cost variance, ₦26,380 — the issue that empties the store takes exactly its value.
     expect(await balanceOf('520500')).toBe(26_380_00n);
     expect(await balanceOf('130110')).toBe(533_120_00n); // finished feed at standard
@@ -271,15 +332,6 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     expect(within.totalKobo).toBe(26_380_00n.toString());
     expect(within.percent).toBe('4.95');
     expect(within.overTolerance).toBe(false);
-    await orders.settle({ productionOrderId: first, actor: maker });
-    expect((await prisma.productionOrder.findUniqueOrThrow({ where: { id: first } })).varianceReason).toBeNull();
-
-    // Next year's tighter tolerance, shown here by setting it before a fresh year's first posting.
-    const policy = await prisma.costingPolicy.findFirstOrThrow({ where: { companyId: fixture.companyId } });
-    await prisma.$executeRawUnsafe(`ALTER TABLE costing_policies DISABLE TRIGGER trg_costing_policy_locked`);
-    await prisma.costingPolicy.update({ where: { id: policy.id }, data: { varianceTolerancePercent: 3 } });
-    await prisma.$executeRawUnsafe(`ALTER TABLE costing_policies ENABLE TRIGGER trg_costing_policy_locked`);
-
     const rawStore = await prisma.warehouse.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'SFM-RM' } });
     await prisma.$transaction((tx) =>
       new StockMovementService(prisma).receiveIn({
@@ -290,13 +342,24 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     );
     const second = await throughConversion();
     await orders.recordOutputs({ productionOrderId: second, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: '980' }], warehouseId: feedStore, actor: maker });
+    await allocateActualCosts([first, second]);
+    await orders.settle({ productionOrderId: first, actor: finance });
+    expect((await prisma.productionOrder.findUniqueOrThrow({ where: { id: first } })).varianceReason).toBeNull();
+
+    // The period allocation includes both completed orders before settlement.
+    // Tighten the tolerance for the second order to exercise the reason gate.
+    const policy = await prisma.costingPolicy.findFirstOrThrow({ where: { companyId: fixture.companyId } });
+    await prisma.$executeRawUnsafe(`ALTER TABLE costing_policies DISABLE TRIGGER trg_costing_policy_locked`);
+    await prisma.costingPolicy.update({ where: { id: policy.id }, data: { varianceTolerancePercent: 3 } });
+    await prisma.$executeRawUnsafe(`ALTER TABLE costing_policies ENABLE TRIGGER trg_costing_policy_locked`);
+
     const beyond = await orders.varianceCheck(second);
     expect(beyond.overTolerance).toBe(true);
-    await expect(orders.settle({ productionOrderId: second, actor: maker })).rejects.toThrow(/beyond the 3% tolerance. Say why/);
-    await orders.settle({ productionOrderId: second, varianceReason: 'Maize bran price rose; standard due for revision', actor: maker });
+    await expect(orders.settle({ productionOrderId: second, actor: finance })).rejects.toThrow(/beyond the 3% tolerance. Say why/);
+    await orders.settle({ productionOrderId: second, varianceReason: 'Maize bran price rose; standard due for revision', actor: finance });
     const settled = await prisma.productionOrder.findUniqueOrThrow({ where: { id: second } });
     expect(settled.varianceReason).toBe('Maize bran price rose; standard due for revision');
-    expect(settled.varianceReasonById).toBe(fixture.makerId);
+    expect(settled.varianceReasonById).toBe(fixture.financeUserId);
     expect(settled.settledAt).not.toBeNull();
   });
 
@@ -322,7 +385,7 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     await expect(prisma.$executeRawUnsafe(`UPDATE costing_policies SET method = 'ACTUAL' WHERE id = $1::uuid`, locked.id)).rejects.toThrow();
   });
 
-  it('absorbs snail feed to S_Feed_Recovery_GL and poultry feed to P_Feed_Recovery_GL, each cleared at settlement (FeedMill_Setup)', async () => {
+  it('absorbs both species to the shared Feed-Mill Recovery account and clears it at settlement (FeedMill_Setup)', async () => {
     await releasedStandard();
     const run = async (speciesKey: string, quantity: string) => {
       const { id } = await orders.createFeedOrder({
@@ -336,27 +399,27 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     };
     const snail = await run(' Snail ', '500');
     const poultry = await run(' POULTRY ', '400');
-    // Absorbed to each species' own account, nothing to the shared one.
-    expect(await balanceOf('219831')).toBeLessThan(0n);
-    expect(await balanceOf('219832')).toBeLessThan(0n);
-    expect(await balanceOf('219830')).toBe(0n);
+    // One GL carries both species; order dimensions preserve the analysis.
+    expect(await balanceOf('219830')).toBeLessThan(0n);
 
     for (const [id, qty] of [[snail, '490'], [poultry, '392']] as const) {
       await orders.recordOutputs({ productionOrderId: id, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: qty }], warehouseId: feedStore, actor: maker });
-      await orders.settle({ productionOrderId: id, varianceReason: 'Test run', actor: maker });
     }
-    expect(await balanceOf('219831')).toBe(0n);
-    expect(await balanceOf('219832')).toBe(0n);
+    await allocateActualCosts([snail, poultry]);
+    for (const id of [snail, poultry]) {
+      await orders.settle({ productionOrderId: id, varianceReason: 'Test run', actor: finance });
+    }
+    expect(await balanceOf('219830')).toBe(0n);
     expect(await balanceOf('130430')).toBe(0n);
     await expect(
       orders.createFeedOrder({ companyId: fixture.companyId, branchId: fixture.branchId, farmId: fixture.farmId, warehouseId: feedStore, recipeVersionId: versionId, plannedOutputQuantity: '1', speciesKey: 'goat', actor: maker }),
-    ).rejects.toThrow(/snail or poultry feed/);
+    ).rejects.toThrow(/Choose snail or poultry/);
   });
 
   it('puts extra material used at standard rate into usage variance (PCR-052)', async () => {
     await releasedStandard();
     const { id } = await orders.createFeedOrder({
-      companyId: fixture.companyId, branchId: fixture.branchId, farmId: fixture.farmId, warehouseId: feedStore, recipeVersionId: versionId, plannedOutputQuantity: '1000', actor: maker,
+      companyId: fixture.companyId, branchId: fixture.branchId, farmId: fixture.farmId, warehouseId: feedStore, recipeVersionId: versionId, plannedOutputQuantity: '1000', speciesKey: 'snail', actor: maker,
     });
     const submitted = await orders.submit({ productionOrderId: id, actor: maker });
     await workflow.approve({ transactionId: submitted.transactionId, actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
@@ -399,7 +462,8 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
     await releasedStandard();
     const id = await throughConversion();
     await orders.recordOutputs({ productionOrderId: id, outputs: [{ itemId: item.FEED!, outputType: 'MAIN', quantity: '980' }], warehouseId: feedStore, actor: maker });
-    await orders.settle({ productionOrderId: id, actor: maker });
+    await allocateActualCosts([id]);
+    await orders.settle({ productionOrderId: id, actor: finance });
     expect(await balanceOf('520500')).toBe(26_380_00n);
 
     const audit = new AuditService(prisma);

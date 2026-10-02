@@ -91,10 +91,10 @@ export class BankingService {
     const gl = await this.prisma.gLAccount.findFirst({
       where: { id: params.glAccountId, companyId: params.companyId },
     });
-    if (!gl || !gl.active || !gl.isPostingAccount || gl.accountType !== 'ASSET') {
+    if (!gl || !gl.active || (!gl.isPostingAccount && !gl.isControlAccount) || gl.accountType !== 'ASSET') {
       throw new AccountingRuleViolation(
         RULE,
-        'A bank account has to sit on an active asset account that can be posted to.',
+        'A bank account has to sit on an active asset posting or control account. Control-account entries must use the bank workflow.',
         {},
       );
     }

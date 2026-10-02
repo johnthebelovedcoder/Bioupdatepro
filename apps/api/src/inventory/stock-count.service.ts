@@ -481,7 +481,7 @@ export class StockCountService {
         where: { financialYear: { companyId }, startDate: { lte: on }, endDate: { gte: on }, status: 'OPEN' },
         select: { id: true, financialYearId: true },
       }),
-      this.prisma.costCentre.findFirst({ where: { companyId, active: true }, orderBy: { code: 'asc' }, select: { id: true } }),
+      this.prisma.costCentre.findFirst({ where: { companyId, active: true, postingAllowed: true }, orderBy: { code: 'asc' }, select: { id: true } }),
       this.prisma.company.findUniqueOrThrow({ where: { id: companyId } }),
     ]);
     if (!period || !costCentre) {

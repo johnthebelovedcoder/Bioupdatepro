@@ -75,15 +75,65 @@ export default async function ControlsPage() {
         ) : null}
 
         {provisioning.ok && provisioning.data.chartVersion === 'LEGACY' ? (
-          <Card title="Books are on the four-digit chart" subtitle="The client’s posting rules are written against the six-digit chart">
+          <Card title="Legacy chart remains active" subtitle="The selected five-digit workbook chart still needs a complete, reconciled cutover">
             <p style={{ fontSize: 14, marginBottom: 'var(--sp-3)' }}>
-              Moving to the six-digit chart carries every balance across on the first day of a month, splits them by item
-              and by species where the new chart does, and points every setting at the new accounts. You see every move
-              before anything changes.
+              The former six-digit cutover is disabled. The approved chart transition must map all posting roles and settings
+              to the five-digit workbook accounts and reconcile every split balance before any journal moves.
             </p>
             <Link className="btn" href="/ledger/chart">
-              See the move
+              View chart readiness
             </Link>
+          </Card>
+        ) : null}
+
+        {provisioning.ok ? (
+          <Card
+            title="Approved workbook chart readiness"
+            subtitle={`${provisioning.data.targetChart.presentAccounts} of ${provisioning.data.targetChart.expectedAccounts} target accounts present`}
+          >
+            {provisioning.data.targetChart.ready ? (
+              <div className="notice notice-success">Account master and active chart match the selected approved workbook.</div>
+            ) : (
+              <>
+                <div className="notice notice-warning">
+                  The company is not yet on the selected five-digit workbook chart. Do not migrate balances until the account crosswalk is approved and the ledger is reconciled.
+                </div>
+                <div className="stack" style={{ marginTop: 'var(--sp-3)' }}>
+                  {provisioning.data.targetChart.missingAccountNumbers.length > 0 ? (
+                    <p className="faint">
+                      Missing target accounts: {provisioning.data.targetChart.missingAccountNumbers.slice(0, 12).join(', ')}
+                      {provisioning.data.targetChart.missingAccountNumbers.length > 12 ? '…' : ''}
+                    </p>
+                  ) : null}
+                  {provisioning.data.targetChart.metadataMismatches.length > 0 ? (
+                    <p className="faint">
+                      Account metadata mismatches: {provisioning.data.targetChart.metadataMismatches.slice(0, 8)
+                        .map((row) => `${row.accountNumber} (${row.fields.join('/')})`).join(', ')}
+                      {provisioning.data.targetChart.metadataMismatches.length > 8 ? '…' : ''}
+                    </p>
+                  ) : null}
+                  {provisioning.data.targetChart.activeAccountsOutsideTarget.length > 0 ? (
+                    <p className="faint">
+                      Active accounts outside target: {provisioning.data.targetChart.activeAccountsOutsideTarget.slice(0, 12)
+                        .map((row) => row.accountNumber).join(', ')}
+                      {provisioning.data.targetChart.activeAccountsOutsideTarget.length > 12 ? '…' : ''}
+                    </p>
+                  ) : null}
+                  {provisioning.data.targetChart.unresolvedPostingMaps.length > 0 ? (
+                    <p className="faint">
+                      Unresolved active posting maps: {provisioning.data.targetChart.unresolvedPostingMaps.slice(0, 8)
+                        .map((row) => `${row.application}/${row.postingGroup}/${row.postingKey} → ${row.accountCode}`).join('; ')}
+                      {provisioning.data.targetChart.unresolvedPostingMaps.length > 8 ? '…' : ''}
+                    </p>
+                  ) : null}
+                  {provisioning.data.targetChart.resolvedActivePostingMaps < provisioning.data.targetChart.expectedActivePostingMaps ? (
+                    <p className="faint">
+                      Only {provisioning.data.targetChart.resolvedActivePostingMaps} of {provisioning.data.targetChart.expectedActivePostingMaps} active workbook posting maps are linked to accounts.
+                    </p>
+                  ) : null}
+                </div>
+              </>
+            )}
           </Card>
         ) : null}
 

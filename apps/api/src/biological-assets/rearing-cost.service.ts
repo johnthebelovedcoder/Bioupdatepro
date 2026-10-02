@@ -282,7 +282,7 @@ export class RearingCostService {
           select: { id: true, financialYearId: true },
         }),
         this.prisma.costCentre.findFirst({
-          where: { companyId: relief.companyId, active: true },
+          where: { companyId: relief.companyId, active: true, postingAllowed: true },
           orderBy: { code: 'asc' },
           select: { id: true },
         }),

@@ -446,7 +446,7 @@ export class OperationsPostingService {
   /** Work in Progress cannot be posted without one (§10.5). */
   private async costCentreFor(companyId: string) {
     return this.prisma.costCentre.findFirst({
-      where: { companyId, active: true },
+      where: { companyId, active: true, postingAllowed: true },
       orderBy: { code: 'asc' },
       select: { id: true },
     });

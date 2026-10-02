@@ -602,9 +602,9 @@ export const SECTIONS: NavSection[] = [
       },
       {
         href: '/ledger/chart',
-        label: 'Six-digit chart',
-        hint: 'Move the books to the client’s six-digit chart',
-        keywords: ['chart of accounts', 'coa', 'six-digit', 'cutover', 'unification', 'migrate accounts'],
+        label: 'Approved chart readiness',
+        hint: 'Five-digit posting-engine chart and cutover preflight',
+        keywords: ['chart of accounts', 'coa', 'approved workbook', 'five-digit', 'cutover', 'migrate accounts'],
       },
       {
         href: '/ledger/farm-costing',

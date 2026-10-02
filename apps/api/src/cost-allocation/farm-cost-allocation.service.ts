@@ -215,7 +215,7 @@ export class FarmCostAllocationService {
         where: { id: { in: shares.map((s) => s.groupId) } },
         select: { id: true, code: true, branchId: true, farmId: true, penHouseId: true },
       }),
-      this.prisma.costCentre.findFirst({ where: { companyId: params.companyId, active: true }, orderBy: { code: 'asc' } }),
+      this.prisma.costCentre.findFirst({ where: { companyId: params.companyId, active: true, postingAllowed: true }, orderBy: { code: 'asc' } }),
       this.prisma.farmCostAllocation.count({ where: { companyId: params.companyId, financialPeriodId: period.id } }),
     ]);
     const groupById = new Map(groups.map((g) => [g.id, g]));

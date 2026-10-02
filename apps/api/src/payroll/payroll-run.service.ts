@@ -779,7 +779,7 @@ export class PayrollRunService {
 
     let accounts = await tx.gLAccount.findMany({
       where: { companyId, accountNumber: { in: Object.values(required) } },
-      select: { id: true, accountNumber: true, active: true, isPostingAccount: true },
+      select: { id: true, accountNumber: true, active: true, isPostingAccount: true, isControlAccount: true },
     });
 
     /*
@@ -788,14 +788,13 @@ export class PayrollRunService {
      * before that gap was closed — a company could calculate a payroll run
      * but never approve one. Created here, lazily, the same shape as the
      * sales/procurement self-heals elsewhere, and ONLY for a number that is
-     * completely absent: an account that exists but is inactive or not a
-     * posting account is a real, deliberate configuration problem and still
-     * refuses below rather than being silently overridden.
+     * completely absent: an account that exists but is inactive or neither a
+     * posting nor control account remains a deliberate configuration problem.
      */
     const found = new Set(accounts.map((a) => a.accountNumber));
     const missing = Object.values(required).filter((number) => !found.has(number));
     // The lazy self-heal below is for the old four-digit chart only; the
-    // six-digit chart is loaded whole by the posting-rules provisioning.
+    // approved target chart is loaded whole by the posting-rules provisioning.
     if (missing.length > 0 && version === 'LEGACY') {
       const definitions: Record<string, { name: string; type: AccountType; normal: NormalBalance }> = {
         '2102': { name: 'Pension Payable', type: AccountType.LIABILITY, normal: NormalBalance.CREDIT },
@@ -819,7 +818,7 @@ export class PayrollRunService {
         });
         accounts = await tx.gLAccount.findMany({
           where: { companyId, accountNumber: { in: Object.values(required) } },
-          select: { id: true, accountNumber: true, active: true, isPostingAccount: true },
+          select: { id: true, accountNumber: true, active: true, isPostingAccount: true, isControlAccount: true },
         });
       }
     }
@@ -829,11 +828,11 @@ export class PayrollRunService {
 
     for (const [key, number] of Object.entries(required) as Array<[string, string]>) {
       const account = byNumber.get(number);
-      if (!account || !account.active || !account.isPostingAccount) {
+      if (!account || !account.active || (!account.isPostingAccount && !account.isControlAccount)) {
         throw new AccountingRuleViolation(
           'Consolidated Reference §7 — Payroll accounting',
           `Payroll needs GL account ${number} (${key}) and it is missing, inactive or not ` +
-            `a posting account. Payroll will not post to a substitute.`,
+            `a posting or control account. Payroll will not post to a substitute.`,
           { accountNumber: number, purpose: key },
         );
       }

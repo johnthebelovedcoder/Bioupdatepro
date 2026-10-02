@@ -72,10 +72,10 @@ describe('Journal vouchers', () => {
     const second = await post('TEST-2');
     const replay = await post('TEST-1'); // idempotent: no new number
 
-    const branch = await prisma.branch.findUniqueOrThrow({ where: { id: fixture.branchId } });
-    const site = branch.code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const company = await prisma.company.findUniqueOrThrow({ where: { id: fixture.companyId }, select: { referenceCode: true, code: true } });
+    const entity = company.referenceCode ?? company.code.replace(/[^A-Z0-9]/gi, '').slice(0, 3).toUpperCase();
     const vouchers = await prisma.journalEntry.findMany({ where: { id: { in: [first.journalEntryId, second.journalEntryId] } }, orderBy: { createdAt: 'asc' } });
-    expect(vouchers.map((v) => v.voucherNumber)).toEqual([`JV-AGR-${site}-2026-000001`, `JV-AGR-${site}-2026-000002`]);
+    expect(vouchers.map((v) => v.voucherNumber)).toEqual([`${entity}-GL-JV-2026-000001`, `${entity}-GL-JV-2026-000002`]);
     expect(replay.replayed).toBe(true);
     expect(await prisma.journalEntry.count({ where: { companyId: fixture.companyId } })).toBe(2);
   });

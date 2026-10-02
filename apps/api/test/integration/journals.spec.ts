@@ -88,7 +88,7 @@ describe('Accounting Adjustment Centre (§3)', () => {
     await resetDatabase(prisma as unknown as PrismaClient);
     fixture = await seedFixture(prisma as unknown as PrismaClient);
 
-    maker = { userId: fixture.makerId, roles: ['PRODUCTION_SUPERVISOR'] };
+    maker = { userId: fixture.makerId, roles: ['FINANCIAL_ACCOUNTANT'] };
     const approverUser = await prisma.user.create({
       data: {
         email: 'approver@test',
@@ -292,7 +292,7 @@ describe('Accounting Adjustment Centre (§3)', () => {
           email: 'self@test',
           fullName: 'Self',
           passwordHash: 'x',
-          roles: ['FARM_MANAGER'],
+          roles: ['FARM_MANAGER', 'FINANCIAL_ACCOUNTANT'],
           companyId: fixture.companyId,
         },
       });

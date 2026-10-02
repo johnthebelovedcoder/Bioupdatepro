@@ -2104,7 +2104,7 @@ export class ProductionOrderService {
         select: { id: true, financialYearId: true },
       }),
       client.costCentre.findFirst({
-        where: { companyId, active: true },
+        where: { companyId, active: true, postingAllowed: true },
         orderBy: { code: 'asc' },
         select: { id: true },
       }),

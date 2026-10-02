@@ -515,7 +515,7 @@ export class EggPostingService {
   }
 
   private async costCentre(tx: Prisma.TransactionClient, companyId: string): Promise<string | null> {
-    const centre = await tx.costCentre.findFirst({ where: { companyId, active: true }, orderBy: { code: 'asc' }, select: { id: true } });
+    const centre = await tx.costCentre.findFirst({ where: { companyId, active: true, postingAllowed: true }, orderBy: { code: 'asc' }, select: { id: true } });
     return centre?.id ?? null;
   }
 }

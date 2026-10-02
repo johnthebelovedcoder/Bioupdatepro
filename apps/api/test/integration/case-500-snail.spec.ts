@@ -14,7 +14,7 @@ import { PostingControlProvisioningService } from '../../src/posting-control/pos
 import { StockMovementService } from '../../src/inventory/stock-movement.service';
 import { RearingCostService } from '../../src/biological-assets/rearing-cost.service';
 import { BiologicalAssetService } from '../../src/biological-assets/biological-asset.service';
-import { BiologicalAssetValuationPostingHandler } from '../../src/biological-assets/biological-asset.handler';
+import { BiologicalAssetAbnormalMortalityPostingHandler, BiologicalAssetValuationPostingHandler } from '../../src/biological-assets/biological-asset.handler';
 import { OperationsPostingService } from '../../src/operations/operations-posting.service';
 import { OperationsService } from '../../src/operations/operations.service';
 import { BatchProfileService } from '../../src/operations/batch-profile.service';
@@ -98,6 +98,11 @@ const CAUSES = {
     why:
       'The workbook revalues the whole snail asset to 20,400 market snails × ₦3,000 and nets the ₦1,100,000 purchased breeders off the gain, so the 500 breeders vanish from its books. In the application they are still a live cohort carried at cost until they die, are sold or are revalued, so the fair-value gain is ₦1,100,000 higher and the asset still holds them.',
   },
+  hatchlingCarryingValue: {
+    amount: 0n, // set to the carrying basis of surviving hatchlings at market revaluation
+    why:
+      'The surviving 20,400 snails retain the ₦1-per-egg carrying basis recognized when the viable eggs were laid. Their later FVLCTS gain is measured above that existing ₦20,400 carrying amount; the workbook starts that gain from zero.',
+  },
   openingStock: {
     amount: N(500_000),
     why:
@@ -144,7 +149,9 @@ beforeAll(async () => {
   const workflow = new WorkflowService(prisma, new WorkflowRoutingService(prisma), new DelegationService(prisma, audit), new NotificationService(prisma), audit);
   const rearing = new RearingCostService(prisma, posting);
   const assets = new BiologicalAssetService(prisma, posting, workflow, audit, rearing);
+  const postingControl = new PostingControlService(prisma);
   workflow.register(new BiologicalAssetValuationPostingHandler(assets));
+  workflow.register(new BiologicalAssetAbnormalMortalityPostingHandler(assets));
   const stock = new StockMovementService(prisma);
   const tb = new TrialBalanceService(prisma);
   const pl = new ProfitLossService(tb);
@@ -155,8 +162,8 @@ beforeAll(async () => {
     operations: new OperationsService(
       prisma, new IdempotencyService(prisma), audit, new OperationsPostingService(prisma, posting, rearing, stock), assets, new BatchProfileService(prisma, audit),
     ),
-    breeding: new SnailBreedingService(prisma, audit),
-    orders: new ProductionOrderService(prisma, audit, posting, workflow, new RecipeService(prisma, audit), new PostingControlService(prisma), stock, new CostAllocationService()),
+    breeding: new SnailBreedingService(prisma, audit, posting, postingControl),
+    orders: new ProductionOrderService(prisma, audit, posting, workflow, new RecipeService(prisma, audit), postingControl, stock, new CostAllocationService()),
     tb,
     pl,
     bs: new BalanceSheetService(prisma, tb, pl),
@@ -184,7 +191,7 @@ beforeAll(async () => {
     const glAccountId = (await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: number } })).id;
     await prisma.biologicalAssetStageAccount.create({ data: { companyId: fixture.companyId, speciesKey: 'snail', stage, glAccountId } });
   }
-  for (const [type, autoPostOnApproval] of [['BA_VALUATION', true], ['PRODUCTION_ORDER', false]] as const) {
+  for (const [type, autoPostOnApproval] of [['BA_VALUATION', true], ['PRODUCTION_ORDER', false], ['BIOLOGICAL_ASSET_ABNORMAL_MORTALITY', true]] as const) {
     await prisma.workflowDefinition.create({
       data: {
         companyId: fixture.companyId, transactionType: type, name: type, autoPostOnApproval, effectiveFrom: new Date('2026-01-01'),
@@ -245,10 +252,14 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
 
     // --- Lifecycle: 80 eggs a breeder, 75% hatch, 80% then 85% survive ---
     const cohort = await prisma.livestockGroup.findFirstOrThrow({ where: { code: 'BRD-1' } });
-    const cycle = await breeding.record({ companyId: fixture.companyId, actorId: fixture.makerId, code: 'CYC-1', breederGroupId: cohort.id, setOn: '2026-01-20', breeders: 500, eggsLaid: 40_000 });
-    await breeding.hatch({ companyId: fixture.companyId, actorId: fixture.makerId, cycleId: cycle.id, hatchedOn: '2026-02-20', hatchedCount: 30_000, unhatchedCount: 10_000, hatchlingGroupCode: 'HAT-1' });
-    const round = (code: string, date: string, deaths: number) =>
-      operations.recordRound({ companyId: fixture.companyId, actor: actor(), idempotencyKey: `case-round-${code}-${date}`, payload: { module: 'snail', date, entries: [{ groupCode: code, deaths, causes: ['Natural attrition'] }] } });
+    const cycle = await breeding.record({ companyId: fixture.companyId, actor: actor(), code: 'CYC-1', breederGroupId: cohort.id, setOn: '2026-01-20', breeders: 500, eggsLaid: 40_000, valueBasis: 'FVLCTS', valuePerEggKobo: N(1), valueEvidence: 'UAT case assumption: ₦1 per viable snail egg' });
+    const hatch = await breeding.hatch({ companyId: fixture.companyId, actor: actor(), cycleId: cycle.id, hatchedOn: '2026-02-20', hatchedCount: 30_000, unhatchedCount: 10_000, hatchlingGroupCode: 'HAT-1' });
+    const round = async (code: string, date: string, deaths: number) => {
+      await operations.recordRound({ companyId: fixture.companyId, actor: actor(), idempotencyKey: `case-round-${code}-${date}`, payload: { module: 'snail', date, entries: [{ groupCode: code, deaths, causes: ['Natural attrition'] }] } });
+      const mortality = await prisma.mortalityRecord.findFirstOrThrow({ where: { dailyRecord: { groupId: hatch.hatchlingGroupId!, recordedOn: new Date(date) } } });
+      const transaction = await prisma.workflowTransaction.findFirstOrThrow({ where: { companyId: fixture.companyId, transactionType: 'BIOLOGICAL_ASSET_ABNORMAL_MORTALITY', documentId: mortality.id } });
+      await workflow.approve({ transactionId: transaction.id, actor: approver() });
+    };
     const move = (from: string, to: string, date: string) =>
       operations.recordStageChange({ companyId: fixture.companyId, actor: actor(), idempotencyKey: `case-move-${to}`, payload: { groupCode: 'HAT-1', date, fromStage: from, toStage: to, fromHouse: 'SNL-1', toHouse: 'SNL-1' } });
     await round('HAT-1', '2026-03-10', 6_000); // 80% of hatchlings reach juvenile
@@ -319,11 +330,16 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
         { itemId: shell.id, outputType: 'BY_PRODUCT', quantity: shellKg.toFixed(3), weight: shellKg.toFixed(3) },
       ],
     });
-    // Handbook §62.4: NRV allocates 94.4262% of the ₦19,148,000 pool to meat — ₦18,080,734.43 — and the rest to shell.
+    // Client-approved by-product policy: recognize shell at its NRV and deduct
+    // it from joint cost; the residual belongs to the main product (meat).
     const allocatedTo = async (itemId: string) =>
       (await prisma.productionOrderOutput.findFirstOrThrow({ where: { productionOrderId: orderId, itemId } })).allocatedCostKobo;
-    expect(Math.abs(Number((await allocatedTo(meat.id)) - N('18080734.43')))).toBeLessThanOrEqual(1);
-    expect(Math.abs(Number(N('1067265.57') - (await allocatedTo(shell.id))))).toBeLessThanOrEqual(1);
+    const completedOrder = await prisma.productionOrder.findUniqueOrThrow({ where: { id: orderId } });
+    const jointCostPool = completedOrder.biologicalInputValueKobo + completedOrder.rearingCostKobo + completedOrder.packagingCostKobo + completedOrder.standardConversionCostKobo - completedOrder.abnormalLossCostKobo;
+    const shellNrv = N(shellKg.mul(2_500).toFixed(2));
+    expect(jointCostPool).toBe(N(19_148_000)); // biological input + packaging + standard conversion
+    expect(await allocatedTo(shell.id)).toBe(shellNrv); // 178.092 kg × ₦2,500
+    expect(await allocatedTo(meat.id)).toBe(jointCostPool - shellNrv); // residual after by-product NRV
     const settled = await orders.settle({ productionOrderId: orderId, actor: actor() });
 
     // --- Processed sale: meat at ₦18,000/kg, shell at ₦2,500/kg (INV-PROC, DEL-PROC) ---
@@ -369,7 +385,7 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
       'REP-009': (await balance('130410')),
       'REP-010': -(await balance('210100')),
       'REP-011': await balance('120100'),
-      'REP-012': BigInt(pl.revenueKobo) - fvGain,
+      'REP-012': BigInt(pl.revenueKobo),
       'REP-013': fvGain,
       'REP-014': BigInt(pl.profitBeforeTaxKobo),
       'REP-015': BigInt(pl.profitAfterTaxKobo),
@@ -383,10 +399,12 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     // =================== The differences, cause by cause ===================
     const wacRounding = await balance('130510'); // left in finished goods after the processed sale
     const taxOnDifference = -(BigInt(pl.incomeTaxKobo) - N(18_509_385)); // workbook tax: 30% of ₦61,697,950
+    const cycleDetails = await prisma.snailBreedingCycle.findUniqueOrThrow({ where: { id: cycle.id } });
+    CAUSES.hatchlingCarryingValue.amount = -BigInt(market.population) * cycleDetails.eggValuePerUnitKobo;
     CAUSES.wacRounding.amount = wacRounding;
     CAUSES.taxOnDifference.amount = taxOnDifference;
     const explained: Partial<Record<RepId, Array<[keyof typeof CAUSES, bigint]>>> = {
-      'REP-013': [['breeders', CAUSES.breeders.amount]],
+      'REP-013': [['breeders', CAUSES.breeders.amount], ['hatchlingCarryingValue', CAUSES.hatchlingCarryingValue.amount]],
       'REP-014': [['breeders', CAUSES.breeders.amount], ['wacRounding', wacRounding]],
       'REP-015': [['breeders', CAUSES.breeders.amount], ['wacRounding', wacRounding], ['taxOnDifference', taxOnDifference]],
       'REP-016': [['breeders', CAUSES.breeders.amount], ['openingStock', CAUSES.openingStock.amount], ['wacRounding', wacRounding]],
@@ -399,7 +417,6 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
       const explainedTotal = causes.reduce((s, [, amount]) => s + amount, 0n);
       return { id, variance, explainedTotal, causes, status: variance === 0n ? 'MATCH' : variance === explainedTotal ? 'EXPLAINED' : 'UNEXPLAINED' };
     });
-
     const money = (k: bigint) => `₦${(Number(k) / 100).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const show = (id: RepId, v: bigint) => (EXPECTED[id].money ? money(v) : v.toLocaleString('en-NG'));
     writeFileSync(

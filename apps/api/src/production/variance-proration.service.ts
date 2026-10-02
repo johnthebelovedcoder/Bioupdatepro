@@ -337,7 +337,7 @@ export class VarianceProrationService {
   private async dimensions(companyId: string, financialYearId: string, financialPeriodId: string) {
     const [company, centre] = await Promise.all([
       this.prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { baseCurrencyId: true, branches: { where: { active: true }, take: 1, select: { id: true } } } }),
-      this.prisma.costCentre.findFirst({ where: { companyId, active: true }, orderBy: { code: 'asc' }, select: { id: true } }),
+      this.prisma.costCentre.findFirst({ where: { companyId, active: true, postingAllowed: true }, orderBy: { code: 'asc' }, select: { id: true } }),
     ]);
     return {
       companyId,

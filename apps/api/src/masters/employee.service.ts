@@ -121,14 +121,14 @@ export class EmployeeService {
         where: { companyId: params.companyId, accountNumber: expenseNumber, active: true, isPostingAccount: true }, select: { id: true },
       }),
       this.prisma.gLAccount.findFirst({
-        where: { companyId: params.companyId, accountNumber: payableNumber, active: true, isPostingAccount: true }, select: { id: true },
+        where: { companyId: params.companyId, accountNumber: payableNumber, active: true, OR: [{ isPostingAccount: true }, { isControlAccount: true }] }, select: { id: true },
       }),
       this.prisma.salaryComponent.findUnique({ where: { companyId_code: { companyId: params.companyId, code } }, select: { id: true } }),
     ]);
     if (existing) throw new BadRequestException(`Salary component ${code} already exists.`);
     if (!expense || !payable) {
       throw new AccountingRuleViolation('Consolidated Reference §7 — Payroll setup',
-        `Configure active posting accounts ${expenseNumber} (salary expense) and ${payableNumber} (salary payable) before adding a benefit-in-kind component.`,
+        `Configure active posting account ${expenseNumber} (salary expense) and posting or payroll control account ${payableNumber} (salary payable) before adding a benefit-in-kind component.`,
         { expenseNumber, payableNumber });
     }
     const created = await this.prisma.salaryComponent.create({ data: {

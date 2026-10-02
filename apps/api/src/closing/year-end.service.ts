@@ -606,7 +606,7 @@ export class YearEndService {
   private async findRetainedEarnings(companyId: string) {
     const number = numberFor(await chartVersionOf(this.prisma, companyId), 'retainedEarnings');
     const byNumber = await this.prisma.gLAccount.findFirst({
-      where: { companyId, accountNumber: number, active: true, isPostingAccount: true },
+      where: { companyId, accountNumber: number, active: true, OR: [{ isPostingAccount: true }, { isControlAccount: true }] },
     });
     if (byNumber) return byNumber;
 
@@ -615,7 +615,7 @@ export class YearEndService {
         companyId,
         accountType: AccountType.EQUITY,
         active: true,
-        isPostingAccount: true,
+        OR: [{ isPostingAccount: true }, { isControlAccount: true }],
         name: { contains: 'Retained', mode: 'insensitive' },
       },
     });

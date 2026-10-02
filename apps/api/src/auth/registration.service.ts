@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProvisioningService } from './provisioning.service';
-import { ChartUnificationService } from '../chart/chart-unification.service';
+import { PostingControlProvisioningService } from '../posting-control/posting-control-provisioning.service';
 import { hashPassword } from './password';
 import { AuthService, type AuthenticatedUser } from './auth.service';
 
@@ -25,7 +25,7 @@ export class RegistrationService {
     private readonly prisma: PrismaService,
     private readonly provisioning: ProvisioningService,
     private readonly auth: AuthService,
-    private readonly unification: ChartUnificationService,
+    private readonly postingControlProvisioning: PostingControlProvisioningService,
   ) {}
 
   async register(input: {
@@ -88,16 +88,13 @@ export class RegistrationService {
       { timeout: 30_000 },
     );
 
-    /*
-     * The posting rules and the specification chart (loaded by the cutover
-     * below, which then moves the farm onto that chart), after the company has
-     * committed rather than inside its transaction: several hundred upserts
-     * would push signup past its time budget, and a failure here must not
-     * lose the farm. If it fails, Books → Controls offers the same load.
-     */
+    // Load control metadata after the company commits. The approved five-digit
+    // cutover is not implemented yet, so signup must not move balances to the
+    // superseded six-digit chart. A load failure does not invalidate signup;
+    // Books → Controls offers the same load again.
     const created = await this.prisma.user.findUnique({ where: { email }, select: { id: true, companyId: true } });
     if (created?.companyId) {
-      await this.startOnSixDigitChart(created.companyId, created.id);
+      await this.postingControlProvisioning.provision(created.companyId, created.id).catch(() => undefined);
     }
 
     // Sign them straight in. Making somebody type the password they just chose
@@ -105,24 +102,6 @@ export class RegistrationService {
     return this.auth.login(email, input.password);
   }
 
-  /**
-   * A new farm keeps its books on the client's six-digit chart from day one.
-   * With nothing posted yet the cutover moves no balances: it points the
-   * settings at the six-digit accounts, retires the four-digit ones and
-   * switches the chart. If it fails the farm stays on the four-digit chart,
-   * which still works, and can be moved from Books → Controls later.
-   */
-  private async startOnSixDigitChart(companyId: string, userId: string) {
-    const first = await this.prisma.financialPeriod.findFirst({
-      where: { financialYear: { companyId } },
-      orderBy: { startDate: 'asc' },
-      select: { startDate: true },
-    });
-    if (!first) return;
-    await this.unification
-      .run({ companyId, cutoverDate: first.startDate, actor: { userId, roles: ['CFO'] } })
-      .catch(() => undefined);
-  }
 }
 
 function isEmail(value: string): boolean {

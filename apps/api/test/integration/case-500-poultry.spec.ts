@@ -358,7 +358,7 @@ describe('The 500-poultry case, through the application (UAT-022)', () => {
       'P-REP-008': await balance('130420'),
       'P-REP-009': -(await balance('210100')),
       'P-REP-010': await balance('120100'),
-      'P-REP-011': BigInt(pl.revenueKobo) - fvGain,
+      'P-REP-011': BigInt(pl.revenueKobo),
       'P-REP-012': fvGain,
       'P-REP-013': BigInt(pl.profitAfterTaxKobo),
       'P-REP-014': BigInt(bs.totalAssetsKobo),

@@ -13,7 +13,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 
 /**
- * Loading the client's posting rules, keys and six-digit chart into a company.
+ * Loading the client's posting rules, keys, approved workbook chart, and
+ * historical six-digit compatibility accounts into a company.
  *
  * Manual journals, inventory transfers and processing orders all resolve
  * their accounts through the posting rules (Consolidated Reference §66). The
@@ -23,10 +24,10 @@ import { AuditService } from '../audit/audit.service';
  *
  * This is the same load the seed does, from the same files:
  *
- *   1. the specification chart (`seedSpecChart` in seed-spec-coa.ts) — the 36
- *      accounts `RECOMMENDED_COA_CC` states, plus every six-digit account a
- *      posting key names, its class derived from the code by the workbook's
- *      own scheme. Accounts that already exist are left exactly as they are.
+ *   1. the approved workbook account master, plus historical six-digit
+ *      compatibility accounts still referenced by the old posting-key table.
+ *      These compatibility accounts are not the selected target chart and
+ *      must be retired only after all roles and settings use the workbook.
  *   2. the keys and rules (`seedPostingControl` in seed-posting-control.ts),
  *      each key linked to its account where the chart has one.
  *
@@ -119,7 +120,8 @@ export class PostingControlProvisioningService {
   ) {}
 
   async status(companyId: string) {
-    const [rules, keys, company, approvedMaps, approvedLines, approvedAccounts, approvedCentres] = await Promise.all([
+    const data = load();
+    const [rules, keys, company, approvedMaps, approvedLines, approvedAccounts, approvedCentres, accounts, resolvedActiveMaps, unresolvedActiveMaps] = await Promise.all([
       this.prisma.postingRule.count({ where: { companyId } }),
       this.prisma.postingKey.count({ where: { companyId } }),
       this.prisma.company.findUnique({ where: { id: companyId }, select: { chartVersion: true } }),
@@ -127,8 +129,52 @@ export class PostingControlProvisioningService {
       this.prisma.approvedPostingControlLine.count({ where: { companyId } }),
       this.prisma.gLAccount.count({ where: { companyId, approvedStatement: { not: null } } }),
       this.prisma.costCentre.count({ where: { companyId, approvedApplication: { not: null } } }),
+      this.prisma.gLAccount.findMany({
+        where: { companyId },
+        select: {
+          accountNumber: true, name: true, active: true, accountType: true, normalBalance: true,
+          isPostingAccount: true, isControlAccount: true, manualJournalAllowed: true, requiresCostCentre: true,
+        },
+      }),
+      this.prisma.approvedPostingMap.count({ where: { companyId, status: 'Active', glAccountId: { not: null } } }),
+      this.prisma.approvedPostingMap.findMany({
+        where: { companyId, status: 'Active', glAccountId: null },
+        select: { application: true, postingGroup: true, postingKey: true, accountCode: true },
+        orderBy: [{ application: 'asc' }, { postingGroup: 'asc' }, { postingKey: 'asc' }],
+      }),
     ]);
-    const data = load();
+    const targetRows = data.approved.sheets.accounts.filter((row) => text(row.Status) === 'Active');
+    const expectedActiveMaps = data.approved.sheets.accountMaps.filter((row) => text(row.Status) === 'Active').length;
+    const targetByCode = new Map(targetRows.map((row) => [text(row['GL Code']), row]));
+    const accountsByCode = new Map(accounts.map((account) => [account.accountNumber, account]));
+    const missingTargetCodes = [...targetByCode.keys()]
+      .filter((code) => !accountsByCode.get(code)?.active)
+      .sort();
+    const metadataMismatches = targetRows.flatMap((row) => {
+      const code = text(row['GL Code']);
+      const account = accountsByCode.get(code);
+      if (!account) return [];
+      const expectedType = approvedAccountType(text(row['Account Type']), code);
+      const expectedNormal = text(row['Normal Balance']).toLowerCase().startsWith('credit') ? NormalBalance.CREDIT : NormalBalance.DEBIT;
+      const expectedPosting = yes(row['Posting Account']);
+      const expectedControl = yes(row['Control Account']);
+      const expectedManual = yes(row['Manual Journal']);
+      const expectedCostCentre = text(row['Cost Centre Rule']).toLowerCase().startsWith('required');
+      const mismatches = [
+        !account.active && 'active',
+        account.accountType !== expectedType && 'accountType',
+        account.normalBalance !== expectedNormal && 'normalBalance',
+        account.isPostingAccount !== expectedPosting && 'isPostingAccount',
+        account.isControlAccount !== expectedControl && 'isControlAccount',
+        account.manualJournalAllowed !== expectedManual && 'manualJournalAllowed',
+        account.requiresCostCentre !== expectedCostCentre && 'requiresCostCentre',
+      ].filter((value): value is string => typeof value === 'string');
+      return mismatches.length ? [{ accountNumber: code, fields: mismatches }] : [];
+    });
+    const activeOutsideTarget = accounts
+      .filter((account) => account.active && !targetByCode.has(account.accountNumber))
+      .map((account) => ({ accountNumber: account.accountNumber, name: account.name, isPostingAccount: account.isPostingAccount }))
+      .sort((a, b) => a.accountNumber.localeCompare(b.accountNumber));
     return {
       loaded: rules >= data.rules.length && keys >= data.keys.length,
       rules,
@@ -141,13 +187,33 @@ export class PostingControlProvisioningService {
         expectedAccounts: data.approved.sheets.accounts.filter((r) => text(r.Status) === 'Active').length,
         accountMaps: approvedMaps,
         expectedAccountMaps: data.approved.sheets.accountMaps.length,
+        resolvedActiveAccountMaps: resolvedActiveMaps,
+        expectedActiveAccountMaps: expectedActiveMaps,
+        unresolvedActiveAccountMaps: unresolvedActiveMaps.length,
         postingControlLines: approvedLines,
         expectedPostingControlLines: data.approved.sheets.postingControls.length,
         costCentres: approvedCentres,
         expectedCostCentres: data.approved.sheets.costCentres.length,
-        loaded: approvedMaps >= data.approved.sheets.accountMaps.length && approvedLines >= data.approved.sheets.postingControls.length,
+        loaded: approvedMaps >= data.approved.sheets.accountMaps.length &&
+          approvedLines >= data.approved.sheets.postingControls.length &&
+          approvedCentres >= data.approved.sheets.costCentres.length &&
+          approvedAccounts >= targetRows.length && missingTargetCodes.length === 0 && metadataMismatches.length === 0 &&
+          resolvedActiveMaps >= expectedActiveMaps && unresolvedActiveMaps.length === 0,
       },
-      /** LEGACY until the farm is moved to the six-digit chart (ChartUnificationService). */
+      targetChart: {
+        source: data.approved.source,
+        expectedAccounts: targetRows.length,
+        presentAccounts: targetRows.length - missingTargetCodes.length,
+        resolvedActivePostingMaps: resolvedActiveMaps,
+        expectedActivePostingMaps: expectedActiveMaps,
+        missingAccountNumbers: missingTargetCodes,
+        metadataMismatches,
+        activeAccountsOutsideTarget: activeOutsideTarget,
+        unresolvedPostingMaps: unresolvedActiveMaps,
+        ready: missingTargetCodes.length === 0 && metadataMismatches.length === 0 && activeOutsideTarget.length === 0 &&
+          unresolvedActiveMaps.length === 0 && resolvedActiveMaps >= expectedActiveMaps,
+      },
+      /** LEGACY until the company is moved to the selected approved workbook chart. */
       chartVersion: company?.chartVersion ?? 'LEGACY',
     };
   }
@@ -169,7 +235,7 @@ export class PostingControlProvisioningService {
         userId: actorId,
         comments:
           `Loaded ${control.rules} posting rules and ${control.keys} keys ` +
-          `(${control.linked} linked to an account); ${chart.created} specification accounts added.`,
+          `(${control.linked} linked to an account); ${chart.created} historical compatibility accounts added.`,
         metadata: { ...chart, ...control, approved },
       });
     }
@@ -275,7 +341,7 @@ export class PostingControlProvisioningService {
     };
   }
 
-  /* --- 1. The specification chart ------------------------------------- */
+  /* --- Historical six-digit compatibility accounts -------------------- */
 
   private async loadSpecChart(companyId: string, data: Loaded) {
     const wanted = new Map<string, { name: string; type: AccountType; normal: NormalBalance }>();

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import EmbeddedPostgres from 'embedded-postgres';
 
@@ -70,7 +71,10 @@ export async function waitForDatabaseReady(
 }
 
 async function resetTestDatabase(port: number): Promise<void> {
-  const pg = await import('pg');
+  // `pg` is supplied by the database workspace; loading it through Node's
+  // runtime resolver avoids TypeScript's ESM declaration mismatch between
+  // pg@8.23 and the workspace's @types/pg version.
+  const pg = createRequire(import.meta.url)('pg');
   const client = new pg.Client({
     connectionString: `postgresql://postgres:postgres@127.0.0.1:${port}/postgres`,
   });
@@ -107,6 +111,7 @@ export async function setup(): Promise<void> {
       user: 'postgres',
       password: 'postgres',
       port,
+      initdbFlags: ['--encoding=UTF8'],
       // `persistent: false` would have embedded-postgres delete the data
       // directory on stop. On Windows that races the server's own file handles
       // and throws EBUSY, failing the run after every test has already passed.

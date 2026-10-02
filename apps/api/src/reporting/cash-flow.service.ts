@@ -106,6 +106,9 @@ const INVENTORY_ACCOUNTS = [
   // incubation. Left out until 2026-09-25, so every egg collected was income
   // the statement never reversed and it stopped agreeing with the bank.
   '130215', '130216',
+  // Viable biological eggs can use the approved immature-stage control
+  // accounts when the company is on the approved posting-engine COA.
+  '16031', '16032',
 ];
 const PAYABLE_ACCOUNTS = [
   '2140', '2201', '210200', '210100', '220100',
@@ -142,7 +145,7 @@ const PPE_ACCOUNTS = ['1701', '140100'];
 const DEPRECIATION_ACCOUNTS = ['5501', '630100'];
 const ACCUMULATED_DEPRECIATION_ACCOUNTS = ['1702', '149100'];
 /** Fair-value gain/loss on snails and poultry, and the gain on eggs at collection. */
-const FAIR_VALUE_ACCOUNTS = ['420100', '420200', '420210'];
+const FAIR_VALUE_ACCOUNTS = ['42000', '420100', '420200', '420210'];
 
 /**
  * Cash Flow, indirect method — the only method the data supports.
@@ -298,8 +301,9 @@ export class CashFlowService {
     const chargedKobo = (charged._sum.creditKobo ?? 0n) - (charged._sum.debitKobo ?? 0n);
     const depreciationAddBackKobo = chargedKobo > expensed ? chargedKobo : expensed;
 
-    // Gains are revenue here, so a gain is added back as a negative.
-    const fairValueAdjustmentKobo = -netIncome.revenueLines
+    // IAS 41 and produce gains are shown as other income on the P&L, then
+    // removed from operating cash because they are non-cash.
+    const fairValueAdjustmentKobo = -netIncome.otherIncomeLines
       .filter((line) => FAIR_VALUE_ACCOUNTS.includes(line.accountNumber))
       .reduce((sum, line) => sum + BigInt(line.amountKobo), 0n);
 
@@ -573,7 +577,12 @@ export class CashFlowService {
 
     return {
       receivables: netFor([...RECEIVABLE_ACCOUNTS, ...TAX_RECEIVABLE_ACCOUNTS]),
-      inventory: netFor(INVENTORY_ACCOUNTS) + netForIds(biologicalAssetAccountIds),
+      // Stage mappings and the approved egg accounts can overlap; union ids
+      // before summing so a mapped account is never counted twice.
+      inventory: netForIds([
+        ...biologicalAssetAccountIds,
+        ...accounts.filter((account) => INVENTORY_ACCOUNTS.includes(account.accountNumber)).map((account) => account.id),
+      ]),
       payables: netFor([...PAYABLE_ACCOUNTS, ...TAX_PAYABLE_ACCOUNTS]),
       bank: netFor(BANK_ACCOUNTS),
       ppe: netFor(PPE_ACCOUNTS),

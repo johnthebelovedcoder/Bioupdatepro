@@ -10,7 +10,9 @@ import { kobo } from '../common/money';
 import { chartVersionOf, ROLE_ACCOUNTS, Species } from './chart';
 
 /**
- * Moving a farm from the four-digit chart to the client's six-digit one.
+ * Historical four-digit to six-digit cutover logic. The CFO API route is
+ * disabled because the approved five-digit workbook chart is now the target.
+ * Keep this service for compatibility until the replacement cutover is built.
  *
  * WHAT IT DOES. Every balance on an old account, as it stands the day before
  * the cutover, is moved to its new account by a journal dated the cutover

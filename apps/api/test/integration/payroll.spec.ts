@@ -342,7 +342,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       expect(result.totalReliefsKobo).toBe('68322000');        //   683,220
       expect(result.chargeableIncomeKobo).toBe('336078000');   // 3,360,780
       expect(result.annualPayeKobo).toBe('39494040');          //   394,940.40
-      expect(result.monthlyPayeKobo).toBe('3291170');          //    32,911.70
+      expect(result.monthlyPayeKobo).toBe('3291200');          //    32,912.00, rounded to the nearest naira
     });
 
     it('EMP002 Chinedu Okafor: annual 532,161.60', async () => {
@@ -361,7 +361,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       expect(result.totalReliefsKobo).toBe('90288000');      //   902,880
       expect(result.chargeableIncomeKobo).toBe('412312000'); // 4,123,120
       expect(result.annualPayeKobo).toBe('53216160');        //   532,161.60
-      expect(result.monthlyPayeKobo).toBe('4434680');        //    44,346.80
+      expect(result.monthlyPayeKobo).toBe('4434700');        //    44,347.00, rounded to the nearest naira
     });
 
     it('EMP005 David Eze: rent relief capped at 500,000', async () => {
@@ -552,7 +552,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
         priorYtdDeductedKobo: 0n,
       });
       expect(result.expectedYtdKobo).toBe('19747020');
-      expect(result.currentMonthKobo).toBe('19747020');
+      expect(result.currentMonthKobo).toBe('19747000');
       expect(result.isRefund).toBe(false);
     });
 
@@ -855,7 +855,7 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
 
       expect(line.monthlyGrossKobo).toBe(32_700_000n);
       expect(line.pensionableEmolumentsKobo).toBe(29_700_000n);
-      expect(line.monthlyPayeKobo).toBe(3_291_170n);      // 32,911.70
+      expect(line.monthlyPayeKobo).toBe(3_291_200n);      // 32,912.00, rounded to the nearest naira
       expect(line.employeePensionKobo).toBe(2_376_000n);  // 23,760
       expect(line.employerPensionKobo).toBe(2_970_000n);  // 29,700
       expect(line.nhfKobo).toBe(817_500n);                //  8,175

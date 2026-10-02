@@ -188,31 +188,28 @@ describe('ChartUnificationService', () => {
     expect(preview.blockers.join()).toMatch(/first day of a month/);
   });
 
-  it('starts a newly registered farm on the six-digit chart, every setting pointing at it', async () => {
+  it('keeps a new farm on its provisioned chart until the approved five-digit cutover exists', async () => {
     const { companyId } = await prisma.$transaction((tx) => new ProvisioningService().provisionCompany(tx, { farmName: 'New Farm' }), { timeout: 60_000 });
-    const first = await prisma.financialPeriod.findFirstOrThrow({ where: { financialYear: { companyId } }, orderBy: { startDate: 'asc' } });
+    expect((await prisma.company.findUniqueOrThrow({ where: { id: companyId } })).chartVersion).toBe('LEGACY');
+    const active = await prisma.gLAccount.findMany({ where: { companyId, active: true, isPostingAccount: true }, select: { accountNumber: true } });
+    expect(active.some((a) => /^\d{4}$/.test(a.accountNumber))).toBe(true);
 
-    const result = await unification.run({ companyId, cutoverDate: first.startDate, actor });
-    expect(result.journals).toEqual([]); // nothing to move
-
-    expect((await prisma.company.findUniqueOrThrow({ where: { id: companyId } })).chartVersion).toBe('SPEC');
-    const active = await prisma.gLAccount.findMany({ where: { companyId, active: true }, select: { accountNumber: true } });
-    expect(active.filter((a) => !/^\d{6}$/.test(a.accountNumber))).toEqual([]);
-
-    // Every setting that names an account names a six-digit one.
+    // Account-bearing settings must still point at the chart used by the company.
     const number = (a: { accountNumber: string } | null) => a?.accountNumber ?? null;
     const sales = await prisma.salesConfiguration.findFirstOrThrow({
       where: { companyId },
       include: { receivableAccount: true, revenueAccount: true, costOfSalesAccount: true, inventoryAccount: true },
     });
     expect([sales.receivableAccount, sales.revenueAccount, sales.costOfSalesAccount, sales.inventoryAccount].map(number)).toEqual([
-      '120100', '410300', '510300', '130520',
+      '1201', '4101', '5001', '1401',
     ]);
     const procurement = await prisma.procurementConfiguration.findFirstOrThrow({ where: { companyId }, include: { grniAccount: true, payablesAccount: true } });
-    expect([number(procurement.grniAccount), number(procurement.payablesAccount)]).toEqual(['210200', '210100']);
+    // GRNI is a six-digit compatibility account because the live procurement
+    // configuration has already been provisioned against that account; this
+    // mixed chart state remains visible in the target-chart readiness gate.
+    expect([number(procurement.grniAccount), number(procurement.payablesAccount)]).toEqual(['210200', '2201']);
     const components = await prisma.salaryComponent.findMany({ where: { companyId }, include: { payableGlAccount: true, expenseGlAccount: true } });
-    for (const c of components) {
-      for (const a of [c.payableGlAccount, c.expenseGlAccount]) if (a) expect(a.accountNumber).toMatch(/^\d{6}$/);
-    }
+    expect(components.length).toBeGreaterThan(0);
+    for (const c of components) for (const a of [c.payableGlAccount, c.expenseGlAccount]) if (a) expect(a.accountNumber).toMatch(/^\d{4}$/);
   });
 });

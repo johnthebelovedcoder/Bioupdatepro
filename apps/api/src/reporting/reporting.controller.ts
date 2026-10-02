@@ -305,9 +305,11 @@ export class ReportingController {
       lines.map((l) => [section, l.accountNumber, csvCell(l.accountName), l.amountKobo]);
     const rows = [
       ...lineRows('Revenue', pl.revenueLines),
+      ...lineRows('Other Income', pl.otherIncomeLines),
       ...lineRows('Cost of Sales', pl.costOfSalesLines),
       ...lineRows('Operating Expense', pl.operatingExpenseLines),
       ['Total Revenue', '', '', pl.revenueKobo],
+      ['Total Other Income', '', '', pl.otherIncomeKobo],
       ['Total Cost of Sales', '', '', pl.costOfSalesKobo],
       ['Gross Profit', '', '', pl.grossProfitKobo],
       ['Total Operating Expense', '', '', pl.operatingExpenseKobo],

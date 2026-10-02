@@ -494,7 +494,7 @@ export class InventoryTransferService {
         select: { id: true, financialYearId: true },
       }),
       this.prisma.costCentre.findFirst({
-        where: { companyId, active: true },
+        where: { companyId, active: true, postingAllowed: true },
         orderBy: { code: 'asc' },
         select: { id: true },
       }),

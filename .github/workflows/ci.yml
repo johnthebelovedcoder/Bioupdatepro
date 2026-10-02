@@ -7,7 +7,7 @@ name: Checks
 #   unit         pure logic, plus the tenant-isolation scan: every query over
 #                a company-owned table must name its company, or be on the
 #                reviewed list in apps/api/test/unit/tenant-scope.allowlist.json
-#   integration  the ~380 accounting tests against a real PostgreSQL, which the
+#   integration  the full accounting suite against a real PostgreSQL, which the
 #                suite starts itself (embedded-postgres) and builds from the
 #                same migrations production runs
 #   web build    the production build Render will run
@@ -33,7 +33,9 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The complete PostgreSQL suite took about 50 minutes in the latest local
+    # run. Leave headroom so CI reports the suite result instead of timing out.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 

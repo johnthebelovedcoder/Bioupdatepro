@@ -208,7 +208,7 @@ describe('Processing and production-order close (UAT-015 / UAT-024)', () => {
       { itemId: item.SHELL!, outputType: 'BY_PRODUCT' as const, quantity: '16', weight: '16' },
     ];
     await expect(orders.recordOutputs({ productionOrderId: id, method: 'WEIGHT', warehouseId: fgStore, actor: maker, normalLossQuantity: '38', outputs })).rejects.toThrow(
-      /allocates joint cost by NRV on every order; WEIGHT was asked for/,
+      /allocates joint cost by SALES_VALUE on every order; WEIGHT was asked for/,
     );
     await expect(orders.recordOutputs({ productionOrderId: id, warehouseId: fgStore, actor: maker, outputs })).rejects.toThrow(
       /State the normal process loss\. 90\.000 kg went in; outputs are 52\.000 kg, so normal loss would be 38\.000 kg/,
@@ -217,13 +217,14 @@ describe('Processing and production-order close (UAT-015 / UAT-024)', () => {
       /is 82\.000 kg, but 90\.000 kg went in/,
     );
 
-    // NRV at split-off: meat 36 kg × ₦18,000, shell 16 kg × ₦2,500 → 94.19% / 5.81% of the pool.
+    // Relative sales value at split-off: meat ₦648,000 and shell ₦40,000.
     await orders.recordOutputs({ productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38', outputs });
     const out = await prisma.productionOrderOutput.findMany({ where: { productionOrderId: id }, include: { item: true } });
     const pool = 1_500_000_00n + 5_000_00n + 1_400_000_00n;
     const meat = out.find((o) => o.item.code === 'MEAT')!.allocatedCostKobo;
     expect(meat + out.find((o) => o.item.code === 'SHELL')!.allocatedCostKobo).toBe(pool);
-    expect(Number(meat) / Number(pool)).toBeCloseTo(648_000 / 688_000, 6);
+    const shellNrv = 4_000_000n; // 16 kg × ₦2,500
+    expect(Number(meat) / Number(pool)).toBeCloseTo(Number(pool - shellNrv) / Number(pool), 6);
   });
 
   it('keeps normal loss within the recipe’s approved yield; the rest is abnormal (POL-005/006)', async () => {

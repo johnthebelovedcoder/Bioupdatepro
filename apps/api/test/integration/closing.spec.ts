@@ -46,6 +46,7 @@ describe('Period-End & Year-End Closing (§8)', () => {
 
   let maker: WorkflowActor;
   let approver: WorkflowActor;
+  let cfo: WorkflowActor;
   let retainedEarningsId: string;
 
   beforeAll(async () => {
@@ -86,6 +87,10 @@ describe('Period-End & Year-End Closing (§8)', () => {
       },
     });
     approver = { userId: approverUser.id, roles: approverUser.roles };
+    const cfoUser = await prisma.user.create({
+      data: { email: 'cfo@test', fullName: 'Chief Financial Officer', passwordHash: 'x', roles: ['CFO'] },
+    });
+    cfo = { userId: cfoUser.id, roles: cfoUser.roles };
 
     const retained = await prisma.gLAccount.create({
       data: {
@@ -517,12 +522,12 @@ describe('Period-End & Year-End Closing (§8)', () => {
           transactionType: 'PERIOD_REOPEN',
           name: 'Reopen route',
           effectiveFrom: new Date('2026-01-01'),
-          steps: { create: [{ level: 1, roleCode: 'FINANCE_CONTROLLER', name: 'Controller', maxAmountKobo: null }] },
+          steps: { create: [{ level: 1, roleCode: 'CFO', name: 'CFO', maxAmountKobo: null }] },
         },
       });
       const { request } = await periods.requestReopen({ financialPeriodId: fixture.periodIds[0]!, reason: 'Late sale', actor: maker });
-      await periods.approveReopenRequest({ reopenRequestId: request.id, actor: approver });
-      await periods.reopen({ reopenRequestId: request.id, actor: approver });
+      await periods.approveReopenRequest({ reopenRequestId: request.id, actor: cfo });
+      await periods.reopen({ reopenRequestId: request.id, actor: cfo });
       await tradeInPeriod(0, 50_000_00n, 0n, 'LATE');
 
       const moved = await packs.verify(fixture.companyId, listed!.id);
@@ -546,7 +551,7 @@ describe('Period-End & Year-End Closing (§8)', () => {
           effectiveFrom: new Date('2026-01-01'),
           steps: {
             create: [
-              { level: 1, roleCode: 'FINANCE_CONTROLLER', name: 'Controller', maxAmountKobo: null },
+              { level: 1, roleCode: 'CFO', name: 'CFO', maxAmountKobo: null },
             ],
           },
         },
@@ -559,16 +564,16 @@ describe('Period-End & Year-End Closing (§8)', () => {
       });
 
       await expect(
-        periods.reopen({ reopenRequestId: request.id, actor: approver }),
+        periods.reopen({ reopenRequestId: request.id, actor: cfo }),
       ).rejects.toThrow(/has not been approved/i);
 
       await periods.approveReopenRequest({
         reopenRequestId: request.id,
-        actor: approver,
+        actor: cfo,
       });
       const reopened = await periods.reopen({
         reopenRequestId: request.id,
-        actor: approver,
+        actor: cfo,
       });
       expect(reopened.status).toBe(PeriodStatus.OPEN);
     });
@@ -586,20 +591,21 @@ describe('Period-End & Year-End Closing (§8)', () => {
           effectiveFrom: new Date('2026-01-01'),
           steps: {
             create: [
-              { level: 1, roleCode: 'FINANCE_CONTROLLER', name: 'Controller', maxAmountKobo: null },
+              { level: 1, roleCode: 'CFO', name: 'CFO', maxAmountKobo: null },
             ],
           },
         },
       });
 
+      const requester = { ...maker, roles: ['ACCOUNTANT', 'CFO'] };
       const { request } = await periods.requestReopen({
         financialPeriodId: fixture.periodIds[0]!,
         reason: 'Correction needed',
-        actor: maker,
+        actor: requester,
       });
 
       await expect(
-        periods.approveReopenRequest({ reopenRequestId: request.id, actor: maker }),
+        periods.approveReopenRequest({ reopenRequestId: request.id, actor: requester }),
       ).rejects.toThrow(/cannot also approve/i);
     });
 

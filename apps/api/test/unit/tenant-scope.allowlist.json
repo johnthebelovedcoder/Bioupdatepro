@@ -172,10 +172,6 @@
     "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
   },
   {
-    "key": "workflow/delegation.service.ts user.findMany { id: { in: delegators }, active: true, roles: { has: params.roleCode } }",
-    "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
-  },
-  {
     "key": "workflow/workflow.service.ts user.findMany { id: { in: delegations.map((d) => d.delegatorId) } }",
     "reason": "Looks up rows by ids taken from records already scoped to this company in the same method."
   },

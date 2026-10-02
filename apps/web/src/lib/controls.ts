@@ -118,6 +118,18 @@ export interface PostingControlStatus {
   expectedRules: number;
   expectedKeys: number;
   chartVersion: 'LEGACY' | 'SPEC';
+  targetChart: {
+    source: string;
+    expectedAccounts: number;
+    presentAccounts: number;
+    resolvedActivePostingMaps: number;
+    expectedActivePostingMaps: number;
+    missingAccountNumbers: string[];
+    metadataMismatches: Array<{ accountNumber: string; fields: string[] }>;
+    activeAccountsOutsideTarget: Array<{ accountNumber: string; name: string; isPostingAccount: boolean }>;
+    unresolvedPostingMaps: Array<{ application: string; postingGroup: string; postingKey: string; accountCode: string }>;
+    ready: boolean;
+  };
 }
 
 export const getPostingControlStatus = () =>

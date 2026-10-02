@@ -51,9 +51,9 @@ const STATUTORY = {
   gross: N(1_020_000),
   employeePension: N(81_600),
   employerPension: N(102_000),
-  nhf: N(18_000),
-  paye: N(60_060),
-  net: N(860_340),
+  nhf: N(25_500),
+  paye: N(58_938),
+  net: N(853_962),
   nsitf: N(10_200),
   itf: N(10_200),
   journals: N(2_284_800),
@@ -140,10 +140,11 @@ describe('The 2026 statutory payroll case, through the application (NG_Statutory
     await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
     const run = await prisma.payrollRun.findUniqueOrThrow({ where: { id: created.id } });
     const lines = await prisma.payrollRunLine.findMany({ where: { payrollRunId: run.id }, include: { employee: true } });
-    // Every employee exactly as NG_PAYE_2026's row: PAYE ₦10,010, net ₦143,390.
+    // Rebased to the agreed statutory settings: PAYE ₦9,823, NHF 2.5% of ₦170,000,
+    // net ₦142,327 after employee pension and statutory deductions.
     for (const line of lines) {
       expect({ who: line.employee.employeeNumber, paye: line.monthlyPayeKobo, net: line.netPayKobo, nhf: line.nhfKobo }).toEqual({
-        who: line.employee.employeeNumber, paye: N(10_010), net: N(143_390), nhf: N(3_000),
+        who: line.employee.employeeNumber, paye: N(9_823), net: N(142_327), nhf: N(4_250),
       });
     }
 

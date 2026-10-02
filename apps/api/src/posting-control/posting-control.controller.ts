@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingControlService } from './posting-control.service';
 import { PostingControlChecksService } from './posting-control-checks.service';
@@ -8,6 +8,9 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { CurrentCompany } from '../auth/current-user.decorator';
 import { AnyRole, Roles } from '../auth/roles.guard';
+
+const APPROVED_CHART_CUTOVER_BLOCKER =
+  'The six-digit chart cutover has been superseded by the selected five-digit approved workbook chart. Use the approved chart readiness gate; this cutover is disabled until five-digit account mapping and reconciliation are complete.';
 
 /**
  * The posting rules, readable.
@@ -35,9 +38,8 @@ export class PostingControlController {
   ) {}
 
   /**
-   * The move to the six-digit chart: what would happen, then doing it.
-   * The preview changes nothing and can be asked for as often as needed;
-   * the run is one transaction, audited, and only a CFO may start it.
+   * Retained as a compatibility route while the five-digit approved-workbook
+   * cutover replaces the superseded six-digit transition.
    */
   @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Get('chart-unification')
@@ -49,10 +51,10 @@ export class PostingControlController {
   ) {
     const date = cutover ? parseDay(cutover) : await this.unification.suggestedCutover(companyId);
     if (!date) {
-      return { cutoverDate: null, canRun: false, blockers: ['No future month is open. Set up the next financial period first.'], warnings: [], accounts: [], items: [], untouched: [], classes: PRODUCT_CLASSES };
+      return { cutoverDate: null, canRun: false, blockers: [APPROVED_CHART_CUTOVER_BLOCKER, 'No future month is open. Set up the next financial period first.'], warnings: [], accounts: [], items: [], untouched: [], classes: PRODUCT_CLASSES };
     }
     const preview = await this.unification.preview(companyId, date, parseOptions({ defaultClass, defaultSpecies }));
-    return { ...preview, classes: PRODUCT_CLASSES };
+    return { ...preview, canRun: false, blockers: [...new Set([...preview.blockers, APPROVED_CHART_CUTOVER_BLOCKER])], classes: PRODUCT_CLASSES };
   }
 
   /** The same preview with the person's choices for each item. */
@@ -64,19 +66,14 @@ export class PostingControlController {
   ) {
     if (!body?.cutover) throw new BadRequestException('Give the cutover date.');
     const preview = await this.unification.preview(companyId, parseDay(body.cutover), parseOptions(body));
-    return { ...preview, classes: PRODUCT_CLASSES };
+    return { ...preview, canRun: false, blockers: [...new Set([...preview.blockers, APPROVED_CHART_CUTOVER_BLOCKER])], classes: PRODUCT_CLASSES };
   }
 
   @Roles('CFO')
   @Post('chart-unification')
-  async unificationRun(
-    @CurrentCompany() companyId: string,
-    @CurrentUser() actor: WorkflowActor,
-    @Body() body: { cutover?: string; itemClasses?: Record<string, string>; defaultClass?: string; defaultSpecies?: string },
-  ) {
+  async unificationRun(@Body() body: { cutover?: string }) {
     if (!body?.cutover) throw new BadRequestException('Give the cutover date.');
-    const result = await this.unification.run({ companyId, cutoverDate: parseDay(body.cutover), options: parseOptions(body), actor });
-    return { journals: result.journals, moved: result.moved, repointed: result.repointed, retired: result.retired };
+    throw new ConflictException(APPROVED_CHART_CUTOVER_BLOCKER);
   }
 
   @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
@@ -104,7 +101,7 @@ export class PostingControlController {
   }
 
   /**
-   * Load the client's posting rules, keys and six-digit chart into this
+   * Load the client's posting rules, keys, and approved account data into this
    * company — what a farm that signed up before sign-up did this never got.
    * Adds accounts, changes none, and is audited against whoever asked.
    */

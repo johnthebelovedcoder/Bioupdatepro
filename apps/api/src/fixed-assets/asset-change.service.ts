@@ -192,7 +192,7 @@ export class AssetChangeService {
       const version = await chartVersionOf(tx, row.companyId);
       const [lossNumber, accumulatedNumber] = [numberFor(version, 'impairmentLoss'), numberFor(version, 'accumulatedDepreciation')];
       const accounts = await tx.gLAccount.findMany({
-        where: { companyId: row.companyId, accountNumber: { in: [lossNumber, accumulatedNumber] }, active: true, isPostingAccount: true },
+        where: { companyId: row.companyId, accountNumber: { in: [lossNumber, accumulatedNumber] }, active: true, OR: [{ isPostingAccount: true }, { isControlAccount: true }] },
         select: { id: true, accountNumber: true },
       });
       const loss = accounts.find((a) => a.accountNumber === lossNumber);

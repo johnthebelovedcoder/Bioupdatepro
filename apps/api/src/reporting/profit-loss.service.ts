@@ -10,6 +10,7 @@ export interface ProfitLossLine {
 
 export interface ProfitLoss {
   revenueKobo: string;
+  otherIncomeKobo: string;
   costOfSalesKobo: string;
   grossProfitKobo: string;
   operatingExpenseKobo: string;
@@ -18,6 +19,7 @@ export interface ProfitLoss {
   incomeTaxKobo: string;
   profitAfterTaxKobo: string;
   revenueLines: ProfitLossLine[];
+  otherIncomeLines: ProfitLossLine[];
   costOfSalesLines: ProfitLossLine[];
   operatingExpenseLines: ProfitLossLine[];
   incomeTaxLines: ProfitLossLine[];
@@ -43,6 +45,10 @@ export const COST_OF_SALES_ACCOUNTS = new Set([
 /** Income tax expense (PCR-084-DR) — shown below profit before tax, not among operating costs. */
 export const INCOME_TAX_ACCOUNTS = new Set(['650100']);
 
+/** IAS 41 biological-asset gains and produce gains are P&L income, but are
+ * presented separately from revenue earned by selling goods and services. */
+export const OTHER_INCOME_ACCOUNTS = new Set(['42000', '420100', '420200', '420210']);
+
 /**
  * Profit & Loss, as a read over the same ledger the Trial Balance already
  * proves is balanced.
@@ -60,7 +66,8 @@ export class ProfitLossService {
   async build(filter: TrialBalanceFilter): Promise<ProfitLoss> {
     const tb = await this.trialBalance.build(filter);
 
-    const revenueRows = tb.rows.filter((row) => row.accountType === AccountType.REVENUE);
+    const revenueRows = tb.rows.filter((row) => row.accountType === AccountType.REVENUE && !OTHER_INCOME_ACCOUNTS.has(row.accountNumber));
+    const otherIncomeRows = tb.rows.filter((row) => OTHER_INCOME_ACCOUNTS.has(row.accountNumber));
     const expenseRows = tb.rows.filter((row) => row.accountType === AccountType.EXPENSE);
     const costOfSalesRows = expenseRows.filter((row) =>
       COST_OF_SALES_ACCOUNTS.has(row.accountNumber),
@@ -73,15 +80,17 @@ export class ProfitLossService {
     // Revenue is credit-normal, so `displayedBalanceKobo` is already positive
     // for a genuine credit balance; expenses are debit-normal, same reasoning.
     const revenueKobo = sumOf(revenueRows);
+    const otherIncomeKobo = sumOf(otherIncomeRows);
     const costOfSalesKobo = sumOf(costOfSalesRows);
     const operatingExpenseKobo = sumOf(operatingExpenseRows);
     const grossProfitKobo = revenueKobo - costOfSalesKobo;
-    const profitBeforeTaxKobo = grossProfitKobo - operatingExpenseKobo;
+    const profitBeforeTaxKobo = grossProfitKobo + otherIncomeKobo - operatingExpenseKobo;
     const incomeTaxKobo = sumOf(incomeTaxRows);
     const profitAfterTaxKobo = profitBeforeTaxKobo - incomeTaxKobo;
 
     return {
       revenueKobo: revenueKobo.toString(),
+      otherIncomeKobo: otherIncomeKobo.toString(),
       costOfSalesKobo: costOfSalesKobo.toString(),
       grossProfitKobo: grossProfitKobo.toString(),
       operatingExpenseKobo: operatingExpenseKobo.toString(),
@@ -89,6 +98,7 @@ export class ProfitLossService {
       incomeTaxKobo: incomeTaxKobo.toString(),
       profitAfterTaxKobo: profitAfterTaxKobo.toString(),
       revenueLines: toLines(revenueRows),
+      otherIncomeLines: toLines(otherIncomeRows),
       costOfSalesLines: toLines(costOfSalesRows),
       operatingExpenseLines: toLines(operatingExpenseRows),
       incomeTaxLines: toLines(incomeTaxRows),

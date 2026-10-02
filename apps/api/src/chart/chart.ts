@@ -1,16 +1,17 @@
 /**
  * Which account does what, on each chart.
  *
- * Every company is on one of two charts:
+ * Runtime compatibility charts:
  *   LEGACY  the four-digit chart new farms were given until 2026-09-25
- *   SPEC    the client's six-digit chart (POSTING_COA_MASTER /
- *           RECOMMENDED_COA_CC) that the posting rules are written against
+ *   SPEC    the historical six-digit chart implementation. Its cutover is
+ *           disabled while the selected five-digit approved workbook chart
+ *           is implemented and reconciled.
  *
  * Code asks for an account by what it is for — `salaryPayable`, `grni` — and
  * ChartService answers with the company's own account on its own chart. A
- * company moves from LEGACY to SPEC once, through the chart unification
- * (ChartUnificationService), which posts journals moving every balance and
- * then switches `Company.chartVersion`.
+ * `Company.chartVersion` still reflects these compatibility paths. The
+ * five-digit target is tracked separately by posting-control chart readiness;
+ * do not switch companies to SPEC through the old cutover route.
  *
  * Species-dependent purposes (a snail's cost of sales is not a bird's) take
  * the species; on LEGACY they share one account, as they always did.
