@@ -408,3 +408,99 @@ export function biologicalResultAccountsFor(version: ChartVersion, species: stri
     abnormalMortality: snail ? '51110' : '51120',
   };
 }
+
+/* -------------------------------------------------------------------------
+ * Production and processing on the approved chart
+ * -------------------------------------------------------------------------
+ * Processing and feed-mill orders resolve their accounts through posting
+ * rules (PCR-0xx) whose keys are linked to accounts per company. On the
+ * approved chart those keys are linked to the five-digit accounts below, from
+ * the workbook's own maps (the work-centre, finished-goods, payroll and raw
+ * material posting groups) and, where the workbook has no key for the app's
+ * step, the review crosswalk (docs/approved-coa-crosswalk-review.csv). Each
+ * entry says where it came from; test/unit/chart-approved.spec.ts checks the
+ * workbook-sourced ones against the workbook.
+ */
+export const APPROVED_PROCESSING_KEYS: Record<string, { account: string; source: string }> = {
+  // --- SnailPro processing (PCR-051…058) -----------------------------------
+  'PCR-051-DR': { account: '13110', source: 'SNP-WC-MAIN PROCESSING_WIP' },
+  'PCR-051-CR': { account: '16041', source: 'SNP-BA-MAT BA_DESTINATION_STAGE_CONTROL — market-ready snails leave the mature account' },
+  'PCR-052-DR': { account: '13110', source: 'SNP-WC-MAIN PROCESSING_WIP' },
+  'PCR-052-CR': { account: '12000', source: 'SNP-RM INVENTORY_CONTROL — workbook rule YFR-045B processing material consumption' },
+  'PCR-053-DR': { account: '13110', source: 'SNP-WC-MAIN PROCESSING_WIP' },
+  'PCR-053-CR': { account: '54000', source: 'SNP-WC-MAIN LABOUR_RECOVERY — default only; absorption is credited to the recovery account of each routing line’s resource type' },
+  'PCR-054-DR': { account: '52110', source: 'SNP-PAYROLL OUTSOURCED_LABOUR_EXPENSE — snail processing labour expense' },
+  'PCR-054-CR': { account: '20700', source: 'SNP-PAYROLL PAYROLL_PAYABLE' },
+  'PCR-055-DR': { account: '52200', source: 'crosswalk 621200 → 52200 (utilities and facility; first of its split)' },
+  'PCR-056-DR': { account: '51200', source: 'crosswalk 640400 → 51200 (abnormal processing loss, IAS 2)' },
+  'PCR-056-CR': { account: '13110', source: 'SNP-WC-MAIN PROCESSING_WIP' },
+  'PCR-057-DR': { account: '12410', source: 'SNP-FG-PROCESSED FINISHED_GOODS_INVENTORY' },
+  'PCR-057-CR': { account: '13110', source: 'SNP-WC-MAIN PROCESSING_WIP' },
+  'PCR-058-DR': { account: '53500', source: 'SNP-WC-MAIN RECOVERY_VARIANCE' },
+  // --- PoultryPro processing (PCR-074…080) ----------------------------------
+  'PCR-074-DR': { account: '13120', source: 'PLP-WC-MAIN PROCESSING_WIP' },
+  'PCR-074-CR': { account: '16042', source: 'PLP-BA-MAT BA_DESTINATION_STAGE_CONTROL — market-ready birds leave the mature account' },
+  'PCR-075-DR': { account: '13120', source: 'PLP-WC-MAIN PROCESSING_WIP' },
+  'PCR-075-CR': { account: '12000', source: 'PLP-RM INVENTORY_CONTROL — workbook rule YFR-045B processing material consumption' },
+  'PCR-076-DR': { account: '13120', source: 'PLP-WC-MAIN PROCESSING_WIP' },
+  'PCR-076-CR': { account: '54000', source: 'PLP-WC-MAIN LABOUR_RECOVERY — default only; see PCR-053-CR' },
+  'PCR-077-DR': { account: '52120', source: 'PLP-PAYROLL OUTSOURCED_LABOUR_EXPENSE — poultry processing labour expense' },
+  'PCR-078-DR': { account: '51200', source: 'crosswalk 640600 → 51200 (abnormal processing loss, IAS 2)' },
+  'PCR-078-CR': { account: '13120', source: 'PLP-WC-MAIN PROCESSING_WIP' },
+  'PCR-079-DR': { account: '12420', source: 'PLP-FG-PROCESSED FINISHED_GOODS_INVENTORY' },
+  'PCR-079-CR': { account: '13120', source: 'PLP-WC-MAIN PROCESSING_WIP' },
+  'PCR-080-DR': { account: '53500', source: 'PLP-WC-MAIN RECOVERY_VARIANCE' },
+  // --- Feed mill (PCR-032…036) ----------------------------------------------
+  'PCR-032-DR': { account: '13200', source: 'PLP-RM FEED_MILL_WIP' },
+  'PCR-032-CR': { account: '12100', source: 'PLP-RM FEED_INGREDIENT_INVENTORY — workbook rule YFR-045C' },
+  'PCR-033-DR': { account: '13200', source: 'PLP-RM FEED_MILL_WIP' },
+  'PCR-033-CR': { account: '54300', source: 'PLP-RM FEED_MILL_OVERHEAD_RECOVERY' },
+  'PCR-034-DR': { account: '12450', source: 'PLP-FG FINISHED_FEED_INVENTORY' },
+  'PCR-034-CR': { account: '13200', source: 'PLP-RM FEED_MILL_WIP' },
+  'PCR-035-DR': { account: '51200', source: 'crosswalk 640200 → 51200 (post-harvest abnormal production loss)' },
+  'PCR-035-CR': { account: '13200', source: 'PLP-RM FEED_MILL_WIP' },
+  'PCR-036-DR': { account: '53600', source: 'PLP-RM FEED_YIELD_VARIANCE — feed mill yield and formulation variance' },
+};
+
+/** Which resource a routing operation absorbs, for the recovery account it is credited to. */
+export type RecoveryResource = 'LABOUR' | 'MACHINE' | 'OVERHEAD' | 'DEPRECIATION';
+
+/**
+ * The recovery account a processing order's standard absorption is credited
+ * to, by the routing line's resource: labour recovery 54000, machine overhead
+ * recovery 54100 (machine time and the depreciation absorbed by it), utility
+ * recovery 54200 (power, maintenance, QA, stores). The old charts keep one
+ * recovery account per line (219810 snail, 219820 poultry), so they have no
+ * resource split.
+ */
+export function recoveryNumberFor(resource: RecoveryResource): string {
+  return resource === 'LABOUR' ? '54000' : resource === 'OVERHEAD' ? '54200' : '54100';
+}
+
+/** The one feed-mill recovery account on the approved chart (a single account carries every species). */
+export const APPROVED_FEED_MILL_RECOVERY = '54300';
+
+/**
+ * Where an order's actual overhead is charged before settlement clears it:
+ * utilities expense, the first of the review crosswalk's split for the
+ * snail overhead and poultry conversion pools.
+ */
+export const APPROVED_OVERHEAD_POOL = '52200';
+
+/** The accrual actual conversion cost is credited to until its invoices and payroll are booked. */
+export function accrualNumberFor(version: ChartVersion): string | null {
+  return version === 'APPROVED' ? '20200' : null;
+}
+
+/** The processing WIP accounts the control reconciliation reads, by chart. */
+export function processingWipNumbers(version: ChartVersion): Record<'SNAILPRO' | 'POULTRYPRO' | 'FEED_MILL', string> {
+  return version === 'APPROVED'
+    ? { SNAILPRO: '13110', POULTRYPRO: '13120', FEED_MILL: '13200' }
+    : { SNAILPRO: '130410', POULTRYPRO: '130420', FEED_MILL: '130430' };
+}
+
+/** Where machine depreciation for a processing line is charged (PCR-031), by chart. */
+export function processingOverheadNumber(version: ChartVersion, cycle: 'SNAILPRO' | 'POULTRYPRO' | 'FEED_MILL'): string {
+  if (version === 'APPROVED') return cycle === 'FEED_MILL' ? '52700' : '52400';
+  return cycle === 'SNAILPRO' ? '621200' : cycle === 'POULTRYPRO' ? '622100' : '623100';
+}

@@ -5,7 +5,14 @@ import {
   APPROVED_SPECIES_ACCOUNTS,
   ROLE_ACCOUNTS,
   UnresolvedApprovedAccount,
+  APPROVED_FEED_MILL_RECOVERY,
+  APPROVED_OVERHEAD_POOL,
+  APPROVED_PROCESSING_KEYS,
+  accrualNumberFor,
   approvedRoleReadiness,
+  processingOverheadNumber,
+  processingWipNumbers,
+  recoveryNumberFor,
   biologicalResultAccountsFor,
   biologicalStageAccountNumber,
   snailStageAccountNumber,
@@ -229,5 +236,62 @@ describe('approved five-digit chart roles', () => {
   it('leaves valuation and mortality results on the old charts as one account per species', () => {
     expect(biologicalResultAccountsFor('LEGACY', 'poultry')).toBeNull();
     expect(biologicalResultAccountsFor('SPEC', 'snail')).toBeNull();
+  });
+
+  describe('production and processing keys', () => {
+    const control = JSON.parse(readFileSync(join(__dirname, '../../../../packages/database/src/posting-control.json'), 'utf8')) as {
+      keys: Array<{ key: string }>;
+    };
+    const keyNames = new Set(control.keys.map((k) => k.key));
+    const mapBySource = (source: string) => {
+      const [group, key] = source.split(' ');
+      const rows = workbook.sheets.accountMaps.filter((m) => m['Posting Group'] === group && m['Posting Key'] === key && m.Status === 'Active');
+      return new Set(rows.map((m) => m['GL Code']));
+    };
+
+    it('names only keys the posting rules actually use', () => {
+      for (const key of Object.keys(APPROVED_PROCESSING_KEYS)) expect(keyNames.has(key), key).toBe(true);
+    });
+
+    it('takes every workbook-sourced key from the workbook map it cites', () => {
+      for (const [key, { account, source }] of Object.entries(APPROVED_PROCESSING_KEYS)) {
+        if (!/^[A-Z]{3}-[A-Z-]+ [A-Z_]+/.test(source)) continue; // crosswalk-sourced, below
+        expect(mapBySource(source), `${key} ← ${source}`).toEqual(new Set([account]));
+      }
+    });
+
+    it('takes every crosswalk-sourced key from the review crosswalk, and every account exists in the workbook', () => {
+      const crosswalk = readFileSync(join(__dirname, '../../../../docs/approved-coa-crosswalk-review.csv'), 'utf8');
+      for (const [key, { account, source }] of Object.entries(APPROVED_PROCESSING_KEYS)) {
+        expect(accounts.has(account), `${key} → ${account}`).toBe(true);
+        const match = source.match(/^crosswalk (\d{6}) → (\d{5})/);
+        if (!match) continue;
+        expect(match[2], key).toBe(account);
+        expect(crosswalk.includes(`"${match[1]}"`), `${match[1]} is in the crosswalk`).toBe(true);
+      }
+    });
+
+    it('keeps the control and posting flags the engine relies on', () => {
+      // WIP, finished goods, recovery and ingredient stock are controls (module-posted only); expenses and variances post.
+      for (const account of ['13110', '13120', '13200', '12410', '12420', '12450', '54000', '54100', '54200', '54300']) {
+        expect(accounts.get(account), account).toMatchObject({ 'Control Account': 'Yes', 'Posting Account': 'No' });
+      }
+      for (const account of ['51200', '52110', '52120', '52200', '52400', '52700', '53500', '53600']) {
+        expect(accounts.get(account), account).toMatchObject({ 'Control Account': 'No', 'Posting Account': 'Yes' });
+      }
+    });
+
+    it('credits recovery by routing resource, one feed-mill account, and keeps the old charts’ WIP numbers', () => {
+      expect([recoveryNumberFor('LABOUR'), recoveryNumberFor('MACHINE'), recoveryNumberFor('OVERHEAD'), recoveryNumberFor('DEPRECIATION')]).toEqual(['54000', '54100', '54200', '54100']);
+      expect(APPROVED_FEED_MILL_RECOVERY).toBe('54300');
+      expect(APPROVED_OVERHEAD_POOL).toBe('52200');
+      expect(accrualNumberFor('APPROVED')).toBe('20200');
+      expect(accrualNumberFor('SPEC')).toBeNull();
+      expect(processingWipNumbers('APPROVED')).toEqual({ SNAILPRO: '13110', POULTRYPRO: '13120', FEED_MILL: '13200' });
+      expect(processingWipNumbers('SPEC')).toEqual({ SNAILPRO: '130410', POULTRYPRO: '130420', FEED_MILL: '130430' });
+      expect(processingOverheadNumber('APPROVED', 'POULTRYPRO')).toBe('52400');
+      expect(processingOverheadNumber('APPROVED', 'FEED_MILL')).toBe('52700');
+      expect(processingOverheadNumber('LEGACY', 'SNAILPRO')).toBe('621200');
+    });
   });
 });

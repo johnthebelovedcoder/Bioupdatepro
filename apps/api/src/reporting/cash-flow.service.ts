@@ -109,6 +109,9 @@ const INVENTORY_ACCOUNTS = [
   // …and their homes on the approved chart: eggs as finished poultry products
   // (12420) and eggs in incubation as poultry farm WIP (13020).
   '12420', '13020',
+  // Production and processing on the approved chart: raw materials and feed
+  // ingredients, finished snail products and feed, and the three WIP controls.
+  '12000', '12100', '12410', '12450', '13110', '13120', '13200',
   // Viable biological eggs can use the approved immature-stage control
   // accounts when the company is on the approved posting-engine COA.
   '16031', '16032', '16041', '16042',
@@ -127,6 +130,8 @@ const PAYABLE_ACCOUNTS = [
   // their period movement, breaking the closing-cash reconciliation this
   // service exists to prove.
   '219810', '219820', '219830',
+  // Accrued expenses control (the actual conversion cost accrued by processing orders, approved chart).
+  '20200',
   // Income tax provided for but not yet paid (PCR-084-CR).
   '227100',
   // Accrued expenses: actual conversion cost accrued at confirmation

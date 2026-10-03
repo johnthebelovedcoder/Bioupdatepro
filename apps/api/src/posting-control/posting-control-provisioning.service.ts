@@ -11,7 +11,7 @@ import {
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { approvedRoleReadiness } from '../chart/chart';
+import { APPROVED_PROCESSING_KEYS, approvedRoleReadiness, chartVersionOf } from '../chart/chart';
 
 /**
  * Loading the client's posting rules, keys, approved workbook chart, and
@@ -401,10 +401,16 @@ export class PostingControlProvisioningService {
     });
     const accountByNumber = new Map(accounts.map((a) => [a.accountNumber, a.id]));
 
+    // On the approved chart the processing and feed-mill keys are linked to
+    // the five-digit accounts (chart.ts APPROVED_PROCESSING_KEYS); every other
+    // key keeps its historical six-digit link until it is moved.
+    const approved = (await chartVersionOf(this.prisma, companyId)) === 'APPROVED';
+
     let linked = 0;
     for (const row of data.keys) {
-      const code = (row.glCode ?? '').trim();
-      const atomic = /^\d{6}$/.test(code);
+      const override = approved ? APPROVED_PROCESSING_KEYS[row.key] : undefined;
+      const code = override ? override.account : (row.glCode ?? '').trim();
+      const atomic = override ? true : /^\d{6}$/.test(code);
       const glAccountId = atomic ? (accountByNumber.get(code) ?? null) : null;
       const dynamicResolution = atomic ? null : (DYNAMIC_RESOLUTION[row.key] ?? null);
       if (glAccountId) linked += 1;

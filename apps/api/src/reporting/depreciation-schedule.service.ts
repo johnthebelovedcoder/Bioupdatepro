@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ProductionOrderCycle, WorkflowStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
-import { allNumbersFor } from '../chart/chart';
+import { allNumbersFor, chartVersionOf, processingOverheadNumber } from '../chart/chart';
 import { PROCESSING_OVERHEAD } from '../fixed-assets/fixed-asset.service';
 
 const LINE_LABEL: Record<ProductionOrderCycle, string> = {
@@ -83,13 +83,21 @@ export class DepreciationScheduleService {
     const expenseNumbers = allNumbersFor('depreciationExpense');
     const accumulatedNumbers = allNumbersFor('accumulatedDepreciation');
     const ppeNumbers = allNumbersFor('ppe');
-    const lineNumbers = Object.values(PROCESSING_OVERHEAD).map((l) => l.number);
+    // The line pools: 621200/622100/623100 on the old charts. The approved chart
+    // charges processing-line machine depreciation to depreciation expense (52400)
+    // or feed-milling conversion cost (52700), so a line is told by its asset.
+    const approved = (await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED';
+    const lineNumbers = approved
+      ? [processingOverheadNumber('APPROVED', 'FEED_MILL')]
+      : Object.values(PROCESSING_OVERHEAD).map((l) => l.number);
     const accounts = await this.prisma.gLAccount.findMany({
       where: { companyId: params.companyId, accountNumber: { in: [...expenseNumbers, ...accumulatedNumbers, ...ppeNumbers, ...lineNumbers] } },
       select: { id: true, accountNumber: true },
     });
     const numberOf = new Map(accounts.map((a) => [a.id, a.accountNumber]));
-    const cycleOf = new Map(Object.entries(PROCESSING_OVERHEAD).map(([cycle, l]) => [l.number, cycle as ProductionOrderCycle]));
+    const cycleOf = approved
+      ? new Map<string, ProductionOrderCycle>()
+      : new Map(Object.entries(PROCESSING_OVERHEAD).map(([cycle, l]) => [l.number, cycle as ProductionOrderCycle]));
     const postedLines = await this.prisma.journalLine.findMany({
       where: {
         companyId: params.companyId,
@@ -124,7 +132,9 @@ export class DepreciationScheduleService {
         }
         const cycle = cycleOf.get(number);
         if (cycle) absorbed[cycle] = (absorbed[cycle] ?? 0n) + line.debitKobo;
-        else if (expenseNumbers.includes(number)) toPl += line.debitKobo;
+        else if (approved && asset.processingCycle && (expenseNumbers.includes(number) || lineNumbers.includes(number))) {
+          absorbed[asset.processingCycle] = (absorbed[asset.processingCycle] ?? 0n) + line.debitKobo;
+        } else if (expenseNumbers.includes(number)) toPl += line.debitKobo;
       }
       const disposedInOrBefore = asset.disposedOn && asset.disposedOn <= rangeEnd;
       const closing = disposedInOrBefore ? 0n : opening + charge + impairment;
