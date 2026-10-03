@@ -11,6 +11,7 @@ import {
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { approvedRoleReadiness } from '../chart/chart';
 
 /**
  * Loading the client's posting rules, keys, approved workbook chart, and
@@ -175,6 +176,8 @@ export class PostingControlProvisioningService {
       .filter((account) => account.active && !targetByCode.has(account.accountNumber))
       .map((account) => ({ accountNumber: account.accountNumber, name: account.name, isPostingAccount: account.isPostingAccount }))
       .sort((a, b) => a.accountNumber.localeCompare(b.accountNumber));
+    const roles = approvedRoleReadiness((code) => accountsByCode.get(code)?.active === true);
+    const unresolvedRoles = roles.filter((r) => r.state !== 'ready');
     return {
       loaded: rules >= data.rules.length && keys >= data.keys.length,
       rules,
@@ -210,7 +213,9 @@ export class PostingControlProvisioningService {
         metadataMismatches,
         activeAccountsOutsideTarget: activeOutsideTarget,
         unresolvedPostingMaps: unresolvedActiveMaps,
-        ready: missingTargetCodes.length === 0 && metadataMismatches.length === 0 && activeOutsideTarget.length === 0 &&
+        roles,
+        unresolvedRoles,
+        ready: unresolvedRoles.length === 0 && missingTargetCodes.length === 0 && metadataMismatches.length === 0 && activeOutsideTarget.length === 0 &&
           unresolvedActiveMaps.length === 0 && resolvedActiveMaps >= expectedActiveMaps,
       },
       /** LEGACY until the company is moved to the selected approved workbook chart. */

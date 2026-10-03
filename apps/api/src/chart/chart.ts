@@ -62,36 +62,49 @@ export type AccountRole =
 
 /**
  * [LEGACY, SPEC, APPROVED] account numbers for each purpose that does not
- * depend on species. APPROVED is `null` where the crosswalk has no single
- * account: the choice needs the item, asset, stage or liability behind it.
+ * depend on species.
+ *
+ * APPROVED numbers come from the approved posting-engine workbook's own
+ * account maps for the company-wide application (YifrehCore), verified by
+ * test/unit/chart-approved.spec.ts: raw materials COR-RM INVENTORY_CONTROL,
+ * fixed assets COR-FA-EQUIP (cost 15200, accumulated depreciation 15600),
+ * employer NSITF/ITF COR-FIN-DEFAULT ACCRUAL_CONTROL (an accrual, not a
+ * deduction), payroll cost COR-PAYROLL LABOUR_EXPENSE (the workbook has no
+ * separate employer-cost keys, so all four payroll expense roles share it),
+ * operating expense COR-SVC-ADMIN SERVICE_EXPENSE. A fixed asset of another
+ * class and a payroll cost needing an activity split still need Finance's
+ * approved posting group; that is a crosswalk decision, not a code one.
+ *
+ * APPROVED is `null` where the workbook has no account at all — impairment
+ * loss and the two capitalised variances — and asking for it fails loudly.
  */
 export const ROLE_ACCOUNTS: Record<AccountRole, [legacy: string, spec: string, approved: string | null]> = {
   bank: ['1101', '110100', '10100'],
   receivables: ['1201', '120100', '11000'],
-  rawMaterials: ['1301', '130100', null],
+  rawMaterials: ['1301', '130100', '12000'],
   // LEGACY never separated feed from other raw materials.
   feedInventory: ['1301', '130110', '12100'],
   packaging: ['1302', '130100', '12200'],
   inputVat: ['1601', '125100', '11300'],
   whtReceivable: ['1602', '125200', '11400'],
-  ppe: ['1701', '140100', null],
-  accumulatedDepreciation: ['1702', '149100', null],
+  ppe: ['1701', '140100', '15200'],
+  accumulatedDepreciation: ['1702', '149100', '15600'],
   salaryPayable: ['2101', '220100', '20700'],
   pensionPayable: ['2102', '222100', '20700'],
   nhfPayable: ['2103', '223100', '20700'],
-  nsitfPayable: ['2104', '224100', null],
-  itfPayable: ['2105', '224100', null],
+  nsitfPayable: ['2104', '224100', '20200'],
+  itfPayable: ['2105', '224100', '20200'],
   payePayable: ['2110', '221100', '20600'],
   outputVat: ['2120', '226100', '20400'],
   whtPayable: ['2130', '225100', '20500'],
   grni: ['2140', '210200', '20300'],
   tradePayables: ['2201', '210100', '20100'],
   retainedEarnings: ['3200', '320100', '30200'],
-  salaryExpense: ['5101', '620100', null],
-  employerPensionExpense: ['5102', '620200', null],
-  nsitfExpense: ['5103', '620300', null],
-  itfExpense: ['5104', '620300', null],
-  operatingExpenses: ['5401', '690100', null],
+  salaryExpense: ['5101', '620100', '52000'],
+  employerPensionExpense: ['5102', '620200', '52000'],
+  nsitfExpense: ['5103', '620300', '52000'],
+  itfExpense: ['5104', '620300', '52000'],
+  operatingExpenses: ['5401', '690100', '56000'],
   depreciationExpense: ['5501', '630100', '52400'],
   impairmentLoss: ['5502', '630200', null],
   fgCapitalisedVariance: ['1402', '130590', null],
@@ -203,4 +216,29 @@ export function speciesNumberFor(version: ChartVersion, role: SpeciesRole, speci
  */
 export function holdsRearingInAsset(version: ChartVersion, species: string): boolean {
   return version !== 'LEGACY' && species.trim().toLowerCase() !== 'snail';
+}
+
+export interface RoleReadiness {
+  /** The purpose code asks for ('grni', or 'liveRevenue:snail'). */
+  role: string;
+  /** Its account on the approved chart; null where the workbook names none. */
+  number: string | null;
+  /** ready; no-workbook-account (the crosswalk has none); or missing-account (the company's chart lacks it). */
+  state: 'ready' | 'no-workbook-account' | 'missing-account';
+}
+
+/**
+ * Whether every purpose code asks for by role can be answered on the approved
+ * five-digit chart (docs/target-coa-role-crosswalk.md step 4). `isActive` says
+ * whether the company's own chart holds the account.
+ */
+export function approvedRoleReadiness(isActive: (accountNumber: string) => boolean): RoleReadiness[] {
+  const result: RoleReadiness[] = [];
+  const add = (role: string, number: string | null) =>
+    result.push({ role, number, state: number === null ? 'no-workbook-account' : isActive(number) ? 'ready' : 'missing-account' });
+  for (const role of Object.keys(ROLE_ACCOUNTS) as AccountRole[]) add(role, ROLE_ACCOUNTS[role][2]);
+  for (const role of Object.keys(SPECIES_ACCOUNTS) as SpeciesRole[]) {
+    for (const species of ['poultry', 'snail'] as const) add(`${role}:${species}`, APPROVED_SPECIES_ACCOUNTS[role]?.[species] ?? null);
+  }
+  return result;
 }

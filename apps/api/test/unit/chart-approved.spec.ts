@@ -5,6 +5,7 @@ import {
   APPROVED_SPECIES_ACCOUNTS,
   ROLE_ACCOUNTS,
   UnresolvedApprovedAccount,
+  approvedRoleReadiness,
   holdsRearingInAsset,
   numberFor,
   parseChartVersion,
@@ -23,30 +24,72 @@ interface WorkbookAccount {
   'Control Account': string;
   'Posting Account': string;
 }
+interface WorkbookMap {
+  Application: string;
+  'Posting Group': string;
+  'Posting Key': string;
+  'GL Code': string;
+  Status: string;
+}
 const workbook = JSON.parse(
   readFileSync(join(__dirname, '../../../../packages/database/src/approved-posting-engine.json'), 'utf8'),
-) as { sheets: { accounts: WorkbookAccount[] } };
+) as { sheets: { accounts: WorkbookAccount[]; accountMaps: WorkbookMap[] } };
 const accounts = new Map(workbook.sheets.accounts.map((a) => [a['GL Code'], a]));
+/** The company-wide application's active map: `group/key` → GL code. */
+const coreMap = new Map(
+  workbook.sheets.accountMaps
+    .filter((m) => m.Application === 'YifrehCore' && m.Status === 'Active')
+    .map((m) => [`${m['Posting Group']}/${m['Posting Key']}`, m['GL Code']]),
+);
+
+/** The workbook posting group and key each role is taken from. */
+const WORKBOOK_SOURCE: Partial<Record<AccountRole, string>> = {
+  bank: 'COR-BANK-MAIN/BANK',
+  receivables: 'COR-CUST-LOCAL/AR_CONTROL',
+  rawMaterials: 'COR-RM/INVENTORY_CONTROL',
+  feedInventory: 'COR-RM/FARM_FEED_INVENTORY',
+  inputVat: 'COR-VAT-IN/INPUT_VAT',
+  whtReceivable: 'COR-WHT-SUP-2/WHT_RECEIVABLE',
+  ppe: 'COR-FA-EQUIP/FA_COST',
+  accumulatedDepreciation: 'COR-FA-EQUIP/ACCUMULATED_DEPRECIATION',
+  salaryPayable: 'COR-PAYROLL/PAYROLL_PAYABLE',
+  nsitfPayable: 'COR-FIN-DEFAULT/ACCRUAL_CONTROL',
+  itfPayable: 'COR-FIN-DEFAULT/ACCRUAL_CONTROL',
+  outputVat: 'COR-VAT-OUT/OUTPUT_VAT',
+  whtPayable: 'COR-WHT-SUP-2/WHT_PAYABLE',
+  grni: 'COR-RM/GRNI',
+  tradePayables: 'COR-VEND-LOCAL/AP_CONTROL',
+  retainedEarnings: 'COR-FIN-DEFAULT/RETAINED_EARNINGS',
+  salaryExpense: 'COR-PAYROLL/LABOUR_EXPENSE',
+  employerPensionExpense: 'COR-PAYROLL/LABOUR_EXPENSE',
+  nsitfExpense: 'COR-PAYROLL/LABOUR_EXPENSE',
+  itfExpense: 'COR-PAYROLL/LABOUR_EXPENSE',
+  operatingExpenses: 'COR-SVC-ADMIN/SERVICE_EXPENSE',
+  depreciationExpense: 'COR-FA-EQUIP/DEPRECIATION_EXPENSE',
+};
 
 const roles = Object.keys(ROLE_ACCOUNTS) as AccountRole[];
-/** Roles whose account depends on the item, asset, stage or liability behind the posting. */
-const CONTEXT_DEPENDENT: AccountRole[] = [
-  'rawMaterials', 'ppe', 'accumulatedDepreciation', 'nsitfPayable', 'itfPayable', 'salaryExpense',
-  'employerPensionExpense', 'nsitfExpense', 'itfExpense', 'operatingExpenses', 'impairmentLoss',
-  'fgCapitalisedVariance', 'wipCapitalisedVariance',
-];
+/** Roles the workbook has no account for: impairment, and the POL-009 capitalised variances. */
+const UNRESOLVED: AccountRole[] = ['impairmentLoss', 'fgCapitalisedVariance', 'wipCapitalisedVariance'];
 
 describe('approved five-digit chart roles', () => {
-  it('maps every direct role to an account the workbook defines', () => {
-    for (const role of roles.filter((r) => !CONTEXT_DEPENDENT.includes(r))) {
+  it("takes every role from the workbook's own account map", () => {
+    for (const [role, source] of Object.entries(WORKBOOK_SOURCE) as [AccountRole, string][]) {
+      expect(coreMap.get(source), `${source} is an active workbook map`).toBeDefined();
+      expect(ROLE_ACCOUNTS[role][2], `${role} ← ${source}`).toBe(coreMap.get(source));
+    }
+  });
+
+  it('maps every resolved role to an account the workbook defines', () => {
+    for (const role of roles.filter((r) => !UNRESOLVED.includes(r))) {
       const number = ROLE_ACCOUNTS[role][2];
       expect(number, role).toMatch(/^\d{5}$/);
       expect(accounts.has(number!), `${role} → ${number} is in the workbook`).toBe(true);
     }
   });
 
-  it('leaves context-dependent roles unresolved and refuses them rather than guessing', () => {
-    for (const role of CONTEXT_DEPENDENT) {
+  it('leaves roles with no workbook account unresolved and refuses them rather than guessing', () => {
+    for (const role of UNRESOLVED) {
       expect(ROLE_ACCOUNTS[role][2], role).toBeNull();
       expect(() => numberFor('APPROVED', role), role).toThrow(UnresolvedApprovedAccount);
     }
@@ -88,5 +131,15 @@ describe('approved five-digit chart roles', () => {
     expect(holdsRearingInAsset('SPEC', 'poultry')).toBe(true);
     expect(holdsRearingInAsset('APPROVED', 'poultry')).toBe(true);
     expect(holdsRearingInAsset('APPROVED', 'snail')).toBe(false);
+  });
+
+  it('reports which roles the approved chart can and cannot answer', () => {
+    const everything = approvedRoleReadiness(() => true);
+    expect(everything.filter((r) => r.state !== 'ready').map((r) => r.role).sort()).toEqual([
+      'fgCapitalisedVariance', 'impairmentLoss', 'rearingCost:poultry', 'rearingCost:snail', 'wipCapitalisedVariance',
+    ]);
+    const emptyChart = approvedRoleReadiness(() => false);
+    expect(emptyChart.find((r) => r.role === 'grni')).toEqual({ role: 'grni', number: '20300', state: 'missing-account' });
+    expect(emptyChart.find((r) => r.role === 'impairmentLoss')!.state).toBe('no-workbook-account');
   });
 });
