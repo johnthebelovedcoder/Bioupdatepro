@@ -7,7 +7,7 @@ import {
   ValuationDirection,
   WorkflowStatus,
 } from '@bioassetpro/database';
-import { chartVersionOf, speciesNumberFor } from '../chart/chart';
+import { chartVersionOf, holdsRearingInAsset as holdsRearingInAssetOn } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { WorkflowService } from '../workflow/workflow.service';
@@ -1242,7 +1242,7 @@ export class BiologicalAssetService {
      * chart rearing cost is held apart (1501) and none is absorbed.
      */
     const version = await chartVersionOf(this.prisma, params.companyId);
-    const holdsRearingInAsset = version === 'SPEC' && speciesNumberFor(version, 'rearingCost', group.speciesKey) !== null;
+    const holdsRearingInAsset = holdsRearingInAssetOn(version, group.speciesKey);
     const rearingCostAbsorbedKobo = holdsRearingInAsset ? await this.rearing.remaining(group.id) : 0n;
     // Formula 4: closing quantity × (current − prior), less capitalised cost.
     // Population is the closing quantity — nothing has moved between raising
@@ -1507,7 +1507,7 @@ export class BiologicalAssetService {
      * the account — the gain is already net of it — so it is not a movement.
      */
     const version = await chartVersionOf(this.prisma, group.companyId);
-    const holdsRearing = version === 'SPEC' && speciesNumberFor(version, 'rearingCost', group.speciesKey) !== null;
+    const holdsRearing = holdsRearingInAssetOn(version, group.speciesKey);
     let rearingCapitalisedKobo = 0n;
     let rearingRelievedKobo = 0n;
     let rearingHeldKobo = 0n;

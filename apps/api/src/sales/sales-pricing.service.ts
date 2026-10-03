@@ -233,7 +233,7 @@ export class SalesPricingService {
     // accounts. A company on the client's chart has these per species and
     // gets its configuration when it moves there (ChartUnificationService)
     // or signs up, so nothing is guessed for it here.
-    if ((await chartVersionOf(client, companyId)) === 'SPEC') return null;
+    if ((await chartVersionOf(client, companyId)) !== 'LEGACY') return null;
     const accounts = await client.gLAccount.findMany({
       where: {
         companyId,

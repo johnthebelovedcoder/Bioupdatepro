@@ -6,6 +6,13 @@
  *   SPEC    the historical six-digit chart implementation. Its cutover is
  *           disabled while the selected five-digit approved workbook chart
  *           is implemented and reconciled.
+ *   APPROVED the five-digit chart of the client's approved posting-engine
+ *           workbook (docs/target-coa-decision.md). No company is moved onto
+ *           it until Finance signs the crosswalk; the role map below is ready
+ *           for it. A purpose the crosswalk says depends on context (asset
+ *           class, item class, livestock stage, liability nature) has no
+ *           single number there — it is `null`, and asking for it fails
+ *           loudly rather than guessing (docs/target-coa-role-crosswalk.md).
  *
  * Code asks for an account by what it is for — `salaryPayable`, `grni` — and
  * ChartService answers with the company's own account on its own chart. A
@@ -17,7 +24,7 @@
  * the species; on LEGACY they share one account, as they always did.
  */
 
-export type ChartVersion = 'LEGACY' | 'SPEC';
+export type ChartVersion = 'LEGACY' | 'SPEC' | 'APPROVED';
 export type Species = 'poultry' | 'snail';
 
 export type AccountRole =
@@ -53,38 +60,42 @@ export type AccountRole =
   | 'fgCapitalisedVariance'
   | 'wipCapitalisedVariance';
 
-/** [LEGACY, SPEC] account numbers for each purpose that does not depend on species. */
-export const ROLE_ACCOUNTS: Record<AccountRole, [legacy: string, spec: string]> = {
-  bank: ['1101', '110100'],
-  receivables: ['1201', '120100'],
-  rawMaterials: ['1301', '130100'],
+/**
+ * [LEGACY, SPEC, APPROVED] account numbers for each purpose that does not
+ * depend on species. APPROVED is `null` where the crosswalk has no single
+ * account: the choice needs the item, asset, stage or liability behind it.
+ */
+export const ROLE_ACCOUNTS: Record<AccountRole, [legacy: string, spec: string, approved: string | null]> = {
+  bank: ['1101', '110100', '10100'],
+  receivables: ['1201', '120100', '11000'],
+  rawMaterials: ['1301', '130100', null],
   // LEGACY never separated feed from other raw materials.
-  feedInventory: ['1301', '130110'],
-  packaging: ['1302', '130100'],
-  inputVat: ['1601', '125100'],
-  whtReceivable: ['1602', '125200'],
-  ppe: ['1701', '140100'],
-  accumulatedDepreciation: ['1702', '149100'],
-  salaryPayable: ['2101', '220100'],
-  pensionPayable: ['2102', '222100'],
-  nhfPayable: ['2103', '223100'],
-  nsitfPayable: ['2104', '224100'],
-  itfPayable: ['2105', '224100'],
-  payePayable: ['2110', '221100'],
-  outputVat: ['2120', '226100'],
-  whtPayable: ['2130', '225100'],
-  grni: ['2140', '210200'],
-  tradePayables: ['2201', '210100'],
-  retainedEarnings: ['3200', '320100'],
-  salaryExpense: ['5101', '620100'],
-  employerPensionExpense: ['5102', '620200'],
-  nsitfExpense: ['5103', '620300'],
-  itfExpense: ['5104', '620300'],
-  operatingExpenses: ['5401', '690100'],
-  depreciationExpense: ['5501', '630100'],
-  impairmentLoss: ['5502', '630200'],
-  fgCapitalisedVariance: ['1402', '130590'],
-  wipCapitalisedVariance: ['1403', '130595'],
+  feedInventory: ['1301', '130110', '12100'],
+  packaging: ['1302', '130100', '12200'],
+  inputVat: ['1601', '125100', '11300'],
+  whtReceivable: ['1602', '125200', '11400'],
+  ppe: ['1701', '140100', null],
+  accumulatedDepreciation: ['1702', '149100', null],
+  salaryPayable: ['2101', '220100', '20700'],
+  pensionPayable: ['2102', '222100', '20700'],
+  nhfPayable: ['2103', '223100', '20700'],
+  nsitfPayable: ['2104', '224100', null],
+  itfPayable: ['2105', '224100', null],
+  payePayable: ['2110', '221100', '20600'],
+  outputVat: ['2120', '226100', '20400'],
+  whtPayable: ['2130', '225100', '20500'],
+  grni: ['2140', '210200', '20300'],
+  tradePayables: ['2201', '210100', '20100'],
+  retainedEarnings: ['3200', '320100', '30200'],
+  salaryExpense: ['5101', '620100', null],
+  employerPensionExpense: ['5102', '620200', null],
+  nsitfExpense: ['5103', '620300', null],
+  itfExpense: ['5104', '620300', null],
+  operatingExpenses: ['5401', '690100', null],
+  depreciationExpense: ['5501', '630100', '52400'],
+  impairmentLoss: ['5502', '630200', null],
+  fgCapitalisedVariance: ['1402', '130590', null],
+  wipCapitalisedVariance: ['1403', '130595', null],
 };
 
 export type SpeciesRole =
@@ -111,17 +122,44 @@ export const SPECIES_ACCOUNTS: Record<SpeciesRole, [legacy: string, spec: Record
   liveRevenue: ['4101', { poultry: '410300', snail: '410100' }],
 };
 
+/**
+ * The same purposes on the APPROVED chart. Rearing cost has no entry: the
+ * workbook holds poultry rearing in 16032 (immature) or 16042 (mature) by the
+ * cohort's stage at the posting date, and snail feed and treatment in 52610 or
+ * 52510 by the source item — neither is a function of species alone.
+ */
+export const APPROVED_SPECIES_ACCOUNTS: Partial<Record<SpeciesRole, Record<Species, string>>> = {
+  productionLoss: { poultry: '51120', snail: '51110' },
+  liveCostOfSales: { poultry: '50310', snail: '50210' },
+  liveRevenue: { poultry: '40310', snail: '40210' },
+};
+
+/** Raised when the APPROVED chart has no single account for a purpose without more context. */
+export class UnresolvedApprovedAccount extends Error {
+  constructor(readonly purpose: string) {
+    super(
+      `${purpose} has no single account on the approved five-digit chart: it depends on the item, asset, stage or liability behind the posting (docs/target-coa-role-crosswalk.md).`,
+    );
+  }
+}
+
 /** On SPEC, what a snail's feed and medication are charged to instead of being held (PCR-042). */
 export const SNAIL_FEED_EXPENSE = '611000';
 
 /** Every account number a purpose has had, on either chart — for reports that must read both. */
 export function allNumbersFor(...roles: AccountRole[]): string[] {
-  return [...new Set(roles.flatMap((role) => ROLE_ACCOUNTS[role]))];
+  return [...new Set(roles.flatMap((role) => ROLE_ACCOUNTS[role]).filter((n): n is string => !!n))];
 }
 
 export function allSpeciesNumbersFor(role: SpeciesRole): string[] {
   const [legacy, spec] = SPECIES_ACCOUNTS[role];
-  return [...new Set([legacy, ...Object.values(spec).filter((n): n is string => !!n)])];
+  const approved = Object.values(APPROVED_SPECIES_ACCOUNTS[role] ?? {});
+  return [...new Set([legacy, ...Object.values(spec).filter((n): n is string => !!n), ...approved])];
+}
+
+/** How a stored `Company.chartVersion` reads; anything unrecognised is the LEGACY chart. */
+export function parseChartVersion(stored: string | null | undefined): ChartVersion {
+  return stored === 'SPEC' || stored === 'APPROVED' ? stored : 'LEGACY';
 }
 
 /* -- Helpers for code that already holds a Prisma client or transaction -- */
@@ -132,16 +170,37 @@ interface CompanyReader {
 
 export async function chartVersionOf(client: CompanyReader, companyId: string): Promise<ChartVersion> {
   const company = await client.company.findUnique({ where: { id: companyId }, select: { chartVersion: true } });
-  return company?.chartVersion === 'SPEC' ? 'SPEC' : 'LEGACY';
+  return parseChartVersion(company?.chartVersion);
 }
 
+const VERSION_COLUMN: Record<ChartVersion, 0 | 1 | 2> = { LEGACY: 0, SPEC: 1, APPROVED: 2 };
+
+/** The role's account number on that chart; on APPROVED, throws where the role needs context. */
 export function numberFor(version: ChartVersion, role: AccountRole): string {
-  return ROLE_ACCOUNTS[role][version === 'SPEC' ? 1 : 0];
+  const number = ROLE_ACCOUNTS[role][VERSION_COLUMN[version]];
+  if (number === null) throw new UnresolvedApprovedAccount(role);
+  return number;
 }
 
 export function speciesNumberFor(version: ChartVersion, role: SpeciesRole, species: string): string | null {
   const [legacy, spec] = SPECIES_ACCOUNTS[role];
   const normalized = species.trim().toLowerCase();
   if (version === 'LEGACY') return legacy;
-  return spec[normalized === 'snail' ? 'snail' : 'poultry'];
+  const species_ = normalized === 'snail' ? 'snail' : 'poultry';
+  if (version === 'APPROVED') {
+    const approved = APPROVED_SPECIES_ACCOUNTS[role]?.[species_];
+    if (!approved) throw new UnresolvedApprovedAccount(`${role} (${species_})`);
+    return approved;
+  }
+  return spec[species_];
+}
+
+/**
+ * Whether a population's rearing cost is capitalised into its biological
+ * asset rather than held apart or expensed. Poultry is on both client charts;
+ * snail feed and treatment are expensed as used. The old chart holds it
+ * apart (1501).
+ */
+export function holdsRearingInAsset(version: ChartVersion, species: string): boolean {
+  return version !== 'LEGACY' && species.trim().toLowerCase() !== 'snail';
 }
