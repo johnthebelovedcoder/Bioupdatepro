@@ -5,7 +5,7 @@ import { StandardCostService } from './standard-cost.service';
 import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import { AccountType, AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
-import { chartVersionOf, speciesNumberFor } from '../chart/chart';
+import { chartVersionOf, rearingNumbersFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -528,25 +528,39 @@ export class ProductionOrderService {
      * finished goods carry the feed that produced them. Debited to the same
      * processing WIP as the biological input; credited out of rearing WIP.
      */
-    // 1501 on the old chart; 130210 for poultry on the client's (a snail
-    // population holds no rearing cost there, so carries none into here).
-    const rearingNumber = speciesNumberFor(
-      await chartVersionOf(this.prisma, order.companyId),
-      'rearingCost',
-      order.processingCycle === 'SNAILPRO' ? 'snail' : 'poultry',
-    );
-    const rearingWip =
-      order.rearingCostKobo > 0n && rearingNumber
-        ? await this.prisma.gLAccount.findFirst({
-            where: { companyId: order.companyId, accountNumber: rearingNumber, active: true },
-            select: { id: true },
+    // 1501 on the old chart; 130210 for poultry on SPEC (a snail population
+    // holds no rearing cost there, so carries none into here); on the approved
+    // chart the accounts the harvest's share was actually taken from.
+    const version = await chartVersionOf(this.prisma, order.companyId);
+    const rearingSpecies = order.processingCycle === 'SNAILPRO' ? 'snail' : 'poultry';
+    const harvestSplits =
+      order.rearingCostKobo > 0n && order.harvestRecordId && order.sourceGroupId
+        ? await this.prisma.livestockRearingReliefSplit.findMany({
+            where: { relief: { groupId: order.sourceGroupId, eventType: 'HARVEST', sourceId: order.harvestRecordId } },
+            select: { accountNumber: true, amountKobo: true },
+            orderBy: { accountNumber: 'asc' },
           })
-        : null;
+        : [];
+    const [singleRearingNumber] = rearingNumbersFor(version, rearingSpecies);
+    const rearingSources =
+      harvestSplits.length > 0
+        ? harvestSplits
+        : singleRearingNumber && rearingNumbersFor(version, rearingSpecies).length === 1
+          ? [{ accountNumber: singleRearingNumber, amountKobo: order.rearingCostKobo }]
+          : [];
+    const rearingAccounts =
+      order.rearingCostKobo > 0n && rearingSources.length > 0
+        ? await this.prisma.gLAccount.findMany({
+            where: { companyId: order.companyId, accountNumber: { in: rearingSources.map((r) => r.accountNumber) }, active: true },
+            select: { id: true, accountNumber: true },
+          })
+        : [];
+    const rearingWip = rearingSources.length > 0 && rearingAccounts.length === rearingSources.length;
     if (order.rearingCostKobo > 0n && (!issueRule || !rules.issueRuleId || !rearingWip)) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §9 — Production order',
         `${order.orderNumber} carries rearing cost but there is no processing WIP rule or no active ` +
-          'Work in Progress (1501) account to move it with.',
+          'Work in Progress account holding it to move it with.',
         { orderNumber: order.orderNumber },
       );
     }
@@ -559,12 +573,12 @@ export class ProductionOrderService {
               debit: kobo(order.rearingCostKobo),
               dimensions,
             },
-            {
-              glAccountId: rearingWip.id,
+            ...rearingSources.map((source) => ({
+              glAccountId: rearingAccounts.find((a) => a.accountNumber === source.accountNumber)!.id,
               description: `Rearing cost out of the population's WIP (${order.orderNumber})`,
-              credit: kobo(order.rearingCostKobo),
+              credit: kobo(source.amountKobo),
               dimensions,
-            },
+            })),
           ]
         : [];
 

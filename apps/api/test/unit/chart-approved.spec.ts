@@ -6,6 +6,11 @@ import {
   ROLE_ACCOUNTS,
   UnresolvedApprovedAccount,
   approvedRoleReadiness,
+  poultryStageAccountNumber,
+  rearingNumberFor,
+  rearingNumbersFor,
+  snailInputExpenseNumber,
+  snailLabourExpenseNumber,
   holdsRearingInAsset,
   numberFor,
   parseChartVersion,
@@ -136,10 +141,34 @@ describe('approved five-digit chart roles', () => {
   it('reports which roles the approved chart can and cannot answer', () => {
     const everything = approvedRoleReadiness(() => true);
     expect(everything.filter((r) => r.state !== 'ready').map((r) => r.role).sort()).toEqual([
-      'fgCapitalisedVariance', 'impairmentLoss', 'rearingCost:poultry', 'rearingCost:snail', 'wipCapitalisedVariance',
+      'fgCapitalisedVariance', 'impairmentLoss', 'wipCapitalisedVariance',
     ]);
+    expect(everything.find((r) => r.role === 'rearingCost:poultry')!.number).toBe('16032/16042');
+    // Poultry rearing cost needs both stage accounts.
+    expect(approvedRoleReadiness((n) => n !== '16042').find((r) => r.role === 'rearingCost:poultry')!.state).toBe('missing-account');
     const emptyChart = approvedRoleReadiness(() => false);
     expect(emptyChart.find((r) => r.role === 'grni')).toEqual({ role: 'grni', number: '20300', state: 'missing-account' });
     expect(emptyChart.find((r) => r.role === 'impairmentLoss')!.state).toBe('no-workbook-account');
+  });
+
+  it('holds poultry rearing cost by the flock stage at posting, and snail inputs in expense', () => {
+    for (const stage of ['Chick', 'Grower', 'Pullet', 'Cockerel']) expect(poultryStageAccountNumber(stage), stage).toBe('16032');
+    for (const stage of ['Market-ready', 'Point-of-lay', 'Layer', 'Broiler', 'Breeder']) expect(poultryStageAccountNumber(stage), stage).toBe('16042');
+    expect(() => poultryStageAccountNumber('Egg')).toThrow(UnresolvedApprovedAccount);
+    expect(rearingNumberFor('APPROVED', 'poultry', 'Chick')).toBe('16032');
+    expect(rearingNumberFor('APPROVED', 'snail', 'Grower')).toBeNull();
+    expect(rearingNumberFor('SPEC', 'poultry', 'Chick')).toBe('130210');
+    expect(rearingNumberFor('LEGACY', 'poultry', 'Layer')).toBe('1501');
+    expect(rearingNumbersFor('APPROVED', 'poultry')).toEqual(['16032', '16042']);
+    expect(rearingNumbersFor('SPEC', 'snail')).toEqual([]);
+    expect(snailInputExpenseNumber('APPROVED', 'feed')).toBe('52610');
+    expect(snailInputExpenseNumber('APPROVED', 'treatment')).toBe('52510');
+    expect(snailInputExpenseNumber('SPEC', 'feed')).toBe('611000');
+    expect(snailLabourExpenseNumber('APPROVED')).toBe('52010');
+    expect(snailLabourExpenseNumber('LEGACY')).toBe('612000');
+  });
+
+  it('checks every stage account against the workbook', () => {
+    for (const number of ['16032', '16042', '52610', '52510', '52010']) expect(accounts.has(number), number).toBe(true);
   });
 });

@@ -7,7 +7,12 @@ import {
   ValuationDirection,
   WorkflowStatus,
 } from '@bioassetpro/database';
-import { chartVersionOf, holdsRearingInAsset as holdsRearingInAssetOn } from '../chart/chart';
+import {
+  UnresolvedApprovedAccount,
+  chartVersionOf,
+  holdsRearingInAsset as holdsRearingInAssetOn,
+  poultryStageAccountNumber,
+} from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { WorkflowService } from '../workflow/workflow.service';
@@ -15,7 +20,7 @@ import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
 import type { WorkflowActor } from '../workflow/workflow.types';
-import { RearingCostService } from './rearing-cost.service';
+import { RearingCostService, allocateAcross } from './rearing-cost.service';
 
 /**
  * The biological-asset ledger — Consolidated Reference §43, §61, §67.
@@ -195,6 +200,34 @@ export class BiologicalAssetService {
     speciesKey: string;
     stage: string;
   }): Promise<{ glAccountId: string; accountNumber: string; accountName: string }> {
+    // On the approved chart a poultry stage is carried in the immature or
+    // mature livestock account for that stage (chart.ts), the same accounts
+    // its rearing cost is held in — so fair value and cost always meet.
+    if (params.speciesKey === 'poultry' && (await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED') {
+      let number: string;
+      try {
+        number = poultryStageAccountNumber(params.stage);
+      } catch (error) {
+        if (!(error instanceof UnresolvedApprovedAccount)) throw error;
+        throw new AccountingRuleViolation('Consolidated Reference §67 — Biological asset stage account', error.message, {
+          speciesKey: params.speciesKey,
+          stage: params.stage,
+        });
+      }
+      const account = await this.prisma.gLAccount.findFirst({
+        where: { companyId: params.companyId, accountNumber: number, active: true },
+        select: { id: true, accountNumber: true, name: true },
+      });
+      if (!account) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §67 — Biological asset stage account',
+          `Account ${number} for poultry at stage "${params.stage}" is missing or inactive in this company's chart.`,
+          { speciesKey: params.speciesKey, stage: params.stage },
+        );
+      }
+      return { glAccountId: account.id, accountNumber: account.accountNumber, accountName: account.name };
+    }
+
     const row = await this.prisma.biologicalAssetStageAccount.findUnique({
       where: {
         companyId_speciesKey_stage: {
@@ -1341,49 +1374,76 @@ export class BiologicalAssetService {
     const isGain = valuation.direction === 'GAIN';
 
     /*
+     * Where the chart holds a flock's rearing cost in more than one account
+     * (poultry on the approved chart: the account of the stage each feed was
+     * posted in), the cost this valuation absorbs into fair value must move
+     * into the account the fair value sits in — otherwise the old stage's
+     * account keeps cost of a flock that has since matured, and never clears.
+     * Each other account's share goes Dr this stage's account / Cr itself.
+     */
+    const heldByAccount = valuation.rearingCostAbsorbedKobo > 0n
+      ? await this.rearing.remainingByAccount(valuation.groupId, params.tx)
+      : new Map<string, bigint>();
+    const absorbedSplits = heldByAccount.size > 1 ? allocateAcross(valuation.rearingCostAbsorbedKobo, heldByAccount) : [];
+    const reclass = absorbedSplits.filter(([account]) => account !== stage.accountNumber);
+    const reclassAccounts = reclass.length > 0
+      ? await params.tx.gLAccount.findMany({
+          where: { companyId: valuation.companyId, accountNumber: { in: reclass.map(([a]) => a) }, active: true },
+          select: { id: true, accountNumber: true },
+        })
+      : [];
+    if (reclassAccounts.length !== reclass.length) {
+      throw new AccountingRuleViolation(
+        'IAS 41 — Rearing cost held by stage',
+        `${valuation.group.code}: the accounts holding its rearing cost (${reclass.map(([a]) => a).join(', ')}) are not all active, so the cost cannot be moved into ${stage.accountNumber}.`,
+        {},
+      );
+    }
+    const reclassLines = reclass.flatMap(([account, amount]) => [
+      {
+        glAccountId: stage.glAccountId,
+        description: `${valuation.group.code} — rearing cost into ${valuation.stage} fair value`,
+        debit: kobo(amount),
+        dimensions,
+      },
+      {
+        glAccountId: reclassAccounts.find((a) => a.accountNumber === account)!.id,
+        description: `${valuation.group.code} — rearing cost out of ${account}`,
+        credit: kobo(amount),
+        dimensions,
+      },
+    ]);
+    const gainLossLines = valuation.gainLossKobo === 0n
+      ? []
+      : isGain
+        ? [
+            { glAccountId: stage.glAccountId, description: `${valuation.group.code} — fair-value gain`, debit: kobo(valuation.gainLossKobo), dimensions },
+            { glAccountId: fairValue.glAccountId, description: `${valuation.group.code} — fair-value gain`, credit: kobo(valuation.gainLossKobo), dimensions },
+          ]
+        : [
+            { glAccountId: fairValue.glAccountId, description: `${valuation.group.code} — fair-value loss`, debit: kobo(valuation.gainLossKobo), dimensions },
+            { glAccountId: stage.glAccountId, description: `${valuation.group.code} — fair-value loss`, credit: kobo(valuation.gainLossKobo), dimensions },
+          ];
+    const lines = [...gainLossLines, ...reclassLines];
+
+    /*
      * A valuation that confirms the carrying value (a month-end count at an
      * unchanged price) is evidence, not a movement: it is recorded and
      * approved with no journal, since a journal of zero is refused. Found by
      * the 40-step rehearsal's month-end valuation (step 34).
      */
-    const result = valuation.gainLossKobo === 0n ? { journalEntryId: null } : await this.posting.post(
+    const result = lines.length === 0 ? { journalEntryId: null } : await this.posting.post(
       {
         sourceModule: 'BIOLOGICAL_ASSETS',
         sourceDocumentType: 'BIOLOGICAL_ASSET_VALUATION',
         sourceDocumentId: valuation.id,
         journalNumber: `BAV-${valuation.id.slice(0, 8).toUpperCase()}`,
         journalDate: valuation.valuationDate,
-        narration: `FVLCTS ${isGain ? 'gain' : 'loss'} — ${valuation.group.code}`,
+        narration: valuation.gainLossKobo === 0n
+          ? `Rearing cost into fair value — ${valuation.group.code}`
+          : `FVLCTS ${isGain ? 'gain' : 'loss'} — ${valuation.group.code}`,
         ...dimensions,
-        lines: isGain
-          ? [
-              {
-                glAccountId: stage.glAccountId,
-                description: `${valuation.group.code} — fair-value gain`,
-                debit: kobo(valuation.gainLossKobo),
-                dimensions,
-              },
-              {
-                glAccountId: fairValue.glAccountId,
-                description: `${valuation.group.code} — fair-value gain`,
-                credit: kobo(valuation.gainLossKobo),
-                dimensions,
-              },
-            ]
-          : [
-              {
-                glAccountId: fairValue.glAccountId,
-                description: `${valuation.group.code} — fair-value loss`,
-                debit: kobo(valuation.gainLossKobo),
-                dimensions,
-              },
-              {
-                glAccountId: stage.glAccountId,
-                description: `${valuation.group.code} — fair-value loss`,
-                credit: kobo(valuation.gainLossKobo),
-                dimensions,
-              },
-            ],
+        lines,
         idempotencyKey: `ba-valuation:${valuation.id}`,
         actor: params.actor,
       },
@@ -1421,6 +1481,8 @@ export class BiologicalAssetService {
           amountKobo: valuation.rearingCostAbsorbedKobo,
           journalEntryId: result.journalEntryId,
           occurredOn: valuation.valuationDate,
+          // Which accounts held what was absorbed (none where there is one).
+          splits: { create: absorbedSplits.map(([accountNumber, amountKobo]) => ({ accountNumber, amountKobo })) },
         },
       });
     }

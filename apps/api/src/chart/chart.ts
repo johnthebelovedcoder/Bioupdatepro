@@ -136,10 +136,10 @@ export const SPECIES_ACCOUNTS: Record<SpeciesRole, [legacy: string, spec: Record
 };
 
 /**
- * The same purposes on the APPROVED chart. Rearing cost has no entry: the
- * workbook holds poultry rearing in 16032 (immature) or 16042 (mature) by the
- * cohort's stage at the posting date, and snail feed and treatment in 52610 or
- * 52510 by the source item — neither is a function of species alone.
+ * The same purposes on the APPROVED chart. Rearing cost has no entry: poultry
+ * rearing is held in 16032 (immature) or 16042 (mature) by the cohort's stage
+ * on the day it is posted, and snail feed and treatment are expensed to 52610
+ * or 52510 — see rearingNumberFor and snailInputExpenseNumber.
  */
 export const APPROVED_SPECIES_ACCOUNTS: Partial<Record<SpeciesRole, Record<Species, string>>> = {
   productionLoss: { poultry: '51120', snail: '51110' },
@@ -147,7 +147,28 @@ export const APPROVED_SPECIES_ACCOUNTS: Partial<Record<SpeciesRole, Record<Speci
   liveRevenue: { poultry: '40310', snail: '40210' },
 };
 
-/** Raised when the APPROVED chart has no single account for a purpose without more context. */
+/**
+ * Poultry stage → whether the approved chart carries it as immature livestock
+ * (16032) or mature (16042). The workbook names the two accounts (PLP-BA-IMM,
+ * PLP-BA-MAT) but not which stage belongs to which, so this is an engineering
+ * proposal on the IAS 41 reading — immature until the bird can be harvested or
+ * is producing — for Finance to confirm. A stage not listed has no account:
+ * it is refused, not guessed.
+ */
+export const POULTRY_STAGE_MATURITY: Record<string, 'immature' | 'mature'> = {
+  Chick: 'immature',
+  Grower: 'immature',
+  Pullet: 'immature',
+  Cockerel: 'immature',
+  'Market-ready': 'mature',
+  'Point-of-lay': 'mature',
+  Layer: 'mature',
+  Broiler: 'mature',
+  Breeder: 'mature',
+};
+const APPROVED_POULTRY_BA = { immature: '16032', mature: '16042' } as const;
+
+/** Raised when the APPROVED chart has no account for a purpose, or none for the stage or context asked about. */
 export class UnresolvedApprovedAccount extends Error {
   constructor(readonly purpose: string) {
     super(
@@ -238,7 +259,54 @@ export function approvedRoleReadiness(isActive: (accountNumber: string) => boole
     result.push({ role, number, state: number === null ? 'no-workbook-account' : isActive(number) ? 'ready' : 'missing-account' });
   for (const role of Object.keys(ROLE_ACCOUNTS) as AccountRole[]) add(role, ROLE_ACCOUNTS[role][2]);
   for (const role of Object.keys(SPECIES_ACCOUNTS) as SpeciesRole[]) {
+    if (role === 'rearingCost') continue; // below: held by stage, not by species alone
     for (const species of ['poultry', 'snail'] as const) add(`${role}:${species}`, APPROVED_SPECIES_ACCOUNTS[role]?.[species] ?? null);
   }
+  // Poultry rearing cost sits in the immature or mature account by stage, so
+  // both must exist; snail feed and treatment are expensed to their own accounts.
+  const addAll = (role: string, numbers: string[]) =>
+    result.push({ role, number: numbers.join('/'), state: numbers.every(isActive) ? 'ready' : 'missing-account' });
+  addAll('rearingCost:poultry', Object.values(APPROVED_POULTRY_BA));
+  addAll('rearingCost:snail', [snailInputExpenseNumber('APPROVED', 'feed'), snailInputExpenseNumber('APPROVED', 'treatment')]);
   return result;
+}
+
+/** The approved-chart biological asset account a poultry stage is carried in. */
+export function poultryStageAccountNumber(stage: string): string {
+  const maturity = POULTRY_STAGE_MATURITY[stage];
+  if (!maturity) throw new UnresolvedApprovedAccount(`poultry stage "${stage}"`);
+  return APPROVED_POULTRY_BA[maturity];
+}
+
+/**
+ * Where a population's rearing cost is held when it is posted. On LEGACY and
+ * SPEC that is one account for the species; on APPROVED, poultry cost goes to
+ * the account of the cohort's stage on the day it is posted, and snail cost is
+ * expensed (null), as on SPEC.
+ */
+export function rearingNumberFor(version: ChartVersion, species: string, stage: string): string | null {
+  if (version !== 'APPROVED') return speciesNumberFor(version, 'rearingCost', species);
+  return species.trim().toLowerCase() === 'snail' ? null : poultryStageAccountNumber(stage);
+}
+
+/** Every account a species' rearing cost can sit in on that chart — for per-account balances. */
+export function rearingNumbersFor(version: ChartVersion, species: string): string[] {
+  if (version === 'APPROVED') return species.trim().toLowerCase() === 'snail' ? [] : Object.values(APPROVED_POULTRY_BA);
+  const one = speciesNumberFor(version, 'rearingCost', species);
+  return one ? [one] : [];
+}
+
+/** What a snail's feed and treatment are expensed to as used (PCR-042/043), by chart. */
+export function snailInputExpenseNumber(version: ChartVersion, purpose: 'feed' | 'treatment'): string {
+  if (version === 'APPROVED') return purpose === 'feed' ? '52610' : '52510';
+  return SNAIL_FEED_EXPENSE;
+}
+
+/**
+ * Where a snail cohort's share of farm labour and overhead is expensed
+ * (PCR-043): 612000 on the old charts; the workbook's direct snail farm labour
+ * expense (52010) on the approved one.
+ */
+export function snailLabourExpenseNumber(version: ChartVersion): string {
+  return version === 'APPROVED' ? '52010' : '612000';
 }
