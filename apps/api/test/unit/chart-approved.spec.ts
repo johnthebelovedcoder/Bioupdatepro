@@ -6,6 +6,9 @@ import {
   ROLE_ACCOUNTS,
   UnresolvedApprovedAccount,
   approvedRoleReadiness,
+  biologicalResultAccountsFor,
+  biologicalStageAccountNumber,
+  snailStageAccountNumber,
   eggAccountsFor,
   hatchedChickAccountNumber,
   poultryStageAccountNumber,
@@ -197,5 +200,34 @@ describe('approved five-digit chart roles', () => {
       expect(eggAccountsFor(version)).toEqual({ inventory: '130215', gain: '420210', incubation: '130216', revenue: null, costOfSales: null });
       expect(hatchedChickAccountNumber(version, 'Chick')).toBe('130210');
     }
+  });
+
+  it("takes valuation, mortality and stage accounts from the workbook's own maps", () => {
+    const map = (application: string) =>
+      new Map(
+        workbook.sheets.accountMaps
+          .filter((m) => m.Application === application && m.Status === 'Active')
+          .map((m) => [`${m['Posting Group']}/${m['Posting Key']}`, m['GL Code']]),
+      );
+    for (const [species, application, group] of [['poultry', 'YifrehPoultry', 'PLP'], ['snail', 'YifrehSnail', 'SNP']] as const) {
+      const maps = map(application);
+      expect(biologicalResultAccountsFor('APPROVED', species), species).toEqual({
+        gain: maps.get(`${group}-BA-IMM/BA_FAIR_VALUE_GAIN`),
+        loss: maps.get(`${group}-BA-IMM/BA_FAIR_VALUE_LOSS`),
+        normalMortality: maps.get(`${group}-BA-IMM/NORMAL_MORTALITY_LOSS`),
+        abnormalMortality: maps.get(`${group}-BA-IMM/ABNORMAL_MORTALITY_LOSS`),
+      });
+      // Immature and mature stage accounts are the workbook's two livestock controls.
+      expect(biologicalStageAccountNumber(species, species === 'poultry' ? 'Grower' : 'Egg')).toBe(maps.get(`${group}-BA-IMM/BA_CONTROL`));
+      expect(biologicalStageAccountNumber(species, species === 'poultry' ? 'Layer' : 'Market-ready')).toBe(maps.get(`${group}-BA-MAT/BA_DESTINATION_STAGE_CONTROL`));
+    }
+    // Gain and loss are separate accounts: income and expense.
+    expect(accounts.get('42000')).toMatchObject({ 'Posting Account': 'Yes' });
+    expect(() => snailStageAccountNumber('Larva')).toThrow(UnresolvedApprovedAccount);
+  });
+
+  it('leaves valuation and mortality results on the old charts as one account per species', () => {
+    expect(biologicalResultAccountsFor('LEGACY', 'poultry')).toBeNull();
+    expect(biologicalResultAccountsFor('SPEC', 'snail')).toBeNull();
   });
 });

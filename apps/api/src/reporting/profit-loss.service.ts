@@ -47,7 +47,13 @@ export const INCOME_TAX_ACCOUNTS = new Set(['650100']);
 
 /** IAS 41 biological-asset gains and produce gains are P&L income, but are
  * presented separately from revenue earned by selling goods and services. */
-export const OTHER_INCOME_ACCOUNTS = new Set(['42000', '420100', '420200', '420210']);
+export const OTHER_INCOME_ACCOUNTS = new Set(['42000', '42100', '420100', '420200', '420210']);
+/**
+ * Of those, the ones that are expense accounts: on the approved chart the
+ * fair value loss (42100) is its own debit-normal account, so it counts
+ * against other income rather than adding to it.
+ */
+const OTHER_INCOME_LOSS_TYPE = AccountType.EXPENSE;
 
 /**
  * Profit & Loss, as a read over the same ledger the Trial Balance already
@@ -68,7 +74,7 @@ export class ProfitLossService {
 
     const revenueRows = tb.rows.filter((row) => row.accountType === AccountType.REVENUE && !OTHER_INCOME_ACCOUNTS.has(row.accountNumber));
     const otherIncomeRows = tb.rows.filter((row) => OTHER_INCOME_ACCOUNTS.has(row.accountNumber));
-    const expenseRows = tb.rows.filter((row) => row.accountType === AccountType.EXPENSE);
+    const expenseRows = tb.rows.filter((row) => row.accountType === AccountType.EXPENSE && !OTHER_INCOME_ACCOUNTS.has(row.accountNumber));
     const costOfSalesRows = expenseRows.filter((row) =>
       COST_OF_SALES_ACCOUNTS.has(row.accountNumber),
     );
@@ -80,7 +86,7 @@ export class ProfitLossService {
     // Revenue is credit-normal, so `displayedBalanceKobo` is already positive
     // for a genuine credit balance; expenses are debit-normal, same reasoning.
     const revenueKobo = sumOf(revenueRows);
-    const otherIncomeKobo = sumOf(otherIncomeRows);
+    const otherIncomeKobo = sumOf(otherIncomeRows.map(asIncome));
     const costOfSalesKobo = sumOf(costOfSalesRows);
     const operatingExpenseKobo = sumOf(operatingExpenseRows);
     const grossProfitKobo = revenueKobo - costOfSalesKobo;
@@ -98,12 +104,17 @@ export class ProfitLossService {
       incomeTaxKobo: incomeTaxKobo.toString(),
       profitAfterTaxKobo: profitAfterTaxKobo.toString(),
       revenueLines: toLines(revenueRows),
-      otherIncomeLines: toLines(otherIncomeRows),
+      otherIncomeLines: toLines(otherIncomeRows.map(asIncome)),
       costOfSalesLines: toLines(costOfSalesRows),
       operatingExpenseLines: toLines(operatingExpenseRows),
       incomeTaxLines: toLines(incomeTaxRows),
     };
   }
+}
+
+/** An other-income row as income: a loss account's debit balance is negative income. */
+function asIncome<T extends { accountType: AccountType; displayedBalanceKobo: bigint }>(row: T): T {
+  return row.accountType === OTHER_INCOME_LOSS_TYPE ? { ...row, displayedBalanceKobo: -row.displayedBalanceKobo } : row;
 }
 
 function sumOf(rows: Array<{ displayedBalanceKobo: bigint }>): bigint {

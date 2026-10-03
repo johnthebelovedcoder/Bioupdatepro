@@ -111,7 +111,7 @@ const INVENTORY_ACCOUNTS = [
   '12420', '13020',
   // Viable biological eggs can use the approved immature-stage control
   // accounts when the company is on the approved posting-engine COA.
-  '16031', '16032',
+  '16031', '16032', '16041', '16042',
 ];
 const PAYABLE_ACCOUNTS = [
   '2140', '2201', '210200', '210100', '220100',
@@ -148,7 +148,7 @@ const PPE_ACCOUNTS = ['1701', '140100'];
 const DEPRECIATION_ACCOUNTS = ['5501', '630100'];
 const ACCUMULATED_DEPRECIATION_ACCOUNTS = ['1702', '149100'];
 /** Fair-value gain/loss on snails and poultry, and the gain on eggs at collection. */
-const FAIR_VALUE_ACCOUNTS = ['42000', '420100', '420200', '420210'];
+const FAIR_VALUE_ACCOUNTS = ['42000', '42100', '420100', '420200', '420210'];
 
 /**
  * Cash Flow, indirect method — the only method the data supports.

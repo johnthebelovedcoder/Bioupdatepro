@@ -9,9 +9,11 @@ import {
 } from '@bioassetpro/database';
 import {
   UnresolvedApprovedAccount,
+  biologicalResultAccountsFor,
+  biologicalStageAccountNumber,
   chartVersionOf,
   holdsRearingInAsset as holdsRearingInAssetOn,
-  poultryStageAccountNumber,
+  numberFor,
 } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
@@ -200,13 +202,14 @@ export class BiologicalAssetService {
     speciesKey: string;
     stage: string;
   }): Promise<{ glAccountId: string; accountNumber: string; accountName: string }> {
-    // On the approved chart a poultry stage is carried in the immature or
-    // mature livestock account for that stage (chart.ts), the same accounts
-    // its rearing cost is held in — so fair value and cost always meet.
-    if (params.speciesKey === 'poultry' && (await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED') {
+    // On the approved chart a stage is carried in the immature or mature
+    // livestock account for that species and stage (chart.ts) — for poultry
+    // the same accounts its rearing cost is held in, so fair value and cost
+    // always meet.
+    if ((await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED') {
       let number: string;
       try {
-        number = poultryStageAccountNumber(params.stage);
+        number = biologicalStageAccountNumber(params.speciesKey, params.stage);
       } catch (error) {
         if (!(error instanceof UnresolvedApprovedAccount)) throw error;
         throw new AccountingRuleViolation('Consolidated Reference §67 — Biological asset stage account', error.message, {
@@ -221,7 +224,7 @@ export class BiologicalAssetService {
       if (!account) {
         throw new AccountingRuleViolation(
           'Consolidated Reference §67 — Biological asset stage account',
-          `Account ${number} for poultry at stage "${params.stage}" is missing or inactive in this company's chart.`,
+          `Account ${number} for ${params.speciesKey} at stage "${params.stage}" is missing or inactive in this company's chart.`,
           { speciesKey: params.speciesKey, stage: params.stage },
         );
       }
@@ -362,12 +365,14 @@ export class BiologicalAssetService {
   }
 
   private async grniAccount(companyId: string): Promise<{ glAccountId: string }> {
-    const account = await this.ensureAccount(companyId, '210200');
+    // 210200 on the old charts; the workbook's goods received not invoiced on the approved one.
+    const accountNumber = (await chartVersionOf(this.prisma, companyId)) === 'APPROVED' ? numberFor('APPROVED', 'grni') : '210200';
+    const account = await this.ensureAccount(companyId, accountNumber);
     if (!account) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §66 — Posting chart',
-        'No active GRNI account (210200) exists. A biological receipt cannot post without one.',
-        { accountNumber: '210200' },
+        `No active GRNI account (${accountNumber}) exists. A biological receipt cannot post without one.`,
+        { accountNumber },
       );
     }
     return { glAccountId: account.id };
@@ -392,12 +397,39 @@ export class BiologicalAssetService {
     return { glAccountId: account.id };
   }
 
+  /**
+   * Where a valuation's gain or loss, or a normal death's loss, posts. The old
+   * charts use one fair-value account per species for all three (as
+   * `fairValueAccount`); the approved chart has a gain account, a loss account
+   * and a normal-mortality account per species (chart.ts). Only the one asked
+   * for has to exist: a valuation does not need the mortality account.
+   */
+  async resultAccount(
+    companyId: string,
+    speciesKey: string,
+    kind: 'gain' | 'loss' | 'normalMortality',
+  ): Promise<{ glAccountId: string }> {
+    const approved = biologicalResultAccountsFor(await chartVersionOf(this.prisma, companyId), speciesKey);
+    if (!approved) return this.fairValueAccount(companyId, speciesKey);
+    const accountNumber = approved[kind];
+    const account = await this.ensureAccount(companyId, accountNumber);
+    if (!account) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §66 — Posting chart',
+        `No active account ${accountNumber} exists for ${speciesKey} ${kind === 'normalMortality' ? 'normal mortality' : `fair-value ${kind}`}.`,
+        { accountNumber },
+      );
+    }
+    return { glAccountId: account.id };
+  }
+
   private async abnormalLossAccount(
     companyId: string,
     speciesKey: string,
   ): Promise<{ glAccountId: string }> {
     const normalizedSpeciesKey = speciesKey.trim().toLowerCase();
-    const accountNumber = normalizedSpeciesKey === 'snail' ? '640300' : '640500';
+    const approved = biologicalResultAccountsFor(await chartVersionOf(this.prisma, companyId), speciesKey);
+    const accountNumber = approved ? approved.abnormalMortality : normalizedSpeciesKey === 'snail' ? '640300' : '640500';
     const account = await this.ensureAccount(companyId, accountNumber);
     if (!account) {
       throw new AccountingRuleViolation(
@@ -633,7 +665,7 @@ export class BiologicalAssetService {
         speciesKey: group.speciesKey,
         stage: group.stage,
       });
-      const fairValue = await this.fairValueAccount(group.companyId, group.speciesKey);
+      const fairValue = await this.resultAccount(group.companyId, group.speciesKey, 'normalMortality');
       const context = await this.postingContext(group.companyId, mortality.dailyRecord.recordedOn);
       if (!context) {
         return { posted: false, reason: 'No open period or cost centre for that date.' };
@@ -1349,7 +1381,10 @@ export class BiologicalAssetService {
       speciesKey: valuation.group.speciesKey,
       stage: valuation.stage,
     });
-    const fairValue = await this.fairValueAccount(valuation.companyId, valuation.group.speciesKey);
+    const results = {
+      gain: valuation.direction === 'GAIN' ? await this.resultAccount(valuation.companyId, valuation.group.speciesKey, 'gain') : null,
+      loss: valuation.direction === 'GAIN' ? null : await this.resultAccount(valuation.companyId, valuation.group.speciesKey, 'loss'),
+    };
     const context = await this.postingContext(valuation.companyId, valuation.valuationDate);
     if (!context) {
       throw new AccountingRuleViolation(
@@ -1418,10 +1453,10 @@ export class BiologicalAssetService {
       : isGain
         ? [
             { glAccountId: stage.glAccountId, description: `${valuation.group.code} — fair-value gain`, debit: kobo(valuation.gainLossKobo), dimensions },
-            { glAccountId: fairValue.glAccountId, description: `${valuation.group.code} — fair-value gain`, credit: kobo(valuation.gainLossKobo), dimensions },
+            { glAccountId: results.gain!.glAccountId, description: `${valuation.group.code} — fair-value gain`, credit: kobo(valuation.gainLossKobo), dimensions },
           ]
         : [
-            { glAccountId: fairValue.glAccountId, description: `${valuation.group.code} — fair-value loss`, debit: kobo(valuation.gainLossKobo), dimensions },
+            { glAccountId: results.loss!.glAccountId, description: `${valuation.group.code} — fair-value loss`, debit: kobo(valuation.gainLossKobo), dimensions },
             { glAccountId: stage.glAccountId, description: `${valuation.group.code} — fair-value loss`, credit: kobo(valuation.gainLossKobo), dimensions },
           ];
     const lines = [...gainLossLines, ...reclassLines];

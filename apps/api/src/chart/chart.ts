@@ -267,6 +267,10 @@ export function approvedRoleReadiness(isActive: (accountNumber: string) => boole
   const addAll = (role: string, numbers: string[]) =>
     result.push({ role, number: numbers.join('/'), state: numbers.every(isActive) ? 'ready' : 'missing-account' });
   addAll('rearingCost:poultry', Object.values(APPROVED_POULTRY_BA));
+  for (const species of ['poultry', 'snail'] as const) {
+    const results = biologicalResultAccountsFor('APPROVED', species)!;
+    addAll(`biologicalResults:${species}`, [results.gain, results.loss, results.normalMortality, results.abnormalMortality]);
+  }
   addAll('rearingCost:snail', [snailInputExpenseNumber('APPROVED', 'feed'), snailInputExpenseNumber('APPROVED', 'treatment')]);
   return result;
 }
@@ -345,4 +349,62 @@ export function eggAccountsFor(version: ChartVersion): EggAccounts {
 /** Where day-old chicks are carried on hatching: 130210 on the old charts, the stage's account on the approved one. */
 export function hatchedChickAccountNumber(version: ChartVersion, stage: string): string {
   return version === 'APPROVED' ? poultryStageAccountNumber(stage) : '130210';
+}
+
+/**
+ * Snail stage → immature (16031) or mature (16041) biological assets on the
+ * approved chart. As with poultry (POULTRY_STAGE_MATURITY) the workbook names
+ * the two accounts (SNP-BA-IMM, SNP-BA-MAT) but not the stages: an engineering
+ * proposal for Finance to confirm — immature until the snail is market-ready or
+ * a breeder. The snail breeding module already carries viable eggs in 16031.
+ */
+export const SNAIL_STAGE_MATURITY: Record<string, 'immature' | 'mature'> = {
+  Egg: 'immature',
+  Hatchling: 'immature',
+  Juvenile: 'immature',
+  Juveniles: 'immature',
+  Grower: 'immature',
+  Growers: 'immature',
+  'Market-ready': 'mature',
+  Breeder: 'mature',
+  'Breeder cohort': 'mature',
+};
+const APPROVED_SNAIL_BA = { immature: '16031', mature: '16041' } as const;
+
+/** The approved-chart biological asset account a snail stage is carried in. */
+export function snailStageAccountNumber(stage: string): string {
+  const maturity = SNAIL_STAGE_MATURITY[stage];
+  if (!maturity) throw new UnresolvedApprovedAccount(`snail stage "${stage}"`);
+  return APPROVED_SNAIL_BA[maturity];
+}
+
+/** The approved-chart account a population of either species is carried in at a stage. */
+export function biologicalStageAccountNumber(species: string, stage: string): string {
+  return species.trim().toLowerCase() === 'snail' ? snailStageAccountNumber(stage) : poultryStageAccountNumber(stage);
+}
+
+/**
+ * Where a population's valuation and mortality results post on the approved
+ * chart, from the workbook's own maps: the biological asset fair value gain
+ * (BA_FAIR_VALUE_GAIN → 42000) and loss (BA_FAIR_VALUE_LOSS → 42100) are
+ * separate accounts, and normal and abnormal mortality have one each per
+ * species. The old charts post gains, losses and normal deaths to one
+ * fair-value account per species, so they return null and keep that.
+ */
+export interface BiologicalResultAccounts {
+  gain: string;
+  loss: string;
+  normalMortality: string;
+  abnormalMortality: string;
+}
+
+export function biologicalResultAccountsFor(version: ChartVersion, species: string): BiologicalResultAccounts | null {
+  if (version !== 'APPROVED') return null;
+  const snail = species.trim().toLowerCase() === 'snail';
+  return {
+    gain: '42000',
+    loss: '42100',
+    normalMortality: snail ? '51010' : '51020',
+    abnormalMortality: snail ? '51110' : '51120',
+  };
 }

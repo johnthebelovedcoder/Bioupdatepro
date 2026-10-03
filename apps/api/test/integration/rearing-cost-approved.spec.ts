@@ -63,8 +63,9 @@ beforeEach(async () => {
     ['12000', 'Raw materials inventory control', 'ASSET', 'DEBIT', true],
     ['51120', 'Abnormal poultry mortality loss', 'EXPENSE', 'DEBIT', false],
     ['50310', 'Cost of sales - live poultry', 'EXPENSE', 'DEBIT', false],
-    // Where a valuation's gain is credited (the old compatibility account — not yet moved to 42000).
-    ['420200', 'Fair-Value Gain/Loss — Poultry', 'REVENUE', 'CREDIT', false],
+    // Where a valuation's gain is credited on the approved chart, and its loss debited.
+    ['42000', 'Fair value gain on biological assets', 'REVENUE', 'CREDIT', false],
+    ['42100', 'Fair value loss on biological assets', 'EXPENSE', 'DEBIT', false],
   ];
   ledger.clear();
   for (const [accountNumber, name, accountType, normalBalance, control] of accounts) {
@@ -227,7 +228,7 @@ describe('rearing cost held by stage on the approved chart', () => {
     // Mature account: ₦30,000 of feed + ₦60,000 gain + ₦10,000 moved in from immature = exactly 100 × ₦1,000.
     expect(await balance('16042')).toBe(10_000_000n);
     expect(await balance('16032')).toBe(0n);
-    expect(await balance('420200')).toBe(-6_000_000n);
+    expect(await balance('42000')).toBe(-6_000_000n);
     expect(await rearing.remaining(groupId)).toBe(0n);
     expect(await heldByAccount()).toEqual({ '16032': 0n, '16042': 0n });
     const revalued = await prisma.livestockRearingRelief.findFirstOrThrow({ where: { eventType: 'REVALUED' }, include: { splits: true } });
