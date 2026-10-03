@@ -112,6 +112,21 @@ export async function setup(): Promise<void> {
       password: 'postgres',
       port,
       initdbFlags: ['--encoding=UTF8'],
+      // This cluster is disposable test infrastructure. Turning off WAL
+      // durability and synchronous commits keeps the long, serial integration
+      // suite from stalling on repeated disk flushes; production and managed
+      // TEST_DATABASE_URL runs retain the server's normal durability settings.
+      postgresFlags: [
+        '-c', 'fsync=off',
+        '-c', 'synchronous_commit=off',
+        '-c', 'full_page_writes=off',
+        // PostgreSQL's default five-minute checkpoint interval caused long
+        // Windows write bursts in this fixture-heavy suite and occasionally
+        // pushed a setup hook past Vitest's timeout. This server contains only
+        // disposable test data, so let its single final shutdown flush it.
+        '-c', 'checkpoint_timeout=1h',
+        '-c', 'max_wal_size=4GB',
+      ],
       // `persistent: false` would have embedded-postgres delete the data
       // directory on stop. On Windows that races the server's own file handles
       // and throws EBUSY, failing the run after every test has already passed.

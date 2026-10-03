@@ -20,7 +20,7 @@
  * one — so the report never claims more than the machine proved.
  */
 import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,6 +30,9 @@ const results = { unit: join(here, 'results-unit.json'), integration: join(here,
 
 if (!process.argv.includes('--score')) {
   for (const [kind, config] of [['unit', 'vitest.unit.config.ts'], ['integration', 'vitest.config.ts']]) {
+    // A failed launch must never leave an older passing report in place to be
+    // mistaken for evidence from this run.
+    rmSync(results[kind], { force: true });
     try {
       execSync(`npx vitest run --config ${config} --reporter=json --outputFile=${results[kind]}`, { cwd: api, stdio: 'inherit' });
     } catch {
@@ -40,9 +43,14 @@ if (!process.argv.includes('--score')) {
 
 /** fullName → status, across both suites. */
 const outcomes = new Map();
-for (const file of Object.values(results)) {
-  if (!existsSync(file)) continue;
+const suiteStatus = {};
+for (const [kind, file] of Object.entries(results)) {
+  if (!existsSync(file)) {
+    suiteStatus[kind] = 'MISSING';
+    continue;
+  }
   const run = JSON.parse(readFileSync(file, 'utf8'));
+  suiteStatus[kind] = run.success === true ? 'PASS' : 'FAIL';
   for (const suite of run.testResults ?? []) {
     for (const test of suite.assertionResults ?? []) {
       const name = [...(test.ancestorTitles ?? []), test.title].join(' > ');
@@ -209,10 +217,14 @@ const checkSummary = [
 ];
 
 const counts = scored.reduce((c, u) => ({ ...c, [u.status]: (c[u.status] ?? 0) + 1 }), {});
+const suitesPassed = Object.values(suiteStatus).every((status) => status === 'PASS');
+const suiteSummary = `Suites: ${Object.entries(suiteStatus).map(([name, status]) => `${name} ${status}`).join(', ')}.`;
 const lines = [
   '# UAT evidence — UAT_CONTROL_REGISTER',
   '',
   `Run ${new Date().toISOString()}. ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ')} of ${scored.length}.`,
+  '',
+  suiteSummary,
   '',
   '| Test | Process | Status | Evidence |',
   '|---|---|---|---|',
@@ -228,6 +240,7 @@ const lines = [
 writeFileSync(join(here, 'uat-report.md'), lines.join('\n'));
 writeFileSync(join(here, 'uat-report.json'), JSON.stringify(scored, null, 2));
 console.log(lines.slice(0, 3).join('\n'));
+console.log(suiteSummary);
 for (const u of scored) console.log(`${u.id.padEnd(8)} ${u.status.padEnd(14)} ${u.title}`);
 for (const sheet of sheets) console.log(`SHEET    ${sheet.status.padEnd(14)} ${sheet.sheet}`);
-process.exit(scored.every((u) => u.status.startsWith('PASS')) && checksPass ? 0 : 1);
+process.exit(suitesPassed && scored.every((u) => u.status.startsWith('PASS')) && checksPass ? 0 : 1);
