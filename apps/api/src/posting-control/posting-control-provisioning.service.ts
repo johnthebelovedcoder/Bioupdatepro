@@ -11,7 +11,13 @@ import {
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { APPROVED_PROCESSING_KEYS, approvedRoleReadiness, chartVersionOf } from '../chart/chart';
+import {
+  APPROVED_PROCESSING_KEYS,
+  APPROVED_PROCUREMENT_DEFAULTS,
+  APPROVED_SALES_DEFAULTS,
+  approvedRoleReadiness,
+  chartVersionOf,
+} from '../chart/chart';
 
 /**
  * Loading the client's posting rules, keys, approved workbook chart, and
@@ -176,6 +182,39 @@ export class PostingControlProvisioningService {
       .filter((account) => account.active && !targetByCode.has(account.accountNumber))
       .map((account) => ({ accountNumber: account.accountNumber, name: account.name, isPostingAccount: account.isPostingAccount }))
       .sort((a, b) => a.accountNumber.localeCompare(b.accountNumber));
+    // Sales and procurement post through their configuration: any account it
+    // still names that is not on the approved chart blocks readiness.
+    const [salesConfig, procurementConfig] = await Promise.all([
+      this.prisma.salesConfiguration.findFirst({
+        where: { companyId, effectiveTo: null },
+        orderBy: { effectiveFrom: 'desc' },
+        include: { receivableAccount: true, revenueAccount: true, costOfSalesAccount: true, inventoryAccount: true, whtReceivableAccount: true },
+      }),
+      this.prisma.procurementConfiguration.findFirst({
+        where: { companyId, effectiveTo: null },
+        orderBy: { effectiveFrom: 'desc' },
+        include: { grniAccount: true, payablesAccount: true, whtPayableAccount: true },
+      }),
+    ]);
+    const configured: Array<{ configuration: string; role: string; accountNumber: string }> = [
+      ...(salesConfig
+        ? [
+            { configuration: 'Sales', role: 'receivable', accountNumber: salesConfig.receivableAccount.accountNumber },
+            { configuration: 'Sales', role: 'revenue', accountNumber: salesConfig.revenueAccount.accountNumber },
+            { configuration: 'Sales', role: 'costOfSales', accountNumber: salesConfig.costOfSalesAccount.accountNumber },
+            { configuration: 'Sales', role: 'inventory', accountNumber: salesConfig.inventoryAccount.accountNumber },
+            ...(salesConfig.whtReceivableAccount ? [{ configuration: 'Sales', role: 'whtReceivable', accountNumber: salesConfig.whtReceivableAccount.accountNumber }] : []),
+          ]
+        : []),
+      ...(procurementConfig
+        ? [
+            { configuration: 'Procurement', role: 'grni', accountNumber: procurementConfig.grniAccount.accountNumber },
+            { configuration: 'Procurement', role: 'payables', accountNumber: procurementConfig.payablesAccount.accountNumber },
+            ...(procurementConfig.whtPayableAccount ? [{ configuration: 'Procurement', role: 'whtPayable', accountNumber: procurementConfig.whtPayableAccount.accountNumber }] : []),
+          ]
+        : []),
+    ];
+    const configurationsOutsideTarget = configured.filter((c) => !targetByCode.has(c.accountNumber));
     const roles = approvedRoleReadiness((code) => accountsByCode.get(code)?.active === true);
     const unresolvedRoles = roles.filter((r) => r.state !== 'ready');
     return {
@@ -215,7 +254,8 @@ export class PostingControlProvisioningService {
         unresolvedPostingMaps: unresolvedActiveMaps,
         roles,
         unresolvedRoles,
-        ready: unresolvedRoles.length === 0 && missingTargetCodes.length === 0 && metadataMismatches.length === 0 && activeOutsideTarget.length === 0 &&
+        configurationsOutsideTarget,
+        ready: unresolvedRoles.length === 0 && configurationsOutsideTarget.length === 0 && missingTargetCodes.length === 0 && metadataMismatches.length === 0 && activeOutsideTarget.length === 0 &&
           unresolvedActiveMaps.length === 0 && resolvedActiveMaps >= expectedActiveMaps,
       },
       /** LEGACY until the company is moved to the selected approved workbook chart. */
@@ -228,6 +268,7 @@ export class PostingControlProvisioningService {
     const approved = await this.loadApprovedEngine(companyId, data.approved);
     const chart = await this.loadSpecChart(companyId, data);
     const control = await this.loadKeysAndRules(companyId, data);
+    const configurations = await this.ensureApprovedConfigurations(companyId);
 
     if (actorId) {
       await this.audit.write({
@@ -245,7 +286,61 @@ export class PostingControlProvisioningService {
       });
     }
     this.logger.log(`Company ${companyId}: ${control.rules} rules, ${control.keys} keys, ${chart.created} accounts added.`);
-    return { accountsCreated: chart.created, accountsExisting: chart.existing, ...control, approved };
+    return { accountsCreated: chart.created, accountsExisting: chart.existing, ...control, approved, configurations };
+  }
+
+  /**
+   * Sales and procurement post through their company configuration. For a
+   * company on the approved chart, give it the workbook's defaults
+   * (chart.ts APPROVED_SALES_DEFAULTS / APPROVED_PROCUREMENT_DEFAULTS) if it
+   * has none. One that already has a configuration is left alone — repointing
+   * it is part of the balance cutover — and shows in status() if it still
+   * names accounts outside the approved chart.
+   */
+  private async ensureApprovedConfigurations(companyId: string): Promise<{ sales: 'created' | 'kept' | 'skipped'; procurement: 'created' | 'kept' | 'skipped' }> {
+    const result = { sales: 'skipped', procurement: 'skipped' } as { sales: 'created' | 'kept' | 'skipped'; procurement: 'created' | 'kept' | 'skipped' };
+    if ((await chartVersionOf(this.prisma, companyId)) !== 'APPROVED') return result;
+    const wanted = [...Object.values(APPROVED_SALES_DEFAULTS), ...Object.values(APPROVED_PROCUREMENT_DEFAULTS)];
+    const rows = await this.prisma.gLAccount.findMany({
+      where: { companyId, accountNumber: { in: wanted }, active: true },
+      select: { id: true, accountNumber: true },
+    });
+    const id = new Map(rows.map((r) => [r.accountNumber, r.id]));
+    const effectiveFrom = new Date('2026-01-01');
+
+    const [sales, procurement] = await Promise.all([
+      this.prisma.salesConfiguration.count({ where: { companyId } }),
+      this.prisma.procurementConfiguration.count({ where: { companyId } }),
+    ]);
+    if (sales > 0) result.sales = 'kept';
+    else if (Object.values(APPROVED_SALES_DEFAULTS).every((n) => id.has(n))) {
+      await this.prisma.salesConfiguration.create({
+        data: {
+          companyId,
+          receivableGlAccountId: id.get(APPROVED_SALES_DEFAULTS.receivable)!,
+          revenueGlAccountId: id.get(APPROVED_SALES_DEFAULTS.revenue)!,
+          costOfSalesGlAccountId: id.get(APPROVED_SALES_DEFAULTS.costOfSales)!,
+          inventoryGlAccountId: id.get(APPROVED_SALES_DEFAULTS.inventory)!,
+          whtReceivableGlAccountId: id.get(APPROVED_SALES_DEFAULTS.whtReceivable)!,
+          effectiveFrom,
+        },
+      });
+      result.sales = 'created';
+    }
+    if (procurement > 0) result.procurement = 'kept';
+    else if (Object.values(APPROVED_PROCUREMENT_DEFAULTS).every((n) => id.has(n))) {
+      await this.prisma.procurementConfiguration.create({
+        data: {
+          companyId,
+          grniGlAccountId: id.get(APPROVED_PROCUREMENT_DEFAULTS.grni)!,
+          payablesGlAccountId: id.get(APPROVED_PROCUREMENT_DEFAULTS.payables)!,
+          whtPayableGlAccountId: id.get(APPROVED_PROCUREMENT_DEFAULTS.whtPayable)!,
+          effectiveFrom,
+        },
+      });
+      result.procurement = 'created';
+    }
+    return result;
   }
 
   /** Import the approved workbook chart, account maps, posting lines and centres without remapping old posted GL balances. */

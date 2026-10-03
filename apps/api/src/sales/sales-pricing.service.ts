@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { Prisma } from '@bioassetpro/database';
-import { chartVersionOf } from '../chart/chart';
+import { APPROVED_SALES_DEFAULTS, chartVersionOf } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaxEngineService } from '../tax/tax-engine.service';
 import { AccountingRuleViolation } from '../common/errors';
@@ -233,7 +233,29 @@ export class SalesPricingService {
     // accounts. A company on the client's chart has these per species and
     // gets its configuration when it moves there (ChartUnificationService)
     // or signs up, so nothing is guessed for it here.
-    if ((await chartVersionOf(client, companyId)) !== 'LEGACY') return null;
+    const version = await chartVersionOf(client, companyId);
+    if (version === 'APPROVED') {
+      // The workbook's own defaults (chart.ts APPROVED_SALES_DEFAULTS), when they are all on the chart.
+      const wanted = Object.values(APPROVED_SALES_DEFAULTS);
+      const found = await client.gLAccount.findMany({
+        where: { companyId, accountNumber: { in: wanted }, active: true },
+        select: { id: true, accountNumber: true },
+      });
+      const id = new Map(found.map((a) => [a.accountNumber, a.id]));
+      if (!wanted.every((n) => id.has(n))) return null;
+      return client.salesConfiguration.create({
+        data: {
+          companyId,
+          receivableGlAccountId: id.get(APPROVED_SALES_DEFAULTS.receivable)!,
+          revenueGlAccountId: id.get(APPROVED_SALES_DEFAULTS.revenue)!,
+          costOfSalesGlAccountId: id.get(APPROVED_SALES_DEFAULTS.costOfSales)!,
+          inventoryGlAccountId: id.get(APPROVED_SALES_DEFAULTS.inventory)!,
+          whtReceivableGlAccountId: id.get(APPROVED_SALES_DEFAULTS.whtReceivable)!,
+          effectiveFrom: new Date('2026-01-01'),
+        },
+      });
+    }
+    if (version !== 'LEGACY') return null;
     const accounts = await client.gLAccount.findMany({
       where: {
         companyId,

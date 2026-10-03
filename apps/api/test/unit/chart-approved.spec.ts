@@ -6,6 +6,8 @@ import {
   ROLE_ACCOUNTS,
   UnresolvedApprovedAccount,
   APPROVED_FEED_MILL_RECOVERY,
+  APPROVED_PROCUREMENT_DEFAULTS,
+  APPROVED_SALES_DEFAULTS,
   APPROVED_OVERHEAD_POOL,
   APPROVED_PROCESSING_KEYS,
   accrualNumberFor,
@@ -293,5 +295,27 @@ describe('approved five-digit chart roles', () => {
       expect(processingOverheadNumber('APPROVED', 'FEED_MILL')).toBe('52700');
       expect(processingOverheadNumber('LEGACY', 'SNAILPRO')).toBe('621200');
     });
+  });
+
+  it("takes the sales and procurement configuration defaults from the workbook's own maps", () => {
+    expect(APPROVED_SALES_DEFAULTS).toEqual({
+      receivable: coreMap.get('COR-CUST-LOCAL/AR_CONTROL'),
+      revenue: coreMap.get('COR-FIN-DEFAULT/INCOME_ACCOUNT'),
+      costOfSales: coreMap.get('COR-FG/COGS'),
+      inventory: coreMap.get('COR-FG/FINISHED_GOODS_INVENTORY'),
+      whtReceivable: coreMap.get('COR-WHT-SUP-2/WHT_RECEIVABLE'),
+    });
+    expect(APPROVED_PROCUREMENT_DEFAULTS).toEqual({
+      grni: coreMap.get('COR-RM/GRNI'),
+      payables: coreMap.get('COR-VEND-LOCAL/AP_CONTROL'),
+      whtPayable: coreMap.get('COR-WHT-SUP-2/WHT_PAYABLE'),
+    });
+    // Revenue and cost of sales post directly; receivables, payables, GRNI and inventory are module-posted controls.
+    for (const account of [APPROVED_SALES_DEFAULTS.revenue, APPROVED_SALES_DEFAULTS.costOfSales]) {
+      expect(accounts.get(account), account).toMatchObject({ 'Control Account': 'No', 'Posting Account': 'Yes' });
+    }
+    for (const account of [APPROVED_SALES_DEFAULTS.receivable, APPROVED_SALES_DEFAULTS.inventory, APPROVED_PROCUREMENT_DEFAULTS.grni, APPROVED_PROCUREMENT_DEFAULTS.payables]) {
+      expect(accounts.get(account), account).toMatchObject({ 'Control Account': 'Yes', 'Posting Account': 'No' });
+    }
   });
 });

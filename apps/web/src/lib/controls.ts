@@ -130,6 +130,7 @@ export interface PostingControlStatus {
     unresolvedPostingMaps: Array<{ application: string; postingGroup: string; postingKey: string; accountCode: string }>;
     roles: RoleReadiness[];
     unresolvedRoles: RoleReadiness[];
+    configurationsOutsideTarget: Array<{ configuration: string; role: string; accountNumber: string }>;
     ready: boolean;
   };
 }

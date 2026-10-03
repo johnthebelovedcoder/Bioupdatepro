@@ -504,3 +504,29 @@ export function processingOverheadNumber(version: ChartVersion, cycle: 'SNAILPRO
   if (version === 'APPROVED') return cycle === 'FEED_MILL' ? '52700' : '52400';
   return cycle === 'SNAILPRO' ? '621200' : cycle === 'POULTRYPRO' ? '622100' : '623100';
 }
+
+/* -------------------------------------------------------------------------
+ * Sales and procurement on the approved chart
+ * -------------------------------------------------------------------------
+ * O2C and P2P post through the company's SalesConfiguration and
+ * ProcurementConfiguration (and the item and tax accounts), not through
+ * posting keys. On the approved chart those defaults are the workbook's own:
+ * the customer group's AR control, the finance default group's revenue and
+ * retained cost-of-sales controls, finished goods control, the withholding
+ * receivable, and for procurement the vendor group's AP control, GRNI and
+ * the withholding payable. An item names its own revenue, cost-of-sales and
+ * inventory accounts where it differs (eggs: 40330 / 50330 / 12420).
+ */
+export const APPROVED_SALES_DEFAULTS = {
+  receivable: '11000', // COR-CUST-LOCAL AR_CONTROL
+  revenue: '40000', // COR-FIN-DEFAULT INCOME_ACCOUNT
+  costOfSales: '50000', // COR-FG COGS
+  inventory: '12400', // COR-FG FINISHED_GOODS_INVENTORY
+  whtReceivable: '11400', // COR-WHT-SUP-2 WHT_RECEIVABLE
+} as const;
+
+export const APPROVED_PROCUREMENT_DEFAULTS = {
+  grni: '20300', // COR-RM GRNI
+  payables: '20100', // COR-VEND-LOCAL AP_CONTROL
+  whtPayable: '20500', // COR-WHT-SUP-2 WHT_PAYABLE
+} as const;

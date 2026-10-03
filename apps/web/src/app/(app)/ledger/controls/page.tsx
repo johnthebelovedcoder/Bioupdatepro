@@ -132,6 +132,12 @@ export default async function ControlsPage() {
                         .map((row) => `${row.role} (${row.state === 'no-workbook-account' ? 'the workbook names none' : `${row.number} missing`})`).join('; ')}
                     </p>
                   ) : null}
+                  {provisioning.data.targetChart.configurationsOutsideTarget.length > 0 ? (
+                    <p className="faint">
+                      Sales and purchasing set-up still naming accounts outside the approved chart: {provisioning.data.targetChart.configurationsOutsideTarget
+                        .map((row) => `${row.configuration} ${row.role} (${row.accountNumber})`).join('; ')}
+                    </p>
+                  ) : null}
                   {provisioning.data.targetChart.resolvedActivePostingMaps < provisioning.data.targetChart.expectedActivePostingMaps ? (
                     <p className="faint">
                       Only {provisioning.data.targetChart.resolvedActivePostingMaps} of {provisioning.data.targetChart.expectedActivePostingMaps} active workbook posting maps are linked to accounts.
