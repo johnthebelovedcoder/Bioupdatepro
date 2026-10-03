@@ -310,3 +310,39 @@ export function snailInputExpenseNumber(version: ChartVersion, purpose: 'feed' |
 export function snailLabourExpenseNumber(version: ChartVersion): string {
   return version === 'APPROVED' ? '52010' : '612000';
 }
+
+/**
+ * The accounts the poultry egg flow posts to (PCR-067/068/069), by chart.
+ *
+ * LEGACY and SPEC hold eggs in 130215, eggs in incubation in 130216 and the
+ * gain at collection in 420210. On the approved chart the workbook's own
+ * maps give the rest: eggs are finished poultry products (PLP-FG-EGG →
+ * 12420), sold to 40330 revenue and 50330 cost of sales, and the gain at
+ * initial recognition is the biological asset fair value gain (PLP-BA-IMM
+ * BA_FAIR_VALUE_GAIN → 42000). The workbook has no account for eggs in
+ * incubation; 13020 (poultry farm WIP control) is an engineering proposal —
+ * eggs are work in process until they hatch — for Finance to confirm.
+ */
+export interface EggAccounts {
+  /** Where collected eggs are held, when the item names no inventory account. */
+  inventory: string;
+  /** Credited when eggs are recognised at collection. */
+  gain: string;
+  /** Eggs set, until they hatch. */
+  incubation: string;
+  /** What an egg item sells to and relieves, when it names none; null where the old charts leave that to item setup. */
+  revenue: string | null;
+  costOfSales: string | null;
+}
+
+export function eggAccountsFor(version: ChartVersion): EggAccounts {
+  if (version === 'APPROVED') {
+    return { inventory: '12420', gain: '42000', incubation: '13020', revenue: '40330', costOfSales: '50330' };
+  }
+  return { inventory: '130215', gain: '420210', incubation: '130216', revenue: null, costOfSales: null };
+}
+
+/** Where day-old chicks are carried on hatching: 130210 on the old charts, the stage's account on the approved one. */
+export function hatchedChickAccountNumber(version: ChartVersion, stage: string): string {
+  return version === 'APPROVED' ? poultryStageAccountNumber(stage) : '130210';
+}

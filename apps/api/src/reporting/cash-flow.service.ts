@@ -106,6 +106,9 @@ const INVENTORY_ACCOUNTS = [
   // incubation. Left out until 2026-09-25, so every egg collected was income
   // the statement never reversed and it stopped agreeing with the bank.
   '130215', '130216',
+  // …and their homes on the approved chart: eggs as finished poultry products
+  // (12420) and eggs in incubation as poultry farm WIP (13020).
+  '12420', '13020',
   // Viable biological eggs can use the approved immature-stage control
   // accounts when the company is on the approved posting-engine COA.
   '16031', '16032',

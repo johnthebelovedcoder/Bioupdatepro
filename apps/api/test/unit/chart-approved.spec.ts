@@ -6,6 +6,8 @@ import {
   ROLE_ACCOUNTS,
   UnresolvedApprovedAccount,
   approvedRoleReadiness,
+  eggAccountsFor,
+  hatchedChickAccountNumber,
   poultryStageAccountNumber,
   rearingNumberFor,
   rearingNumbersFor,
@@ -170,5 +172,30 @@ describe('approved five-digit chart roles', () => {
 
   it('checks every stage account against the workbook', () => {
     for (const number of ['16032', '16042', '52610', '52510', '52010']) expect(accounts.has(number), number).toBe(true);
+  });
+
+  it("takes the egg accounts from the workbook's own maps, and flags the one it had to propose", () => {
+    const poultry = new Map(
+      workbook.sheets.accountMaps
+        .filter((m) => m.Application === 'YifrehPoultry' && m.Status === 'Active')
+        .map((m) => [`${m['Posting Group']}/${m['Posting Key']}`, m['GL Code']]),
+    );
+    const egg = eggAccountsFor('APPROVED');
+    expect(egg.inventory).toBe(poultry.get('PLP-FG-EGG/FINISHED_GOODS_INVENTORY'));
+    expect(egg.costOfSales).toBe(poultry.get('PLP-FG-EGG/COGS'));
+    expect(egg.revenue).toBe(poultry.get('PLP-SALES-EGG/SALES_REVENUE'));
+    expect(egg.gain).toBe(poultry.get('PLP-BA-IMM/BA_FAIR_VALUE_GAIN'));
+    // Day-old chicks come in at the immature poultry account the workbook names for recognition/birth/hatch.
+    expect(hatchedChickAccountNumber('APPROVED', 'Chick')).toBe(poultry.get('PLP-BA-IMM/BA_SOURCE_STAGE_CONTROL'));
+    // Eggs in incubation: no workbook map, so a proposal — it must at least exist as a control account.
+    expect(accounts.get(egg.incubation)).toMatchObject({ 'Control Account': 'Yes' });
+    for (const number of [egg.inventory, egg.gain, egg.revenue!, egg.costOfSales!]) expect(accounts.has(number), number).toBe(true);
+  });
+
+  it('leaves the egg accounts on the old charts as they were', () => {
+    for (const version of ['LEGACY', 'SPEC'] as const) {
+      expect(eggAccountsFor(version)).toEqual({ inventory: '130215', gain: '420210', incubation: '130216', revenue: null, costOfSales: null });
+      expect(hatchedChickAccountNumber(version, 'Chick')).toBe('130210');
+    }
   });
 });
