@@ -5,7 +5,17 @@ import { StandardCostService } from './standard-cost.service';
 import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import { AccountType, AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
-import { chartVersionOf, speciesNumberFor } from '../chart/chart';
+import {
+  APPROVED_FEED_MILL_RECOVERY,
+  APPROVED_OVERHEAD_POOL,
+  accrualNumberFor,
+  chartVersionOf,
+  numberFor,
+  rearingNumbersFor,
+  recoveryNumberFor,
+  type ChartVersion,
+  type RecoveryResource,
+} from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -528,25 +538,39 @@ export class ProductionOrderService {
      * finished goods carry the feed that produced them. Debited to the same
      * processing WIP as the biological input; credited out of rearing WIP.
      */
-    // 1501 on the old chart; 130210 for poultry on the client's (a snail
-    // population holds no rearing cost there, so carries none into here).
-    const rearingNumber = speciesNumberFor(
-      await chartVersionOf(this.prisma, order.companyId),
-      'rearingCost',
-      order.processingCycle === 'SNAILPRO' ? 'snail' : 'poultry',
-    );
-    const rearingWip =
-      order.rearingCostKobo > 0n && rearingNumber
-        ? await this.prisma.gLAccount.findFirst({
-            where: { companyId: order.companyId, accountNumber: rearingNumber, active: true },
-            select: { id: true },
+    // 1501 on the old chart; 130210 for poultry on SPEC (a snail population
+    // holds no rearing cost there, so carries none into here); on the approved
+    // chart the accounts the harvest's share was actually taken from.
+    const version = await chartVersionOf(this.prisma, order.companyId);
+    const rearingSpecies = order.processingCycle === 'SNAILPRO' ? 'snail' : 'poultry';
+    const harvestSplits =
+      order.rearingCostKobo > 0n && order.harvestRecordId && order.sourceGroupId
+        ? await this.prisma.livestockRearingReliefSplit.findMany({
+            where: { relief: { groupId: order.sourceGroupId, eventType: 'HARVEST', sourceId: order.harvestRecordId } },
+            select: { accountNumber: true, amountKobo: true },
+            orderBy: { accountNumber: 'asc' },
           })
-        : null;
+        : [];
+    const [singleRearingNumber] = rearingNumbersFor(version, rearingSpecies);
+    const rearingSources =
+      harvestSplits.length > 0
+        ? harvestSplits
+        : singleRearingNumber && rearingNumbersFor(version, rearingSpecies).length === 1
+          ? [{ accountNumber: singleRearingNumber, amountKobo: order.rearingCostKobo }]
+          : [];
+    const rearingAccounts =
+      order.rearingCostKobo > 0n && rearingSources.length > 0
+        ? await this.prisma.gLAccount.findMany({
+            where: { companyId: order.companyId, accountNumber: { in: rearingSources.map((r) => r.accountNumber) }, active: true },
+            select: { id: true, accountNumber: true },
+          })
+        : [];
+    const rearingWip = rearingSources.length > 0 && rearingAccounts.length === rearingSources.length;
     if (order.rearingCostKobo > 0n && (!issueRule || !rules.issueRuleId || !rearingWip)) {
       throw new AccountingRuleViolation(
         'Consolidated Reference §9 — Production order',
         `${order.orderNumber} carries rearing cost but there is no processing WIP rule or no active ` +
-          'Work in Progress (1501) account to move it with.',
+          'Work in Progress account holding it to move it with.',
         { orderNumber: order.orderNumber },
       );
     }
@@ -559,12 +583,12 @@ export class ProductionOrderService {
               debit: kobo(order.rearingCostKobo),
               dimensions,
             },
-            {
-              glAccountId: rearingWip.id,
+            ...rearingSources.map((source) => ({
+              glAccountId: rearingAccounts.find((a) => a.accountNumber === source.accountNumber)!.id,
               description: `Rearing cost out of the population's WIP (${order.orderNumber})`,
-              credit: kobo(order.rearingCostKobo),
+              credit: kobo(source.amountKobo),
               dimensions,
-            },
+            })),
           ]
         : [];
 
@@ -750,7 +774,7 @@ export class ProductionOrderService {
     await routing.snapshotRouting(order.id);
     const lines = await this.prisma.productionOrderRoutingLine.findMany({
       where: { productionOrderId: order.id },
-      include: { routingOperation: { select: { operationName: true, costCentreId: true } } },
+      include: { routingOperation: { select: { operationName: true, costCentreId: true, resourceType: true } } },
     });
     if (order.processingCycle === ProductionOrderCycle.FEED_MILL && (!order.speciesKey || lines.length === 0)) {
       throw new AccountingRuleViolation(
@@ -761,6 +785,8 @@ export class ProductionOrderService {
     }
     let standardConversionCostKobo: bigint;
     let feedAbsorptionLines: Array<{ costCentreId: string; costKobo: bigint }> = [];
+    /** What the routing absorbed, by resource — the approved chart credits each to its own recovery account. */
+    const recoveryByResource = new Map<RecoveryResource, bigint>();
     if (lines.length > 0) {
       const absorbed = lines.map((line) => {
         const given = params.actualHours?.[line.id] ?? params.actualHours?.[line.routingOperation.operationName];
@@ -769,8 +795,9 @@ export class ProductionOrderService {
           throw new AccountingRuleViolation('ABC_Pools_Drivers — driver quantity', `${line.routingOperation.operationName}: hours cannot be negative.`, {});
         }
         const cost = BigInt(hours.mul(line.ratePerHourKobo.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
-        return { id: line.id, hours, cost, costCentreId: line.routingOperation.costCentreId };
+        return { id: line.id, hours, cost, costCentreId: line.routingOperation.costCentreId, resource: line.routingOperation.resourceType as RecoveryResource };
       });
+      for (const a of absorbed) recoveryByResource.set(a.resource, (recoveryByResource.get(a.resource) ?? 0n) + a.cost);
       feedAbsorptionLines = absorbed.map((line) => ({ costCentreId: line.costCentreId, costKobo: line.cost }));
       standardConversionCostKobo = absorbed.reduce((sum, a) => sum + a.cost, 0n);
       if (params.standardConversionCostKobo !== undefined && params.standardConversionCostKobo !== standardConversionCostKobo) {
@@ -812,6 +839,37 @@ export class ProductionOrderService {
     const standardRule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.standardRuleId, on });
     // One Feed Mill Recovery GL (219830) carries all species; dimensions hold analysis.
     const standardCreditAccountId = this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId;
+    // On the approved chart a snail or poultry order's standard conversion is
+    // credited to the recovery account of each routing line's resource
+    // (labour 54000, machine 54100, utilities 54200), not one account per line.
+    const version = await chartVersionOf(this.prisma, order.companyId);
+    const perResource = version === 'APPROVED' && order.processingCycle !== ProductionOrderCycle.FEED_MILL;
+    if (perResource && standardConversionCostKobo > 0n && recoveryByResource.size === 0) {
+      throw new AccountingRuleViolation(
+        'Approved chart — recovery by resource',
+        `${order.orderNumber} has no routing, so its standard conversion cannot be credited to labour, machine or utility recovery. Set up the routing (operations by resource, cost pools and rates) first.`,
+        { orderNumber: order.orderNumber },
+      );
+    }
+    const recoveryIds = perResource ? await this.recoveryAccountIds(order.companyId, [...recoveryByResource.keys()]) : new Map<RecoveryResource, string>();
+    const standardCredits = () =>
+      perResource
+        ? [...recoveryByResource]
+            .filter(([, amount]) => amount > 0n)
+            .map(([resource, amount]) => ({
+              glAccountId: recoveryIds.get(resource)!,
+              description: `${rules.standardRuleId} — standard ${resource.toLowerCase()} absorbed (${order.orderNumber})`,
+              credit: kobo(amount),
+              dimensions,
+            }))
+        : [
+            {
+              glAccountId: standardCreditAccountId,
+              description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
+              credit: kobo(standardConversionCostKobo),
+              dimensions,
+            },
+          ];
 
     let postLines: Array<{ glAccountId: string; description: string; debit?: Kobo; credit?: Kobo; dimensions: ReturnType<ProductionOrderService['dimensions']> }>;
 
@@ -847,6 +905,22 @@ export class ProductionOrderService {
         this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`),
         this.actualCostCreditAccount(order.companyId),
       ]);
+      // The old charts post one combined line (PCR-077). The approved chart
+      // has a labour expense and a utilities expense, so the same actuals are
+      // charged to each: labour to processing labour against payroll payable,
+      // overhead to utilities against the accrual.
+      const actualLines =
+        version === 'APPROVED'
+          ? [
+              { glAccountId: actualDebitAccountId, description: `${rules.actualConversionRuleId} — actual processing labour (${order.orderNumber})`, debit: kobo(params.actualLabourCostKobo), dimensions },
+              { glAccountId: await this.accountByNumber(order.companyId, numberFor('APPROVED', 'salaryPayable'), 'payroll payable'), description: `${rules.actualConversionRuleId} — actual processing labour (${order.orderNumber})`, credit: kobo(params.actualLabourCostKobo), dimensions },
+              { glAccountId: await this.accountByNumber(order.companyId, APPROVED_OVERHEAD_POOL, 'processing overhead'), description: `${rules.actualConversionRuleId} — actual processing overhead (${order.orderNumber})`, debit: kobo(params.actualOverheadCostKobo), dimensions },
+              { glAccountId: actualCreditAccount, description: `${rules.actualConversionRuleId} — actual processing overhead (${order.orderNumber})`, credit: kobo(params.actualOverheadCostKobo), dimensions },
+            ]
+          : [
+              { glAccountId: actualDebitAccountId, description: `${rules.actualConversionRuleId} — actual processing conversion (${order.orderNumber})`, debit: kobo(combinedActual), dimensions },
+              { glAccountId: actualCreditAccount, description: `${rules.actualConversionRuleId} — actual processing conversion (${order.orderNumber})`, credit: kobo(combinedActual), dimensions },
+            ];
       postLines = [
         {
           glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
@@ -854,24 +928,8 @@ export class ProductionOrderService {
           debit: kobo(standardConversionCostKobo),
           dimensions,
         },
-        {
-          glAccountId: standardCreditAccountId,
-          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          credit: kobo(standardConversionCostKobo),
-          dimensions,
-        },
-        {
-          glAccountId: actualDebitAccountId,
-          description: `${rules.actualConversionRuleId} — actual processing conversion (${order.orderNumber})`,
-          debit: kobo(combinedActual),
-          dimensions,
-        },
-        {
-          glAccountId: actualCreditAccount,
-          description: `${rules.actualConversionRuleId} — actual processing conversion (${order.orderNumber})`,
-          credit: kobo(combinedActual),
-          dimensions,
-        },
+        ...standardCredits(),
+        ...actualLines,
       ];
     } else {
       // Snail: two separate actual lines (PCR-054 labour, PCR-055
@@ -888,12 +946,7 @@ export class ProductionOrderService {
           debit: kobo(standardConversionCostKobo),
           dimensions,
         },
-        {
-          glAccountId: standardCreditAccountId,
-          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          credit: kobo(standardConversionCostKobo),
-          dimensions,
-        },
+        ...standardCredits(),
         {
           glAccountId: this.requireSide(labourRule.debit, rules.actualLabourRuleId!, 'debit').glAccountId,
           description: `${rules.actualLabourRuleId} — actual processing labour (${order.orderNumber})`,
@@ -1887,17 +1940,55 @@ export class ProductionOrderService {
     // validates both sides eagerly. The debit is looked up directly; the
     // credit is the recovery account the standard-absorption step already
     // credited for this order.
+    const version: ChartVersion = await chartVersionOf(this.prisma, order.companyId);
+    // Approved chart: the feed mill has its one recovery account (54300); a
+    // snail or poultry order's recovery is debited per resource below.
+    const perResource = version === 'APPROVED' && order.processingCycle !== ProductionOrderCycle.FEED_MILL;
+    const recoveryNumber =
+      version === 'APPROVED'
+        ? order.processingCycle === ProductionOrderCycle.FEED_MILL
+          ? APPROVED_FEED_MILL_RECOVERY
+          : recoveryNumberFor('LABOUR')
+        : rules.recoveryAccountNumber;
     const [varianceAccount, recoveryAccount] = await Promise.all([
       this.resolvePostingKeyAccount(order.companyId, rules.settleDebitKey),
-      this.recoveryAccount(order.companyId, rules.recoveryAccountNumber),
+      this.recoveryAccount(order.companyId, recoveryNumber),
     ]);
+    const resourceRecovery: Array<{ glAccountId: string; amount: bigint; resource: RecoveryResource }> = [];
+    if (perResource && order.standardConversionCostKobo > 0n) {
+      const routingLines = await this.prisma.productionOrderRoutingLine.findMany({
+        where: { productionOrderId: order.id },
+        select: { absorbedCostKobo: true, routingOperation: { select: { resourceType: true } } },
+      });
+      const byResource = new Map<RecoveryResource, bigint>();
+      for (const line of routingLines) {
+        if ((line.absorbedCostKobo ?? 0n) > 0n) {
+          const resource = line.routingOperation.resourceType as RecoveryResource;
+          byResource.set(resource, (byResource.get(resource) ?? 0n) + line.absorbedCostKobo!);
+        }
+      }
+      if ([...byResource.values()].reduce((sum, amount) => sum + amount, 0n) !== order.standardConversionCostKobo) {
+        throw new AccountingRuleViolation(
+          'Approved chart — recovery by resource',
+          `${order.orderNumber}'s routing absorption by resource does not equal its stored standard conversion cost, so its recovery cannot be cleared account by account.`,
+          { orderNumber: order.orderNumber },
+        );
+      }
+      const ids = await this.recoveryAccountIds(order.companyId, [...byResource.keys()]);
+      for (const [resource, amount] of byResource) resourceRecovery.push({ glAccountId: ids.get(resource)!, amount, resource });
+    }
     // The pools the order's own conversion step charged, and how much to each.
     const pools: Array<{ account: string; amount: bigint; costCentreId?: string | null }> = !clearsPools
       ? []
       : feedPool
         ? feedAllocations.map((line) => ({ account: line.sourceGlAccountId, amount: line.amountKobo, costCentreId: line.sourceCostCentreId }))
         : rules.actualConversionRuleId
-        ? [{ account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`), amount: actualIncurred }]
+        ? version === 'APPROVED'
+          ? [
+              { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`), amount: order.actualLabourCostKobo },
+              { account: await this.accountByNumber(order.companyId, APPROVED_OVERHEAD_POOL, 'processing overhead'), amount: order.actualOverheadCostKobo },
+            ]
+          : [{ account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`), amount: actualIncurred }]
         : [
             { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualLabourRuleId}-DR`), amount: order.actualLabourCostKobo },
             { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualOverheadRuleId}-DR`), amount: order.actualOverheadCostKobo },
@@ -1938,7 +2029,14 @@ export class ProductionOrderService {
           lines: clearsPools
             ? [
                 ...(order.standardConversionCostKobo > 0n
-                  ? (feedPool && recoveryByCentre.size
+                  ? (perResource
+                    ? resourceRecovery.map((line) => ({
+                        glAccountId: line.glAccountId,
+                        description: `${rule} — ${line.resource.toLowerCase()} recovery cleared (${order.orderNumber})`,
+                        debit: kobo(line.amount),
+                        dimensions,
+                      }))
+                    : feedPool && recoveryByCentre.size
                     ? [...recoveryByCentre.entries()].map(([costCentreId, amount]) => ({
                         glAccountId: recoveryAccount,
                         description: `${rule} — recovery cleared (${order.orderNumber})`,
@@ -2142,6 +2240,9 @@ export class ProductionOrderService {
    * accrued-expenses account.
    */
   private async actualCostCreditAccount(companyId: string): Promise<string> {
+    // Accrued expenses control (20200) on the approved chart.
+    const approvedAccrual = accrualNumberFor(await chartVersionOf(this.prisma, companyId));
+    if (approvedAccrual) return this.accountByNumber(companyId, approvedAccrual, 'accrued expenses');
     const accounts = await this.prisma.gLAccount.findMany({
       where: { companyId, accountNumber: { in: ['230100', '210100'] }, active: true },
       select: { id: true, accountNumber: true },
@@ -2155,6 +2256,27 @@ export class ProductionOrderService {
       );
     }
     return account.id;
+  }
+
+  private async accountByNumber(companyId: string, accountNumber: string, purpose: string): Promise<string> {
+    const account = await this.prisma.gLAccount.findFirst({ where: { companyId, accountNumber, active: true }, select: { id: true } });
+    if (!account) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §66 — Posting chart',
+        `No active ${purpose} account (${accountNumber}) exists on this company's chart.`,
+        { accountNumber },
+      );
+    }
+    return account.id;
+  }
+
+  /** The recovery accounts (54000/54100/54200) for the resources an order absorbed. */
+  private async recoveryAccountIds(companyId: string, resources: RecoveryResource[]): Promise<Map<RecoveryResource, string>> {
+    const ids = new Map<RecoveryResource, string>();
+    for (const resource of resources) {
+      ids.set(resource, await this.accountByNumber(companyId, recoveryNumberFor(resource), `${resource.toLowerCase()} recovery`));
+    }
+    return ids;
   }
 
   private async recoveryAccount(companyId: string, accountNumber: string): Promise<string> {

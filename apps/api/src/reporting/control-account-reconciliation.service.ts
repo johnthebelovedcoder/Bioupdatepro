@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { SalesInvoiceStatus, SupplierInvoiceStatus, StockDirection } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
-import { chartVersionOf, numberFor } from '../chart/chart';
+import { APPROVED_FEED_MILL_RECOVERY, chartVersionOf, numberFor, processingWipNumbers, recoveryNumberFor, type ChartVersion } from '../chart/chart';
 
 export interface ControlReconciliationRow {
   accountNumber: string;
@@ -61,7 +61,7 @@ export class ControlAccountReconciliationService {
       this.receivables(companyId, balanceOf, numberFor(version, 'receivables')),
       this.payables(companyId, balanceOf, numberFor(version, 'tradePayables')),
       this.inventoryByGlAccount(companyId, balanceOf),
-      this.wipByCycle(companyId, balanceOf),
+      this.wipByCycle(companyId, balanceOf, version),
     ]);
     return [ar, ap, ...inventory, ...wip];
   }
@@ -128,11 +128,12 @@ export class ControlAccountReconciliationService {
     return rows.sort((a, b) => a.accountNumber.localeCompare(b.accountNumber));
   }
 
-  private async wipByCycle(companyId: string, balanceOf: (accountNumber: string) => bigint): Promise<ControlReconciliationRow[]> {
+  private async wipByCycle(companyId: string, balanceOf: (accountNumber: string) => bigint, version: ChartVersion): Promise<ControlReconciliationRow[]> {
+    const wip = processingWipNumbers(version);
     const CYCLE_ACCOUNTS: Record<string, { accountNumber: string; name: string }> = {
-      SNAILPRO: { accountNumber: '130410', name: 'WIP — Snail Processing' },
-      POULTRYPRO: { accountNumber: '130420', name: 'WIP — Poultry Processing' },
-      FEED_MILL: { accountNumber: '130430', name: 'Feed Mill WIP' },
+      SNAILPRO: { accountNumber: wip.SNAILPRO, name: 'WIP — Snail Processing' },
+      POULTRYPRO: { accountNumber: wip.POULTRYPRO, name: 'WIP — Poultry Processing' },
+      FEED_MILL: { accountNumber: wip.FEED_MILL, name: 'Feed Mill WIP' },
     };
 
     const orders = await this.prisma.productionOrder.findMany({
@@ -178,10 +179,25 @@ export class ControlAccountReconciliationService {
      * nothing once every order is settled. A residual is conversion cost
      * counted twice (orders settled before 2026-09-25 cleared only the variance).
      */
-    const RECOVERY: Record<string, { accountNumber: string; name: string }> = {
-      SNAILPRO: { accountNumber: '219810', name: 'S_Recovery_GL' },
-      POULTRYPRO: { accountNumber: '219820', name: 'P_Recovery_GL' },
-    };
+    if (version === 'APPROVED') {
+      // One set of recovery accounts (labour, machine, utilities) carries both
+      // processing lines, so it reconciles against both lines' unsettled orders.
+      const processing = orders.filter((o) => o.processingCycle === 'SNAILPRO' || o.processingCycle === 'POULTRYPRO');
+      if (processing.length > 0) {
+        const open = processing.filter((o) => o.settledAt === null);
+        const accounts = ['LABOUR', 'MACHINE', 'OVERHEAD'] as const;
+        const numbers = [...new Set(accounts.map((r) => recoveryNumberFor(r)))];
+        const balance = numbers.reduce((sum, n) => sum + balanceOf(n), 0n);
+        rows.push(this.row(numbers.join(' + '), 'Labour, machine and utility recovery', balance, -open.reduce((n, o) => n + o.standardConversionCostKobo, 0n), `${open.length} unsettled of ${processing.length} processing orders`));
+      }
+    }
+    const RECOVERY: Record<string, { accountNumber: string; name: string }> =
+      version === 'APPROVED'
+        ? {}
+        : {
+            SNAILPRO: { accountNumber: '219810', name: 'S_Recovery_GL' },
+            POULTRYPRO: { accountNumber: '219820', name: 'P_Recovery_GL' },
+          };
     for (const [cycle, meta] of Object.entries(RECOVERY)) {
       const cycleOrders = orders.filter((o) => o.processingCycle === cycle);
       if (cycleOrders.length === 0) continue;
@@ -193,7 +209,8 @@ export class ControlAccountReconciliationService {
     const feed = orders.filter((o) => o.processingCycle === 'FEED_MILL');
     if (feed.length > 0) {
       const open = feed.filter((o) => o.settledAt === null);
-      rows.push(this.row('219830', 'Feed Mill Recovery GL', balanceOf('219830'), -open.reduce((n, o) => n + o.standardConversionCostKobo, 0n), `${open.length} unsettled of ${feed.length} feed orders`));
+      const feedRecovery = version === 'APPROVED' ? APPROVED_FEED_MILL_RECOVERY : '219830';
+      rows.push(this.row(feedRecovery, 'Feed Mill Recovery GL', balanceOf(feedRecovery), -open.reduce((n, o) => n + o.standardConversionCostKobo, 0n), `${open.length} unsettled of ${feed.length} feed orders`));
     }
     return rows;
   }

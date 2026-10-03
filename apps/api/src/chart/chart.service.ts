@@ -3,11 +3,11 @@ import { Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingRuleViolation } from '../common/errors';
 import {
-  ROLE_ACCOUNTS,
-  SPECIES_ACCOUNTS,
+  numberFor,
+  parseChartVersion,
+  speciesNumberFor,
   type AccountRole,
   type ChartVersion,
-  type Species,
   type SpeciesRole,
 } from './chart';
 
@@ -20,12 +20,11 @@ export class ChartService {
 
   async version(companyId: string, client: Client = this.prisma): Promise<ChartVersion> {
     const company = await client.company.findUnique({ where: { id: companyId }, select: { chartVersion: true } });
-    return company?.chartVersion === 'SPEC' ? 'SPEC' : 'LEGACY';
+    return parseChartVersion(company?.chartVersion);
   }
 
   async number(companyId: string, role: AccountRole, client: Client = this.prisma): Promise<string> {
-    const [legacy, spec] = ROLE_ACCOUNTS[role];
-    return (await this.version(companyId, client)) === 'SPEC' ? spec : legacy;
+    return numberFor(await this.version(companyId, client), role);
   }
 
   /** The account's id. Refuses, naming the account, if the chart does not have it. */
@@ -36,7 +35,7 @@ export class ChartService {
   /** Several at once, as `{ role: id }`. */
   async accounts<R extends AccountRole>(companyId: string, roles: R[], client: Client = this.prisma): Promise<Record<R, string>> {
     const version = await this.version(companyId, client);
-    const numbers = roles.map((role) => ROLE_ACCOUNTS[role][version === 'SPEC' ? 1 : 0]);
+    const numbers = roles.map((role) => numberFor(version, role));
     const rows = await client.gLAccount.findMany({
       where: { companyId, accountNumber: { in: numbers }, active: true },
       select: { id: true, accountNumber: true },
@@ -53,9 +52,7 @@ export class ChartService {
 
   /** The number for a species-dependent purpose; null where SPEC does not hold it (snail rearing cost). */
   async speciesNumber(companyId: string, role: SpeciesRole, species: string, client: Client = this.prisma): Promise<string | null> {
-    const [legacy, spec] = SPECIES_ACCOUNTS[role];
-    if ((await this.version(companyId, client)) === 'LEGACY') return legacy;
-    return spec[normalise(species)];
+    return speciesNumberFor(await this.version(companyId, client), role, species);
   }
 
   async speciesAccount(companyId: string, role: SpeciesRole, species: string, client: Client = this.prisma): Promise<string | null> {
@@ -72,10 +69,6 @@ export class ChartService {
     if (!row) throw missing(number, purpose);
     return row.id;
   }
-}
-
-function normalise(species: string): Species {
-  return species === 'snail' ? 'snail' : 'poultry';
 }
 
 function missing(number: string, purpose: string) {

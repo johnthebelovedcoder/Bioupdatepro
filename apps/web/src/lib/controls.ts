@@ -117,7 +117,7 @@ export interface PostingControlStatus {
   keys: number;
   expectedRules: number;
   expectedKeys: number;
-  chartVersion: 'LEGACY' | 'SPEC';
+  chartVersion: 'LEGACY' | 'SPEC' | 'APPROVED';
   targetChart: {
     source: string;
     expectedAccounts: number;
@@ -128,8 +128,16 @@ export interface PostingControlStatus {
     metadataMismatches: Array<{ accountNumber: string; fields: string[] }>;
     activeAccountsOutsideTarget: Array<{ accountNumber: string; name: string; isPostingAccount: boolean }>;
     unresolvedPostingMaps: Array<{ application: string; postingGroup: string; postingKey: string; accountCode: string }>;
+    roles: RoleReadiness[];
+    unresolvedRoles: RoleReadiness[];
     ready: boolean;
   };
+}
+
+export interface RoleReadiness {
+  role: string;
+  number: string | null;
+  state: 'ready' | 'no-workbook-account' | 'missing-account';
 }
 
 export const getPostingControlStatus = () =>

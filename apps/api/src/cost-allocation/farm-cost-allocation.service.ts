@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { AccountType, AuditAction, JournalStatus } from '@bioassetpro/database';
-import { chartVersionOf, speciesNumberFor } from '../chart/chart';
+import { chartVersionOf, rearingNumberFor, rearingNumbersFor, snailLabourExpenseNumber } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { AuditService } from '../audit/audit.service';
@@ -40,8 +40,6 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  * counted without keeping a second ledger of what was allocated.
  */
 
-/** Where a snail cohort's share goes, on either chart (PCR-043-DR). A flock's goes where its rearing cost is held — see targetAccounts. */
-const SNAIL_TARGET = '612000';
 const SPECIES = ['poultry', 'snail'] as const;
 
 export interface AllocationSourceInput {
@@ -213,7 +211,7 @@ export class FarmCostAllocationService {
       this.prisma.company.findUniqueOrThrow({ where: { id: params.companyId }, select: { baseCurrencyId: true } }),
       this.prisma.livestockGroup.findMany({
         where: { id: { in: shares.map((s) => s.groupId) } },
-        select: { id: true, code: true, branchId: true, farmId: true, penHouseId: true },
+        select: { id: true, code: true, branchId: true, farmId: true, penHouseId: true, stage: true },
       }),
       this.prisma.costCentre.findFirst({ where: { companyId: params.companyId, active: true, postingAllowed: true }, orderBy: { code: 'asc' } }),
       this.prisma.farmCostAllocation.count({ where: { companyId: params.companyId, financialPeriodId: period.id } }),
@@ -234,7 +232,12 @@ export class FarmCostAllocationService {
     const debitLines = shares.map((share) => {
       const group = groupById.get(share.groupId)!;
       const normalizedSpeciesKey = share.speciesKey.trim().toLowerCase();
-      const glAccountId = normalizedSpeciesKey === 'poultry' ? targets.poultry! : targets.snail!;
+      // A flock's share goes where its rearing cost is held: one account, or on
+      // the approved chart the account of its stage today.
+      const glAccountId =
+        normalizedSpeciesKey === 'poultry'
+          ? targets.poultryByNumber.get(rearingNumberFor(targets.version, 'poultry', group.stage)!)!
+          : targets.snail!;
       // (A snail share is expensed on either chart, so no rearing cost is held for it.)
       return {
         share,
@@ -444,22 +447,25 @@ export class FarmCostAllocationService {
   }
 
   private async targetAccounts(companyId: string, required: boolean) {
-    // 1501 on the old chart; Biological Assets — Poultry (130210) on the client's.
-    const POULTRY_TARGET = speciesNumberFor(await chartVersionOf(this.prisma, companyId), 'rearingCost', 'poultry')!;
+    // 1501 on the old chart; Biological Assets — Poultry (130210) on SPEC; on
+    // the approved chart one account per stage (16032 immature, 16042 mature).
+    const version = await chartVersionOf(this.prisma, companyId);
+    const poultryNumbers = rearingNumbersFor(version, 'poultry');
+    const snailNumber = snailLabourExpenseNumber(version);
     const rows = await this.prisma.gLAccount.findMany({
-      where: { companyId, accountNumber: { in: [POULTRY_TARGET, SNAIL_TARGET] }, active: true },
+      where: { companyId, accountNumber: { in: [...poultryNumbers, snailNumber] }, active: true },
       select: { id: true, accountNumber: true },
     });
-    const poultry = rows.find((r) => r.accountNumber === POULTRY_TARGET)?.id;
-    const snail = rows.find((r) => r.accountNumber === SNAIL_TARGET)?.id;
-    if (required && (!poultry || !snail)) {
+    const poultryByNumber = new Map(rows.filter((r) => poultryNumbers.includes(r.accountNumber)).map((r) => [r.accountNumber, r.id]));
+    const snail = rows.find((r) => r.accountNumber === snailNumber)?.id;
+    if (required && (poultryByNumber.size < poultryNumbers.length || !snail)) {
       throw new AccountingRuleViolation(
         'PCR-043/064 — Posting keys',
-        `Allocating farm cost needs Work in Progress (${POULTRY_TARGET}) and Snailery Labour and Facility Expense (${SNAIL_TARGET}). Load the posting rules on Controls first.`,
+        `Allocating farm cost needs Work in Progress (${poultryNumbers.join(' / ')}) and Snailery Labour and Facility Expense (${snailNumber}). Load the posting rules on Controls first.`,
         {},
       );
     }
-    return { poultry, snail };
+    return { version, poultryByNumber, snail };
   }
 }
 

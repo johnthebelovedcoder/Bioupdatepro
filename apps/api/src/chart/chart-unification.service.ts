@@ -313,6 +313,7 @@ export class ChartUnificationService {
     const warnings: string[] = [];
     const version = await chartVersionOf(client, companyId);
     if (version === 'SPEC') blockers.push('This company is already on the six-digit chart.');
+    if (version === 'APPROVED') blockers.push('This company is already on the approved five-digit chart.');
 
     // --- The month the cutover opens ---------------------------------------
     const period = await client.financialPeriod.findFirst({

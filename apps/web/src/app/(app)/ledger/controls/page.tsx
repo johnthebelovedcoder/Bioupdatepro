@@ -126,6 +126,12 @@ export default async function ControlsPage() {
                       {provisioning.data.targetChart.unresolvedPostingMaps.length > 8 ? '…' : ''}
                     </p>
                   ) : null}
+                  {provisioning.data.targetChart.unresolvedRoles.length > 0 ? (
+                    <p className="faint">
+                      Posting purposes with no usable account on this chart: {provisioning.data.targetChart.unresolvedRoles
+                        .map((row) => `${row.role} (${row.state === 'no-workbook-account' ? 'the workbook names none' : `${row.number} missing`})`).join('; ')}
+                    </p>
+                  ) : null}
                   {provisioning.data.targetChart.resolvedActivePostingMaps < provisioning.data.targetChart.expectedActivePostingMaps ? (
                     <p className="faint">
                       Only {provisioning.data.targetChart.resolvedActivePostingMaps} of {provisioning.data.targetChart.expectedActivePostingMaps} active workbook posting maps are linked to accounts.

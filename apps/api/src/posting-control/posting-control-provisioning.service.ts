@@ -11,6 +11,7 @@ import {
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { APPROVED_PROCESSING_KEYS, approvedRoleReadiness, chartVersionOf } from '../chart/chart';
 
 /**
  * Loading the client's posting rules, keys, approved workbook chart, and
@@ -175,6 +176,8 @@ export class PostingControlProvisioningService {
       .filter((account) => account.active && !targetByCode.has(account.accountNumber))
       .map((account) => ({ accountNumber: account.accountNumber, name: account.name, isPostingAccount: account.isPostingAccount }))
       .sort((a, b) => a.accountNumber.localeCompare(b.accountNumber));
+    const roles = approvedRoleReadiness((code) => accountsByCode.get(code)?.active === true);
+    const unresolvedRoles = roles.filter((r) => r.state !== 'ready');
     return {
       loaded: rules >= data.rules.length && keys >= data.keys.length,
       rules,
@@ -210,7 +213,9 @@ export class PostingControlProvisioningService {
         metadataMismatches,
         activeAccountsOutsideTarget: activeOutsideTarget,
         unresolvedPostingMaps: unresolvedActiveMaps,
-        ready: missingTargetCodes.length === 0 && metadataMismatches.length === 0 && activeOutsideTarget.length === 0 &&
+        roles,
+        unresolvedRoles,
+        ready: unresolvedRoles.length === 0 && missingTargetCodes.length === 0 && metadataMismatches.length === 0 && activeOutsideTarget.length === 0 &&
           unresolvedActiveMaps.length === 0 && resolvedActiveMaps >= expectedActiveMaps,
       },
       /** LEGACY until the company is moved to the selected approved workbook chart. */
@@ -396,10 +401,16 @@ export class PostingControlProvisioningService {
     });
     const accountByNumber = new Map(accounts.map((a) => [a.accountNumber, a.id]));
 
+    // On the approved chart the processing and feed-mill keys are linked to
+    // the five-digit accounts (chart.ts APPROVED_PROCESSING_KEYS); every other
+    // key keeps its historical six-digit link until it is moved.
+    const approved = (await chartVersionOf(this.prisma, companyId)) === 'APPROVED';
+
     let linked = 0;
     for (const row of data.keys) {
-      const code = (row.glCode ?? '').trim();
-      const atomic = /^\d{6}$/.test(code);
+      const override = approved ? APPROVED_PROCESSING_KEYS[row.key] : undefined;
+      const code = override ? override.account : (row.glCode ?? '').trim();
+      const atomic = override ? true : /^\d{6}$/.test(code);
       const glAccountId = atomic ? (accountByNumber.get(code) ?? null) : null;
       const dynamicResolution = atomic ? null : (DYNAMIC_RESOLUTION[row.key] ?? null);
       if (glAccountId) linked += 1;
