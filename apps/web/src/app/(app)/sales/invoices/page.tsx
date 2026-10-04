@@ -1,5 +1,5 @@
 import { getReceivableInvoices, getSalesInvoiceRows, getSalesOrders } from '@/lib/sales';
-import { getCustomers, getGlAccounts } from '@/lib/trade';
+import { getCustomers, getBankGlAccounts } from '@/lib/trade';
 import { formatDate, formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
@@ -29,7 +29,7 @@ export default async function SalesInvoicesPage({
     getReceivableInvoices(),
     getSalesOrders(),
     getCustomers(),
-    getGlAccounts(),
+    getBankGlAccounts(),
     searchParams,
   ]);
 

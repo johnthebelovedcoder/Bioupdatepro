@@ -203,6 +203,31 @@ describe('ApprovedCutoverService', () => {
     expect(cash.netCashFromOperationsKobo).toBe('0');
   });
 
+  it('places stock lines that carry no item so each inventory control ties to its own items (found by the restore rehearsal)', async () => {
+    // Feed issued to a flock credits raw materials with no item on the line; the stock ledger knows it was feed.
+    await books([{ account: '1301', credit: 270_000n }]);
+    const warehouse = await prisma.warehouse.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'MAIN', name: 'Main store', type: 'RAW_MATERIAL' } });
+    const move = (code: string, direction: 'IN' | 'OUT', value: bigint) =>
+      prisma.stockMovement.create({
+        data: {
+          companyId: fixture.companyId, branchId: fixture.branchId, itemId: item[code]!, warehouseId: warehouse.id, direction, quantity: 1, unitCostKobo: value, valueKobo: value,
+          sourceModule: 'test', sourceDocumentType: 'Test', sourceDocumentId: `${code}-${direction}`, documentReference: `${code}-${direction}`, movementDate: new Date('2026-01-15'),
+        },
+      });
+    await move('FEED', 'IN', 1_000_000n);
+    await move('DRUG', 'IN', 500_000n);
+    await move('BOX', 'IN', 100_000n);
+    await move('FEED', 'OUT', 270_000n);
+
+    await provisioning.provision(fixture.companyId, null);
+    const preview = await cutover.preview(fixture.companyId, CUTOVER);
+    expect(preview.blockers).toEqual([]);
+    await cutover.run({ companyId: fixture.companyId, cutoverDate: CUTOVER, approval, actor });
+    expect(await balance('12100')).toBe(730_000n); // feed: 1,000,000 received less 270,000 issued
+    expect(await balance('12000')).toBe(500_000n);
+    expect(await balance('12200')).toBe(100_000n);
+  });
+
   it('puts a mature cohort’s cost in 16042 and keeps the subledger and the ledger together', async () => {
     await prisma.livestockGroup.update({ where: { id: group.poultry }, data: { stage: 'Layer' } });
     await books();

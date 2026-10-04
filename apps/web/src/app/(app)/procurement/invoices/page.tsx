@@ -1,5 +1,5 @@
 import { getPayableInvoices, getSupplierInvoices } from '@/lib/procurement';
-import { getGlAccounts, getSuppliers } from '@/lib/trade';
+import { getBankGlAccounts, getSuppliers } from '@/lib/trade';
 import { formatDate, formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
@@ -26,7 +26,7 @@ export default async function SupplierInvoicesPage({
     getSupplierInvoices(),
     getPayableInvoices(),
     getSuppliers(),
-    getGlAccounts(),
+    getBankGlAccounts(),
     searchParams,
   ]);
 

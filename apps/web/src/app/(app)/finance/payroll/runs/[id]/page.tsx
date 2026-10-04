@@ -7,7 +7,7 @@ import {
   getPayrollRuns,
   validatePayrollRun,
 } from '@/lib/payroll-runs';
-import { getGlAccounts } from '@/lib/trade';
+import { getBankGlAccounts } from '@/lib/trade';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { PayrollPaymentForm } from '@/components/payroll-payment-form';
@@ -39,7 +39,7 @@ export default async function PayrollRunPage({ params }: { params: Promise<{ id:
     calculated ? getBankSchedule(id) : Promise.resolve([]),
     calculated ? getPayeByState(id) : Promise.resolve([]),
     posted ? getOutstanding(id) : Promise.resolve([]),
-    posted ? getGlAccounts().catch(() => []) : Promise.resolve([]),
+    posted ? getBankGlAccounts().catch(() => []) : Promise.resolve([]),
   ]);
 
   // Bank and cash live among the assets; offering the whole chart to a

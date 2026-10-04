@@ -24,6 +24,7 @@ import { CustomerReceiptService } from '../../src/sales/customer-receipt.service
 import { CreditNoteService } from '../../src/sales/credit-note.service';
 import { CreditNotePostingHandler, CustomerReceiptPostingHandler, DeliveryPostingHandler, SalesInvoicePostingHandler } from '../../src/sales/sales.handlers';
 import { PostingControlProvisioningService } from '../../src/posting-control/posting-control-provisioning.service';
+import { ProfitLossService } from '../../src/reporting/profit-loss.service';
 import { ControlAccountReconciliationService } from '../../src/reporting/control-account-reconciliation.service';
 import { WorkflowActor } from '../../src/workflow/workflow.types';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
@@ -153,7 +154,7 @@ describe('Order-to-cash on the approved chart', () => {
     await receiveStock(item, quantity);
     const order = await orders.createOrder({
       companyId: fixture.companyId, orderNumber: `SO-${Math.random().toString(36).slice(2, 8)}`, customerId, orderDate: JAN, currencyId: fixture.currencyId,
-      branchId: fixture.branchId, warehouseId, costCentreId: fixture.costCentreId, lines: [{ lineNumber: 1, itemId: item, quantity, unitPriceKobo: UNIT_PRICE }], actor: maker,
+      branchId: fixture.branchId, warehouseId, lines: [{ lineNumber: 1, itemId: item, quantity, unitPriceKobo: UNIT_PRICE }], actor: maker,
     });
     const submitted = await orders.submitOrder({ salesOrderId: order.id, actor: maker });
     await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
@@ -201,6 +202,11 @@ describe('Order-to-cash on the approved chart', () => {
     expect(await balance('50000')).toBe(6_000_000n); // cost of sales, once, at delivery
     expect(await balance('12400')).toBe(-6_000_000n); // out of finished goods control
     expect((await trialBalance.build({ companyId: fixture.companyId })).balanced).toBe(true);
+    // Cost of sales is cost of sales on the profit and loss, not operating expense.
+    const profit = await new ProfitLossService(trialBalance).build({ companyId: fixture.companyId });
+    expect(profit.costOfSalesKobo).toBe('6000000');
+    expect(profit.grossProfitKobo).toBe('4000000');
+    expect(profit.operatingExpenseKobo).toBe('0');
 
     const receipt = await receipts.create({
       companyId: fixture.companyId, receiptNumber: 'RCT-001', customerId, receiptDate: JAN, method: ReceiptMethod.BANK_TRANSFER, bankGlAccountId: await acct('10100'),

@@ -49,7 +49,9 @@ export function ChartCutoverForm({ initial }: { initial: CutoverPreview }) {
       const outcome = await runCutover(choices, { approvedBy, approvalReference: reference });
       setError(outcome.error);
       setMessage(outcome.message);
-      if (!outcome.error) router.refresh();
+      // The form disappears once the company is on the approved chart, so carry
+      // the outcome to the page rather than leaving it in state that unmounts.
+      if (!outcome.error) router.push(`/ledger/chart?done=${encodeURIComponent(outcome.message ?? 'Moved to the approved chart.')}`);
     });
 
   return (

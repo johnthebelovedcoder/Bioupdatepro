@@ -153,6 +153,11 @@ export async function getGlAccounts(): Promise<GlAccount[]> {
   return api<GlAccount[]>('/masters/gl-accounts');
 }
 
+/** The accounts cash is paid from or received into — bank and cash accounts only, on any chart. */
+export async function getBankGlAccounts(): Promise<GlAccount[]> {
+  return api<GlAccount[]>('/masters/bank-gl-accounts');
+}
+
 export interface SpeciesBreed {
   id: string;
   speciesKey: string;

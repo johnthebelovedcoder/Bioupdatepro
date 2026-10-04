@@ -96,7 +96,9 @@ export default async function ControlsPage() {
             ) : (
               <>
                 <div className="notice notice-warning">
-                  The company is not yet on the selected five-digit workbook chart. Do not migrate balances until the account crosswalk is approved and the ledger is reconciled.
+                  {provisioning.data.chartVersion === 'APPROVED'
+                    ? 'The company is on the approved chart. What is listed below still needs a Finance decision or a setting.'
+                    : 'The company is not yet on the selected five-digit workbook chart. Run the cutover from Approved chart readiness once Finance has approved the account crosswalk and the ledger is reconciled.'}
                 </div>
                 <div className="stack" style={{ marginTop: 'var(--sp-3)' }}>
                   {provisioning.data.targetChart.missingAccountNumbers.length > 0 ? (

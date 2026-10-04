@@ -143,7 +143,7 @@ describe('Procure-to-pay on the approved chart', () => {
   async function approvedOrder(itemId = inventoryItemId) {
     const order = await orders.createOrder({
       companyId: fixture.companyId, orderNumber: `PO-${Math.random().toString(36).slice(2, 8)}`, supplierId, orderDate: JAN, currencyId: fixture.currencyId,
-      branchId: fixture.branchId, warehouseId, costCentreId: fixture.costCentreId, lines: [{ itemId, quantity: QUANTITY, unitPriceKobo: UNIT_PRICE }], actor: maker,
+      branchId: fixture.branchId, warehouseId, lines: [{ itemId, quantity: QUANTITY, unitPriceKobo: UNIT_PRICE }], actor: maker,
     });
     const submitted = await orders.submitOrder({ purchaseOrderId: order.id, actor: maker });
     await workflow.approve({ transactionId: submitted.transactionId, actor: approver });

@@ -40,6 +40,10 @@ export const COST_OF_SALES_ACCOUNTS = new Set([
   // The client's chart: cost of sales by species and product, and the
   // biological losses that replace 5305 (chart.ts, SPECIES_ACCOUNTS).
   '510100', '510200', '510300', '510400', '640300', '640500',
+  // The approved chart: cost of sales control and by product, and the abnormal
+  // biological losses. Left out until the browser walk-through, they landed
+  // under operating expense and overstated gross profit.
+  '50000', '50210', '50220', '50310', '50320', '50330', '51110', '51120',
 ]);
 
 /** Income tax expense (PCR-084-DR) — shown below profit before tax, not among operating costs. */

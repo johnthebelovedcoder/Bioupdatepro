@@ -116,8 +116,8 @@ Sign in with any seeded user — password `admin123@`:
 
 Or create your own farm at `/signup` — registration provisions a chart of
 accounts, cost centres and twelve open periods in one transaction, so a new
-farm can record a round on its first morning. A new farm keeps its books on
-the client's six-digit chart from the start.
+farm can record a round on its first morning. A new farm starts on the
+four-digit chart with the approved chart loaded alongside, ready for the cutover.
 
 ## The two charts of accounts
 
@@ -126,11 +126,16 @@ the client's posting rules are written against a six-digit one (`SPEC`).
 `Company.chartVersion` says which a farm is on, and code asks for an account
 by purpose through `apps/api/src/chart/chart.ts` rather than by number.
 
-**Books → Controls → See the move** (`/ledger/chart`) moves a farm across. It
-shows every old balance and where it will go before anything changes, then a
-CFO runs it: one journal per branch dated the first day of an open month,
-settings repointed, old accounts retired, all in one transaction. The mapping
-and the decisions behind it are in `docs/chart-unification-mapping.csv`.
+**Books → Approved chart readiness** (`/ledger/chart`) moves a farm onto the
+approved five-digit chart from the posting-engine workbook. Load the approved
+chart there first (it adds accounts beside the old ones and moves nothing), then
+preview the cutover: every old balance and where it will go, what is assumed, and
+what blocks it. A CFO runs it once Finance's approval of the account crosswalk is
+on record: one journal per branch dated the first day of an open month, settings
+repointed, old accounts retired, all in one transaction. The mapping and its
+decisions are in `docs/target-coa-decision.md`, the rehearsal in
+`docs/cutover-rehearsal-2026-10-04.md`. Companies still on the four- or six-digit
+chart keep working until they are moved.
 
 ## Release evidence (UAT)
 

@@ -8,6 +8,7 @@ import { WorkflowService } from '../workflow/workflow.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { PayrollRunService } from './payroll-run.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { assertBankGlAccount } from '../chart/bank-account';
 import { kobo } from '../common/money';
 
 const BUCKET_PAYABLE_ACCOUNT: Record<PayrollPayableBucket, string> = {
@@ -191,6 +192,8 @@ export class PayrollPaymentService {
         { reference: run.reference, bucket: input.bucket, outstandingKobo: outstanding.toString() },
       );
     }
+
+    await assertBankGlAccount(this.prisma, input.companyId, input.bankGlAccountId, 'A payroll payment');
 
     return this.prisma.$transaction(async (tx) => {
       const payment = await tx.payrollPayment.create({

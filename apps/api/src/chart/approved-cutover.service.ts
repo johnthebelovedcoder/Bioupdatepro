@@ -347,7 +347,10 @@ export class ApprovedCutoverService {
     // --- The approved accounts any rule can reach must be loaded and active -
     const wanted = new Set([...crosswalkTargets(), ...Object.values(overrides)]);
     const missing = [...wanted].filter((n) => !targetByNumber.get(n)?.active);
-    if (missing.length > 0) blockers.push(`These approved accounts are not loaded or not active for this company: ${missing.sort().join(', ')}. Load the approved chart first.`);
+    if (missing.length > 0) blockers.push(
+        `${missing.length} approved account${missing.length === 1 ? ' is' : 's are'} not loaded or not active for this company ` +
+          `(${missing.sort().slice(0, 8).join(', ')}${missing.length > 8 ? `, and ${missing.length - 8} more` : ''}). Load the approved chart first.`,
+      );
     for (const [from, to] of Object.entries(overrides)) {
       if (!targetByNumber.has(to)) blockers.push(`Override ${from} → ${to}: ${to} is not an account on the approved chart.`);
     }
@@ -463,17 +466,73 @@ export class ApprovedCutoverService {
     });
     const stockValue = new Map<string, bigint>();
     for (const m of stockMoves) stockValue.set(m.itemId, (stockValue.get(m.itemId) ?? 0n) + (m.direction === 'IN' ? 1n : -1n) * (m._sum.valueKobo ?? 0n));
-    const stockWeights = new Map<string, Array<{ account: string; weight: bigint }>>();
+    // What the stock ledger holds, by approved account, for the items on each
+    // old stock account; and what the lines that DO carry an item already put
+    // there. The difference is what the item-less lines must supply, so each
+    // approved inventory control ties to its own items afterwards.
+    const stockClassOf = (item: (typeof stockHeld)[number]): StockClass =>
+      options.stockClasses?.[item.id] ?? stockClasses.get(item.id) ?? proposeStockClass(item.description, item.code, item.isBiologicalFeed);
+    const stockTargets = new Map<string, Map<string, bigint>>(); // old account id → approved account → residual
     for (const item of stockHeld) {
-      const value = stockValue.get(item.id) ?? 0n;
-      if (value <= 0n) continue;
-      const cls = options.stockClasses?.[item.id] ?? stockClasses.get(item.id) ?? proposeStockClass(item.description, item.code, item.isBiologicalFeed);
-      const account = APPROVED_STOCK_ACCOUNTS[cls];
-      const list = stockWeights.get(item.inventoryGlAccountId!) ?? [];
-      const existing = list.find((w) => w.account === account);
-      if (existing) existing.weight += value;
-      else list.push({ account, weight: value });
-      stockWeights.set(item.inventoryGlAccountId!, list);
+      const per = stockTargets.get(item.inventoryGlAccountId!) ?? new Map<string, bigint>();
+      const account = APPROVED_STOCK_ACCOUNTS[stockClassOf(item)];
+      per.set(account, (per.get(account) ?? 0n) + (stockValue.get(item.id) ?? 0n));
+      stockTargets.set(item.inventoryGlAccountId!, per);
+    }
+    for (const g of groups) {
+      if (!g.itemId || !stockTargets.has(g.glAccountId)) continue;
+      const item = stockHeld.find((i) => i.id === g.itemId);
+      if (!item || item.inventoryGlAccountId !== g.glAccountId) continue;
+      const per = stockTargets.get(g.glAccountId)!;
+      const account = APPROVED_STOCK_ACCOUNTS[stockClassOf(item)];
+      per.set(account, (per.get(account) ?? 0n) - g.netKobo);
+    }
+    // Item-less lines per old account, in a fixed order.
+    const itemless = new Map<string, Group[]>();
+    for (const g of groups) {
+      if (g.itemId || !stockTargets.has(g.glAccountId)) continue;
+      itemless.set(g.glAccountId, [...(itemless.get(g.glAccountId) ?? []), g]);
+    }
+    const stockSplit = new Map<Group, Array<{ account: string; amount: bigint }>>();
+    for (const [accountId, list] of itemless) {
+      const residual = new Map([...stockTargets.get(accountId)!].filter(([, v]) => v !== 0n));
+      const total = list.reduce((sum, g) => sum + g.netKobo, 0n);
+      const residualTotal = [...residual.values()].reduce((sum, v) => sum + v, 0n);
+      if (residualTotal !== total) {
+        // The stock ledger and the general ledger disagree: say so, and share by what each type holds.
+        const weights = [...stockTargets.get(accountId)!].filter(([, v]) => v > 0n).map(([account, weight]) => ({ account, weight }));
+        if (weights.length > 0) {
+          warnings.push(
+            `${sourceById.get(accountId)!.accountNumber}: the stock ledger and the ledger differ by ${naira(total - residualTotal)}; item-less lines are shared in proportion to the stock each item type holds.`,
+          );
+          for (const g of list) stockSplit.set(g, allocate(g.netKobo, weights));
+        }
+        continue;
+      }
+      // Assign exactly: each group in turn takes what it can from classes of its own sign; the last takes the rest.
+      list.forEach((g, index) => {
+        if (index === list.length - 1) {
+          stockSplit.set(g, [...residual].filter(([, v]) => v !== 0n).map(([account, amount]) => ({ account, amount })));
+          return;
+        }
+        let left = g.netKobo;
+        const parts: Array<{ account: string; amount: bigint }> = [];
+        for (const [account, r] of residual) {
+          if (left === 0n) break;
+          const take = left > 0n ? (r > 0n ? (left < r ? left : r) : 0n) : r < 0n ? (left > r ? left : r) : 0n;
+          if (take === 0n) continue;
+          parts.push({ account, amount: take });
+          residual.set(account, r - take);
+          left -= take;
+        }
+        if (left !== 0n) {
+          // Opposite-signed leftovers: put them on the first class so the group still clears exactly.
+          const [account, r] = [...residual][0]!;
+          parts.push({ account, amount: left });
+          residual.set(account, r - left);
+        }
+        stockSplit.set(g, parts);
+      });
     }
 
     // --- Species by pen, then by farm --------------------------------------
@@ -600,10 +659,10 @@ export class ApprovedCutoverService {
           break;
         case 'stock': {
           const cls = (g.itemId ? stockClasses.get(g.itemId) : undefined) ?? null;
-          const weights = stockWeights.get(g.glAccountId);
+          const split = stockSplit.get(g);
           if (cls) add(APPROVED_STOCK_ACCOUNTS[cls], `${cls.toLowerCase()} item`, false);
-          else if (weights && weights.length > 0) {
-            for (const part of allocate(g.netKobo, weights)) add(part.account, 'no item on the line — shared by the stock ledger’s value of each item type', false, part.amount);
+          else if (split && split.length > 0) {
+            for (const part of split) add(part.account, 'no item on the line — placed so each inventory control ties to the stock ledger', false, part.amount);
           } else add(APPROVED_STOCK_ACCOUNTS.RAW, 'no item — raw materials assumed', true);
           break;
         }

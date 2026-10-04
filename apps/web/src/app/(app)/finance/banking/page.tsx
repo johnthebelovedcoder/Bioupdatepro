@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { getBankAccounts } from '@/lib/banking';
-import { getGlAccounts } from '@/lib/trade';
+import { getBankGlAccounts } from '@/lib/trade';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
@@ -14,7 +14,7 @@ export const metadata = { title: 'Banking — BioAssetPro' };
  * bank agrees. Each account opens to its reconciliation.
  */
 export default async function BankingPage() {
-  const [accounts, gl] = await Promise.all([getBankAccounts(), getGlAccounts().catch(() => [])]);
+  const [accounts, gl] = await Promise.all([getBankAccounts(), getBankGlAccounts().catch(() => [])]);
   const assetAccounts = gl.filter((account) => account.accountType === 'ASSET');
 
   return (

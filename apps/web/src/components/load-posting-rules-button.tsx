@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { loadPostingRules } from '@/app/(app)/ledger/controls/actions';
 
 /** Load the posting rules into a company that has never had them. */
-export function LoadPostingRulesButton() {
+export function LoadPostingRulesButton({ label = 'Load posting rules' }: { label?: string } = {}) {
   const [result, setResult] = useState<{ error: string | null; message: string | null } | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
@@ -25,7 +25,7 @@ export function LoadPostingRulesButton() {
             })
           }
         >
-          {pending ? 'Loading…' : 'Load posting rules'}
+          {pending ? 'Loading…' : label}
         </button>
       </div>
       {result?.error ? <div className="notice notice-error">{result.error}</div> : null}
