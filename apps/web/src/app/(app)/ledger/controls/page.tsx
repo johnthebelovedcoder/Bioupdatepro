@@ -74,14 +74,14 @@ export default async function ControlsPage() {
           </Card>
         ) : null}
 
-        {provisioning.ok && provisioning.data.chartVersion === 'LEGACY' ? (
-          <Card title="Legacy chart remains active" subtitle="The selected five-digit workbook chart still needs a complete, reconciled cutover">
+        {provisioning.ok && provisioning.data.chartVersion !== 'APPROVED' ? (
+          <Card title="Not yet on the approved chart" subtitle="Balances move to the five-digit workbook chart by the cutover">
             <p style={{ fontSize: 14, marginBottom: 'var(--sp-3)' }}>
-              The former six-digit cutover is disabled. The approved chart transition must map all posting roles and settings
-              to the five-digit workbook accounts and reconcile every split balance before any journal moves.
+              The cutover previews where every balance goes, restates poultry rearing cost by each cohort&apos;s stage,
+              repoints the settings and retires the old accounts. It runs once Finance has approved the account crosswalk.
             </p>
             <Link className="btn" href="/ledger/chart">
-              View chart readiness
+              Preview the cutover
             </Link>
           </Card>
         ) : null}

@@ -6097,6 +6097,12 @@ model LivestockGroup {
   hatchDateEstimated Boolean @default(false) @map("hatch_date_estimated")
   closedOn  DateTime? @map("closed_on") @db.Date
 
+  /// The approved-chart account this cohort's rearing cost sits in when a feed,
+  /// treatment, labour or relief row carries none — cost posted before the
+  /// chart held it by stage. Set by the balance cutover from the cohort's stage
+  /// on the cutover day; null elsewhere.
+  rearingHomeAccount String? @map("rearing_home_account")
+
   /// US-897-004/005. Planned dates, set at placement — this app has no
   /// "edit a group" screen yet, so these are captured once rather than
   /// left unbuildable pending one. Null means none was planned.

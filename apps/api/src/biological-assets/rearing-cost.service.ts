@@ -70,15 +70,15 @@ export class RearingCostService {
     groupId: string,
     client: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<Map<string, bigint>> {
-    const owner = await client.livestockGroup.findUnique({ where: { id: groupId }, select: { companyId: true, speciesKey: true } });
+    const owner = await client.livestockGroup.findUnique({ where: { id: groupId }, select: { companyId: true, speciesKey: true, rearingHomeAccount: true } });
     if (!owner) return new Map();
     const version = await chartVersionOf(client, owner.companyId);
     const accounts = rearingNumbersFor(version, owner.speciesKey);
     if (accounts.length === 0) return new Map();
     // Cost that carries no account was posted before the chart held it in
-    // more than one; it sits in the first (immature) account until the
-    // cutover restates it.
-    const home = accounts[0]!;
+    // more than one; it sits in the cohort's home account — set by the balance
+    // cutover from its stage that day — or, with none, the first (immature).
+    const home = owner.rearingHomeAccount && accounts.includes(owner.rearingHomeAccount) ? owner.rearingHomeAccount : accounts[0]!;
     const balance = new Map<string, bigint>(accounts.map((a) => [a, 0n]));
     const add = (account: string | null | undefined, amount: bigint) =>
       balance.set(account && balance.has(account) ? account : home, (balance.get(account && balance.has(account) ? account : home) ?? 0n) + amount);

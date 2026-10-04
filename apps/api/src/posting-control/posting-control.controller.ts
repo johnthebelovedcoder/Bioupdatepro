@@ -4,6 +4,8 @@ import { PostingControlService } from './posting-control.service';
 import { PostingControlChecksService } from './posting-control-checks.service';
 import { PostingControlProvisioningService } from './posting-control-provisioning.service';
 import { ChartUnificationService, PRODUCT_CLASSES, ProductClass, UnificationOptions } from '../chart/chart-unification.service';
+import { ApprovedCutoverService, ApprovedCutoverOptions } from '../chart/approved-cutover.service';
+import { APPROVED_PRODUCT_CLASSES, StockClass } from '../chart/approved-crosswalk';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { CurrentCompany } from '../auth/current-user.decorator';
@@ -35,7 +37,44 @@ export class PostingControlController {
     private readonly checks: PostingControlChecksService,
     private readonly provisioning: PostingControlProvisioningService,
     private readonly unification: ChartUnificationService,
+    private readonly cutover: ApprovedCutoverService,
   ) {}
+
+  /**
+   * The balance cutover to the approved five-digit chart. Preview first: it
+   * shows where every balance goes, what is assumed, and what blocks it.
+   */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Get('chart-cutover')
+  async cutoverPreview(@CurrentCompany() companyId: string, @Query('cutover') date?: string) {
+    const day = date ? parseDay(date) : await this.cutover.suggestedCutover(companyId);
+    if (!day) {
+      return { cutoverDate: null, canRun: false, blockers: ['No future month is open. Set up the next financial period first.'], warnings: [], accounts: [], items: [], cohorts: [], retiring: 0, classes: APPROVED_PRODUCT_CLASSES };
+    }
+    return { ...(await this.cutover.preview(companyId, day)), classes: APPROVED_PRODUCT_CLASSES };
+  }
+
+  /** The same preview with the person's choices. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('chart-cutover/preview')
+  async cutoverPreviewWith(@CurrentCompany() companyId: string, @Body() body: CutoverBody) {
+    if (!body?.cutover) throw new BadRequestException('Give the cutover date.');
+    return { ...(await this.cutover.preview(companyId, parseDay(body.cutover), parseCutoverOptions(body))), classes: APPROVED_PRODUCT_CLASSES };
+  }
+
+  /** Runs the cutover. The CFO only, with Finance's approval of the crosswalk on record. */
+  @Roles('CFO')
+  @Post('chart-cutover')
+  async cutoverRun(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Body() body: CutoverBody) {
+    if (!body?.cutover) throw new BadRequestException('Give the cutover date.');
+    return this.cutover.run({
+      companyId,
+      cutoverDate: parseDay(body.cutover),
+      options: parseCutoverOptions(body),
+      approval: { approvedBy: body.approvedBy ?? '', reference: body.approvalReference ?? '' },
+      actor,
+    });
+  }
 
   /**
    * Retained as a compatibility route while the five-digit approved-workbook
@@ -263,6 +302,52 @@ function parseOptions(body: { itemClasses?: Record<string, string>; defaultClass
       if (!isClass(cls)) throw new BadRequestException(`Unknown product type ${String(cls)}.`);
       options.itemClasses[itemId] = cls;
     }
+  }
+  return options;
+}
+
+interface CutoverBody {
+  cutover?: string;
+  itemClasses?: Record<string, string>;
+  stockClasses?: Record<string, string>;
+  defaultClass?: string;
+  defaultSpecies?: string;
+  overrides?: Record<string, string>;
+  approvedBy?: string;
+  approvalReference?: string;
+}
+
+function parseCutoverOptions(body: CutoverBody): ApprovedCutoverOptions {
+  const isClass = (v: unknown): v is keyof typeof APPROVED_PRODUCT_CLASSES => typeof v === 'string' && v in APPROVED_PRODUCT_CLASSES;
+  const isStock = (v: unknown): v is StockClass => v === 'RAW' || v === 'FEED' || v === 'PACKAGING' || v === 'CONSUMABLE';
+  const options: ApprovedCutoverOptions = {};
+  if (body.defaultClass) {
+    if (!isClass(body.defaultClass)) throw new BadRequestException(`Unknown product type ${body.defaultClass}.`);
+    options.defaultClass = body.defaultClass;
+  }
+  if (body.defaultSpecies) {
+    if (body.defaultSpecies !== 'poultry' && body.defaultSpecies !== 'snail') throw new BadRequestException('Species is poultry or snail.');
+    options.defaultSpecies = body.defaultSpecies;
+  }
+  if (body.itemClasses) {
+    options.itemClasses = {};
+    for (const [itemId, cls] of Object.entries(body.itemClasses)) {
+      if (!isClass(cls)) throw new BadRequestException(`Unknown product type ${String(cls)}.`);
+      options.itemClasses[itemId] = cls;
+    }
+  }
+  if (body.stockClasses) {
+    options.stockClasses = {};
+    for (const [itemId, cls] of Object.entries(body.stockClasses)) {
+      if (!isStock(cls)) throw new BadRequestException(`Unknown stock type ${String(cls)}.`);
+      options.stockClasses[itemId] = cls;
+    }
+  }
+  if (body.overrides) {
+    for (const [from, to] of Object.entries(body.overrides)) {
+      if (typeof to !== 'string' || !/^\d{5}$/.test(to)) throw new BadRequestException(`Override for ${from} must be a five-digit approved account.`);
+    }
+    options.overrides = body.overrides;
   }
   return options;
 }

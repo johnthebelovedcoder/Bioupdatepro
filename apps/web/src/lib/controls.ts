@@ -144,13 +144,14 @@ export interface RoleReadiness {
 export const getPostingControlStatus = () =>
   load<PostingControlStatus>('/posting-control/provisioning');
 
-/* --- Moving to the six-digit chart ---------------------------------------- */
+/* --- Moving to the approved five-digit chart ----------------------------- */
 
 export type ProductClass = 'LIVE_POULTRY' | 'EGGS' | 'PROCESSED_POULTRY' | 'LIVE_SNAIL' | 'PROCESSED_SNAIL';
+export type StockClass = 'RAW' | 'FEED' | 'PACKAGING' | 'CONSUMABLE';
 
-export interface UnificationPreview {
+export interface CutoverPreview {
   cutoverDate: string | null;
-  chartVersion?: 'LEGACY' | 'SPEC';
+  chartVersion?: 'LEGACY' | 'SPEC' | 'APPROVED';
   canRun: boolean;
   blockers: string[];
   warnings: string[];
@@ -160,10 +161,18 @@ export interface UnificationPreview {
     balanceKobo: string;
     moves: Array<{ to: string; amountKobo: string; basis: string; assumed: boolean }>;
   }>;
-  items: Array<{ itemId: string; code: string; description: string; proposed: ProductClass | null; chosen: ProductClass; feed: boolean }>;
-  untouched: Array<{ accountNumber: string; name: string; balanceKobo: string }>;
+  items: Array<{
+    itemId: string;
+    code: string;
+    description: string;
+    productClass: ProductClass | null;
+    proposedProduct: ProductClass | null;
+    stockClass: StockClass | null;
+  }>;
+  cohorts: Array<{ groupId: string; code: string; stage: string; account: string; rearingCostKobo: string }>;
+  retiring: number;
   classes: Record<ProductClass, { label: string; revenue: string; costOfSales: string; inventory: string }>;
 }
 
-export const getUnificationPreview = (cutover?: string) =>
-  load<UnificationPreview>(`/posting-control/chart-unification${cutover ? `?cutover=${encodeURIComponent(cutover)}` : ''}`);
+export const getCutoverPreview = (cutover?: string) =>
+  load<CutoverPreview>(`/posting-control/chart-cutover${cutover ? `?cutover=${encodeURIComponent(cutover)}` : ''}`);
