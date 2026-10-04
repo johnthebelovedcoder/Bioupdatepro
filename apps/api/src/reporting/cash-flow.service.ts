@@ -132,6 +132,8 @@ const PAYABLE_ACCOUNTS = [
   '219810', '219820', '219830',
   // Accrued expenses control (the actual conversion cost accrued by processing orders, approved chart).
   '20200',
+  // Current income tax payable on the approved chart (PCR-084-CR).
+  '20900',
   // Income tax provided for but not yet paid (PCR-084-CR).
   '227100',
   // Accrued expenses: actual conversion cost accrued at confirmation
@@ -139,14 +141,14 @@ const PAYABLE_ACCOUNTS = [
   // invoices, payroll and depreciation behind it are booked.
   '230100',
 ];
-const BANK_ACCOUNTS = ['1101', '110100'];
+const BANK_ACCOUNTS = allNumbersFor('bank');
 /** Salary and statutory payroll payables and costs: paid to or for employees. */
 const EMPLOYEE_ACCOUNTS = allNumbersFor(
   'salaryPayable', 'pensionPayable', 'nhfPayable', 'nsitfPayable', 'itfPayable',
   'salaryExpense', 'employerPensionExpense', 'nsitfExpense', 'itfExpense',
 );
 /** PAYE, VAT, withholding and income tax. */
-const TAX_ACCOUNTS = [...allNumbersFor('payePayable', 'outputVat', 'whtPayable', 'inputVat', 'whtReceivable'), '227100', '650100'];
+const TAX_ACCOUNTS = [...allNumbersFor('payePayable', 'outputVat', 'whtPayable', 'inputVat', 'whtReceivable'), '227100', '650100', '20900', '58000'];
 /** What the farm owes suppliers for goods and services. */
 const SUPPLIER_ACCOUNTS = allNumbersFor('tradePayables', 'grni');
 const PPE_ACCOUNTS = ['1701', '140100'];

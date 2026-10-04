@@ -43,7 +43,7 @@ export const COST_OF_SALES_ACCOUNTS = new Set([
 ]);
 
 /** Income tax expense (PCR-084-DR) — shown below profit before tax, not among operating costs. */
-export const INCOME_TAX_ACCOUNTS = new Set(['650100']);
+export const INCOME_TAX_ACCOUNTS = new Set(['650100', '58000']);
 
 /** IAS 41 biological-asset gains and produce gains are P&L income, but are
  * presented separately from revenue earned by selling goods and services. */
@@ -70,7 +70,20 @@ export class ProfitLossService {
   constructor(private readonly trialBalance: TrialBalanceService) {}
 
   async build(filter: TrialBalanceFilter): Promise<ProfitLoss> {
-    const tb = await this.trialBalance.build(filter);
+    const built = await this.trialBalance.build(filter);
+    // Type-canonical sign, as the balance sheet already does: expenses debit-positive and
+    // revenue credit-positive whatever a row's own normal balance. A contra expense
+    // (a recovery account: EXPENSE type, credit-normal) must reduce expenses, not add to them.
+    const tb = {
+      ...built,
+      rows: built.rows.map((row) =>
+        row.accountType === AccountType.EXPENSE
+          ? { ...row, displayedBalanceKobo: row.netKobo }
+          : row.accountType === AccountType.REVENUE
+            ? { ...row, displayedBalanceKobo: -row.netKobo }
+            : row,
+      ),
+    };
 
     const revenueRows = tb.rows.filter((row) => row.accountType === AccountType.REVENUE && !OTHER_INCOME_ACCOUNTS.has(row.accountNumber));
     const otherIncomeRows = tb.rows.filter((row) => OTHER_INCOME_ACCOUNTS.has(row.accountNumber));

@@ -9,7 +9,7 @@ import {
   APPROVED_PROCUREMENT_DEFAULTS,
   APPROVED_SALES_DEFAULTS,
   APPROVED_OVERHEAD_POOL,
-  APPROVED_PROCESSING_KEYS,
+  APPROVED_POSTING_KEYS,
   accrualNumberFor,
   approvedRoleReadiness,
   processingOverheadNumber,
@@ -252,11 +252,11 @@ describe('approved five-digit chart roles', () => {
     };
 
     it('names only keys the posting rules actually use', () => {
-      for (const key of Object.keys(APPROVED_PROCESSING_KEYS)) expect(keyNames.has(key), key).toBe(true);
+      for (const key of Object.keys(APPROVED_POSTING_KEYS)) expect(keyNames.has(key), key).toBe(true);
     });
 
     it('takes every workbook-sourced key from the workbook map it cites', () => {
-      for (const [key, { account, source }] of Object.entries(APPROVED_PROCESSING_KEYS)) {
+      for (const [key, { account, source }] of Object.entries(APPROVED_POSTING_KEYS)) {
         if (!/^[A-Z]{3}-[A-Z-]+ [A-Z_]+/.test(source)) continue; // crosswalk-sourced, below
         expect(mapBySource(source), `${key} ← ${source}`).toEqual(new Set([account]));
       }
@@ -264,7 +264,7 @@ describe('approved five-digit chart roles', () => {
 
     it('takes every crosswalk-sourced key from the review crosswalk, and every account exists in the workbook', () => {
       const crosswalk = readFileSync(join(__dirname, '../../../../docs/approved-coa-crosswalk-review.csv'), 'utf8');
-      for (const [key, { account, source }] of Object.entries(APPROVED_PROCESSING_KEYS)) {
+      for (const [key, { account, source }] of Object.entries(APPROVED_POSTING_KEYS)) {
         expect(accounts.has(account), `${key} → ${account}`).toBe(true);
         const match = source.match(/^crosswalk (\d{6}) → (\d{5})/);
         if (!match) continue;

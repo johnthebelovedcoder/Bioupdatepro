@@ -410,9 +410,10 @@ export function biologicalResultAccountsFor(version: ChartVersion, species: stri
 }
 
 /* -------------------------------------------------------------------------
- * Production and processing on the approved chart
+ * Posting keys on the approved chart: production, inventory movements, tax
  * -------------------------------------------------------------------------
- * Processing and feed-mill orders resolve their accounts through posting
+ * Processing and feed-mill orders, inventory transfers, write-offs and stock
+ * counts, and the income tax provision resolve their accounts through posting
  * rules (PCR-0xx) whose keys are linked to accounts per company. On the
  * approved chart those keys are linked to the five-digit accounts below, from
  * the workbook's own maps (the work-centre, finished-goods, payroll and raw
@@ -421,7 +422,7 @@ export function biologicalResultAccountsFor(version: ChartVersion, species: stri
  * entry says where it came from; test/unit/chart-approved.spec.ts checks the
  * workbook-sourced ones against the workbook.
  */
-export const APPROVED_PROCESSING_KEYS: Record<string, { account: string; source: string }> = {
+export const APPROVED_POSTING_KEYS: Record<string, { account: string; source: string }> = {
   // --- SnailPro processing (PCR-051…058) -----------------------------------
   'PCR-051-DR': { account: '13110', source: 'SNP-WC-MAIN PROCESSING_WIP' },
   'PCR-051-CR': { account: '16041', source: 'SNP-BA-MAT BA_DESTINATION_STAGE_CONTROL — market-ready snails leave the mature account' },
@@ -450,6 +451,19 @@ export const APPROVED_PROCESSING_KEYS: Record<string, { account: string; source:
   'PCR-079-DR': { account: '12420', source: 'PLP-FG-PROCESSED FINISHED_GOODS_INVENTORY' },
   'PCR-079-CR': { account: '13120', source: 'PLP-WC-MAIN PROCESSING_WIP' },
   'PCR-080-DR': { account: '53500', source: 'PLP-WC-MAIN RECOVERY_VARIANCE' },
+  // --- Inventory movements (PCR-012…014) --------------------------------------
+  // The stock side is the item's own inventory account where it names one
+  // (inventory-transfer and stock-count services); these are the fallback for
+  // an item that names none.
+  'PCR-012-DR': { account: '12500', source: 'COR-RM IN_TRANSIT_INVENTORY' },
+  'PCR-012-CR': { account: '12000', source: 'COR-RM INVENTORY_CONTROL' },
+  'PCR-013-DR': { account: '12000', source: 'COR-RM INVENTORY_CONTROL' },
+  'PCR-013-CR': { account: '12500', source: 'COR-RM IN_TRANSIT_INVENTORY' },
+  'PCR-014-DR': { account: '51200', source: 'COR-RM INVENTORY_LOSS_VARIANCE — inventory write-down expense' },
+  'PCR-014-CR': { account: '12000', source: 'COR-RM INVENTORY_CONTROL' },
+  // --- Current income tax (PCR-084) -------------------------------------------
+  'PCR-084-DR': { account: '58000', source: 'crosswalk 650100 → 58000 (income tax expense)' },
+  'PCR-084-CR': { account: '20900', source: 'COR-FIN-DEFAULT INCOME_TAX_PAYABLE' },
   // --- Feed mill (PCR-032…036) ----------------------------------------------
   'PCR-032-DR': { account: '13200', source: 'PLP-RM FEED_MILL_WIP' },
   'PCR-032-CR': { account: '12100', source: 'PLP-RM FEED_INGREDIENT_INVENTORY — workbook rule YFR-045C' },
@@ -530,3 +544,6 @@ export const APPROVED_PROCUREMENT_DEFAULTS = {
   payables: '20100', // COR-VEND-LOCAL AP_CONTROL
   whtPayable: '20500', // COR-WHT-SUP-2 WHT_PAYABLE
 } as const;
+
+/** Where a stock count's surplus is credited on the approved chart (COR-RM INVENTORY_GAIN_VARIANCE); a shortage is PCR-014's write-down. */
+export const APPROVED_INVENTORY_GAIN = '41000';

@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { PostingControlService, ResolvedRule } from '../posting-control/posting-control.service';
+import { chartVersionOf } from '../chart/chart';
 import { StockMovementService } from './stock-movement.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { allocateFefo } from './lots';
@@ -119,7 +120,7 @@ export class InventoryTransferService {
               dimensions,
             },
             {
-              glAccountId: this.requireSide(rule.credit, 'PCR-012', 'credit').glAccountId,
+              glAccountId: await this.stockAccount(params.companyId, params.itemId, this.requireSide(rule.credit, 'PCR-012', 'credit').glAccountId),
               description: `PCR-012 — transfer issue (${transferNumber})`,
               credit: kobo(issued.valueKobo),
               dimensions,
@@ -235,7 +236,7 @@ export class InventoryTransferService {
           actor: params.actor,
           lines: [
             {
-              glAccountId: this.requireSide(rule.debit, 'PCR-013', 'debit').glAccountId,
+              glAccountId: await this.stockAccount(transfer.companyId, transfer.itemId, this.requireSide(rule.debit, 'PCR-013', 'debit').glAccountId),
               description: `PCR-013 — transfer receipt (${transfer.transferNumber})`,
               debit: kobo(transfer.valueKobo),
               dimensions,
@@ -430,7 +431,7 @@ export class InventoryTransferService {
               dimensions,
             },
             {
-              glAccountId: this.requireSide(rule.credit, 'PCR-014', 'credit').glAccountId,
+              glAccountId: await this.stockAccount(params.companyId, writeOff.itemId, this.requireSide(rule.credit, 'PCR-014', 'credit').glAccountId),
               description: `PCR-014 — inventory write-off (${writeOff.reason})`,
               credit: kobo(issued.valueKobo),
               dimensions,
@@ -459,6 +460,20 @@ export class InventoryTransferService {
       );
       return { id: writeOff.id, status: 'POSTED', journalEntryId: result.journalEntryId };
     }, { timeout: 15000 });
+  }
+
+  /**
+   * The inventory account a stock movement posts to. On the approved chart
+   * that is the item's own (raw materials, feed ingredients, packaging and
+   * finished goods are separate controls), so the control account the stock
+   * ledger moves value in is the one the ledger moves; the rule's account is
+   * the fallback for an item that names none. The older charts post every
+   * transfer and write-off through the rule's one account, as they always did.
+   */
+  private async stockAccount(companyId: string, itemId: string, fallback: string): Promise<string> {
+    if ((await chartVersionOf(this.prisma, companyId)) !== 'APPROVED') return fallback;
+    const item = await this.prisma.item.findFirst({ where: { id: itemId, companyId }, select: { inventoryGlAccountId: true } });
+    return item?.inventoryGlAccountId ?? fallback;
   }
 
   private requireSide(side: ResolvedRule['debit'], ruleId: string, name: string) {

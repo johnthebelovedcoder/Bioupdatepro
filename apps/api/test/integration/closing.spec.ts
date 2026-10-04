@@ -628,6 +628,28 @@ describe('Period-End & Year-End Closing (§8)', () => {
   // =========================================================================
 
   describe('THE IDENTITY: year end sweeps revenue and carries the balance sheet', () => {
+    it('sweeps a credit-normal contra-expense (cost recovery) by its net balance', async () => {
+      await tradeInPeriod(0, 1_000_000_00n, 400_000_00n, 'JAN');
+      const recovery = await prisma.gLAccount.create({
+        data: { companyId: fixture.companyId, accountNumber: '5401', name: 'Production Cost Recovery', accountType: 'EXPENSE', normalBalance: 'CREDIT' },
+      });
+      const d = dims(0);
+      await posting.post({
+        sourceModule: 'test', sourceDocumentType: 'Trade', journalNumber: 'REC-1', journalDate: new Date(Date.UTC(2026, 0, 20)),
+        narration: 'Recovery', ...d, idempotencyKey: 'rec-1', actor: maker,
+        lines: [
+          { glAccountId: fixture.accounts['1101']!, description: 'Held', debit: kobo(100_000_00n), dimensions: d },
+          { glAccountId: recovery.id, description: 'Recovered', credit: kobo(100_000_00n), dimensions: d },
+        ],
+      });
+      await closeAllPeriods();
+      const result = await yearEnd.close({ financialYearId: fixture.financialYearId, actor: approver });
+      // Profit 600,000 plus the 100,000 recovery that reduced expense.
+      expect(result.retainedEarningsKobo).toBe('70000000');
+      expect(await accountBalance('5401')).toBe(0n);
+      expect(await accountBalance('3200')).toBe(-70_000_000n);
+    });
+
     it('refuses to close a year with periods still open', async () => {
       const validation = await yearEnd.validate(fixture.financialYearId);
       expect(validation.canClose).toBe(false);

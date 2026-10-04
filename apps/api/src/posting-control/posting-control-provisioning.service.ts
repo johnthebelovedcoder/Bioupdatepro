@@ -12,7 +12,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import {
-  APPROVED_PROCESSING_KEYS,
+  APPROVED_POSTING_KEYS,
   APPROVED_PROCUREMENT_DEFAULTS,
   APPROVED_SALES_DEFAULTS,
   approvedRoleReadiness,
@@ -497,13 +497,13 @@ export class PostingControlProvisioningService {
     const accountByNumber = new Map(accounts.map((a) => [a.accountNumber, a.id]));
 
     // On the approved chart the processing and feed-mill keys are linked to
-    // the five-digit accounts (chart.ts APPROVED_PROCESSING_KEYS); every other
+    // the five-digit accounts (chart.ts APPROVED_POSTING_KEYS); every other
     // key keeps its historical six-digit link until it is moved.
     const approved = (await chartVersionOf(this.prisma, companyId)) === 'APPROVED';
 
     let linked = 0;
     for (const row of data.keys) {
-      const override = approved ? APPROVED_PROCESSING_KEYS[row.key] : undefined;
+      const override = approved ? APPROVED_POSTING_KEYS[row.key] : undefined;
       const code = override ? override.account : (row.glCode ?? '').trim();
       const atomic = override ? true : /^\d{6}$/.test(code);
       const glAccountId = atomic ? (accountByNumber.get(code) ?? null) : null;
