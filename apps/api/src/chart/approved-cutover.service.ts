@@ -448,10 +448,38 @@ export class ApprovedCutoverService {
       itemRows.push({ itemId: item.id, code: item.code, description: item.description, productClass, proposedProduct, stockClass });
     }
 
+    // --- Stock lines that carry no item ------------------------------------
+    // Shared by what the stock ledger holds for the items on that account, so
+    // each approved inventory control ties to its own items afterwards.
+    const stockSources = sources.filter((a) => ruleOf(a.accountNumber)?.kind === 'stock').map((a) => a.id);
+    const stockHeld = await client.item.findMany({
+      where: { companyId, inventoryGlAccountId: { in: stockSources } },
+      select: { id: true, code: true, description: true, isBiologicalFeed: true, inventoryGlAccountId: true },
+    });
+    const stockMoves = await client.stockMovement.groupBy({
+      by: ['itemId', 'direction'],
+      where: { companyId, itemId: { in: stockHeld.map((i) => i.id) } },
+      _sum: { valueKobo: true },
+    });
+    const stockValue = new Map<string, bigint>();
+    for (const m of stockMoves) stockValue.set(m.itemId, (stockValue.get(m.itemId) ?? 0n) + (m.direction === 'IN' ? 1n : -1n) * (m._sum.valueKobo ?? 0n));
+    const stockWeights = new Map<string, Array<{ account: string; weight: bigint }>>();
+    for (const item of stockHeld) {
+      const value = stockValue.get(item.id) ?? 0n;
+      if (value <= 0n) continue;
+      const cls = options.stockClasses?.[item.id] ?? stockClasses.get(item.id) ?? proposeStockClass(item.description, item.code, item.isBiologicalFeed);
+      const account = APPROVED_STOCK_ACCOUNTS[cls];
+      const list = stockWeights.get(item.inventoryGlAccountId!) ?? [];
+      const existing = list.find((w) => w.account === account);
+      if (existing) existing.weight += value;
+      else list.push({ account, weight: value });
+      stockWeights.set(item.inventoryGlAccountId!, list);
+    }
+
     // --- Species by pen, then by farm --------------------------------------
     const populations = await client.livestockGroup.findMany({
       where: { companyId },
-      select: { id: true, code: true, penHouseId: true, farmId: true, speciesKey: true, stage: true, status: true, population: true },
+      select: { id: true, code: true, branchId: true, penHouseId: true, farmId: true, speciesKey: true, stage: true, status: true, population: true },
     });
     const speciesOfPen = new Map<string, Set<Species>>();
     const speciesOfFarm = new Map<string, Set<Species>>();
@@ -494,7 +522,9 @@ export class ApprovedCutoverService {
 
     const rearingShares = (g: Group): Array<{ account: string; weight: bigint }> => {
       const here = poultry.filter((p) => (g.penHouseId && p.penHouseId === g.penHouseId) || (!g.penHouseId && g.farmId && p.farmId === g.farmId));
-      const pool = here.length > 0 ? here : poultry.filter((p) => g.farmId && p.farmId === g.farmId);
+      const farm = poultry.filter((p) => g.farmId && p.farmId === g.farmId);
+      // A balance posted with no pen or farm is shared across the branch's poultry cohorts.
+      const pool = here.length > 0 ? here : farm.length > 0 ? farm : poultry.filter((p) => p.branchId === g.branchId);
       const byAccount = new Map<string, bigint>();
       for (const p of pool) {
         const account = cohortAccount.get(p.id);
@@ -510,6 +540,10 @@ export class ApprovedCutoverService {
           if (account) heads.set(account, (heads.get(account) ?? 0n) + BigInt(Math.max(p.population, 0)));
         }
         shares = [...heads].map(([account, weight]) => ({ account, weight }));
+      }
+      if (shares.every((s) => s.weight === 0n)) {
+        // Neither cost nor animals left (a flock harvested or sold): the stage of the cohorts that are there decides.
+        shares = [...new Set(pool.map((p) => cohortAccount.get(p.id)).filter((a): a is string => !!a))].map((account) => ({ account, weight: 1n }));
       }
       return shares.filter((s) => s.weight > 0n);
     };
@@ -566,8 +600,11 @@ export class ApprovedCutoverService {
           break;
         case 'stock': {
           const cls = (g.itemId ? stockClasses.get(g.itemId) : undefined) ?? null;
+          const weights = stockWeights.get(g.glAccountId);
           if (cls) add(APPROVED_STOCK_ACCOUNTS[cls], `${cls.toLowerCase()} item`, false);
-          else add(APPROVED_STOCK_ACCOUNTS.RAW, 'no item — raw materials assumed', true);
+          else if (weights && weights.length > 0) {
+            for (const part of allocate(g.netKobo, weights)) add(part.account, 'no item on the line — shared by the stock ledger’s value of each item type', false, part.amount);
+          } else add(APPROVED_STOCK_ACCOUNTS.RAW, 'no item — raw materials assumed', true);
           break;
         }
         case 'product': {
@@ -601,7 +638,8 @@ export class ApprovedCutoverService {
             break;
           }
           for (const part of allocate(g.netKobo, shares)) {
-            add(part.account, `${s.basis}; share of the cohorts in this pen at ${part.account === '16032' ? 'an immature' : 'a mature'} stage`, s.assumed || shares.length === 0, part.amount);
+            const place = g.penHouseId ? 'pen' : g.farmId ? 'farm' : 'branch';
+            add(part.account, `${s.basis}; share of the cohorts in this ${place} at ${part.account === '16032' ? 'an immature' : 'a mature'} stage`, s.assumed || !g.penHouseId, part.amount);
           }
           break;
         }
@@ -643,7 +681,7 @@ export class ApprovedCutoverService {
       byAccount.set(p.accountNumber, row);
     }
     for (const row of byAccount.values()) {
-      for (const m of row.moves.values()) if (m.assumed) warnings.push(`${naira(m.amount)} from ${row.from} goes to ${m.to} on an assumption (${m.basis}). Check it, or choose another account with an override.`);
+      for (const m of row.moves.values()) if (m.assumed && m.amount !== 0n) warnings.push(`${naira(m.amount)} from ${row.from} goes to ${m.to} on an assumption (${m.basis}). Check it, or choose another account with an override.`);
     }
     const homes = poultry.filter((p) => cohortAccount.has(p.id)).map((p) => ({ groupId: p.id, account: cohortAccount.get(p.id)! }));
     const rearingAccounts = new Set(Object.entries(CROSSWALK).filter(([, r]) => r.kind === 'rearing').map(([n]) => n));

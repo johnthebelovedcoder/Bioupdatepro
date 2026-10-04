@@ -11,6 +11,8 @@ import { ChartUnificationService } from '../../src/chart/chart-unification.servi
 import { ApprovedCutoverService } from '../../src/chart/approved-cutover.service';
 import { RearingCostService } from '../../src/biological-assets/rearing-cost.service';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
+import { ProfitLossService } from '../../src/reporting/profit-loss.service';
+import { CashFlowService } from '../../src/reporting/cash-flow.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
@@ -185,6 +187,20 @@ describe('ApprovedCutoverService', () => {
 
     // A second run is refused.
     await expect(cutover.run({ companyId: fixture.companyId, cutoverDate: CUTOVER, approval, actor })).rejects.toThrow(/already on the approved/);
+  });
+
+  it('keeps the cash flow statement reconciled to the bank in the month of the cutover (found by the restore rehearsal)', async () => {
+    // Receivables and payables moving between accounts are not cash: both sides must count in the same bucket.
+    for (const [number, name, accountType, normalBalance] of [['1201', 'Trade Receivables', 'ASSET', 'DEBIT'], ['2201', 'Trade Payables', 'LIABILITY', 'CREDIT']] as const) {
+      fixture.accounts[number] ??= (await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType, normalBalance } })).id;
+    }
+    await books([{ account: '1201', debit: 70_000n }, { account: '2201', credit: 20_000n }]);
+    await cutover.run({ companyId: fixture.companyId, cutoverDate: CUTOVER, approval, actor });
+    const periods = await prisma.financialPeriod.findMany({ where: { financialYearId: fixture.financialYearId }, orderBy: { periodNumber: 'asc' } });
+    const october = periods.find((p) => p.startDate.getTime() === CUTOVER.getTime())!;
+    const cash = await new CashFlowService(prisma, new ProfitLossService(new TrialBalanceService(prisma))).build({ companyId: fixture.companyId, financialPeriodId: october.id });
+    expect(cash.reconciled).toBe(true);
+    expect(cash.netCashFromOperationsKobo).toBe('0');
   });
 
   it('puts a mature cohort’s cost in 16042 and keeps the subledger and the ledger together', async () => {

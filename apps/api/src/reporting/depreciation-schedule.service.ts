@@ -81,8 +81,8 @@ export class DepreciationScheduleService {
 
     // What was posted: the depreciation-run and disposal journals in the range.
     const expenseNumbers = allNumbersFor('depreciationExpense');
-    const accumulatedNumbers = allNumbersFor('accumulatedDepreciation');
-    const ppeNumbers = allNumbersFor('ppe');
+    const accumulatedNumbers = [...allNumbersFor('accumulatedDepreciation'), '15500', '15600', '15700'];
+    const ppeNumbers = [...allNumbersFor('ppe'), '15100', '15200', '15300', '15400'];
     // The line pools: 621200/622100/623100 on the old charts. The approved chart
     // charges processing-line machine depreciation to depreciation expense (52400)
     // or feed-milling conversion cost (52700), so a line is told by its asset.

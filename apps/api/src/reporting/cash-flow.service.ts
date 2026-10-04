@@ -89,7 +89,7 @@ type DirectLine = 'customers' | 'suppliers' | 'employees' | 'taxes' | 'otherOper
 // Each bucket lists its accounts on both charts (chart.ts): a company that
 // has moved charts has nothing left on the old numbers, and one that has not
 // has nothing on the new.
-const RECEIVABLE_ACCOUNTS = ['1201', '120100'];
+const RECEIVABLE_ACCOUNTS = allNumbersFor('receivables');
 /**
  * VAT and withholding tax recoverable, and VAT and withholding owed: working
  * capital like any receivable or payable. Missing until 2026-09-26, so a
@@ -97,8 +97,8 @@ const RECEIVABLE_ACCOUNTS = ['1201', '120100'];
  * cash above the bank's by the tax withheld — the direct method, reading the
  * bank itself, is what showed it.
  */
-const TAX_RECEIVABLE_ACCOUNTS = ['1601', '125100', '1602', '125200'];
-const TAX_PAYABLE_ACCOUNTS = ['2120', '226100', '2130', '225100'];
+const TAX_RECEIVABLE_ACCOUNTS = allNumbersFor('inputVat', 'whtReceivable');
+const TAX_PAYABLE_ACCOUNTS = allNumbersFor('outputVat', 'whtPayable');
 const INVENTORY_ACCOUNTS = [
   '1301', '1302', '1305', '1401', '1501',
   '130100', '130110', '130199', '130410', '130420', '130430', '130510', '130520',
@@ -111,12 +111,17 @@ const INVENTORY_ACCOUNTS = [
   '12420', '13020',
   // Production and processing on the approved chart: raw materials and feed
   // ingredients, finished snail products and feed, and the three WIP controls.
-  '12000', '12100', '12410', '12450', '13110', '13120', '13200',
+  '12000', '12100', '12200', '12300', '12400', '12410', '12450', '12500', '13000', '13110', '13120', '13200',
   // Viable biological eggs can use the approved immature-stage control
   // accounts when the company is on the approved posting-engine COA.
   '16031', '16032', '16041', '16042',
+  // The six-digit chart's biological asset accounts, which a cutover leaves behind with their history.
+  '130200', '130201', '130202', '130203', '130204', '130210',
 ];
 const PAYABLE_ACCOUNTS = [
+  // Trade payables, GRNI and the payroll liabilities on every chart (the
+  // approved chart's 20100, 20300, 20600 and the shared payroll control 20700).
+  ...allNumbersFor('tradePayables', 'grni', 'salaryPayable', 'pensionPayable', 'nhfPayable', 'nsitfPayable', 'itfPayable', 'payePayable'),
   '2140', '2201', '210200', '210100', '220100',
   // Payroll's own statutory payables (PayrollRunService's hardcoded map) —
   // salary, pension, NHF, NSITF, ITF, PAYE.
@@ -151,9 +156,10 @@ const EMPLOYEE_ACCOUNTS = allNumbersFor(
 const TAX_ACCOUNTS = [...allNumbersFor('payePayable', 'outputVat', 'whtPayable', 'inputVat', 'whtReceivable'), '227100', '650100', '20900', '58000'];
 /** What the farm owes suppliers for goods and services. */
 const SUPPLIER_ACCOUNTS = allNumbersFor('tradePayables', 'grni');
-const PPE_ACCOUNTS = ['1701', '140100'];
-const DEPRECIATION_ACCOUNTS = ['5501', '630100'];
-const ACCUMULATED_DEPRECIATION_ACCOUNTS = ['1702', '149100'];
+// The approved chart splits fixed assets by class (docs/approved-coa-crosswalk-review.csv).
+const PPE_ACCOUNTS = ['1701', '140100', '15100', '15200', '15300', '15400'];
+const DEPRECIATION_ACCOUNTS = ['5501', '630100', '52400'];
+const ACCUMULATED_DEPRECIATION_ACCOUNTS = ['1702', '149100', '15500', '15600', '15700'];
 /** Fair-value gain/loss on snails and poultry, and the gain on eggs at collection. */
 const FAIR_VALUE_ACCOUNTS = ['42000', '42100', '420100', '420200', '420210'];
 
@@ -443,7 +449,7 @@ export class CashFlowService {
       const account = accounts.get(accountId);
       if (!account) return 'otherOperating';
       const n = account.accountNumber;
-      if (PPE_ACCOUNTS.includes(n) || allNumbersFor('accumulatedDepreciation').includes(n)) return 'investing';
+      if (PPE_ACCOUNTS.includes(n) || ACCUMULATED_DEPRECIATION_ACCOUNTS.includes(n)) return 'investing';
       if (EMPLOYEE_ACCOUNTS.includes(n)) return 'employees';
       if (TAX_ACCOUNTS.includes(n)) return 'taxes';
       if (RECEIVABLE_ACCOUNTS.includes(n) || account.accountType === 'REVENUE') return 'customers';
