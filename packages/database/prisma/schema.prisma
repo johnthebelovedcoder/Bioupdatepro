@@ -6097,6 +6097,12 @@ model LivestockGroup {
   hatchDateEstimated Boolean @default(false) @map("hatch_date_estimated")
   closedOn  DateTime? @map("closed_on") @db.Date
 
+  /// The approved-chart account this cohort's rearing cost sits in when a feed,
+  /// treatment, labour or relief row carries none — cost posted before the
+  /// chart held it by stage. Set by the balance cutover from the cohort's stage
+  /// on the cutover day; null elsewhere.
+  rearingHomeAccount String? @map("rearing_home_account")
+
   /// US-897-004/005. Planned dates, set at placement — this app has no
   /// "edit a group" screen yet, so these are captured once rather than
   /// left unbuildable pending one. Null means none was planned.
@@ -6199,9 +6205,27 @@ model LivestockRearingRelief {
 
   group LivestockGroup @relation(fields: [groupId], references: [id])
 
+  splits LivestockRearingReliefSplit[]
+
   @@unique([groupId, eventType, sourceId])
   @@index([groupId])
   @@map("livestock_rearing_reliefs")
+}
+
+/// Which accounts a relief took its amount from, where rearing cost is held in
+/// more than one (poultry on the approved chart). A relief with no split rows
+/// came from the one account for the species. Rows sum to the relief's amount.
+model LivestockRearingReliefSplit {
+  id            String @id @default(uuid()) @db.Uuid
+  reliefId      String @map("relief_id") @db.Uuid
+  accountNumber String @map("account_number")
+  /// MONEY. Always positive.
+  amountKobo    BigInt @map("amount_kobo")
+
+  relief LivestockRearingRelief @relation(fields: [reliefId], references: [id], onDelete: Cascade)
+
+  @@unique([reliefId, accountNumber])
+  @@map("livestock_rearing_relief_splits")
 }
 
 /// A population leaving live — §61.3 formula 6, PCR-050/073.
@@ -6372,6 +6396,11 @@ model FeedIssue {
   /// The posting that took this out of stock and into the population's
   /// work-in-progress. Null until it has been posted.
   journalEntryId String? @map("journal_entry_id") @db.Uuid
+  /// The account the cost was debited to when it posted. Only set where the
+  /// chart holds rearing cost in more than one account (poultry on the
+  /// approved chart: immature or mature by the flock's stage that day); null
+  /// means the one account for the species.
+  rearingAccountNumber String? @map("rearing_account_number")
 
   dailyRecord  DailyRecord   @relation(fields: [dailyRecordId], references: [id], onDelete: Cascade)
   item         Item?         @relation("FeedIssueItem", fields: [itemId], references: [id])
@@ -6536,6 +6565,9 @@ model TreatmentRecord {
   @@index([companyId, givenOn])
   @@index([groupId, givenOn])
   @@map("treatment_records")
+
+  /// As FeedIssue.rearingAccountNumber.
+  rearingAccountNumber String? @map("rearing_account_number")
 }
 
 /// What came off a population.

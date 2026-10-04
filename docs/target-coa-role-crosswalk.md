@@ -1,6 +1,6 @@
 # Application posting-role crosswalk to the selected five-digit chart
 
-**Status:** engineering analysis; proposed targets are not Finance-approved. Do not use this register to migrate balances. The selected chart is the account master in `approved-posting-engine.json`; the final columns below identify the target handling required by each application role.
+**Status:** engineering analysis; proposed targets are not Finance-approved. The balance cutover (`chart/approved-crosswalk.ts`) is built from it but refuses to run until Finance’s approval is recorded. The selected chart is the account master in `approved-posting-engine.json`; the final columns below identify the target handling required by each application role.
 
 | Application role | Current six-digit target | Workbook target / handling | Status and evidence needed |
 |---|---:|---|---|

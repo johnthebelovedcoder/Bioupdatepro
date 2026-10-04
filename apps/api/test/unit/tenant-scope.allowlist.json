@@ -200,14 +200,6 @@
     "reason": "groupId is a population already loaded and checked to be this company’s in the same method."
   },
   {
-    "key": "biological-assets/rearing-cost.service.ts treatmentRecord.aggregate { groupId, journalEntry: standing }",
-    "reason": "groupId is a population the caller has already loaded for this company; rearing cost is always asked for one known population."
-  },
-  {
-    "key": "biological-assets/rearing-cost.service.ts livestockRearingRelief.groupBy { groupId }",
-    "reason": "groupId is a population the caller has already loaded for this company; rearing cost is always asked for one known population."
-  },
-  {
     "key": "biological-assets/rearing-cost.service.ts livestockRearingRelief.updateMany { groupId, eventType: 'HARVEST', sourceId: harvestRecordId, journalEntryId: null }",
     "reason": "groupId is a population the caller has already loaded for this company; rearing cost is always asked for one known population."
   },

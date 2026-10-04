@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma, ProductionOrderCycle, WorkflowStatus } from '@bioassetpro/database';
-import { chartVersionOf, numberFor } from '../chart/chart';
+import { chartVersionOf, numberFor, processingOverheadNumber } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -803,14 +803,20 @@ export class FixedAssetService {
   ): Promise<Partial<Record<ProductionOrderCycle, string>>> {
     const wanted = [...new Set(cycles.filter((c): c is ProductionOrderCycle => !!c))];
     if (wanted.length === 0) return {};
-    const numbers = wanted.map((cycle) => PROCESSING_OVERHEAD[cycle].number);
+    // 621200/622100/623100 on the old charts; on the approved chart machine
+    // depreciation for a processing line is depreciation expense (52400, or the
+    // feed-milling conversion cost 52700) with the line kept on the asset.
+    const version = await chartVersionOf(client, companyId);
+    const numberOf = (cycle: ProductionOrderCycle) => processingOverheadNumber(version, cycle);
+    const numbers = wanted.map(numberOf);
     const accounts = await client.gLAccount.findMany({
       where: { companyId, accountNumber: { in: numbers }, active: true },
       select: { id: true, accountNumber: true },
     });
     const resolved: Partial<Record<ProductionOrderCycle, string>> = {};
     for (const cycle of wanted) {
-      const { number, name } = PROCESSING_OVERHEAD[cycle];
+      const { name } = PROCESSING_OVERHEAD[cycle];
+      const number = numberOf(cycle);
       const account = accounts.find((a) => a.accountNumber === number);
       if (!account) {
         throw new AccountingRuleViolation(

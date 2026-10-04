@@ -94,6 +94,13 @@ export class IncomeTaxService {
       exchangeRate: '1.00000000',
     };
     const amount = kobo(delta > 0n ? delta : -delta);
+    // The approved chart requires a cost centre on income tax expense: the company's first one that may be posted to.
+    const costCentre = await this.prisma.costCentre.findFirst({
+      where: { companyId: params.companyId, active: true, postingAllowed: true },
+      orderBy: { code: 'asc' },
+      select: { id: true },
+    });
+    const expenseDimensions = costCentre ? { ...dimensions, costCentreId: costCentre.id } : dimensions;
     const posted = await this.posting.post({
       sourceModule: 'closing',
       sourceDocumentType: 'IncomeTaxProvision',
@@ -105,7 +112,7 @@ export class IncomeTaxService {
       idempotencyKey: `income-tax:${period.id}:${result.taxDueYtdKobo}`,
       actor: params.actor,
       lines: [
-        { glAccountId: expense, description: 'PCR-084 — income tax expense', ...(delta > 0n ? { debit: amount } : { credit: amount }), dimensions },
+        { glAccountId: expense, description: 'PCR-084 — income tax expense', ...(delta > 0n ? { debit: amount } : { credit: amount }), dimensions: expenseDimensions },
         { glAccountId: payable, description: 'PCR-084 — income tax payable', ...(delta > 0n ? { credit: amount } : { debit: amount }), dimensions },
       ],
     });

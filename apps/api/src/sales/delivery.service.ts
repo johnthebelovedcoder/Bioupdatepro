@@ -391,6 +391,8 @@ export class DeliveryService {
               credit: kobo(pair.amountKobo),
               dimensions: {
                 ...dimensions,
+                // The approved chart requires a cost centre on inventory controls.
+                costCentreId: delivery.salesOrder.costCentreId,
                 farmId: delivery.salesOrder.farmId,
                 customerId: delivery.customerId,
               },

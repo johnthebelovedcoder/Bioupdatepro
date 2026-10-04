@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma } from '@bioassetpro/database';
-import { chartVersionOf, speciesNumberFor } from '../chart/chart';
+import { chartVersionOf, eggAccountsFor, hatchedChickAccountNumber, speciesNumberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { AuditService } from '../audit/audit.service';
@@ -36,13 +36,11 @@ import type { WorkflowActor } from '../workflow/workflow.types';
  * posted, the record waits under "Farm records waiting for the ledger".
  */
 
-const ACCOUNT = {
-  gain: '420210',
-  eggs: '130215',
-  incubation: '130216',
-  poultry: '130210',
-  // (The loss account depends on the chart — resolved in postHatch.)
-} as const;
+/*
+ * The accounts above are LEGACY/SPEC's; the company's own chart decides which
+ * (chart.ts eggAccountsFor), and the loss and chick accounts depend on the
+ * chart too — resolved in postHatch.
+ */
 
 @Injectable()
 export class EggPostingService {
@@ -103,13 +101,18 @@ export class EggPostingService {
     const item = await this.prisma.item.findFirst({ where: { id: params.itemId, companyId: params.companyId, active: true } });
     if (!item) throw new NotFoundException('No such active item in this company.');
 
-    const eggsAccount = await this.account(params.companyId, ACCOUNT.eggs, this.prisma);
-    // Eggs are held in Eggs (130215). An item with no inventory account is
-    // pointed there; one already pointed elsewhere keeps its own, so the
-    // control reconciliation for that account stays whole either way.
-    if (!item.inventoryGlAccountId) {
-      await this.prisma.item.update({ where: { id: item.id }, data: { inventoryGlAccountId: eggsAccount } });
-    }
+    const accounts = eggAccountsFor(await chartVersionOf(this.prisma, params.companyId));
+    const eggsAccount = await this.account(params.companyId, accounts.inventory, this.prisma);
+    // Eggs are held in Eggs (130215; 12420 on the approved chart). An item
+    // with no inventory account is pointed there; one already pointed
+    // elsewhere keeps its own, so the control reconciliation for that account
+    // stays whole either way. On the approved chart an egg item also takes
+    // the workbook's egg revenue and cost of sales unless it names its own.
+    const defaults: { inventoryGlAccountId?: string; revenueGlAccountId?: string; costOfSalesGlAccountId?: string } = {};
+    if (!item.inventoryGlAccountId) defaults.inventoryGlAccountId = eggsAccount;
+    if (accounts.revenue && !item.revenueGlAccountId) defaults.revenueGlAccountId = await this.account(params.companyId, accounts.revenue, this.prisma);
+    if (accounts.costOfSales && !item.costOfSalesGlAccountId) defaults.costOfSalesGlAccountId = await this.account(params.companyId, accounts.costOfSales, this.prisma);
+    if (Object.keys(defaults).length > 0) await this.prisma.item.update({ where: { id: item.id }, data: defaults });
 
     const policy = await this.prisma.eggValuePolicy.upsert({
       where: { companyId_effectiveFrom: { companyId: params.companyId, effectiveFrom: params.effectiveFrom } },
@@ -181,12 +184,13 @@ export class EggPostingService {
       const valueKobo = tableValueKobo + hatchingValueKobo;
 
       await this.prisma.$transaction(async (tx) => {
+        const accounts = eggAccountsFor(await chartVersionOf(tx, batch.companyId));
         const [context, gain, warehouseId] = await Promise.all([
           this.context(tx, batch.companyId, batch.collectedOn),
-          this.account(batch.companyId, ACCOUNT.gain, tx),
+          this.account(batch.companyId, accounts.gain, tx),
           this.warehouse(tx, batch.companyId, item.defaultWarehouseId),
         ]);
-        const inventory = item.inventoryGlAccountId ?? (await this.account(batch.companyId, ACCOUNT.eggs, tx));
+        const inventory = item.inventoryGlAccountId ?? (await this.account(batch.companyId, accounts.inventory, tx));
         const dims = { ...context, branchId: batch.branchId, farmId: batch.farmId, penHouseId: batch.penHouseId };
 
         const journal = await this.posting.post(
@@ -248,12 +252,13 @@ export class EggPostingService {
     return this.attempt(`Incubation ${incubation.code}`, async () => {
       await this.prisma.$transaction(async (tx) => {
         const item = await tx.item.findUniqueOrThrow({ where: { id: source.itemId! } });
+        const accounts = eggAccountsFor(await chartVersionOf(tx, incubation.companyId));
         const [context, incubationAccount, warehouseId] = await Promise.all([
           this.context(tx, incubation.companyId, incubation.setOn),
-          this.account(incubation.companyId, ACCOUNT.incubation, tx),
+          this.account(incubation.companyId, accounts.incubation, tx),
           this.warehouse(tx, incubation.companyId, item.defaultWarehouseId),
         ]);
-        const inventory = item.inventoryGlAccountId ?? (await this.account(incubation.companyId, ACCOUNT.eggs, tx));
+        const inventory = item.inventoryGlAccountId ?? (await this.account(incubation.companyId, accounts.inventory, tx));
         const dims = { ...context, branchId: source.branchId, farmId: source.farmId, penHouseId: source.penHouseId };
 
         const movement = {
@@ -354,18 +359,17 @@ export class EggPostingService {
       await this.prisma.$transaction(async (tx) => {
         const source = incubation.eggBatch;
         const chicks = hatch.hatchedCount > 0 && hatch.chickGroupId;
+        const version = await chartVersionOf(tx, hatch.companyId);
+        const group = chicks ? await tx.livestockGroup.findUniqueOrThrow({ where: { id: hatch.chickGroupId! } }) : null;
         const [context, incubationAccount, target] = await Promise.all([
           this.context(tx, hatch.companyId, hatch.hatchedOn),
-          this.account(hatch.companyId, ACCOUNT.incubation, tx),
+          this.account(hatch.companyId, eggAccountsFor(version).incubation, tx),
           this.account(
             hatch.companyId,
-            chicks
-              ? ACCOUNT.poultry
-              : speciesNumberFor(await chartVersionOf(tx, hatch.companyId), 'productionLoss', 'poultry')!,
+            group ? hatchedChickAccountNumber(version, group.stage) : speciesNumberFor(version, 'productionLoss', 'poultry')!,
             tx,
           ),
         ]);
-        const group = chicks ? await tx.livestockGroup.findUniqueOrThrow({ where: { id: hatch.chickGroupId! } }) : null;
         const dims = {
           ...context,
           branchId: group?.branchId ?? source.branchId,

@@ -74,14 +74,14 @@ export default async function ControlsPage() {
           </Card>
         ) : null}
 
-        {provisioning.ok && provisioning.data.chartVersion === 'LEGACY' ? (
-          <Card title="Legacy chart remains active" subtitle="The selected five-digit workbook chart still needs a complete, reconciled cutover">
+        {provisioning.ok && provisioning.data.chartVersion !== 'APPROVED' ? (
+          <Card title="Not yet on the approved chart" subtitle="Balances move to the five-digit workbook chart by the cutover">
             <p style={{ fontSize: 14, marginBottom: 'var(--sp-3)' }}>
-              The former six-digit cutover is disabled. The approved chart transition must map all posting roles and settings
-              to the five-digit workbook accounts and reconcile every split balance before any journal moves.
+              The cutover previews where every balance goes, restates poultry rearing cost by each cohort&apos;s stage,
+              repoints the settings and retires the old accounts. It runs once Finance has approved the account crosswalk.
             </p>
             <Link className="btn" href="/ledger/chart">
-              View chart readiness
+              Preview the cutover
             </Link>
           </Card>
         ) : null}
@@ -124,6 +124,18 @@ export default async function ControlsPage() {
                       Unresolved active posting maps: {provisioning.data.targetChart.unresolvedPostingMaps.slice(0, 8)
                         .map((row) => `${row.application}/${row.postingGroup}/${row.postingKey} → ${row.accountCode}`).join('; ')}
                       {provisioning.data.targetChart.unresolvedPostingMaps.length > 8 ? '…' : ''}
+                    </p>
+                  ) : null}
+                  {provisioning.data.targetChart.unresolvedRoles.length > 0 ? (
+                    <p className="faint">
+                      Posting purposes with no usable account on this chart: {provisioning.data.targetChart.unresolvedRoles
+                        .map((row) => `${row.role} (${row.state === 'no-workbook-account' ? 'the workbook names none' : `${row.number} missing`})`).join('; ')}
+                    </p>
+                  ) : null}
+                  {provisioning.data.targetChart.configurationsOutsideTarget.length > 0 ? (
+                    <p className="faint">
+                      Sales and purchasing set-up still naming accounts outside the approved chart: {provisioning.data.targetChart.configurationsOutsideTarget
+                        .map((row) => `${row.configuration} ${row.role} (${row.accountNumber})`).join('; ')}
                     </p>
                   ) : null}
                   {provisioning.data.targetChart.resolvedActivePostingMaps < provisioning.data.targetChart.expectedActivePostingMaps ? (

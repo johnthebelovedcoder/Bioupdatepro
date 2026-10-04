@@ -360,6 +360,7 @@ export class YearEndService {
             exchangeRate: '1.00000000',
           };
 
+          const required = await this.requiredDimensions(tx, year.companyId, dimensions, closingLines.map((l) => l.glAccountId));
           const posted = await this.posting.post(
             {
               sourceModule: 'closing',
@@ -377,7 +378,7 @@ export class YearEndService {
                 description: line.description,
                 debit: line.debit !== undefined ? kobo(line.debit) : undefined,
                 credit: line.credit !== undefined ? kobo(line.credit) : undefined,
-                dimensions,
+                dimensions: required.get(line.glAccountId) ?? dimensions,
               })),
             },
             tx,
@@ -444,6 +445,7 @@ export class YearEndService {
               exchangeRate: '1.00000000',
             };
 
+            const openingRequired = await this.requiredDimensions(tx, year.companyId, dimensions, openingLines.map((l) => l.glAccountId));
             const posted = await this.posting.post(
               {
                 sourceModule: 'closing',
@@ -461,7 +463,7 @@ export class YearEndService {
                   description: line.description,
                   debit: line.debit !== undefined ? kobo(line.debit) : undefined,
                   credit: line.credit !== undefined ? kobo(line.credit) : undefined,
-                  dimensions,
+                  dimensions: openingRequired.get(line.glAccountId) ?? dimensions,
                 })),
               },
               tx,
@@ -619,6 +621,44 @@ export class YearEndService {
         name: { contains: 'Retained', mode: 'insensitive' },
       },
     });
+  }
+
+  /**
+   * The year-end journals carry each account's balance as a whole, with no
+   * dimensions of their own. An account the chart says needs a cost centre,
+   * department, farm or project (every expense and most asset controls on the
+   * approved chart) would then refuse the closing and opening journals, so the
+   * line takes the company's first usable one. The balance is already held as
+   * one figure per account here, so this adds no detail that was there.
+   */
+  private async requiredDimensions<D extends object>(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    base: D,
+    glAccountIds: string[],
+  ): Promise<Map<string, D & { costCentreId?: string; departmentId?: string; farmId?: string }>> {
+    const accounts = await tx.gLAccount.findMany({
+      where: { companyId, id: { in: [...new Set(glAccountIds)] } },
+      select: { id: true, requiresCostCentre: true, requiresDepartment: true, requiresFarm: true },
+    });
+    const [centre, department, farm] = await Promise.all([
+      accounts.some((a) => a.requiresCostCentre)
+        ? tx.costCentre.findFirst({ where: { companyId, active: true, postingAllowed: true }, orderBy: { code: 'asc' }, select: { id: true } })
+        : null,
+      accounts.some((a) => a.requiresDepartment) ? tx.department.findFirst({ where: { companyId, active: true }, orderBy: { code: 'asc' }, select: { id: true } }) : null,
+      accounts.some((a) => a.requiresFarm) ? tx.farm.findFirst({ where: { companyId }, orderBy: { code: 'asc' }, select: { id: true } }) : null,
+    ]);
+    return new Map(
+      accounts.map((a) => [
+        a.id,
+        {
+          ...base,
+          ...(a.requiresCostCentre && centre ? { costCentreId: centre.id } : {}),
+          ...(a.requiresDepartment && department ? { departmentId: department.id } : {}),
+          ...(a.requiresFarm && farm ? { farmId: farm.id } : {}),
+        },
+      ]),
+    );
   }
 
   private async defaultBranchId(

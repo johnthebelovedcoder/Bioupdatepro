@@ -9,6 +9,7 @@ import { PostingControlService } from '../posting-control/posting-control.servic
 import { WorkflowActor } from '../workflow/workflow.types';
 import { StockMovementService } from './stock-movement.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { APPROVED_INVENTORY_GAIN, chartVersionOf } from '../chart/chart';
 import { kobo } from '../common/money';
 
 /** Who may approve, hold or cancel a count (INT-009: counter ≠ approver). */
@@ -298,6 +299,15 @@ export class StockCountService {
     const rule = await this.postingControl.resolve({ companyId: params.companyId, ruleId: 'PCR-014', on: new Date() });
     if (!rule.debit || !rule.credit) throw new AccountingRuleViolation('Consolidated Reference §66 — Posting rule', 'PCR-014 has no account on one side.', {});
     const lossAccount = rule.debit.glAccountId;
+    // On the approved chart a surplus is its own gain (other operating income),
+    // not a credit against the write-down expense a shortage is charged to.
+    const gainAccount =
+      (await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED'
+        ? (await this.prisma.gLAccount.findFirst({ where: { companyId: params.companyId, accountNumber: APPROVED_INVENTORY_GAIN, active: true }, select: { id: true } }))?.id
+        : undefined;
+    if ((await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED' && !gainAccount) {
+      throw new AccountingRuleViolation('INT-009 — Count surplus', `A stock count surplus is credited to ${APPROVED_INVENTORY_GAIN} (inventory gain), which this chart does not have.`, {});
+    }
     const dimensions = {
       companyId: params.companyId,
       branchId: count.branchId,
@@ -341,7 +351,7 @@ export class StockCountService {
             : { glAccountId: stockAccount, description: label, debit: kobo(magnitude), dimensions },
           variance.lt(0)
             ? { glAccountId: stockAccount, description: label, credit: kobo(magnitude), dimensions }
-            : { glAccountId: lossAccount, description: label, credit: kobo(magnitude), dimensions },
+            : { glAccountId: gainAccount ?? lossAccount, description: label, credit: kobo(magnitude), dimensions },
         );
       }
 

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@bioassetpro/database';
-import { chartVersionOf, numberFor, speciesNumberFor, SNAIL_FEED_EXPENSE } from '../chart/chart';
+import { chartVersionOf, numberFor, rearingNumberFor, rearingNumbersFor, snailInputExpenseNumber } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { kobo } from '../common/money';
@@ -97,7 +97,7 @@ export class OperationsPostingService {
       }
 
       const group = issue.dailyRecord.group;
-      const accounts = await this.accounts(params.companyId, group.speciesKey, 'feed');
+      const accounts = await this.accounts(params.companyId, group.speciesKey, 'feed', group.stage);
       if (!accounts) {
         skipped.push('The chart of accounts has no Work in Progress or Raw Material Inventory.');
         break;
@@ -214,6 +214,7 @@ export class OperationsPostingService {
             where: { id: issue.id },
             data: {
               journalEntryId: journal.journalEntryId,
+              rearingAccountNumber: accounts.rearingAccountNumber,
               ...(issued ? { unitCostKobo: issued.unitCostKobo, valueKobo: issued.valueKobo } : {}),
             },
           });
@@ -250,7 +251,7 @@ export class OperationsPostingService {
       return { posted: false };
     }
 
-    const accounts = await this.accounts(params.companyId, treatment.group.speciesKey, 'treatment');
+    const accounts = await this.accounts(params.companyId, treatment.group.speciesKey, 'treatment', treatment.group.stage);
     const period = await this.periodFor(params.companyId, treatment.givenOn);
     const costCentre = await this.costCentreFor(params.companyId);
     if (!accounts || !period || !costCentre) {
@@ -302,7 +303,7 @@ export class OperationsPostingService {
 
       await this.prisma.treatmentRecord.update({
         where: { id: treatment.id },
-        data: { journalEntryId: result.journalEntryId },
+        data: { journalEntryId: result.journalEntryId, rearingAccountNumber: accounts.rearingAccountNumber },
       });
       return { posted: true };
     } catch (error) {
@@ -409,9 +410,12 @@ export class OperationsPostingService {
    * feed-and-medication expense (611000) — the workbook expenses snail inputs
    * as used. `rawMaterials` is the store it leaves when the item names none.
    */
-  private async accounts(companyId: string, speciesKey: string, purpose: 'feed' | 'treatment') {
+  private async accounts(companyId: string, speciesKey: string, purpose: 'feed' | 'treatment', stage: string) {
     const version = await chartVersionOf(this.prisma, companyId);
-    const debitNumber = speciesNumberFor(version, 'rearingCost', speciesKey) ?? SNAIL_FEED_EXPENSE;
+    // On the approved chart poultry cost goes to the account of the flock's
+    // stage today (immature or mature); the account is kept on the row so a
+    // later death or sale relieves the accounts that actually hold the cost.
+    const debitNumber = rearingNumberFor(version, speciesKey, stage) ?? snailInputExpenseNumber(version, purpose);
     const creditNumber = numberFor(version, purpose === 'feed' ? 'feedInventory' : 'rawMaterials');
     const rows = await this.prisma.gLAccount.findMany({
       where: { companyId, accountNumber: { in: [debitNumber, creditNumber] }, active: true },
@@ -420,7 +424,9 @@ export class OperationsPostingService {
     const workInProgress = rows.find((r) => r.accountNumber === debitNumber)?.id;
     const rawMaterials = rows.find((r) => r.accountNumber === creditNumber)?.id;
     if (!workInProgress || !rawMaterials) return null;
-    return { workInProgress, rawMaterials };
+    // Recorded only where the chart holds rearing cost in more than one account.
+    const rearingAccountNumber = rearingNumbersFor(version, speciesKey).length > 1 ? debitNumber : null;
+    return { workInProgress, rawMaterials, rearingAccountNumber };
   }
 
   /**

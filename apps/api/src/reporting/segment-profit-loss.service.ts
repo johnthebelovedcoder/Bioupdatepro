@@ -131,14 +131,72 @@ const SEGMENT_ACCOUNTS: Record<string, [ProductSegment, Row]> = {
   '640300': ['farm', 'lossesAndOther'],
   '640500': ['farm', 'lossesAndOther'],
   '5305': ['farm', 'lossesAndOther'],
+
+  // --- The approved five-digit chart (docs/target-coa-decision.md) ------------
+  // Revenue
+  '40210': ['farm', 'externalRevenue'],
+  '40310': ['farm', 'externalRevenue'],
+  '40330': ['farm', 'externalRevenue'],
+  '40220': ['processing', 'externalRevenue'],
+  '40230': ['processing', 'externalRevenue'],
+  '40320': ['processing', 'externalRevenue'],
+  '40340': ['processing', 'externalRevenue'],
+  '42000': ['farm', 'fairValueGain'],
+  '42100': ['farm', 'fairValueGain'], // an expense account, counted against the gain (NEGATIVE_INCOME)
+  // Cost of sales
+  '50210': ['farm', 'cogsLive'],
+  '50310': ['farm', 'cogsLive'],
+  '50330': ['farm', 'cogsLive'],
+  '50220': ['processing', 'cogsProcessed'],
+  '50320': ['processing', 'cogsProcessed'],
+  // Variances
+  '53000': ['processing', 'productionVariance'],
+  '53100': ['processing', 'productionVariance'],
+  '53200': ['processing', 'productionVariance'],
+  '53300': ['processing', 'productionVariance'],
+  '53400': ['processing', 'productionVariance'],
+  '53500': ['processing', 'productionVariance'],
+  '53600': ['feedMill', 'productionVariance'],
+  // Farm costs
+  '52510': ['farm', 'feedMedication'],
+  '52520': ['farm', 'feedMedication'],
+  '52610': ['farm', 'feedMedication'],
+  '52620': ['farm', 'feedMedication'],
+  '52000': ['farm', 'lifecycleLabourOverhead'],
+  '52010': ['farm', 'lifecycleLabourOverhead'],
+  '52020': ['farm', 'lifecycleLabourOverhead'],
+  // Processing conversion that did not settle into product cost, and the recovery that offsets it
+  '52100': ['processing', 'lossesAndOther'],
+  '52110': ['processing', 'lossesAndOther'],
+  '52120': ['processing', 'lossesAndOther'],
+  '52200': ['processing', 'lossesAndOther'],
+  '51200': ['processing', 'lossesAndOther'],
+  '54000': ['processing', 'lossesAndOther'],
+  '54100': ['processing', 'lossesAndOther'],
+  '54200': ['processing', 'lossesAndOther'],
+  // Feed mill
+  '52700': ['feedMill', 'lossesAndOther'],
+  '54300': ['feedMill', 'lossesAndOther'],
+  // Income tax (PCR-084)
+  '58000': ['farm', 'incomeTax'],
+  // Biological losses
+  '51000': ['farm', 'lossesAndOther'],
+  '51010': ['farm', 'lossesAndOther'],
+  '51020': ['farm', 'lossesAndOther'],
+  '51100': ['farm', 'lossesAndOther'],
+  '51110': ['farm', 'lossesAndOther'],
+  '51120': ['farm', 'lossesAndOther'],
 };
+
+/** Expense accounts shown on an income row, so they count against it (the approved chart's fair value loss). */
+const NEGATIVE_INCOME = new Set(['42100']);
 
 /** Accounts that belong to one species by what they are (recommended-coa.json). */
 const ACCOUNT_SPECIES: Record<string, Species> = Object.fromEntries([
-  ...['410100', '410200', '420100', '510100', '510200', '520100', '611000', '612000', '621100', '621200', '640300', '640400'].map(
+  ...['410100', '410200', '420100', '510100', '510200', '520100', '611000', '612000', '621100', '621200', '640300', '640400', '40210', '40220', '40230', '50210', '50220', '52010', '52110', '52510', '52610', '51010', '51110'].map(
     (n) => [n, 'snail' as const],
   ),
-  ...['410300', '410400', '420200', '420210', '510300', '510400', '520300', '613000', '613100', '613200', '622100', '640500', '640600'].map(
+  ...['410300', '410400', '420200', '420210', '510300', '510400', '520300', '613000', '613100', '613200', '622100', '640500', '640600', '40310', '40320', '40330', '40340', '50310', '50320', '50330', '52020', '52120', '52520', '52620', '51020', '51120'].map(
     (n) => [n, 'poultry' as const],
   ),
 ]);
@@ -203,13 +261,17 @@ export class SegmentProfitLossService {
       const credit = line._sum.creditKobo ?? 0n;
       // Positive on the account's normal side — exactly as ProfitLossService
       // reads it, so the consolidated column ties to that statement.
-      const amount = account.normalBalance === NormalBalance.CREDIT ? credit - debit : debit - credit;
+      // Type-canonical, so a contra expense (a credit-normal recovery account) reduces cost.
+      const amount =
+        account.accountType === AccountType.EXPENSE ? debit - credit
+        : account.accountType === AccountType.REVENUE ? credit - debit
+        : account.normalBalance === NormalBalance.CREDIT ? credit - debit : debit - credit;
       if (amount === 0n) continue;
       const [segment, row] =
         SEGMENT_ACCOUNTS[account.accountNumber] ??
         (account.accountType === AccountType.REVENUE ? (['farm', 'externalRevenue'] as const) : (['farm', 'lossesAndOther'] as const));
       const owner: Owner = ACCOUNT_SPECIES[account.accountNumber] ?? placeOf(line.penHouseId, line.farmId) ?? 'shared';
-      grids[owner][segment][row] += amount;
+      grids[owner][segment][row] += NEGATIVE_INCOME.has(account.accountNumber) ? -amount : amount;
     }
 
     // --- The internal feed transfer ----------------------------------------
