@@ -86,6 +86,21 @@ export class SalesFlowService {
       }
       return totals;
     };
+    // What a delivery will cost each item at (the standard cost) against what stock
+    // actually cost on average, so a screen can say when the two have drifted apart.
+    const itemIds = [...new Set(orders.flatMap((order) => order.lines.map((line) => line.itemId)))];
+    const today = new Date();
+    const [standardRows, averageRows] = await Promise.all([
+      this.prisma.itemStandardCost.findMany({
+        where: { itemId: { in: itemIds }, effectiveFrom: { lte: today }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }] },
+        orderBy: { effectiveFrom: 'desc' },
+        select: { itemId: true, standardCostKobo: true },
+      }),
+      this.prisma.item.findMany({ where: { companyId, id: { in: itemIds } }, select: { id: true, weightedAverageCostKobo: true } }),
+    ]);
+    const standardCost = new Map<string, bigint>();
+    for (const row of standardRows) if (!standardCost.has(row.itemId)) standardCost.set(row.itemId, row.standardCostKobo);
+    const averageCost = new Map(averageRows.map((row) => [row.id, row.weightedAverageCostKobo]));
     const shippingByLine = sumByLine(shipping);
     const billingByLine = sumByLine(billing);
 
@@ -126,6 +141,8 @@ export class SalesFlowService {
         deliveredQuantity: line.deliveredQuantity?.toString() ?? '0',
         invoicedQuantity: line.invoicedQuantity?.toString() ?? '0',
         unitPriceKobo: line.unitPriceKobo.toString(),
+        standardCostKobo: standardCost.get(line.itemId)?.toString() ?? null,
+        averageCostKobo: averageCost.get(line.itemId)?.toString() ?? null,
       })),
     }));
   }

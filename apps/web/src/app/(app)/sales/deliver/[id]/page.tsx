@@ -37,6 +37,14 @@ export default async function DeliverGoodsPage({
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  // A delivery is costed at the standard cost. Say so when stock actually cost
+  // something quite different, because cost of sales will not match what was paid.
+  const drifted = order.lines.filter((line) => {
+    if (!line.standardCostKobo || !line.averageCostKobo) return false;
+    const standard = Number(line.standardCostKobo);
+    const average = Number(line.averageCostKobo);
+    return standard > 0 && average > 0 && Math.abs(average - standard) / standard > 0.25;
+  });
 
   return (
     <>
@@ -45,6 +53,15 @@ export default async function DeliverGoodsPage({
         subtitle={`${order.customer} — ${formatNaira(order.netKobo)} ordered`}
       />
       <div className="stack">
+        {drifted.length > 0 ? (
+          <div className="notice notice-warning">
+            Cost of sales is taken at the standard cost, which differs from what stock actually cost:{' '}
+            {drifted
+              .map((line) => `${line.itemCode} standard ${formatNaira(line.standardCostKobo!)}, average paid ${formatNaira(line.averageCostKobo!)}`)
+              .join('; ')}
+            . Update the standard cost if it is out of date.
+          </div>
+        ) : null}
         <DeliveryForm order={order} today={today} />
         <Card>
           <p className="muted" style={{ fontSize: 14 }}>

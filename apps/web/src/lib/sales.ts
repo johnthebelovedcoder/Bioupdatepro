@@ -17,6 +17,9 @@ export interface SalesOrderLine {
   deliveredQuantity: string;
   invoicedQuantity: string;
   unitPriceKobo: string;
+  /** What a delivery costs this item at, and what stock actually cost on average. */
+  standardCostKobo: string | null;
+  averageCostKobo: string | null;
 }
 
 export interface SalesOrder {

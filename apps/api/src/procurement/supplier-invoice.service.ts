@@ -5,6 +5,7 @@ import {
   AuditAction,
   ItemType,
   MatchStatus,
+  StockDirection,
   Prisma,
   SupplierInvoiceStatus,
   VatDirection,
@@ -500,6 +501,7 @@ export class SupplierInvoiceService {
         supplier: true,
       },
     });
+    const variances = await this.priceDifferences(params.tx, invoice);
 
     if (invoice.status === SupplierInvoiceStatus.POSTED) {
       throw new AccountingRuleViolation(
@@ -541,14 +543,33 @@ export class SupplierInvoiceService {
 
     // The cost side: GRNI for matched lines, inventory or expense otherwise.
     for (const line of invoice.lines) {
+      const variance = variances.get(line.id);
       lines.push({
         glAccountId: line.costGlAccountId,
         description: line.clearsGrni
           ? `Clear GRNI — ${line.description}`
           : line.description,
-        debit: line.netAmountKobo,
+        // GRNI holds what was received, at the receipt price. The rest of the
+        // invoice is the price difference, booked below to stock or cost of sales.
+        debit: variance ? variance.receivedValueKobo : line.netAmountKobo,
         itemId: line.itemId,
       });
+      if (variance?.capitaliseKobo) {
+        lines.push({
+          glAccountId: variance.inventoryAccountId,
+          description: `Price difference to stock cost — ${line.description}`,
+          ...(variance.capitaliseKobo > 0n ? { debit: variance.capitaliseKobo } : { credit: -variance.capitaliseKobo }),
+          itemId: line.itemId,
+        });
+      }
+      if (variance?.expenseKobo) {
+        lines.push({
+          glAccountId: variance.costOfSalesAccountId!,
+          description: `Price difference on goods already used — ${line.description}`,
+          ...(variance.expenseKobo > 0n ? { debit: variance.expenseKobo } : { credit: -variance.expenseKobo }),
+          itemId: line.itemId,
+        });
+      }
     }
 
     if (invoice.vatAmountKobo > 0n) {
@@ -594,6 +615,46 @@ export class SupplierInvoiceService {
       },
       params.tx,
     );
+
+    // --- Stock revalued by the part of the price difference it keeps -------
+    for (const line of invoice.lines) {
+      const variance = variances.get(line.id);
+      if (!variance?.capitaliseKobo) continue;
+      const increase = variance.capitaliseKobo > 0n;
+      await params.tx.stockMovement.create({
+        data: {
+          companyId: invoice.companyId,
+          branchId: invoice.branchId,
+          itemId: line.itemId,
+          warehouseId: variance.warehouseId,
+          direction: increase ? StockDirection.IN : StockDirection.OUT,
+          quantity: new Prisma.Decimal(0),
+          unitCostKobo: 0n,
+          valueKobo: increase ? variance.capitaliseKobo : -variance.capitaliseKobo,
+          sourceModule: 'procurement',
+          sourceDocumentType: 'SupplierInvoicePriceDifference',
+          sourceDocumentId: invoice.id,
+          documentReference: invoice.invoiceNumber,
+          movementDate: invoice.invoiceDate,
+          journalEntryId: result.journalEntryId,
+        },
+      });
+      const [onHandIn, onHandOut] = await Promise.all([
+        params.tx.stockMovement.aggregate({ where: { companyId: invoice.companyId, itemId: line.itemId, direction: StockDirection.IN }, _sum: { quantity: true, valueKobo: true } }),
+        params.tx.stockMovement.aggregate({ where: { companyId: invoice.companyId, itemId: line.itemId, direction: StockDirection.OUT }, _sum: { quantity: true, valueKobo: true } }),
+      ]);
+      const quantity = new Decimal((onHandIn._sum.quantity ?? 0).toString()).minus((onHandOut._sum.quantity ?? 0).toString());
+      const value = (onHandIn._sum.valueKobo ?? 0n) - (onHandOut._sum.valueKobo ?? 0n);
+      if (quantity.greaterThan(0)) {
+        await params.tx.item.update({
+          where: { id: line.itemId },
+          data: {
+            weightedAverageCostKobo: BigInt(new Decimal(value.toString()).div(quantity).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0)),
+            weightedAverageCostSetAt: new Date(),
+          },
+        });
+      }
+    }
 
     // --- VAT register, same transaction as the posting (§4) ----------------
     for (const line of invoice.lines) {
@@ -699,6 +760,77 @@ export class SupplierInvoiceService {
         whtTaxCodeId: invoice.whtTaxCodeId,
       }))
       .filter((invoice) => BigInt(invoice.openAmountKobo) > 0n);
+  }
+
+  /**
+   * What a goods-matched line was invoiced above or below the price it was received
+   * at. Goods received are in GRNI at the receipt price; the difference is the
+   * actual cost of the stock, so it goes to the item's inventory account and
+   * revalues the stock ledger by the same amount. Whatever share of the goods has
+   * already been used goes to cost of sales instead, since it is no longer on hand
+   * to carry it. A line whose item names no inventory account, or whose goods are
+   * gone with no cost of sales account to take them, is left as it was.
+   */
+  private async priceDifferences(
+    tx: Prisma.TransactionClient,
+    invoice: Prisma.SupplierInvoiceGetPayload<{ include: { lines: true } }>,
+  ) {
+    const result = new Map<
+      string,
+      {
+        receivedValueKobo: bigint;
+        capitaliseKobo: bigint;
+        expenseKobo: bigint;
+        inventoryAccountId: string;
+        costOfSalesAccountId: string | null;
+        warehouseId: string;
+      }
+    >();
+    const salesConfig = await tx.salesConfiguration.findFirst({
+      where: { companyId: invoice.companyId, effectiveFrom: { lte: invoice.invoiceDate }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: invoice.invoiceDate } }] },
+      select: { costOfSalesGlAccountId: true },
+    });
+
+    for (const line of invoice.lines) {
+      if (!line.clearsGrni || !line.goodsReceiptNoteLineId) continue;
+      const grnLine = await tx.goodsReceiptNoteLine.findUniqueOrThrow({
+        where: { id: line.goodsReceiptNoteLineId },
+        include: { item: true, goodsReceiptNote: { select: { warehouseId: true } } },
+      });
+      const received = BigInt(
+        new Decimal(grnLine.unitPriceKobo.toString()).mul(line.quantity.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0),
+      );
+      const difference = line.netAmountKobo - received;
+      if (difference === 0n || !grnLine.item.inventoryGlAccountId) continue;
+
+      const [stockIn, stockOut] = await Promise.all([
+        tx.stockMovement.aggregate({ where: { companyId: invoice.companyId, itemId: line.itemId, direction: StockDirection.IN }, _sum: { quantity: true } }),
+        tx.stockMovement.aggregate({ where: { companyId: invoice.companyId, itemId: line.itemId, direction: StockDirection.OUT }, _sum: { quantity: true } }),
+      ]);
+      const onHand = new Decimal((stockIn._sum.quantity ?? 0).toString()).minus((stockOut._sum.quantity ?? 0).toString());
+      const invoiced = new Decimal(line.quantity.toString());
+      const costOfSalesAccountId = grnLine.item.costOfSalesGlAccountId ?? salesConfig?.costOfSalesGlAccountId ?? null;
+
+      let capitaliseKobo = difference;
+      if (onHand.lessThan(invoiced)) {
+        if (!costOfSalesAccountId) {
+          // Nothing to carry it and nowhere to expense it: leave it in GRNI as before.
+          if (onHand.lessThanOrEqualTo(0)) continue;
+        } else {
+          const share = onHand.lessThanOrEqualTo(0) ? new Decimal(0) : onHand.div(invoiced);
+          capitaliseKobo = BigInt(new Decimal(difference.toString()).mul(share).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
+        }
+      }
+      result.set(line.id, {
+        receivedValueKobo: received,
+        capitaliseKobo,
+        expenseKobo: difference - capitaliseKobo,
+        inventoryAccountId: grnLine.item.inventoryGlAccountId,
+        costOfSalesAccountId,
+        warehouseId: grnLine.warehouseId ?? grnLine.goodsReceiptNote.warehouseId,
+      });
+    }
+    return result;
   }
 
   /**

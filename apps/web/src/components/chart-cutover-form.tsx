@@ -68,6 +68,13 @@ export function ChartCutoverForm({ initial }: { initial: CutoverPreview }) {
             <span>Cutover (first day of an open month)</span>
             <input type="date" value={choices.cutover} onChange={(event) => event.target.value && refresh({ ...choices, cutover: event.target.value })} />
           </label>
+          {preview.cutoverDate! > new Date().toISOString().slice(0, 10) ? (
+            <div className="notice notice-info">
+              The company switches to the approved chart as soon as this runs, but the old balances move on {preview.cutoverDate}.
+              Until then, anything posted already goes to approved accounts, and the cutover journal moves only what is on the
+              old accounts. Reports stay consistent; pick the first day of the current month if you would rather the two happen together.
+            </div>
+          ) : null}
         </div>
       </Card>
 
