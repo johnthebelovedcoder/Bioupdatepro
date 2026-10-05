@@ -88,8 +88,10 @@ const WORKBOOK_SOURCE: Partial<Record<AccountRole, string>> = {
 };
 
 const roles = Object.keys(ROLE_ACCOUNTS) as AccountRole[];
-/** Roles the workbook has no account for: impairment, and the POL-009 capitalised variances. */
-const UNRESOLVED: AccountRole[] = ['impairmentLoss', 'fgCapitalisedVariance', 'wipCapitalisedVariance'];
+/** Roles with no account at all. None now: the three the workbook lacked have engineering-proposed accounts. */
+const UNRESOLVED: AccountRole[] = [];
+/** Engineering-proposed additions to the workbook chart, pending Finance's confirmation (docs/finance-signoff-pack.md). */
+const PROPOSED: Array<[AccountRole, string]> = [['impairmentLoss', '52800'], ['fgCapitalisedVariance', '12490'], ['wipCapitalisedVariance', '13190']];
 
 describe('approved five-digit chart roles', () => {
   it("takes every role from the workbook's own account map", () => {
@@ -107,10 +109,13 @@ describe('approved five-digit chart roles', () => {
     }
   });
 
-  it('leaves roles with no workbook account unresolved and refuses them rather than guessing', () => {
-    for (const role of UNRESOLVED) {
-      expect(ROLE_ACCOUNTS[role][2], role).toBeNull();
-      expect(() => numberFor('APPROVED', role), role).toThrow(UnresolvedApprovedAccount);
+  it('answers the three roles the workbook lacked with accounts marked as proposed, and no role is unresolved', () => {
+    expect(UNRESOLVED).toEqual([]);
+    for (const [role, number] of PROPOSED) {
+      expect(numberFor('APPROVED', role), role).toBe(number);
+      const row = accounts.get(number)!;
+      expect(row['Posting Account'], number).toBe('Yes');
+      expect(String(row['Developer Note']), `${number} says it is a proposal`).toMatch(/pending Finance confirmation/);
     }
   });
 
@@ -154,15 +159,13 @@ describe('approved five-digit chart roles', () => {
 
   it('reports which roles the approved chart can and cannot answer', () => {
     const everything = approvedRoleReadiness(() => true);
-    expect(everything.filter((r) => r.state !== 'ready').map((r) => r.role).sort()).toEqual([
-      'fgCapitalisedVariance', 'impairmentLoss', 'wipCapitalisedVariance',
-    ]);
+    expect(everything.filter((r) => r.state !== 'ready').map((r) => r.role).sort()).toEqual([]);
     expect(everything.find((r) => r.role === 'rearingCost:poultry')!.number).toBe('16032/16042');
     // Poultry rearing cost needs both stage accounts.
     expect(approvedRoleReadiness((n) => n !== '16042').find((r) => r.role === 'rearingCost:poultry')!.state).toBe('missing-account');
     const emptyChart = approvedRoleReadiness(() => false);
     expect(emptyChart.find((r) => r.role === 'grni')).toEqual({ role: 'grni', number: '20300', state: 'missing-account' });
-    expect(emptyChart.find((r) => r.role === 'impairmentLoss')!.state).toBe('no-workbook-account');
+    expect(emptyChart.find((r) => r.role === 'impairmentLoss')).toEqual({ role: 'impairmentLoss', number: '52800', state: 'missing-account' });
   });
 
   it('holds poultry rearing cost by the flock stage at posting, and snail inputs in expense', () => {

@@ -270,23 +270,42 @@ describe('ApprovedCutoverService', () => {
     expect((await new TrialBalanceService(prisma).build({ companyId: fixture.companyId })).balanced).toBe(true);
   });
 
+  it('moves impairment loss and the capitalised variances to the accounts proposed for them', async () => {
+    for (const [number, name, type, normal] of [
+      ['5502', 'Impairment Loss - Fixed Assets', 'EXPENSE', 'DEBIT'],
+      ['1402', 'Finished Goods Capitalised Variance', 'ASSET', 'DEBIT'],
+      ['1403', 'WIP Capitalised Variance', 'ASSET', 'DEBIT'],
+    ] as const) {
+      fixture.accounts[number] = (await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType: type, normalBalance: normal } })).id;
+    }
+    await provisioning.provision(fixture.companyId, null);
+    await books([{ account: '5502', debit: 10_000n }, { account: '1402', debit: 3_000n }, { account: '1403', debit: 2_000n }]);
+    const preview = await cutover.preview(fixture.companyId, CUTOVER);
+    expect(preview.blockers).toEqual([]);
+    await cutover.run({ companyId: fixture.companyId, cutoverDate: CUTOVER, approval, actor });
+    expect(await balance('52800')).toBe(10_000n);
+    expect(await balance('12490')).toBe(3_000n);
+    expect(await balance('13190')).toBe(2_000n);
+  });
+
   it('refuses while an account with no approved home holds a balance, and lets a person choose one', async () => {
-    fixture.accounts['5502'] = (
+    fixture.accounts['5999'] = (
       await prisma.gLAccount.create({
-        data: { companyId: fixture.companyId, accountNumber: '5502', name: 'Impairment Loss - Fixed Assets', accountType: 'EXPENSE', normalBalance: 'DEBIT' },
+        data: { companyId: fixture.companyId, accountNumber: '5999', name: 'Sundry Expense', accountType: 'EXPENSE', normalBalance: 'DEBIT' },
       })
     ).id;
-    await books([{ account: '5502', debit: 10_000n }]);
+    await provisioning.provision(fixture.companyId, null);
+    await books([{ account: '5999', debit: 10_000n }]);
     const preview = await cutover.preview(fixture.companyId, CUTOVER);
     expect(preview.canRun).toBe(false);
-    expect(preview.blockers.join()).toMatch(/5502.*Impairment/);
-    await expect(cutover.run({ companyId: fixture.companyId, cutoverDate: CUTOVER, approval, actor })).rejects.toThrow(/5502/);
+    expect(preview.blockers.join()).toMatch(/5999/);
+    await expect(cutover.run({ companyId: fixture.companyId, cutoverDate: CUTOVER, approval, actor })).rejects.toThrow(/5999/);
     expect((await prisma.company.findUniqueOrThrow({ where: { id: fixture.companyId } })).chartVersion).toBe('LEGACY');
 
     // Finance picks an account for it.
-    const chosen = await cutover.preview(fixture.companyId, CUTOVER, { overrides: { '5502': '58000' } });
+    const chosen = await cutover.preview(fixture.companyId, CUTOVER, { overrides: { '5999': '58000' } });
     expect(chosen.blockers).toEqual([]);
-    await cutover.run({ companyId: fixture.companyId, cutoverDate: CUTOVER, approval, options: { overrides: { '5502': '58000' } }, actor });
+    await cutover.run({ companyId: fixture.companyId, cutoverDate: CUTOVER, approval, options: { overrides: { '5999': '58000' } }, actor });
     expect(await balance('58000')).toBe(10_000n);
   });
 

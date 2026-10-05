@@ -54,9 +54,9 @@ export type AccountRole =
   | 'itfExpense'
   | 'operatingExpenses'
   | 'depreciationExpense'
-  /** IAS 36 impairment of fixed assets; the spec chart has no approved number, so 630200 is proposed. */
+  /** IAS 36 impairment of fixed assets; the workbook had no number: 52800 is proposed on the approved chart, 630200 on the spec chart. */
   | 'impairmentLoss'
-  /** POL-009 prorated variance held against finished goods and WIP; no spec number, 130590/130595 proposed. */
+  /** POL-009 prorated variance held against finished goods and WIP; no workbook number: 12490 and 13190 are proposed on the approved chart, 130590/130595 on the spec chart. */
   | 'fgCapitalisedVariance'
   | 'wipCapitalisedVariance';
 
@@ -75,8 +75,11 @@ export type AccountRole =
  * class and a payroll cost needing an activity split still need Finance's
  * approved posting group; that is a crosswalk decision, not a code one.
  *
- * APPROVED is `null` where the workbook has no account at all — impairment
- * loss and the two capitalised variances — and asking for it fails loudly.
+ * APPROVED is `null` only where no account is named at all, and asking for it
+ * then fails loudly. Impairment loss (52800) and the two capitalised variances
+ * (12490, 13190) are engineering-proposed additions to the workbook chart, marked
+ * as such in `approved-posting-engine.json` and awaiting Finance's confirmation
+ * (docs/finance-signoff-pack.md).
  */
 export const ROLE_ACCOUNTS: Record<AccountRole, [legacy: string, spec: string, approved: string | null]> = {
   bank: ['1101', '110100', '10100'],
@@ -106,9 +109,9 @@ export const ROLE_ACCOUNTS: Record<AccountRole, [legacy: string, spec: string, a
   itfExpense: ['5104', '620300', '52000'],
   operatingExpenses: ['5401', '690100', '56000'],
   depreciationExpense: ['5501', '630100', '52400'],
-  impairmentLoss: ['5502', '630200', null],
-  fgCapitalisedVariance: ['1402', '130590', null],
-  wipCapitalisedVariance: ['1403', '130595', null],
+  impairmentLoss: ['5502', '630200', '52800'],
+  fgCapitalisedVariance: ['1402', '130590', '12490'],
+  wipCapitalisedVariance: ['1403', '130595', '13190'],
 };
 
 export type SpeciesRole =
