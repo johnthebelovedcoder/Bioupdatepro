@@ -35,6 +35,9 @@ export default async function SalesInvoicesPage({
 
   const today = new Date().toISOString().slice(0, 10);
   const invoiceable = orders.filter((order) => order.canInvoice);
+  // Sales recorded as paid on the spot: the invoice is billed, the money is already
+  // in hand, and the receipt still has to be recorded (and approved) against it.
+  const paidAtSale = receivable.filter((invoice) => invoice.receivedAtSaleMethod && !invoice.receiptPending);
 
   return (
     <>
@@ -83,6 +86,53 @@ export default async function SalesInvoicesPage({
                       <td>{order.customer}</td>
                       <td>
                         <RaiseInvoiceButton orderId={order.id} today={today} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        ) : null}
+
+        {paidAtSale.length > 0 ? (
+          <Card
+            title="Paid at the sale, receipt not recorded"
+            subtitle="These were recorded as paid on the spot. Record the receipt to clear what the customer owes."
+            padded={false}
+          >
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th style={{ width: 170 }}>Invoice</th>
+                    <th>Customer</th>
+                    <th className="right" style={{ width: 130 }}>
+                      Outstanding
+                    </th>
+                    <th style={{ width: 200 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paidAtSale.map((invoice) => (
+                    <tr key={invoice.id}>
+                      <td className="num strong" style={{ textAlign: 'left' }}>
+                        {invoice.invoiceNumber}
+                        {invoice.orderNumber ? <div className="faint">{invoice.orderNumber}</div> : null}
+                      </td>
+                      <td>{invoice.customer}</td>
+                      <td className="num">{formatNaira(invoice.outstandingKobo)}</td>
+                      <td>
+                        <CustomerReceiptForm
+                          customers={customers}
+                          invoices={[invoice]}
+                          bankAccounts={bankAccounts}
+                          today={today}
+                          label="Record the receipt"
+                          initialMethod={invoice.receivedAtSaleMethod ?? 'BANK_TRANSFER'}
+                          defaultBankAccountId={bankAccounts[0]?.id ?? ''}
+                          compact
+                        />
                       </td>
                     </tr>
                   ))}

@@ -51,6 +51,10 @@ export interface SalesInvoiceRow {
   id: string;
   invoiceNumber: string;
   orderNumber: string | null;
+  /** Set when the sale was recorded as paid on the spot: how the buyer paid. */
+  receivedAtSaleMethod: 'BANK_TRANSFER' | 'CASH' | 'POS' | 'CHEQUE' | null;
+  /** A receipt for it is already waiting for approval. */
+  receiptPending: boolean;
   customerId: string;
   customer: string;
   invoiceDate: string;

@@ -1,4 +1,4 @@
-import { bankGlAccounts } from '../chart/bank-account';
+import { bankGlAccountsWithBalance } from '../chart/bank-account';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditAction, FsCategory } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
@@ -255,7 +255,7 @@ export class FarmStructureService {
    */
   /** The accounts cash is paid from or received into (chart/bank-account.ts). */
   async listBankGlAccounts(companyId: string) {
-    return bankGlAccounts(this.prisma, companyId);
+    return bankGlAccountsWithBalance(this.prisma, companyId);
   }
 
   async listGlAccounts(companyId: string) {

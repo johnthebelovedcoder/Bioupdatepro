@@ -4514,6 +4514,10 @@ model SalesOrder {
   creditCheckReasons String?  @map("credit_check_reasons")
   creditOverride     Boolean  @default(false) @map("credit_override")
 
+  /// How the buyer paid when the sale was recorded as paid on the spot. The sale
+  /// still bills through an invoice; this is what the receipt for it should say.
+  receivedAtSaleMethod ReceiptMethod? @map("received_at_sale_method")
+
   workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
   /// The key the client sent the document under (the offline outbox's
   /// idempotency key): a retry finds the order it already made by this,

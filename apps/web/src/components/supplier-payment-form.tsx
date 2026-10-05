@@ -1,12 +1,13 @@
 'use client';
 
-import { useActionState, useMemo, useState } from 'react';
+import { useActionState, useCallback, useEffect, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { Sheet } from './sheet';
 import { formatNaira, parseNairaToKobo } from '@/lib/money';
 import { recordSupplierPayment, type FlowState } from '@/app/(app)/procurement/actions';
 import type { SupplierInvoice } from '@/lib/procurement';
 import type { GlAccount } from '@/lib/trade';
+import { OverdraftWarning } from './overdraft-warning';
 
 interface SupplierOption {
   id: string;
@@ -28,7 +29,7 @@ export function SupplierPaymentForm({
 }: {
   suppliers: SupplierOption[];
   invoices: SupplierInvoice[];
-  bankAccounts: GlAccount[];
+  bankAccounts: Array<GlAccount & { balanceKobo?: string }>;
   today: string;
 }) {
   const [state, formAction] = useActionState<FlowState, FormData>(recordSupplierPayment, {
@@ -45,6 +46,13 @@ export function SupplierPaymentForm({
   const [supplierId, setSupplierId] = useState(payableSuppliers[0]?.id ?? '');
   const supplierInvoices = invoices.filter((invoice) => invoice.supplierId === supplierId);
   const [open, setOpen] = useState(false);
+  const [accountId, setAccountId] = useState('');
+  const [amounts, setAmounts] = useState<Record<string, bigint>>({});
+  const onAmount = useCallback(
+    (id: string, kobo: bigint) => setAmounts((current) => (current[id] === kobo ? current : { ...current, [id]: kobo })),
+    [],
+  );
+  const payKobo = supplierInvoices.reduce((sum, invoice) => sum + (amounts[invoice.id] ?? 0n), 0n);
 
   if (payableSuppliers.length === 0) {
     return (
@@ -97,7 +105,7 @@ export function SupplierPaymentForm({
             </label>
             <label className="field">
               Paid from
-              <select name="bankGlAccountId" defaultValue="" required>
+              <select name="bankGlAccountId" value={accountId} onChange={(event) => setAccountId(event.target.value)} required>
                 <option value="" disabled>
                   Choose an account
                 </option>
@@ -114,6 +122,11 @@ export function SupplierPaymentForm({
             </label>
           </div>
 
+          <OverdraftWarning
+            balanceKobo={bankAccounts.find((account) => account.id === accountId)?.balanceKobo}
+            payKobo={payKobo}
+          />
+
           <div className="table-wrap">
             <table className="data">
               <thead>
@@ -127,7 +140,7 @@ export function SupplierPaymentForm({
               </thead>
               <tbody>
                 {supplierInvoices.map((invoice) => (
-                  <InvoiceRow key={invoice.id} invoice={invoice} />
+                  <InvoiceRow key={invoice.id} invoice={invoice} onAmount={onAmount} />
                 ))}
               </tbody>
             </table>
@@ -140,8 +153,10 @@ export function SupplierPaymentForm({
   );
 }
 
-function InvoiceRow({ invoice }: { invoice: SupplierInvoice }) {
+function InvoiceRow({ invoice, onAmount }: { invoice: SupplierInvoice; onAmount: (id: string, kobo: bigint) => void }) {
   const [amount, setAmount] = useState(formatNaira(invoice.outstandingKobo).replace(/[₦,]/g, ''));
+  const kobo = parseNairaToKobo(amount) ?? 0n;
+  useEffect(() => onAmount(invoice.id, kobo), [invoice.id, kobo, onAmount]);
 
   return (
     <tr>

@@ -60,6 +60,35 @@ export class SalesFlowService {
     });
     const pending = new Map(transactions.map((t) => [t.documentId, t.id]));
 
+    // Quantities are settled onto the order only when a document posts, so what is
+    // already on a delivery or invoice waiting for approval has to be counted here,
+    // or the order keeps asking to be shipped or billed a second time.
+    const orderIds = orders.map((order) => order.id);
+    const [shipping, billing] = await Promise.all([
+      this.prisma.deliveryNoteLine.findMany({
+        where: {
+          deliveryNote: { companyId, salesOrderId: { in: orderIds }, status: { in: ['DRAFT', 'SUBMITTED', 'APPROVED'] } },
+        },
+        select: { salesOrderLineId: true, quantity: true },
+      }),
+      this.prisma.salesInvoiceLine.findMany({
+        where: {
+          invoice: { companyId, salesOrderId: { in: orderIds }, status: { in: ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED'] } },
+        },
+        select: { salesOrderLineId: true, quantity: true },
+      }),
+    ]);
+    const sumByLine = (rows: Array<{ salesOrderLineId: string | null; quantity: { toString(): string } }>) => {
+      const totals = new Map<string, number>();
+      for (const row of rows) {
+        if (!row.salesOrderLineId) continue;
+        totals.set(row.salesOrderLineId, (totals.get(row.salesOrderLineId) ?? 0) + Number(row.quantity.toString()));
+      }
+      return totals;
+    };
+    const shippingByLine = sumByLine(shipping);
+    const billingByLine = sumByLine(billing);
+
     return orders.map((order) => ({
       id: order.id,
       orderNumber: order.orderNumber,
@@ -72,12 +101,21 @@ export class SalesFlowService {
       lineCount: order.lines.length,
       pendingTransactionId: pending.get(order.id) ?? null,
       canDeliver:
-        order.status === SalesOrderStatus.APPROVED ||
-        order.status === SalesOrderStatus.PARTIALLY_DELIVERED,
+        (order.status === SalesOrderStatus.APPROVED ||
+          order.status === SalesOrderStatus.PARTIALLY_DELIVERED) &&
+        order.lines.some(
+          (line) =>
+            Number(line.quantity.toString()) -
+              Number(line.deliveredQuantity?.toString() ?? '0') -
+              (shippingByLine.get(line.id) ?? 0) >
+            0,
+        ),
       canInvoice: order.lines.some(
         (line) =>
-          Number(line.deliveredQuantity?.toString() ?? '0') >
-          Number(line.invoicedQuantity?.toString() ?? '0'),
+          Number(line.deliveredQuantity?.toString() ?? '0') -
+            Number(line.invoicedQuantity?.toString() ?? '0') -
+            (billingByLine.get(line.id) ?? 0) >
+          0,
       ),
       lines: order.lines.map((line) => ({
         id: line.id,
@@ -294,13 +332,24 @@ export class SalesFlowService {
       where: { companyId },
       orderBy: { invoiceDate: 'desc' },
       take: 60,
-      include: { customer: { select: { id: true, name: true } }, salesOrder: { select: { orderNumber: true } } },
+      include: { customer: { select: { id: true, name: true } }, salesOrder: { select: { orderNumber: true, receivedAtSaleMethod: true } } },
     });
+
+    const waiting = await this.prisma.receiptAllocation.findMany({
+      where: {
+        invoiceId: { in: rows.map((row) => row.id) },
+        receipt: { companyId, status: { in: ['DRAFT', 'SUBMITTED'] } },
+      },
+      select: { invoiceId: true },
+    });
+    const receiptPending = new Set(waiting.map((allocation) => allocation.invoiceId));
 
     return rows.map((row) => ({
       id: row.id,
+      receiptPending: receiptPending.has(row.id),
       invoiceNumber: row.invoiceNumber,
       orderNumber: row.salesOrder?.orderNumber ?? null,
+      receivedAtSaleMethod: row.salesOrder?.receivedAtSaleMethod ?? null,
       customerId: row.customer.id,
       customer: row.customer.name,
       invoiceDate: row.invoiceDate,

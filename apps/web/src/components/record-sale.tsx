@@ -523,9 +523,9 @@ export function RecordSale({
             </p>
             {paidNow ? (
               <p className="faint" style={{ marginTop: 6 }}>
-                Paid now ({method}): the money is recorded against the invoice once it is
-                approved, under Selling &rarr; Invoices &rarr; Receive a payment. Until then the
-                customer still shows as owing.
+                Paid now ({method}): once the invoice is approved it appears under
+                Selling &rarr; Invoices as paid at the sale, with the receipt ready to record.
+                Until the receipt is approved the customer still shows as owing.
               </p>
             ) : null}
           </div>

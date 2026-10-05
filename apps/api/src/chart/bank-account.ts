@@ -35,3 +35,15 @@ export async function assertBankGlAccount(client: Client, companyId: string, glA
     { glAccountId },
   );
 }
+
+/** The same accounts with what the ledger holds in each, so a payment screen can say when it would overdraw one. */
+export async function bankGlAccountsWithBalance(client: Client, companyId: string) {
+  const accounts = await bankGlAccounts(client, companyId);
+  const sums = await client.journalLine.groupBy({
+    by: ['glAccountId'],
+    where: { glAccountId: { in: accounts.map((a) => a.id) }, journalEntry: { companyId, status: 'POSTED' } },
+    _sum: { debitKobo: true, creditKobo: true },
+  });
+  const balance = new Map(sums.map((row) => [row.glAccountId, (row._sum.debitKobo ?? 0n) - (row._sum.creditKobo ?? 0n)]));
+  return accounts.map((a) => ({ ...a, balanceKobo: (balance.get(a.id) ?? 0n).toString() }));
+}

@@ -9,7 +9,7 @@ import {
   type SpeciesModule,
 } from '@/lib/modules';
 import type { BatchSummary } from '@/lib/demo';
-import { enqueue, flush } from '@/lib/sync-queue';
+import { enqueue, flush, list as queued, subscribe, type QueueItem } from '@/lib/sync-queue';
 import { translator } from '@/lib/i18n';
 import { compressPhoto, formatBytes, type CapturedPhoto } from '@/lib/photo';
 import type { LanguageCode } from '@/lib/farm-config';
@@ -266,6 +266,18 @@ export function DailyRecordEntry({
   const [restoredAt, setRestoredAt] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [submitted, setSubmitted] = useState<number | null>(null);
+  // The outbox item behind the banner, so it says what the server did, not what we hoped.
+  const [sentId, setSentId] = useState<string | null>(null);
+  const [sentItem, setSentItem] = useState<QueueItem | null>(null);
+  useEffect(() => {
+    if (!sentId) {
+      setSentItem(null);
+      return;
+    }
+    const sync = (items: QueueItem[]) => setSentItem(items.find((item) => item.id === sentId) ?? null);
+    sync(queued());
+    return subscribe(sync);
+  }, [sentId]);
 
   const storageKey = `bap.round.${moduleKey}`;
 
@@ -494,7 +506,7 @@ export function DailyRecordEntry({
         };
       });
 
-    enqueue({
+    const item = enqueue({
       kind: 'daily-round',
       label: `${module.productName} round · ${date} · ${recorded.length} ${
         recorded.length === 1 ? t.group.one : t.group.many
@@ -505,6 +517,7 @@ export function DailyRecordEntry({
     setReviewing(false);
     discardRound();
     setSubmitted(recorded.length);
+    setSentId(item.id);
     void flush();
   }
 
@@ -562,15 +575,24 @@ export function DailyRecordEntry({
 
       <div className="stack">
         {submitted !== null ? (
-          <div className='notice notice-success' style={{ justifyContent: 'space-between' }}>
+          <div
+            className={`notice ${sentItem?.state === 'blocked' ? 'notice-error' : sentItem ? 'notice-info' : 'notice-success'}`}
+            style={{ justifyContent: 'space-between' }}
+          >
             <span>
-              Round queued — {submitted} {submitted === 1 ? t.group.one : t.group.many}. It
-              will send when there is a connection; watch the outbox in the header.
+              {sentItem?.state === 'blocked'
+                ? `The server did not accept this round: ${sentItem.lastError ?? 'rejected'}. It is held in the outbox in the header.`
+                : sentItem
+                  ? `Round waiting to send — ${submitted} ${submitted === 1 ? t.group.one : t.group.many}. It sends when there is a connection; watch the outbox in the header.`
+                  : `Round sent — ${submitted} ${submitted === 1 ? t.group.one : t.group.many}. The server has it; it reaches the ledger once approved.`}
             </span>
             <button
               type='button'
               className='btn btn-ghost btn-sm'
-              onClick={() => setSubmitted(null)}
+              onClick={() => {
+                setSubmitted(null);
+                setSentId(null);
+              }}
             >
               Dismiss
             </button>

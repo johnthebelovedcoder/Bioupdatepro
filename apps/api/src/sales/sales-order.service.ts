@@ -296,6 +296,8 @@ export class SalesOrderService {
     farmId?: string | null;
     departmentId?: string | null;
     costCentreId?: string | null;
+    /** Set when the buyer paid at the time of sale; the invoice's receipt uses it. */
+    receivedAtSaleMethod?: 'BANK_TRANSFER' | 'CASH' | 'POS' | 'CHEQUE' | null;
     lines: PricedLineInput[];
     actor: WorkflowActor;
   }) {
@@ -334,6 +336,7 @@ export class SalesOrderService {
           farmId: input.farmId ?? null,
           departmentId: input.departmentId ?? null,
           costCentreId: costCentreId,
+          receivedAtSaleMethod: input.receivedAtSaleMethod ?? null,
           netAmountKobo: priced.netAmountKobo,
           vatAmountKobo: priced.vatAmountKobo,
           grossAmountKobo: priced.grossAmountKobo,

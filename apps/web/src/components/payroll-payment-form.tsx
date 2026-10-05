@@ -7,7 +7,8 @@ import {
   recordPayrollPayment,
   type FlowState,
 } from '@/app/(app)/finance/payroll/runs/actions';
-import { formatNaira } from '@/lib/money';
+import { formatNaira, parseNairaToKobo } from '@/lib/money';
+import { OverdraftWarning } from './overdraft-warning';
 
 interface Bucket {
   bucket: string;
@@ -32,7 +33,7 @@ export function PayrollPaymentForm({
   runId: string;
   runReference: string;
   buckets: Bucket[];
-  bankAccounts: Array<{ id: string; accountNumber: string; name: string }>;
+  bankAccounts: Array<{ id: string; accountNumber: string; name: string; balanceKobo?: string }>;
   today: string;
   initialBucket?: string;
 }) {
@@ -44,6 +45,14 @@ export function PayrollPaymentForm({
   const payable = buckets.filter((b) => BigInt(b.outstandingKobo) > 0n);
   const [bucket, setBucket] = useState(initialBucket ?? payable[0]?.bucket ?? '');
   const selected = payable.find((b) => b.bucket === bucket);
+  const [accountId, setAccountId] = useState('');
+  const [typed, setTyped] = useState<{ bucket: string; value: string } | null>(null);
+  const amount =
+    typed && typed.bucket === bucket
+      ? typed.value
+      : selected
+        ? formatNaira(selected.outstandingKobo, { symbol: false })
+        : '';
 
   if (payable.length === 0) return null;
 
@@ -86,6 +95,7 @@ export function PayrollPaymentForm({
               name="amount"
               inputMode="decimal"
               defaultValue={selected ? formatNaira(selected.outstandingKobo, { symbol: false }) : ''}
+              onChange={(event) => setTyped({ bucket, value: event.target.value })}
               required
             />
           </label>
@@ -107,7 +117,7 @@ export function PayrollPaymentForm({
 
           <label className="field">
             Paid from
-            <select name="bankGlAccountId" defaultValue="" required>
+            <select name="bankGlAccountId" value={accountId} onChange={(e) => setAccountId(e.target.value)} required>
               <option value="" disabled>
                 Choose an account
               </option>
@@ -118,6 +128,11 @@ export function PayrollPaymentForm({
               ))}
             </select>
           </label>
+
+          <OverdraftWarning
+            balanceKobo={bankAccounts.find((account) => account.id === accountId)?.balanceKobo}
+            payKobo={parseNairaToKobo(amount) ?? 0n}
+          />
 
           <label className="field">
             Reference<span className="faint"> (optional)</span>

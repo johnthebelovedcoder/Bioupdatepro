@@ -22,6 +22,8 @@ import { DeliveryService } from '../../src/sales/delivery.service';
 import { SalesInvoiceService } from '../../src/sales/sales-invoice.service';
 import { CustomerReceiptService } from '../../src/sales/customer-receipt.service';
 import { CreditNoteService } from '../../src/sales/credit-note.service';
+import { SalesFlowService } from '../../src/sales/sales-flow.service';
+import { bankGlAccountsWithBalance } from '../../src/chart/bank-account';
 import { CreditNotePostingHandler, CustomerReceiptPostingHandler, DeliveryPostingHandler, SalesInvoicePostingHandler } from '../../src/sales/sales.handlers';
 import { PostingControlProvisioningService } from '../../src/posting-control/posting-control-provisioning.service';
 import { ProfitLossService } from '../../src/reporting/profit-loss.service';
@@ -45,6 +47,7 @@ describe('Order-to-cash on the approved chart', () => {
   let workflow: WorkflowService;
   let trialBalance: TrialBalanceService;
   let reconciliation: ControlAccountReconciliationService;
+  let flow: SalesFlowService;
   let provisioning: PostingControlProvisioningService;
   let fixture: TestFixture;
   let maker: WorkflowActor;
@@ -79,6 +82,7 @@ describe('Order-to-cash on the approved chart', () => {
     workflow.register(new SalesInvoicePostingHandler(invoices));
     workflow.register(new CustomerReceiptPostingHandler(receipts));
     workflow.register(new CreditNotePostingHandler(creditNotes));
+    flow = new SalesFlowService(prisma, orders, deliveries, invoices, receipts, workflow);
     provisioning = new PostingControlProvisioningService(prisma, audit);
     // The party service is used below through this handle.
     (globalThis as { __parties?: PartyService }).__parties = parties;
@@ -218,6 +222,84 @@ describe('Order-to-cash on the approved chart', () => {
     expect(await balance('10100')).toBe(10_750_000n);
     expect(await balance('11000')).toBe(0n);
     expect((await prisma.salesInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe(SalesInvoiceStatus.PAID);
+  });
+
+  it('stops listing an order as ready to ship or invoice once that document is waiting for approval', async () => {
+    await receiveStock(itemId, 10);
+    const order = await orders.createOrder({
+      companyId: fixture.companyId, orderNumber: 'SO-READY', customerId, orderDate: JAN, currencyId: fixture.currencyId,
+      branchId: fixture.branchId, warehouseId, lines: [{ lineNumber: 1, itemId, quantity: 10, unitPriceKobo: UNIT_PRICE }], actor: maker,
+    });
+    const submitted = await orders.submitOrder({ salesOrderId: order.id, actor: maker });
+    await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+    await orders.syncStatus(order.id);
+    const find = async () => (await flow.listOrders(fixture.companyId)).find((o) => o.id === order.id)!;
+    expect((await find()).canDeliver).toBe(true);
+
+    const full = await prisma.salesOrder.findUniqueOrThrow({ where: { id: order.id }, include: { lines: true } });
+    const delivery = await deliveries.create({
+      salesOrderId: full.id, deliveryNumber: 'DN-READY', deliveryDate: JAN, ...period(),
+      lines: full.lines.map((line) => ({ salesOrderLineId: line.id, quantity: line.quantity.toString() })), actor: maker,
+    });
+    const delivered = await deliveries.submit({ deliveryNoteId: delivery.id, actor: maker });
+    expect((await find()).canDeliver).toBe(false); // already on a delivery awaiting approval
+    await workflow.approve({ transactionId: delivered.transactionId, actor: approver });
+    await orders.syncStatus(full.id);
+    expect((await find()).canInvoice).toBe(true);
+
+    const invoice = await invoices.createFromOrder({ salesOrderId: full.id, invoiceNumber: 'INV-READY', invoiceDate: JAN, ...period(), actor: maker });
+    expect((await find()).canInvoice).toBe(false); // billed, awaiting approval
+    await invoices.submit({ invoiceId: invoice.id, actor: maker });
+    expect((await find()).canInvoice).toBe(false);
+  });
+
+  it('keeps how a sale was paid and offers its receipt until one is raised', async () => {
+    const order = await orders.createOrder({
+      companyId: fixture.companyId, orderNumber: 'SO-CASH', customerId, orderDate: JAN, currencyId: fixture.currencyId,
+      branchId: fixture.branchId, warehouseId, receivedAtSaleMethod: 'CASH',
+      lines: [{ lineNumber: 1, itemId, quantity: 5, unitPriceKobo: UNIT_PRICE }], actor: maker,
+    });
+    await receiveStock(itemId, 5);
+    const submitted = await orders.submitOrder({ salesOrderId: order.id, actor: maker });
+    await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+    await orders.syncStatus(order.id);
+    const full = await prisma.salesOrder.findUniqueOrThrow({ where: { id: order.id }, include: { lines: true } });
+    const delivery = await deliveries.create({
+      salesOrderId: full.id, deliveryNumber: 'DN-CASH', deliveryDate: JAN, ...period(),
+      lines: full.lines.map((line) => ({ salesOrderLineId: line.id, quantity: line.quantity.toString() })), actor: maker,
+    });
+    const delivered = await deliveries.submit({ deliveryNoteId: delivery.id, actor: maker });
+    await workflow.approve({ transactionId: delivered.transactionId, actor: approver });
+    await orders.syncStatus(full.id);
+    const invoice = await invoices.createFromOrder({ salesOrderId: full.id, invoiceNumber: 'INV-CASH', invoiceDate: JAN, ...period(), actor: maker });
+    const sub = await invoices.submit({ invoiceId: invoice.id, actor: maker });
+    await workflow.approve({ transactionId: sub.transactionId, actor: approver });
+
+    const row = (await flow.receivableInvoices(fixture.companyId)).find((r) => r.id === invoice.id)!;
+    expect(row.receivedAtSaleMethod).toBe('CASH');
+    expect(row.receiptPending).toBe(false);
+
+    const receipt = await receipts.create({
+      companyId: fixture.companyId, receiptNumber: 'RCT-CASH', customerId, receiptDate: JAN, method: ReceiptMethod.CASH, bankGlAccountId: await acct('10100'),
+      branchId: fixture.branchId, currencyId: fixture.currencyId, ...period(), amountKobo: invoice.grossAmountKobo, whtAmountKobo: 0n,
+      allocations: [{ invoiceId: invoice.id, amountKobo: invoice.grossAmountKobo }], actor: maker,
+    });
+    await receipts.submit({ receiptId: receipt.id, actor: maker });
+    const after = (await flow.receivableInvoices(fixture.companyId)).find((r) => r.id === invoice.id)!;
+    expect(after.receiptPending).toBe(true);
+  });
+
+  it('reports what each bank account holds, so a payment screen can warn before overdrawing it', async () => {
+    const invoice = await sell(itemId);
+    expect((await bankGlAccountsWithBalance(prisma, fixture.companyId)).find((a) => a.accountNumber === '10100')?.balanceKobo).toBe('0');
+    const receipt = await receipts.create({
+      companyId: fixture.companyId, receiptNumber: 'RCT-BAL', customerId, receiptDate: JAN, method: ReceiptMethod.BANK_TRANSFER, bankGlAccountId: await acct('10100'),
+      branchId: fixture.branchId, currencyId: fixture.currencyId, ...period(), amountKobo: invoice.grossAmountKobo, whtAmountKobo: 0n,
+      allocations: [{ invoiceId: invoice.id, amountKobo: invoice.grossAmountKobo }], actor: maker,
+    });
+    const submitted = await receipts.submit({ receiptId: receipt.id, actor: maker });
+    await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+    expect((await bankGlAccountsWithBalance(prisma, fixture.companyId)).find((a) => a.accountNumber === '10100')?.balanceKobo).toBe('10750000');
   });
 
   it('sells an item that names its own accounts to them: eggs to 40330, 50330 and 12420', async () => {
