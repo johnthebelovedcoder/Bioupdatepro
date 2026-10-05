@@ -581,10 +581,10 @@ export function DailyRecordEntry({
           >
             <span>
               {sentItem?.state === 'blocked'
-                ? `The server did not accept this round: ${sentItem.lastError ?? 'rejected'}. It is held in the outbox in the header.`
+                ? `The server did not accept this round: ${(sentItem.lastError ?? 'rejected').replace(/\.+$/, '')}. It is held in the outbox in the header.`
                 : sentItem
                   ? `Round waiting to send — ${submitted} ${submitted === 1 ? t.group.one : t.group.many}. It sends when there is a connection; watch the outbox in the header.`
-                  : `Round sent — ${submitted} ${submitted === 1 ? t.group.one : t.group.many}. The server has it; it reaches the ledger once approved.`}
+                  : `Round sent — ${submitted} ${submitted === 1 ? t.group.one : t.group.many}. The server has it.`}
             </span>
             <button
               type='button'
