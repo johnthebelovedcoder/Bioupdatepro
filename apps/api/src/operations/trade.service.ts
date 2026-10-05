@@ -549,7 +549,7 @@ export class TradeService {
  * sequence every time a handset loses signal mid-send.
  */
 /** The receipt method a phone's "How" choice stands for. */
-function receiptMethodOf(method: string | null): 'BANK_TRANSFER' | 'CASH' | 'POS' | 'CHEQUE' {
+export function receiptMethodOf(method: string | null): 'BANK_TRANSFER' | 'CASH' | 'POS' | 'CHEQUE' {
   const key = (method ?? '').trim().toUpperCase().replace(/\s+/g, '_');
   if (key === 'POS' || key === 'CHEQUE' || key === 'BANK_TRANSFER') return key;
   return 'CASH';
