@@ -239,6 +239,52 @@ describe('Procure-to-pay on the approved chart', () => {
     expect(await balance('10100')).toBe(0n);
   });
 
+  async function invoiceAtPrice(orderId: string, grnId: string, unitPriceKobo: bigint, number: string) {
+    const grn = await prisma.goodsReceiptNote.findUniqueOrThrow({ where: { id: grnId }, include: { lines: true } });
+    const invoice = await invoices.create({
+      companyId: fixture.companyId, invoiceNumber: number, supplierInvoiceNumber: `SUP-${number}`, supplierId, purchaseOrderId: orderId, invoiceDate: JAN,
+      currencyId: fixture.currencyId, branchId: fixture.branchId, costCentreId: fixture.costCentreId, ...period(),
+      lines: grn.lines.map((line) => ({ goodsReceiptNoteLineId: line.id, quantity: Number(line.acceptedQuantity), unitPriceKobo })),
+      actor: maker,
+    });
+    const submitted = await invoices.submit({ invoiceId: invoice.id, actor: maker });
+    await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+    return invoice;
+  }
+
+  async function stockValue(itemId: string) {
+    const moves = await prisma.stockMovement.findMany({ where: { companyId: fixture.companyId, itemId } });
+    return moves.reduce((sum, m) => sum + (m.direction === 'IN' ? m.valueKobo : -m.valueKobo), 0n);
+  }
+
+  it('puts an invoice price above the receipt price into stock cost, so GRNI clears and the stock ledger still agrees', async () => {
+    const order = await approvedOrder();
+    const grn = await receiveAll(order.id);
+    await invoiceAtPrice(order.id, grn.id, 650_00n, 'SI-PV1'); // ₦50 a unit over ₦600
+    expect(await balance('20300')).toBe(0n); // GRNI back to zero, not left with ₦50,000
+    expect(await balance('12000')).toBe(6_500_000n); // actual cost
+    expect(await stockValue(inventoryItemId)).toBe(6_500_000n); // stock ledger agrees
+    expect((await prisma.item.findUniqueOrThrow({ where: { id: inventoryItemId } })).weightedAverageCostKobo).toBe(650_00n);
+    expect((await trialBalance.build({ companyId: fixture.companyId })).balanced).toBe(true);
+  });
+
+  it('takes the share of a price difference on goods already used to cost of sales', async () => {
+    await prisma.item.update({ where: { id: inventoryItemId }, data: { costOfSalesGlAccountId: await acct('50000') } });
+    const order = await approvedOrder();
+    const grn = await receiveAll(order.id);
+    await prisma.stockMovement.create({
+      data: {
+        companyId: fixture.companyId, branchId: fixture.branchId, itemId: inventoryItemId, warehouseId, direction: 'OUT', quantity: '60', unitCostKobo: 600_00n,
+        valueKobo: 3_600_000n, sourceModule: 'test-fixture', sourceDocumentType: 'Issue', sourceDocumentId: 'USED', documentReference: 'USED', movementDate: JAN,
+      },
+    });
+    await invoiceAtPrice(order.id, grn.id, 650_00n, 'SI-PV2'); // ₦500,000 over; 40% still on hand
+    expect(await balance('20300')).toBe(0n);
+    expect(await balance('12000')).toBe(6_200_000n); // ₦6,000,000 + ₦200,000 kept in stock
+    expect(await balance('50000')).toBe(300_000n); // the used 60% of the difference
+    expect(await stockValue(inventoryItemId)).toBe(6_200_000n - 3_600_000n);
+  });
+
   it('marks a goods receipt cancelled and a returned supplier invoice draft, with nothing posted', async () => {
     const order = await approvedOrder();
     const grn = await receipts.create({
