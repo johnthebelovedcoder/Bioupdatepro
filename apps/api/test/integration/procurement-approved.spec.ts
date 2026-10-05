@@ -239,6 +239,30 @@ describe('Procure-to-pay on the approved chart', () => {
     expect(await balance('10100')).toBe(0n);
   });
 
+  it('marks a goods receipt cancelled and a returned supplier invoice draft, with nothing posted', async () => {
+    const order = await approvedOrder();
+    const grn = await receipts.create({
+      purchaseOrderId: order.id, grnNumber: 'GRN-REJ', receiptDate: JAN, ...period(), qualityStatus: QualityStatus.PASSED,
+      lines: order.lines.map((line) => ({ purchaseOrderLineId: line.id, receivedQuantity: Number(line.quantity), rejectedQuantity: 0 })),
+      actor: maker,
+    });
+    const submitted = await receipts.submit({ grnId: grn.id, actor: maker });
+    await workflow.reject({ transactionId: submitted.transactionId, actor: approver, comments: 'Not what we ordered' });
+    expect((await prisma.goodsReceiptNote.findUniqueOrThrow({ where: { id: grn.id } })).status).toBe('CANCELLED');
+    expect(await balance('12000')).toBe(0n);
+
+    const good = await receiveAll(order.id);
+    const invoice = await invoices.create({
+      companyId: fixture.companyId, invoiceNumber: 'SI-RET', supplierInvoiceNumber: 'SUP-RET', supplierId, purchaseOrderId: order.id, invoiceDate: JAN,
+      currencyId: fixture.currencyId, branchId: fixture.branchId, costCentreId: fixture.costCentreId, ...period(),
+      lines: good.lines.map((line) => ({ goodsReceiptNoteLineId: line.id, quantity: Number(line.acceptedQuantity), unitPriceKobo: line.unitPriceKobo })),
+      actor: maker,
+    });
+    const sub = await invoices.submit({ invoiceId: invoice.id, actor: maker });
+    await workflow.returnToMaker({ transactionId: sub.transactionId, actor: approver, comments: 'Check the price' });
+    expect((await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('DRAFT');
+  });
+
   it('receives an item into its own store, not the order’s header store', async () => {
     const feedStore = await prisma.warehouse.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'FEED-WH', name: 'Feed Store', type: 'RAW_MATERIAL' } });
     await prisma.item.update({ where: { id: inventoryItemId }, data: { defaultWarehouseId: feedStore.id } });

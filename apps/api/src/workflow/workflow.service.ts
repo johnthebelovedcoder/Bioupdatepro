@@ -575,14 +575,15 @@ export class WorkflowService {
   /**
    * Say on the document itself that it was rejected or sent back, so its own list
    * stops showing it as waiting. Only for documents that have done nothing before
-   * approval: a goods receipt or a delivery has already noted stock, so marking it
-   * cancelled here would leave the stock behind — those need their own reversal.
+   * approval: stock and settled quantities move only when the document posts, so a
+   * rejected or returned one has nothing to undo.
    * Never touches a document that is no longer waiting.
    */
   private async mirrorDocumentStatus(
     tx: Prisma.TransactionClient,
     companyId: string,
     transactionType: string,
+    documentType: string,
     documentId: string,
     to: WorkflowStatus,
   ): Promise<void> {
@@ -607,6 +608,26 @@ export class WorkflowService {
           where: { id: documentId, companyId, status: 'SUBMITTED' },
           data: { status: rejected ? 'CANCELLED' : 'DRAFT' },
         });
+        return;
+      default:
+        break;
+    }
+    const back = rejected ? 'CANCELLED' : 'DRAFT';
+    switch (documentType) {
+      case 'GoodsReceiptNote':
+        await tx.goodsReceiptNote.updateMany({ where: { id: documentId, companyId, status: 'SUBMITTED' }, data: { status: back } });
+        return;
+      case 'SupplierInvoice':
+        await tx.supplierInvoice.updateMany({ where: { id: documentId, companyId, status: { in: [...waiting] } }, data: { status: back } });
+        return;
+      case 'DeliveryNote':
+        await tx.deliveryNote.updateMany({ where: { id: documentId, companyId, status: 'SUBMITTED' }, data: { status: back } });
+        return;
+      case 'SalesInvoice':
+        await tx.salesInvoice.updateMany({ where: { id: documentId, companyId, status: { in: [...waiting] } }, data: { status: back } });
+        return;
+      case 'CreditNote':
+        await tx.creditNote.updateMany({ where: { id: documentId, companyId, status: { in: [...waiting] } }, data: { status: back } });
         return;
       default:
         return;
@@ -674,7 +695,7 @@ export class WorkflowService {
         },
       });
 
-      await this.mirrorDocumentStatus(tx, transaction.companyId, transaction.transactionType, transaction.documentId, config.toStatus);
+      await this.mirrorDocumentStatus(tx, transaction.companyId, transaction.transactionType, transaction.documentType, transaction.documentId, config.toStatus);
 
       await this.recordEvent(tx, {
         transactionId: transaction.id,
