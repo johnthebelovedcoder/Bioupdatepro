@@ -42,6 +42,7 @@ interface WorkbookAccount {
   'GL Code': string;
   'Control Account': string;
   'Posting Account': string;
+  'Developer Note'?: string | null;
 }
 interface WorkbookMap {
   Application: string;
