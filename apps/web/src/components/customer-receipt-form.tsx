@@ -24,11 +24,21 @@ export function CustomerReceiptForm({
   invoices,
   bankAccounts,
   today,
+  label = 'Receive a payment',
+  initialMethod = 'BANK_TRANSFER',
+  defaultBankAccountId = '',
+  compact = false,
 }: {
   customers: CustomerOption[];
   invoices: SalesInvoiceRow[];
   bankAccounts: GlAccount[];
   today: string;
+  /** Button text; a prefilled form for one invoice says what it is for. */
+  label?: string;
+  initialMethod?: string;
+  /** Preselected "Received into" account, when there is an obvious one. */
+  defaultBankAccountId?: string;
+  compact?: boolean;
 }) {
   const [state, formAction] = useActionState<FlowState, FormData>(recordCustomerReceipt, {
     error: null,
@@ -56,11 +66,11 @@ export function CustomerReceiptForm({
 
   return (
     <>
-      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
-        Receive a payment
+      <button type="button" className={compact ? 'btn btn-secondary' : 'btn btn-primary'} onClick={() => setOpen(true)}>
+        {label}
       </button>
 
-      <Sheet open={open} onClose={() => setOpen(false)} title="Receive a payment">
+      <Sheet open={open} onClose={() => setOpen(false)} title={label}>
         <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
           <p className="faint">Only posted, unpaid invoices are shown.</p>
 
@@ -88,15 +98,16 @@ export function CustomerReceiptForm({
             </label>
             <label className="field">
               Method
-              <select name="method" defaultValue="BANK_TRANSFER">
+              <select name="method" defaultValue={initialMethod}>
                 <option value="BANK_TRANSFER">Bank transfer</option>
                 <option value="CASH">Cash</option>
+                <option value="POS">POS</option>
                 <option value="CHEQUE">Cheque</option>
               </select>
             </label>
             <label className="field">
               Received into
-              <select name="bankGlAccountId" defaultValue="" required>
+              <select name="bankGlAccountId" defaultValue={defaultBankAccountId} required>
                 <option value="" disabled>
                   Choose an account
                 </option>

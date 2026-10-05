@@ -16,6 +16,7 @@ import { WorkflowActor } from '../workflow/workflow.types';
 import { TaxRegisterService } from '../tax/tax-register.service';
 import { SalesPricingService } from './sales-pricing.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { assertBankGlAccount } from '../chart/bank-account';
 import { kobo } from '../common/money';
 
 export interface ReceiptAllocationInput {
@@ -161,6 +162,8 @@ export class CustomerReceiptService {
         );
       }
     }
+
+    await assertBankGlAccount(this.prisma, input.companyId, input.bankGlAccountId, 'A receipt');
 
     return this.prisma.$transaction(async (tx) => {
       const receipt = await tx.customerReceipt.create({

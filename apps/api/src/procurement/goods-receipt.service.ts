@@ -219,7 +219,9 @@ export class GoodsReceiptService {
         valueKobo: value,
         batchReference: line.batchReference ?? null,
         expiryDate: line.expiryDate ?? null,
-        warehouseId: line.warehouseId ?? null,
+        // The item's own store when it has one, else the order's: purchases and the daily round's
+        // feed issues then meet in the same store (the walk-through found them a store apart).
+        warehouseId: line.warehouseId ?? orderLine.item.defaultWarehouseId ?? null,
         livestockPlacement: placement ? (placement as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       });
     }

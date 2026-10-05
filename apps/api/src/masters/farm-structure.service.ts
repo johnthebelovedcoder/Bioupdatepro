@@ -1,3 +1,4 @@
+import { bankGlAccountsWithBalance } from '../chart/bank-account';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditAction, FsCategory } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
@@ -252,6 +253,11 @@ export class FarmStructureService {
    * otherwise. That rule lives in the item service; this is what lets a form
    * satisfy it instead of guessing an account number.
    */
+  /** The accounts cash is paid from or received into (chart/bank-account.ts). */
+  async listBankGlAccounts(companyId: string) {
+    return bankGlAccountsWithBalance(this.prisma, companyId);
+  }
+
   async listGlAccounts(companyId: string) {
     return this.prisma.gLAccount.findMany({
       where: { companyId, active: true, isPostingAccount: true },

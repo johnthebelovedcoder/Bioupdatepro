@@ -249,6 +249,7 @@ export function RecordPurchase({
                         <span className="muted">₦</span>
                         <input
                           inputMode="decimal"
+                          aria-label={`Price per ${item.unit} for ${item.name}`}
                           className="num"
                           style={{ maxWidth: 140 }}
                           value={(Number(line.unitCostKobo) / 100).toFixed(2)}
@@ -396,12 +397,18 @@ export function RecordPurchase({
               </p>
             ) : (
               <>
-                <Line label="Dr Feed & supplies in store" value="Cr Owed to supplier" />
-                {paidNow ? <Line label="Dr Owed to supplier" value="Cr Cash" /> : null}
-                <p className="faint" style={{ marginTop: 6 }}>
-                  When the supplier&apos;s invoice arrives it clears what is owed rather than
-                  adding stock a second time.
+                <p className="faint" style={{ margin: 0 }}>
+                  This is recorded as a purchase order and goes for approval first; nothing is
+                  posted yet. When the goods receipt is confirmed, stock goes up and the amount
+                  is owed to the supplier (Dr Feed &amp; supplies in store, Cr Owed to supplier).
+                  The supplier&apos;s invoice then clears what is owed rather than adding stock a
+                  second time.
                 </p>
+                {paidNow ? (
+                  <p className="faint" style={{ marginTop: 6 }}>
+                    Payment is recorded separately, against the invoice, once it is approved.
+                  </p>
+                ) : null}
               </>
             )}
           </div>

@@ -754,6 +754,12 @@ export class MasterDataController {
   }
 
   @AnyRole('Reference lists that every create form needs to render.')
+  @Get('bank-gl-accounts')
+  async listBankGlAccounts(@CurrentCompany() companyId: string) {
+    return this.structure.listBankGlAccounts(companyId);
+  }
+
+  @AnyRole('Reference lists that every create form needs to render.')
   @Get('gl-accounts')
   async listGlAccounts(@CurrentCompany() companyId: string) {
     return this.structure.listGlAccounts(companyId);

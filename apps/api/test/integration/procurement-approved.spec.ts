@@ -143,7 +143,7 @@ describe('Procure-to-pay on the approved chart', () => {
   async function approvedOrder(itemId = inventoryItemId) {
     const order = await orders.createOrder({
       companyId: fixture.companyId, orderNumber: `PO-${Math.random().toString(36).slice(2, 8)}`, supplierId, orderDate: JAN, currencyId: fixture.currencyId,
-      branchId: fixture.branchId, warehouseId, costCentreId: fixture.costCentreId, lines: [{ itemId, quantity: QUANTITY, unitPriceKobo: UNIT_PRICE }], actor: maker,
+      branchId: fixture.branchId, warehouseId, lines: [{ itemId, quantity: QUANTITY, unitPriceKobo: UNIT_PRICE }], actor: maker,
     });
     const submitted = await orders.submitOrder({ purchaseOrderId: order.id, actor: maker });
     await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
@@ -222,6 +222,54 @@ describe('Procure-to-pay on the approved chart', () => {
     expect(await balance('20100')).toBe(0n);
     expect(await balance('10100')).toBe(-6_450_000n);
     expect((await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe(SupplierInvoiceStatus.PAID);
+  });
+
+  it('marks a payment cancelled on the payment itself when an approver rejects it', async () => {
+    const order = await approvedOrder();
+    const grn = await receiveAll(order.id);
+    const invoice = await invoiceFromGrn(order.id, grn.id);
+    const payment = await payments.create({
+      companyId: fixture.companyId, paymentNumber: 'PAY-REJ', supplierId, paymentDate: JAN, method: PaymentMethod.BANK_TRANSFER,
+      bankGlAccountId: await acct('10100'), branchId: fixture.branchId, currencyId: fixture.currencyId, ...period(),
+      allocations: [{ invoiceId: invoice.id, amountKobo: invoice.grossAmountKobo }], actor: maker,
+    });
+    const submitted = await payments.submit({ paymentId: payment.id, actor: maker });
+    await workflow.reject({ transactionId: submitted.transactionId, actor: approver, comments: 'Wrong account' });
+    expect((await prisma.supplierPayment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('CANCELLED');
+    expect(await balance('10100')).toBe(0n);
+  });
+
+  it('marks a goods receipt cancelled and a returned supplier invoice draft, with nothing posted', async () => {
+    const order = await approvedOrder();
+    const grn = await receipts.create({
+      purchaseOrderId: order.id, grnNumber: 'GRN-REJ', receiptDate: JAN, ...period(), qualityStatus: QualityStatus.PASSED,
+      lines: order.lines.map((line) => ({ purchaseOrderLineId: line.id, receivedQuantity: Number(line.quantity), rejectedQuantity: 0 })),
+      actor: maker,
+    });
+    const submitted = await receipts.submit({ grnId: grn.id, actor: maker });
+    await workflow.reject({ transactionId: submitted.transactionId, actor: approver, comments: 'Not what we ordered' });
+    expect((await prisma.goodsReceiptNote.findUniqueOrThrow({ where: { id: grn.id } })).status).toBe('CANCELLED');
+    expect(await balance('12000')).toBe(0n);
+
+    const good = await receiveAll(order.id);
+    const invoice = await invoices.create({
+      companyId: fixture.companyId, invoiceNumber: 'SI-RET', supplierInvoiceNumber: 'SUP-RET', supplierId, purchaseOrderId: order.id, invoiceDate: JAN,
+      currencyId: fixture.currencyId, branchId: fixture.branchId, costCentreId: fixture.costCentreId, ...period(),
+      lines: good.lines.map((line) => ({ goodsReceiptNoteLineId: line.id, quantity: Number(line.acceptedQuantity), unitPriceKobo: line.unitPriceKobo })),
+      actor: maker,
+    });
+    const sub = await invoices.submit({ invoiceId: invoice.id, actor: maker });
+    await workflow.returnToMaker({ transactionId: sub.transactionId, actor: approver, comments: 'Check the price' });
+    expect((await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe('DRAFT');
+  });
+
+  it('receives an item into its own store, not the order’s header store', async () => {
+    const feedStore = await prisma.warehouse.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'FEED-WH', name: 'Feed Store', type: 'RAW_MATERIAL' } });
+    await prisma.item.update({ where: { id: inventoryItemId }, data: { defaultWarehouseId: feedStore.id } });
+    const order = await approvedOrder(); // raised against RAW-WH
+    await receiveAll(order.id);
+    const movements = await prisma.stockMovement.findMany({ where: { companyId: fixture.companyId, itemId: inventoryItemId } });
+    expect(movements.map((m) => m.warehouseId)).toEqual([feedStore.id]);
   });
 
   it('charges a service invoice to the expense account its item names', async () => {

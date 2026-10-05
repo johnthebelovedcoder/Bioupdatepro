@@ -92,6 +92,7 @@ export async function loadPostingRules(): Promise<FlowState> {
       { method: 'POST', body: {} },
     );
     revalidatePath('/ledger/controls');
+    revalidatePath('/ledger/chart');
     revalidatePath('/ledger/posting-rules');
     return {
       error: null,

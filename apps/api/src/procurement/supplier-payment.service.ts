@@ -17,6 +17,7 @@ import { TaxEngineService } from '../tax/tax-engine.service';
 import { TaxRegisterService } from '../tax/tax-register.service';
 import { ProcurementConfigService } from './procurement-config.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { assertBankGlAccount } from '../chart/bank-account';
 import { kobo } from '../common/money';
 
 export interface PaymentAllocationInput {
@@ -207,6 +208,8 @@ export class SupplierPaymentService {
         { paymentNumber: paymentNumber },
       );
     }
+
+    await assertBankGlAccount(this.prisma, input.companyId, input.bankGlAccountId, 'A payment to a supplier');
 
     return this.prisma.$transaction(async (tx) => {
       const payment = await tx.supplierPayment.create({

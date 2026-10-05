@@ -16,7 +16,7 @@ import { Species } from './chart';
  * in a preview, and refuses to run without Finance's sign-off.
  */
 
-export type ProductClass = 'LIVE_POULTRY' | 'EGGS' | 'PROCESSED_POULTRY' | 'LIVE_SNAIL' | 'PROCESSED_SNAIL';
+export type ProductClass = 'LIVE_POULTRY' | 'EGGS' | 'PROCESSED_POULTRY' | 'LIVE_SNAIL' | 'PROCESSED_SNAIL' | 'GENERAL';
 
 /** What a sold or stocked item is, and the approved accounts that follow from it. */
 export const APPROVED_PRODUCT_CLASSES: Record<ProductClass, { label: string; revenue: string; costOfSales: string; inventory: string }> = {
@@ -25,6 +25,8 @@ export const APPROVED_PRODUCT_CLASSES: Record<ProductClass, { label: string; rev
   PROCESSED_POULTRY: { label: 'Processed poultry', revenue: '40320', costOfSales: '50320', inventory: '12420' },
   LIVE_SNAIL: { label: 'Live snails', revenue: '40210', costOfSales: '50210', inventory: '12410' },
   PROCESSED_SNAIL: { label: 'Processed snail products', revenue: '40220', costOfSales: '50220', inventory: '12410' },
+  // Anything sold that is not one of the farm's own products (a vaccine, packaging): the workbook's default accounts.
+  GENERAL: { label: 'Other goods (general)', revenue: '40000', costOfSales: '50000', inventory: '12400' },
 };
 
 /** Raw material, feed, packaging or consumable: the four approved inventory controls. */

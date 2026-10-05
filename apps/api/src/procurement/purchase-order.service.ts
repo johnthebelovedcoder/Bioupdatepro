@@ -1,3 +1,4 @@
+import { approvedDefaultCostCentreId } from '../chart/default-cost-centre';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
@@ -378,6 +379,8 @@ export class PurchaseOrderService {
       lines: input.lines,
     });
 
+    const costCentreId = input.costCentreId ?? (await approvedDefaultCostCentreId(this.prisma, input.companyId));
+
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.purchaseOrder.create({
         data: {
@@ -397,7 +400,7 @@ export class PurchaseOrderService {
           warehouseId: input.warehouseId,
           farmId: input.farmId ?? null,
           departmentId: input.departmentId ?? null,
-          costCentreId: input.costCentreId ?? null,
+          costCentreId: costCentreId,
           netAmountKobo: net,
           vatAmountKobo: vat,
           grossAmountKobo: net + vat,

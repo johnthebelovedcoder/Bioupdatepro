@@ -1,3 +1,4 @@
+import { approvedDefaultCostCentreId } from '../chart/default-cost-centre';
 import { Injectable } from '@nestjs/common';
 import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
@@ -295,6 +296,8 @@ export class SalesOrderService {
     farmId?: string | null;
     departmentId?: string | null;
     costCentreId?: string | null;
+    /** Set when the buyer paid at the time of sale; the invoice's receipt uses it. */
+    receivedAtSaleMethod?: 'BANK_TRANSFER' | 'CASH' | 'POS' | 'CHEQUE' | null;
     lines: PricedLineInput[];
     actor: WorkflowActor;
   }) {
@@ -315,6 +318,8 @@ export class SalesOrderService {
       lines: input.lines,
     });
 
+    const costCentreId = input.costCentreId ?? (await approvedDefaultCostCentreId(this.prisma, input.companyId));
+
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.salesOrder.create({
         data: {
@@ -330,7 +335,8 @@ export class SalesOrderService {
           warehouseId: input.warehouseId,
           farmId: input.farmId ?? null,
           departmentId: input.departmentId ?? null,
-          costCentreId: input.costCentreId ?? null,
+          costCentreId: costCentreId,
+          receivedAtSaleMethod: input.receivedAtSaleMethod ?? null,
           netAmountKobo: priced.netAmountKobo,
           vatAmountKobo: priced.vatAmountKobo,
           grossAmountKobo: priced.grossAmountKobo,

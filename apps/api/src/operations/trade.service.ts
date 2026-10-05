@@ -149,6 +149,7 @@ export class TradeService {
             branchId: context.branchId,
             warehouseId: context.warehouseId,
             farmId: context.farmId,
+            receivedAtSaleMethod: payload.paidNow ? receiptMethodOf(payload.method) : null,
             lines,
             actor,
           }));
@@ -547,6 +548,13 @@ export class TradeService {
  * same submission produces the same number instead of burning a new one in the
  * sequence every time a handset loses signal mid-send.
  */
+/** The receipt method a phone's "How" choice stands for. */
+export function receiptMethodOf(method: string | null): 'BANK_TRANSFER' | 'CASH' | 'POS' | 'CHEQUE' {
+  const key = (method ?? '').trim().toUpperCase().replace(/\s+/g, '_');
+  if (key === 'POS' || key === 'CHEQUE' || key === 'BANK_TRANSFER') return key;
+  return 'CASH';
+}
+
 /** Whether a reference could be a database id at all. */
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);

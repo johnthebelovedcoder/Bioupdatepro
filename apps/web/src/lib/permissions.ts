@@ -116,6 +116,11 @@ const BY_ROLE: Record<string, Section[]> = {
   // not reach the button that does it.
   TREASURY_OFFICER: ['dashboard', 'money', 'trade'],
 
+  // Prepares manual and recurring journals for approval (the API admits only this
+  // role to raise one). The Journals screen is under Money; the books it adjusts
+  // are under Ledger.
+  FINANCIAL_ACCOUNTANT: ['dashboard', 'money', 'ledger'],
+
   // ROL-015. Configuration and access, explicitly NOT finance or operations
   // ("cannot approve finance/operations") — so no money, ledger or approvals.
   SYSTEM_ADMIN: ['dashboard', 'staff', 'settings'],

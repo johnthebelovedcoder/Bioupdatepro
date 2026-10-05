@@ -146,7 +146,7 @@ export const getPostingControlStatus = () =>
 
 /* --- Moving to the approved five-digit chart ----------------------------- */
 
-export type ProductClass = 'LIVE_POULTRY' | 'EGGS' | 'PROCESSED_POULTRY' | 'LIVE_SNAIL' | 'PROCESSED_SNAIL';
+export type ProductClass = 'LIVE_POULTRY' | 'EGGS' | 'PROCESSED_POULTRY' | 'LIVE_SNAIL' | 'PROCESSED_SNAIL' | 'GENERAL';
 export type StockClass = 'RAW' | 'FEED' | 'PACKAGING' | 'CONSUMABLE';
 
 export interface CutoverPreview {

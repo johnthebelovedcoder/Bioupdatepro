@@ -84,6 +84,7 @@ async function safeJson(response: Response): Promise<unknown> {
 }
 
 function messageFrom(detail: unknown, status: number): string {
+  if (status === 429) return 'Too many attempts. Wait a few minutes, then try again.';
   if (detail && typeof detail === 'object' && 'message' in detail) {
     const message = (detail as { message: unknown }).message;
     // class-validator returns an array of messages, one per failed rule.

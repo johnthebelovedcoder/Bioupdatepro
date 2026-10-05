@@ -40,6 +40,11 @@ export async function login(
     };
   }
 
+  if (response.status === 429) {
+    // The API's throttle answers with its exception's name, which means nothing to a person.
+    return { error: 'Too many sign-in attempts. Wait a few minutes, then try again.' };
+  }
+
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
     /*

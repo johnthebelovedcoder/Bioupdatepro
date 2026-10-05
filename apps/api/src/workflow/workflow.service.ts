@@ -572,6 +572,68 @@ export class WorkflowService {
     }, { timeout: 15000 });
   }
 
+  /**
+   * Say on the document itself that it was rejected or sent back, so its own list
+   * stops showing it as waiting. Only for documents that have done nothing before
+   * approval: stock and settled quantities move only when the document posts, so a
+   * rejected or returned one has nothing to undo.
+   * Never touches a document that is no longer waiting.
+   */
+  private async mirrorDocumentStatus(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    transactionType: string,
+    documentType: string,
+    documentId: string,
+    to: WorkflowStatus,
+  ): Promise<void> {
+    if (to !== WorkflowStatus.REJECTED && to !== WorkflowStatus.RETURNED) return;
+    const rejected = to === WorkflowStatus.REJECTED;
+    const waiting = ['SUBMITTED', 'UNDER_REVIEW'] as const;
+    switch (transactionType) {
+      case 'MANUAL_JOURNAL':
+        await tx.manualJournal.updateMany({
+          where: { id: documentId, companyId, status: { in: [...waiting] } },
+          data: { status: rejected ? 'REJECTED' : 'RETURNED' },
+        });
+        return;
+      case 'SUPPLIER_PAYMENT':
+        await tx.supplierPayment.updateMany({
+          where: { id: documentId, companyId, status: 'SUBMITTED' },
+          data: { status: rejected ? 'CANCELLED' : 'DRAFT' },
+        });
+        return;
+      case 'CUSTOMER_RECEIPT':
+        await tx.customerReceipt.updateMany({
+          where: { id: documentId, companyId, status: 'SUBMITTED' },
+          data: { status: rejected ? 'CANCELLED' : 'DRAFT' },
+        });
+        return;
+      default:
+        break;
+    }
+    const back = rejected ? 'CANCELLED' : 'DRAFT';
+    switch (documentType) {
+      case 'GoodsReceiptNote':
+        await tx.goodsReceiptNote.updateMany({ where: { id: documentId, companyId, status: 'SUBMITTED' }, data: { status: back } });
+        return;
+      case 'SupplierInvoice':
+        await tx.supplierInvoice.updateMany({ where: { id: documentId, companyId, status: { in: [...waiting] } }, data: { status: back } });
+        return;
+      case 'DeliveryNote':
+        await tx.deliveryNote.updateMany({ where: { id: documentId, companyId, status: 'SUBMITTED' }, data: { status: back } });
+        return;
+      case 'SalesInvoice':
+        await tx.salesInvoice.updateMany({ where: { id: documentId, companyId, status: { in: [...waiting] } }, data: { status: back } });
+        return;
+      case 'CreditNote':
+        await tx.creditNote.updateMany({ where: { id: documentId, companyId, status: { in: [...waiting] } }, data: { status: back } });
+        return;
+      default:
+        return;
+    }
+  }
+
   private async terminalAction(
     request: ActionRequest,
     config: {
@@ -632,6 +694,8 @@ export class WorkflowService {
           completedAt: config.toStatus === WorkflowStatus.REJECTED ? now : null,
         },
       });
+
+      await this.mirrorDocumentStatus(tx, transaction.companyId, transaction.transactionType, transaction.documentType, transaction.documentId, config.toStatus);
 
       await this.recordEvent(tx, {
         transactionId: transaction.id,
