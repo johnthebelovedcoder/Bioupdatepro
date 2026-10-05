@@ -876,8 +876,8 @@ export function DailyRecordEntry({
                 />
               ))}
             <p className="faint" style={{ marginTop: 6 }}>
-              Valued at the feed&apos;s issue price when this is wired up, so each{' '}
-              {t.group.one}&apos;s cost stays in step with the general ledger.
+              Valued at the store&apos;s average cost for the feed, so each {t.group.one}&apos;s
+              cost stays in step with the general ledger.
             </p>
           </div>
         </div>

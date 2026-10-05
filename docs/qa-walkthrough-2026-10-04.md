@@ -31,7 +31,7 @@ Each has a regression test unless it is screen text.
 7. **High: the income-tax panel on the P&L showed "Cannot GET /api/closing/period/…"**: the screen called `/closing/…`, the API serves `/period/…`. Fixed; the preview now shows 30% of profit before tax.
 8. **Low: a vaccine sold from stock had to be classed as "Live birds" in the cutover.** Added "Other goods (general)" (40000 / 50000 / 12400).
 
-## Findings, open (not changed here)
+## Findings, open when the walk-through ended (see the follow-up below)
 
 9. **Medium: the Approvals screen swallows errors.** An Administrator pressing Approve on a posting document gets "Administrators … cannot post accounting entries" back from the server and the row simply stays; Reject with no reason does nothing visible. Approving a ₦7.26M order is one click with no confirmation or confirmation message.
 10. **High: a sale recorded as "Paid now — Cash" creates no receipt.** The review screen says Dr Cash / Cr Sales income; the books get Dr Receivable and the invoice stays open.
@@ -44,6 +44,21 @@ Each has a regression test unless it is screen text.
 17. **Low:** the review screens say "Valued … when this is wired up" (unfinished copy); the Buy supplies review shows the effect on the books even when approval will hold it back; "Ready to ship/invoice" still list an order after it was shipped/invoiced; the price field on Buy supplies has no label for screen readers; "Round queued" is shown even when the server later rejects a duplicate day (only the header outbox says blocked); cash can go negative with no warning.
 18. **Low, demo data:** deliveries cost at the standard cost (₦14.50 a unit for a vaccine bought at ₦1,500) with no warning; seeded flocks have no journals ("7 populations not posted"); the seeded farm has no ledger postings.
 19. **Design note:** the cutover is dated the first day of a future month but the company switches to the approved chart at once, so activity before that date posts to approved accounts while the old balances move on the cutover date. Reports are consistent, but it may surprise.
+
+## Follow-up, 5 October 2026: the open findings
+
+| # | Outcome |
+|---|---|
+| 9 | **Withdrawn.** The Approvals screen does show the server's refusal and the "Say why you are rejecting it" prompt next to the buttons; the walk-through looked for them in the wrong place. (A one-click approval with no confirmation is left as it is.) |
+| 10 | **Text corrected, behaviour not changed.** The review screens said Dr Cash / Cr Sales income for a sale marked "Paid now"; they now say what happens: income posts when the invoice is approved, and the cash is recorded against it under Selling → Invoices → Receive a payment. Recording the receipt automatically needs a decision on which cash or bank account each method means, and its own approval. |
+| 11 | **Fixed.** Goods receipts take the item's own store when it has one (the daily round already issued from it), instead of the order's header store. Test in `procurement-approved.spec.ts`. |
+| 12 | **Left for Finance.** Where an invoice's price difference belongs (inventory cost, a price-variance account, or cost of sales when the goods are gone) is an accounting policy; the stock ledger would also need a matching revaluation. No account in the approved chart is named for it. |
+| 13 | **Fixed.** The invite and Edit roles screens offer GL/Financial accountant; that role can open Journals; the Raise a journal button shows only to it; the journal form has a cost centre for each line (the approved chart needs one on most accounts, and an approver's click failed without it). Walked through: raised, approved, posted Dr 56000 / Cr 11100 with the cost centre. |
+| 14 | **Fixed.** A screen that cannot load now shows "That screen is not yours" (with the server's wording in development) or a plain "could not load" with a way back, and the Home screen no longer shows a permission banner to roles without ledger access. |
+| 15 | **Fixed.** "Too many sign-in attempts. Wait a few minutes, then try again." |
+| 16 | **Partly fixed.** A rejected or returned manual journal, supplier payment or customer receipt now says so on the document (rejected, cancelled, draft). Goods receipts, deliveries, invoices and orders are not changed: they have already noted stock or settled quantities, so marking them cancelled without reversing that would be wrong. |
+| 17 | **Partly fixed.** The "when this is wired up" copy is replaced; the Buy supplies review says it is a purchase order for approval and when the books move; price fields have labels. Not changed: "Ready to ship/invoice" listing an order until the document is confirmed, "Round queued" before the server has accepted it, and cash going negative without a warning. |
+| 18, 19 | Not changed (demo data; and the cutover-date behaviour is a design decision). |
 
 ## Not covered
 

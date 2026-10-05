@@ -18,8 +18,16 @@ interface ReasonCodeOption {
   journalTypeId: string | null;
 }
 
+interface CostCentreOption {
+  id: string;
+  code: string;
+  name: string;
+  active: boolean;
+}
+
 interface DraftLine {
   glAccountId: string;
+  costCentreId: string;
   description: string;
   side: 'debit' | 'credit';
   amount: string;
@@ -32,7 +40,7 @@ const JOURNAL_TYPES = [
 ];
 
 function emptyLine(): DraftLine {
-  return { glAccountId: '', description: '', side: 'debit', amount: '' };
+  return { glAccountId: '', costCentreId: '', description: '', side: 'debit', amount: '' };
 }
 
 /**
@@ -43,10 +51,12 @@ function emptyLine(): DraftLine {
 export function CreateManualJournalForm({
   accounts,
   reasonCodes,
+  costCentres,
   today,
 }: {
   accounts: GlAccountOption[];
   reasonCodes: ReasonCodeOption[];
+  costCentres: CostCentreOption[];
   today: string;
 }) {
   const [state, formAction] = useActionState<FlowState, FormData>(createManualJournal, {
@@ -75,6 +85,7 @@ export function CreateManualJournalForm({
       .filter((l) => l.glAccountId && parseNairaToKobo(l.amount))
       .map((l) => ({
         glAccountId: l.glAccountId,
+        ...(l.costCentreId ? { costCentreId: l.costCentreId } : {}),
         description: l.description,
         ...(l.side === 'debit'
           ? { debitKobo: (parseNairaToKobo(l.amount) ?? 0n).toString() }
@@ -149,6 +160,20 @@ export function CreateManualJournalForm({
                       {a.accountNumber} — {a.name}
                     </option>
                   ))}
+                </select>
+                <select
+                  aria-label="Cost centre"
+                  value={line.costCentreId}
+                  onChange={(e) => updateLine(index, { costCentreId: e.target.value })}
+                >
+                  <option value="">Cost centre (needed on most expense, revenue and stock accounts)</option>
+                  {costCentres
+                    .filter((c) => c.active)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} — {c.name}
+                      </option>
+                    ))}
                 </select>
                 <input
                   placeholder="Line description"

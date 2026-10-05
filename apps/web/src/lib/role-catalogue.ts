@@ -1,5 +1,5 @@
 /**
- * The six roles this product's screens are fully wired up to, and what each
+ * The roles this product's screens are fully wired up to, and what each
  * one is for — display copy, not farm data, so it lives outside the demo
  * fixtures and needs no API call. The approval LIMIT next to each one is a
  * different kind of fact and comes from the company's own configuration

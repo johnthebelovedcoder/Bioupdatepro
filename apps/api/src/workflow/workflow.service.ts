@@ -572,6 +572,47 @@ export class WorkflowService {
     }, { timeout: 15000 });
   }
 
+  /**
+   * Say on the document itself that it was rejected or sent back, so its own list
+   * stops showing it as waiting. Only for documents that have done nothing before
+   * approval: a goods receipt or a delivery has already noted stock, so marking it
+   * cancelled here would leave the stock behind — those need their own reversal.
+   * Never touches a document that is no longer waiting.
+   */
+  private async mirrorDocumentStatus(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    transactionType: string,
+    documentId: string,
+    to: WorkflowStatus,
+  ): Promise<void> {
+    if (to !== WorkflowStatus.REJECTED && to !== WorkflowStatus.RETURNED) return;
+    const rejected = to === WorkflowStatus.REJECTED;
+    const waiting = ['SUBMITTED', 'UNDER_REVIEW'] as const;
+    switch (transactionType) {
+      case 'MANUAL_JOURNAL':
+        await tx.manualJournal.updateMany({
+          where: { id: documentId, companyId, status: { in: [...waiting] } },
+          data: { status: rejected ? 'REJECTED' : 'RETURNED' },
+        });
+        return;
+      case 'SUPPLIER_PAYMENT':
+        await tx.supplierPayment.updateMany({
+          where: { id: documentId, companyId, status: 'SUBMITTED' },
+          data: { status: rejected ? 'CANCELLED' : 'DRAFT' },
+        });
+        return;
+      case 'CUSTOMER_RECEIPT':
+        await tx.customerReceipt.updateMany({
+          where: { id: documentId, companyId, status: 'SUBMITTED' },
+          data: { status: rejected ? 'CANCELLED' : 'DRAFT' },
+        });
+        return;
+      default:
+        return;
+    }
+  }
+
   private async terminalAction(
     request: ActionRequest,
     config: {
@@ -632,6 +673,8 @@ export class WorkflowService {
           completedAt: config.toStatus === WorkflowStatus.REJECTED ? now : null,
         },
       });
+
+      await this.mirrorDocumentStatus(tx, transaction.companyId, transaction.transactionType, transaction.documentId, config.toStatus);
 
       await this.recordEvent(tx, {
         transactionId: transaction.id,

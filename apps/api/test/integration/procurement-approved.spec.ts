@@ -224,6 +224,30 @@ describe('Procure-to-pay on the approved chart', () => {
     expect((await prisma.supplierInvoice.findUniqueOrThrow({ where: { id: invoice.id } })).status).toBe(SupplierInvoiceStatus.PAID);
   });
 
+  it('marks a payment cancelled on the payment itself when an approver rejects it', async () => {
+    const order = await approvedOrder();
+    const grn = await receiveAll(order.id);
+    const invoice = await invoiceFromGrn(order.id, grn.id);
+    const payment = await payments.create({
+      companyId: fixture.companyId, paymentNumber: 'PAY-REJ', supplierId, paymentDate: JAN, method: PaymentMethod.BANK_TRANSFER,
+      bankGlAccountId: await acct('10100'), branchId: fixture.branchId, currencyId: fixture.currencyId, ...period(),
+      allocations: [{ invoiceId: invoice.id, amountKobo: invoice.grossAmountKobo }], actor: maker,
+    });
+    const submitted = await payments.submit({ paymentId: payment.id, actor: maker });
+    await workflow.reject({ transactionId: submitted.transactionId, actor: approver, comments: 'Wrong account' });
+    expect((await prisma.supplierPayment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe('CANCELLED');
+    expect(await balance('10100')).toBe(0n);
+  });
+
+  it('receives an item into its own store, not the order’s header store', async () => {
+    const feedStore = await prisma.warehouse.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'FEED-WH', name: 'Feed Store', type: 'RAW_MATERIAL' } });
+    await prisma.item.update({ where: { id: inventoryItemId }, data: { defaultWarehouseId: feedStore.id } });
+    const order = await approvedOrder(); // raised against RAW-WH
+    await receiveAll(order.id);
+    const movements = await prisma.stockMovement.findMany({ where: { companyId: fixture.companyId, itemId: inventoryItemId } });
+    expect(movements.map((m) => m.warehouseId)).toEqual([feedStore.id]);
+  });
+
   it('charges a service invoice to the expense account its item names', async () => {
     const order = await approvedOrder(expenseItemId);
     const invoice = await invoices.create({

@@ -1,4 +1,5 @@
 import { getManualJournals, getRecurringJournals, getGlAccounts, getReasonCodes } from '@/lib/journals';
+import { getCostCentres } from '@/lib/masters';
 import { formatDate, formatNaira } from '@/lib/money';
 import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
@@ -8,6 +9,8 @@ import { CreateRecurringJournalForm } from '@/components/create-recurring-journa
 import { GenerateDueRecurringButton } from '@/components/generate-due-recurring-button';
 import { CancelJournalButton, SubmitJournalButton } from '@/components/submit-journal-button';
 import { TableSearch } from '@/components/table-search';
+import { api } from '@/lib/api';
+import type { SessionUser } from '@/lib/session';
 
 export const metadata = { title: 'Journals — BioAssetPro' };
 
@@ -18,12 +21,16 @@ export const metadata = { title: 'Journals — BioAssetPro' };
  * journal is reversed, never edited or removed.
  */
 export default async function JournalsPage() {
-  const [manual, recurring, accounts, reasonCodes] = await Promise.all([
+  const [manual, recurring, accounts, reasonCodes, costCentres, me] = await Promise.all([
     getManualJournals(),
     getRecurringJournals(),
     getGlAccounts(),
     getReasonCodes(),
+    getCostCentres().catch(() => []),
+    api<SessionUser>('/auth/me'),
   ]);
+  // The API admits only a GL/Financial Accountant to raise a journal (maker); the others approve.
+  const canRaise = me.roles.includes('FINANCIAL_ACCOUNTANT');
   const today = new Date().toISOString().slice(0, 10);
 
   return (
@@ -34,7 +41,13 @@ export default async function JournalsPage() {
 
       <TableSearch
         placeholder="Search journals"
-        actions={<CreateManualJournalForm accounts={accounts} reasonCodes={reasonCodes} today={today} />}
+        actions={
+          canRaise ? (
+            <CreateManualJournalForm accounts={accounts} reasonCodes={reasonCodes} costCentres={costCentres} today={today} />
+          ) : (
+            <span className="faint">Journals are raised by a GL/Financial accountant and approved by finance.</span>
+          )
+        }
       >
         <Card title="Manual journals" padded={false}>
           {manual.length === 0 ? (

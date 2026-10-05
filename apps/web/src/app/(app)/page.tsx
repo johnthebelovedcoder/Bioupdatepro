@@ -72,7 +72,8 @@ export default async function DashboardPage() {
       );
     }
   } catch (caught) {
-    ledgerError = caught instanceof ApiError ? caught.message : 'Could not reach the ledger.';
+    // A role with no ledger access is not an error to show: the card is not theirs.
+    ledgerError = caught instanceof ApiError ? (caught.status === 403 ? null : caught.message) : 'Could not reach the ledger.';
   }
 
   const config = await getFarmConfig();
@@ -97,7 +98,7 @@ export default async function DashboardPage() {
     runway = null;
     ledger = null;
     // Preserve ledgerError for the ledger card if applicable.
-    if (!ledger) ledgerError = caught instanceof ApiError ? caught.message : ledgerError;
+    if (!ledger) ledgerError = caught instanceof ApiError ? (caught.status === 403 ? ledgerError : caught.message) : ledgerError;
   }
 
   const modules = subscribedModules(config.modules);

@@ -41,6 +41,11 @@ export const ROLES: Array<{ code: string; label: string; what: string }> = [
     what: 'Sees everything and approves at the top of the ladder.',
   },
   {
+    code: 'FINANCIAL_ACCOUNTANT',
+    label: 'GL/Financial accountant',
+    what: 'Prepares manual and recurring journals for approval. The only role that can raise one.',
+  },
+  {
     code: 'ADMINISTRATOR',
     label: 'Administrator',
     what: 'Full control, including inviting and removing people.',

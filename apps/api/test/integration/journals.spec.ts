@@ -286,6 +286,13 @@ describe('Accounting Adjustment Centre (§3)', () => {
       expect(after.status).toBe(ManualJournalStatus.REJECTED);
     });
 
+    it('shows a rejected journal as rejected on the journal itself, without a separate sync', async () => {
+      const journal = await makeJournal();
+      const submitted = await journals.submit({ manualJournalId: journal.id, actor: maker });
+      await workflow.reject({ transactionId: submitted.transactionId, actor: approver, comments: 'Wrong period' });
+      expect((await prisma.manualJournal.findUniqueOrThrow({ where: { id: journal.id } })).status).toBe(ManualJournalStatus.REJECTED);
+    });
+
     it('refuses the maker approving their own adjustment', async () => {
       const selfApprover = await prisma.user.create({
         data: {

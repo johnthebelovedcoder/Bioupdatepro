@@ -253,6 +253,7 @@ export function RecordSale({
                         <span className="muted">₦</span>
                         <input
                           inputMode="decimal"
+                          aria-label={`Price per ${product.unit} for ${product.name}`}
                           className="num"
                           style={{ maxWidth: 140 }}
                           value={(Number(line.priceKobo) / 100).toFixed(2)}
@@ -510,18 +511,23 @@ export function RecordSale({
               Getting the third one right is what makes population profit tie to the
               profit and loss instead of drifting away from it.
             */}
-            <Line
-              label={paidNow ? `Dr ${method}` : 'Dr Owed by customer'}
-              value="Cr Sales income"
-            />
+            <Line label="Dr Owed by customer" value="Cr Sales income" />
             <Line label="Dr Cost of sales" value="Cr Finished goods" />
             {sold.some(({ product }) => product.fromPopulation) ? (
               <Line label="Dr Cost of sales" value="Cr the population's own costs" />
             ) : null}
             <p className="faint" style={{ marginTop: 6 }}>
-              Costed when this is wired up, so what a population earned and what it cost end up
-              in the same set of books.
+              Sales income posts when the invoice is approved and cost of sales when the delivery
+              is confirmed, so what a population earned and what it cost end up in the same set
+              of books.
             </p>
+            {paidNow ? (
+              <p className="faint" style={{ marginTop: 6 }}>
+                Paid now ({method}): the money is recorded against the invoice once it is
+                approved, under Selling &rarr; Invoices &rarr; Receive a payment. Until then the
+                customer still shows as owing.
+              </p>
+            ) : null}
           </div>
 
           <div className="notice notice-info">
