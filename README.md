@@ -177,6 +177,12 @@ local database, review the SQL it wrote, and commit it. Deploys run
 `npm run db:migrate`, which applies pending migrations in order. `db:push` is
 for throwaway local databases only.
 
+To check that a change has reached production, open
+`https://bioassetpro-api.onrender.com/api/health`. `version` is the first seven
+characters of the commit the API was built from (compare it with `git log -1
+--format=%h main`), and `migration` is the newest migration the database has
+applied. If `version` is `unknown` the platform did not supply a commit.
+
 ## Backups
 
 A GitHub Action (`.github/workflows/backup.yml`) dumps the production

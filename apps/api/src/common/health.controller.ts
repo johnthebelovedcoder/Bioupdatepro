@@ -25,12 +25,14 @@ export class HealthController {
     const started = Date.now();
     let database: 'up' | 'down' = 'down';
     let detail: string | undefined;
+    let migration: string | undefined;
     try {
       await Promise.race([
         this.prisma.$queryRaw`SELECT 1`,
         new Promise((_, reject) => setTimeout(() => reject(new Error('timed out after 5s')), 5000)),
       ]);
       database = 'up';
+      migration = await this.latestMigration();
     } catch (error) {
       // The first line only: enough to tell "unreachable" from "timed out",
       // without handing a stack trace or connection string to the world.
@@ -43,8 +45,25 @@ export class HealthController {
       api: 'up',
       database,
       ...(detail ? { detail } : {}),
+      // Which build is serving, and how far its schema has got: the two things you
+      // need to say "the latest change is deployed". Render sets the commit; it is
+      // absent locally.
+      version: (process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? 'unknown').slice(0, 7),
+      ...(migration ? { migration } : {}),
       checkedInMs: Date.now() - started,
       time: new Date().toISOString(),
     };
+  }
+
+  /** The newest migration the database has applied, or nothing when that cannot be read. */
+  private async latestMigration(): Promise<string | undefined> {
+    try {
+      const rows = await this.prisma.$queryRaw<Array<{ migration_name: string }>>`
+        SELECT migration_name FROM _prisma_migrations
+        WHERE finished_at IS NOT NULL ORDER BY finished_at DESC, migration_name DESC LIMIT 1`;
+      return rows[0]?.migration_name;
+    } catch {
+      return undefined;
+    }
   }
 }
