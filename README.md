@@ -75,6 +75,18 @@ there as an accidental hole.
 Requires Node 20+. No Docker: the development database is a real PostgreSQL
 started by a script.
 
+The short way, on a fresh clone or after every `git pull`:
+
+```bash
+npm install
+npm run setup     # .env and JWT secret, database client, PostgreSQL, migrations, demo data
+npm run dev       # API on :3001, web on :3000
+```
+
+`npm run setup` never overwrites an existing `.env` and only loads the demo data
+into an empty database, so it is safe to run again. The steps below are what it
+does, one at a time.
+
 ```bash
 npm install
 cp .env.example .env
