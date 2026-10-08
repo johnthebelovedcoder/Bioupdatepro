@@ -25,11 +25,15 @@ export function ApproveOrderButton({ orderId }: { orderId: string }) {
   const [state, formAction] = useActionState<FlowState, FormData>(approveOrder, EMPTY);
 
   return (
-    <form action={formAction}>
+    <form action={formAction} className="stack" style={{ gap: 'var(--sp-2)' }}>
       <input type="hidden" name="orderId" value={orderId} />
       <Pending idle="Approve" busy="Approving…" />
       {state.error ? <div className="faint" style={{ color: 'var(--error-700)' }}>{state.error}</div> : null}
-      {state.message ? <div className="faint">{state.message}</div> : null}
+      {state.message ? (
+        <div className="notice notice-success" aria-live="polite">
+          {state.message}
+        </div>
+      ) : null}
     </form>
   );
 }
@@ -39,11 +43,15 @@ export function ApproveSalesOrderButton({ orderId }: { orderId: string }) {
   const [state, formAction] = useActionState<FlowState, FormData>(approveSalesOrder, EMPTY);
 
   return (
-    <form action={formAction}>
+    <form action={formAction} className="stack" style={{ gap: 'var(--sp-2)' }}>
       <input type="hidden" name="orderId" value={orderId} />
       <Pending idle="Approve" busy="Approving…" />
       {state.error ? <div className="faint" style={{ color: 'var(--error-700)' }}>{state.error}</div> : null}
-      {state.message ? <div className="faint">{state.message}</div> : null}
+      {state.message ? (
+        <div className="notice notice-success" aria-live="polite">
+          {state.message}
+        </div>
+      ) : null}
     </form>
   );
 }
@@ -81,6 +89,14 @@ export function DecideButtons({ transactionId }: { transactionId: string }) {
         ? rejectState.error
         : pressed === 'return'
           ? returnState.error
+          : null;
+  const successMessage =
+    pressed === 'approve'
+      ? approveState.message
+      : pressed === 'reject'
+        ? rejectState.message
+        : pressed === 'return'
+          ? returnState.message
           : null;
 
   return (
@@ -125,6 +141,11 @@ export function DecideButtons({ transactionId }: { transactionId: string }) {
       {problem ? (
         <div className="faint" style={{ color: 'var(--error-700)', whiteSpace: 'normal' }}>
           {problem}
+        </div>
+      ) : null}
+      {successMessage ? (
+        <div className="notice notice-success" aria-live="polite">
+          {successMessage}
         </div>
       ) : null}
     </form>

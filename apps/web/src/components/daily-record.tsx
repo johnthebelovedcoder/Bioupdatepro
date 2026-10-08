@@ -707,6 +707,33 @@ export function DailyRecordEntry({
               </div>
             </div>
 
+            <div className="stop-summary" aria-live="polite">
+              <div className="faint" style={{ marginBottom: 'var(--sp-2)' }}>At this stop</div>
+              <div className="stop-summary-row">
+                {stop.groups.flatMap((group) => {
+                  const draft = draftFor(group.id);
+                  const summaryItems: Array<{ label: string; value: string }> = [];
+                  if (draft.feedKg > 0) summaryItems.push({ label: `${group.code} feed`, value: `${draft.feedKg} kg` });
+                  const productionCount = Object.values(draft.production).reduce((sum, value) => sum + value, 0);
+                  if (productionCount > 0) summaryItems.push({ label: `${group.code} recorded`, value: `${productionCount}` });
+                  if (draft.deaths > 0) summaryItems.push({ label: `${group.code} losses`, value: `${draft.deaths}` });
+                  if (draft.photo) summaryItems.push({ label: `${group.code} photo`, value: 'ready' });
+                  return summaryItems.length > 0 ? summaryItems.map((item) => (
+                    <span key={`${group.id}-${item.label}`} className="stop-summary-pill">
+                      <span className="stop-summary-label">{item.label}</span>
+                      <span className="stop-summary-value">{item.value}</span>
+                    </span>
+                  )) : null;
+                })}
+                {!stop.groups.some((group) => hasContent(drafts[group.id])) ? (
+                  <span className="stop-summary-pill stop-summary-pill-muted">
+                    <span className="stop-summary-label">Status</span>
+                    <span className="stop-summary-value">empty</span>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
             {stop.groups.map((group) => (
               <GroupEntry
                 key={group.id}

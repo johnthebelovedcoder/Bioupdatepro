@@ -213,10 +213,19 @@ export default async function DashboardPage() {
       <div className="stack">
         <NeedsAttention alerts={alerts} />
 
+        <DashboardFocus roles={roles} />
+
+        {!alerts.length && !tasks.length && !activity.length && !ledger ? (
+          <div className="notice notice-info">
+            Nothing is live yet. Start with the daily round, a stock check, or an approval to turn this farm into a working dashboard.
+          </div>
+        ) : null}
+
         <QuickActions
           allowedSections={allowedSections}
           moduleKey={modules[0]?.key ?? null}
           hasSpecies={hasSpecies}
+          roles={roles}
         />
 
         {/*
@@ -448,37 +457,103 @@ export default async function DashboardPage() {
   );
 }
 
+function DashboardFocus({ roles }: { roles: readonly string[] }) {
+  const profile = getRoleProfile(roles);
+
+  const content =
+    profile === 'finance'
+      ? {
+          title: 'Finance lane',
+          text: 'Review approvals, bank activity, and ledger movement before the operational day gets noisy.',
+        }
+      : profile === 'operations'
+        ? {
+            title: 'Farm lane',
+            text: 'Keep the daily round, store, and losses moving. That is the quickest route to a reliable picture of the farm today.',
+          }
+        : {
+            title: 'Balanced view',
+            text: 'Watch the farm, the store, and the books together so issues show up before they become surprises.',
+          };
+
+  return (
+    <section className="role-focus" aria-live="polite">
+      <div className="role-focus-badge">{content.title}</div>
+      <div className="role-focus-text">{content.text}</div>
+    </section>
+  );
+}
+
 function QuickActions({
   allowedSections,
   moduleKey,
   hasSpecies,
+  roles,
 }: {
   allowedSections: ReadonlySet<string>;
   moduleKey: string | null;
   hasSpecies: boolean;
+  roles: readonly string[];
 }) {
+  const roleProfile = getRoleProfile(roles);
   const actions: Array<{ label: string; href: string; detail: string }> = [];
-  if (allowedSections.has('approvals')) actions.push({ label: 'Review approvals', href: '/approvals', detail: 'Decide what is waiting' });
-  if (hasSpecies && moduleKey && allowedSections.has('recording')) actions.push({ label: "Record today's round", href: `/m/${moduleKey}/records`, detail: 'Feed, output and losses' });
-  if (allowedSections.has('ledger')) actions.push({ label: 'Open the books', href: '/ledger/trial-balance', detail: 'Review balances and reports' });
-  else if (allowedSections.has('money')) actions.push({ label: 'Open money', href: '/finance', detail: 'Payments, payroll and cash' });
-  if (allowedSections.has('inventory')) actions.push({ label: 'Check store', href: '/inventory', detail: 'Stock, receipts and counts' });
-  if (allowedSections.has('trade')) actions.push({ label: 'Start a purchase', href: '/procurement/new', detail: 'Request or order supplies' });
+
+  if (roleProfile === 'finance') {
+    if (allowedSections.has('ledger')) actions.push({ label: 'Open the books', href: '/ledger/trial-balance', detail: 'Review balances, journals and controls' });
+    if (allowedSections.has('money')) actions.push({ label: 'Review money', href: '/finance', detail: 'Cash, payroll and bank activity' });
+    if (allowedSections.has('approvals')) actions.push({ label: 'Review approvals', href: '/approvals', detail: 'Decide what is waiting' });
+    if (allowedSections.has('trade')) actions.push({ label: 'Check supplier activity', href: '/procurement/invoices', detail: 'Match receipts and invoices' });
+  } else if (roleProfile === 'operations') {
+    if (hasSpecies && moduleKey && allowedSections.has('recording')) actions.push({ label: "Record today's round", href: `/m/${moduleKey}/records`, detail: 'Feed, output and losses' });
+    if (allowedSections.has('inventory')) actions.push({ label: 'Check store', href: '/inventory', detail: 'Stock, receipts and counts' });
+    if (allowedSections.has('approvals')) actions.push({ label: 'Review approvals', href: '/approvals', detail: 'Decide what is waiting' });
+    if (allowedSections.has('trade')) actions.push({ label: 'Start a purchase', href: '/procurement/new', detail: 'Request or order supplies' });
+  } else {
+    if (allowedSections.has('approvals')) actions.push({ label: 'Review approvals', href: '/approvals', detail: 'Decide what is waiting' });
+    if (hasSpecies && moduleKey && allowedSections.has('recording')) actions.push({ label: "Record today's round", href: `/m/${moduleKey}/records`, detail: 'Feed, output and losses' });
+    if (allowedSections.has('ledger')) actions.push({ label: 'Open the books', href: '/ledger/trial-balance', detail: 'Review balances and reports' });
+    else if (allowedSections.has('money')) actions.push({ label: 'Open money', href: '/finance', detail: 'Payments, payroll and cash' });
+    if (allowedSections.has('inventory')) actions.push({ label: 'Check store', href: '/inventory', detail: 'Stock, receipts and counts' });
+    if (allowedSections.has('trade')) actions.push({ label: 'Start a purchase', href: '/procurement/new', detail: 'Request or order supplies' });
+  }
+
   if (actions.length === 0) return null;
 
+  const header = roleProfile === 'finance'
+    ? 'Financial controls'
+    : roleProfile === 'operations'
+      ? 'Farm actions'
+      : "Today's priorities";
+
   return (
-    <section aria-label="Quick actions">
-      <div className="faint" style={{ textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600, marginBottom: 'var(--sp-3)' }}>Start here</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))', gap: 'var(--sp-3)' }}>
+    <section aria-label="Quick actions" className="priority-panel">
+      <div className="priority-panel-header">
+        <div>
+          <div className="faint priority-label">Start here</div>
+          <h2>{header}</h2>
+        </div>
+        <span className="badge badge-accent">{Math.min(actions.length, 4)} shortcuts</span>
+      </div>
+      <div className="priority-grid">
         {actions.slice(0, 4).map((action) => (
-          <Link key={action.href} href={action.href} className="card" style={{ padding: 'var(--sp-4)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontWeight: 600 }}>{action.label}</span>
-            <span className="faint" style={{ fontSize: 13 }}>{action.detail}</span>
+          <Link key={action.href} href={action.href} className="priority-action">
+            <span className="priority-action-title">{action.label}</span>
+            <span className="priority-action-detail">{action.detail}</span>
           </Link>
         ))}
       </div>
     </section>
   );
+}
+
+function getRoleProfile(roles: readonly string[]): 'finance' | 'operations' | 'general' {
+  const normalized = roles.map((role) => role.toUpperCase());
+  const financeRoles = ['CFO', 'ADMINISTRATOR', 'FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'FINANCIAL_ACCOUNTANT', 'TREASURY_OFFICER', 'FARM_ACCOUNTANT', 'AP_OFFICER', 'AR_OFFICER'];
+  const operationsRoles = ['FARM_MANAGER', 'PRODUCTION_SUPERVISOR', 'POULTRY_SUPERVISOR', 'SNAIL_SUPERVISOR', 'PRODUCTION_LEAD', 'FARM_ATTENDANT', 'STOREKEEPER', 'PROCUREMENT_OFFICER', 'SALES_OFFICER'];
+
+  if (normalized.some((role) => financeRoles.includes(role))) return 'finance';
+  if (normalized.some((role) => operationsRoles.includes(role))) return 'operations';
+  return 'general';
 }
 
 /* -------------------------------------------------------------------------- */

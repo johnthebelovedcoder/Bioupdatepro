@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import type { SessionUser } from '@/lib/session';
-import type { ModuleKey } from '@/lib/modules';
+import { getModule, type ModuleKey } from '@/lib/modules';
 import type { LanguageCode } from '@/lib/farm-config';
 import type { RoleSectionOverride } from '@/lib/permissions';
 import { SidebarNav } from './sidebar';
@@ -47,6 +47,9 @@ export function AppShell({
 }) {
   const [navOpen, setNavOpen] = useState(false);
   const pathname = usePathname();
+  const currentModule = getModule(activeModule);
+  const roleSummary = formatRoleLabel(user.roles);
+  const contextLabel = currentModule ? currentModule.productName : 'AgriPro Core';
 
   // Navigating on a phone should reveal the page, not leave the drawer over it.
   useEffect(() => {
@@ -142,6 +145,10 @@ export function AppShell({
             in than the menu, and it has to look like it will accept one.
           */}
           <SearchPalette roles={user.roles} />
+          <div className="header-context" aria-live="polite" aria-label={`Current context: ${contextLabel}${roleSummary ? ` · ${roleSummary}` : ''}`}>
+            <span className="header-context-pill header-context-role">{roleSummary || 'Farm user'}</span>
+            <span className="header-context-pill header-context-module">{contextLabel}</span>
+          </div>
           <div className="spacer" />
           <SyncStatus />
           <NotificationBell />
@@ -166,4 +173,14 @@ export function AppShell({
     </div>
     </RolesProvider>
   );
+}
+
+function formatRoleLabel(roles: readonly string[]): string {
+  const label = roles
+    .map((role) => role.replace(/[-_]/g, ' ').trim())
+    .filter(Boolean)
+    .map((role) => role.replace(/\b\w/g, (char) => char.toUpperCase()))
+    .join(' · ');
+
+  return label || 'Farm user';
 }

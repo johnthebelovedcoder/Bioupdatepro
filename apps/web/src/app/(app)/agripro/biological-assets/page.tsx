@@ -37,15 +37,19 @@ export default async function BiologicalAssetsPage() {
       <div className="stack">
         <Tabs />
 
-        <div className="stat-grid">
-          <Stat label="Populations" value={String(groups.length)} />
-          <Stat label="Total carrying value" value={formatNaira(totalCarryingKobo)} money />
-          <Stat
-            label="Not yet posted"
-            value={String(unposted.length)}
-            goodWhen="down"
-            hint="acquisition cost recorded, no journal yet"
-          />
+        <div className="assets-summary">
+          <div className="stat-grid stat-grid-2">
+            <Stat label="Populations" value={String(groups.length)} />
+            <Stat label="Total carrying value" value={formatNaira(totalCarryingKobo)} money />
+          </div>
+          {unposted.length > 0 ? (
+            <div className="notice notice-warning assets-summary-warning">
+              <strong>
+                {unposted.length} {unposted.length === 1 ? 'population' : 'populations'} not posted
+              </strong>
+              <span>Acquisition cost recorded, no journal yet.</span>
+            </div>
+          ) : null}
         </div>
 
         <TableSearch placeholder="Search populations">
@@ -79,19 +83,19 @@ export default async function BiologicalAssetsPage() {
                   <tbody>
                     {groups.map((g) => (
                       <tr key={g.id}>
-                        <td className="strong" style={{ textAlign: 'left' }}>
+                        <td className="strong" style={{ textAlign: 'left' }} data-label="Population">
                           {g.code}
                           <div className="faint">{g.breed}</div>
                         </td>
-                        <td className="faint">{g.stage}</td>
-                        <td className="num">{g.population}</td>
-                        <td className="num">
+                        <td className="faint" data-label="Stage">{g.stage}</td>
+                        <td className="num" data-label="Alive">{g.population}</td>
+                        <td className="num" data-label="Per unit">
                           {g.currentFvlctsPerUnitKobo ? formatNaira(g.currentFvlctsPerUnitKobo) : '—'}
                         </td>
-                        <td className="num">
+                        <td className="num" data-label="Carrying value">
                           {g.carryingValueKobo ? formatNaira(g.carryingValueKobo) : '—'}
                         </td>
-                        <td>
+                        <td data-label="Measurement basis">
                           <span className="badge">{g.measurementBasis === 'ATTRIBUTABLE_COST' ? 'Attributable cost' : 'FVLCTS'}</span>
                           {g.measurementBasis === 'ATTRIBUTABLE_COST' ? (
                             <div className="stack" style={{ gap: 'var(--sp-1)', marginTop: 'var(--sp-2)' }}>
@@ -100,7 +104,7 @@ export default async function BiologicalAssetsPage() {
                             </div>
                           ) : null}
                         </td>
-                        <td>
+                        <td data-label="Ledger">
                           {g.acquisitionPosted ? (
                             <span className="badge badge-success">posted</span>
                           ) : BigInt(g.acquisitionCostKobo) > 0n ? (
