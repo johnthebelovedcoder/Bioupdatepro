@@ -8,10 +8,8 @@ import { IconAlert, IconCheckCircle, IconFeed } from './icons';
 /**
  * What needs a decision today.
  *
- * Every row ends in a button. That is the difference between this and the
- * "low stock" card it replaces: that one told a farmer feed was low and left
- * them to work out what to do about it and where, which is how alerts get
- * ignored.
+ * Every actionable row ends in a button. Read-only warnings remain visible
+ * without a button when the user's role cannot act on them.
  *
  * Ordered by urgency rather than by kind, because a farmer wants the worst
  * thing first, not all the feed problems grouped together.
@@ -30,7 +28,40 @@ export function NeedsAttention({ alerts }: { alerts: Alert[] }) {
     );
   }
 
-  const critical = alerts.filter((alert) => alert.severity === 'critical').length;
+  const criticalAlerts = alerts.filter((alert) => alert.severity === 'critical');
+  const visibleNonCritical = alerts.filter((alert) => alert.severity !== 'critical').slice(0, 2);
+  const visibleIds = new Set([...criticalAlerts, ...visibleNonCritical].map((alert) => alert.id));
+  const visibleAlerts = alerts.filter((alert) => visibleIds.has(alert.id));
+  const remainingAlerts = alerts.filter((alert) => !visibleIds.has(alert.id));
+  const critical = criticalAlerts.length;
+
+  function renderAlert(alert: Alert) {
+    return (
+      <div className="attention-row" key={alert.id} data-severity={alert.severity}>
+        <span className={`list-icon ${toneFor(alert.severity)}`}>
+          {alert.kind === 'feedRunway' ? <IconFeed size={16} /> : <IconAlert size={16} />}
+        </span>
+        <div className="list-main">
+          <div className="list-title">
+            {alert.title}
+            {/* The dashboard combines alerts from every subscribed module. */}
+            {alert.moduleKey ? (
+              <span className="badge" style={{ marginLeft: 'var(--sp-2)' }}>
+                {getModule(alert.moduleKey)?.productName ?? alert.moduleKey}
+              </span>
+            ) : null}
+          </div>
+          <div className="list-sub">{alert.detail}</div>
+        </div>
+        {/* Keep the warning visible when this user's role cannot take its action. */}
+        {alert.action ? (
+          <Link className="btn btn-sm" href={alert.action.href}>
+            {alert.action.label}
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <Card
@@ -42,43 +73,13 @@ export function NeedsAttention({ alerts }: { alerts: Alert[] }) {
       }
       padded={false}
     >
-      {alerts.map((alert) => (
-        <div className="attention-row" key={alert.id} data-severity={alert.severity}>
-          <span className={`list-icon ${toneFor(alert.severity)}`}>
-            {alert.kind === 'feedRunway' ? <IconFeed size={16} /> : <IconAlert size={16} />}
-          </span>
-          <div className="list-main">
-            <div className="list-title">
-              {alert.title}
-              {/*
-                Which module this belongs to.
-
-                This screen is the owner's view across every module they run, so
-                a poultry alert and a snail alert genuinely do sit side by side.
-                Without the label that reads like the two farms have been mixed
-                up — especially when the sidebar happens to be showing the other
-                one.
-              */}
-              {alert.moduleKey ? (
-                <span className="badge" style={{ marginLeft: 'var(--sp-2)' }}>
-                  {getModule(alert.moduleKey)?.productName ?? alert.moduleKey}
-                </span>
-              ) : null}
-            </div>
-            <div className="list-sub">{alert.detail}</div>
-          </div>
-          {/*
-            No button where the person cannot go. The warning is still worth
-            reading — a supervisor should know the feed runs out today even
-            though ordering it is somebody else's job.
-          */}
-          {alert.action ? (
-            <Link className="btn btn-sm" href={alert.action.href}>
-              {alert.action.label}
-            </Link>
-          ) : null}
-        </div>
-      ))}
+      {visibleAlerts.map(renderAlert)}
+      {remainingAlerts.length > 0 ? (
+        <details className="attention-more">
+          <summary>Show {remainingAlerts.length} more lower-priority alert{remainingAlerts.length === 1 ? '' : 's'}</summary>
+          {remainingAlerts.map(renderAlert)}
+        </details>
+      ) : null}
     </Card>
   );
 }

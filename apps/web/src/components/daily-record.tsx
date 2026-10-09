@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   defaultFeedFor,
   getModule,
+  productionFieldsFor,
   title,
   type ModuleKey,
   type SpeciesModule,
@@ -209,31 +210,6 @@ export function DailyRecordEntry({
   ];
 
   /**
-   * The fields a worker fills in, expanded for how often this farm collects.
-   *
-   * A farm collecting three times a day gets three whole-egg entries, not one:
-   * asking for a single daily figure makes the worker add up in their head, and
-   * that is where egg counts go wrong. A farm collecting once sees one field
-   * and is not made to answer a question it does not have.
-   */
-  const fields = useMemo(() => {
-    const labels = collectionLabels ?? [];
-    if (labels.length <= 1) return module.productionFields;
-
-    return module.productionFields.flatMap((field) =>
-      // Only the primary output splits by collection. Cracked and dirty are
-      // counted once, when the eggs are graded.
-      field.key === module.productionFields[0]?.key
-        ? labels.map((label) => ({
-            ...field,
-            key: `${field.key}:${label.toLowerCase()}`,
-            label: `${field.label} — ${label}`,
-          }))
-        : [field],
-    );
-  }, [module.productionFields, collectionLabels]);
-
-  /**
    * The round: one stop per location, in a stable order so the walk is the same
    * every morning and muscle memory works.
    */
@@ -405,7 +381,17 @@ export function DailyRecordEntry({
   }
 
   function draftFor(groupId: string): Draft {
-    return drafts[groupId] ?? emptyDraft(module, feedNames, groupById(groupId));
+    const draft = drafts[groupId] ?? emptyDraft(module, feedNames, groupById(groupId));
+    const group = groupById(groupId);
+    if (!group) return draft;
+
+    const fields = productionFieldsFor(module, group.purpose, collectionLabels);
+    const production = fields.reduce<Record<string, number>>((valid, field) => {
+      const value = draft.production[field.key];
+      if (value !== undefined) valid[field.key] = value;
+      return valid;
+    }, {});
+    return { ...draft, production };
   }
 
   function update(groupId: string, change: Partial<Draft>) {
@@ -484,7 +470,7 @@ export function DailyRecordEntry({
    */
   function submitRound() {
     const recorded = groups
-      .filter((group) => hasContent(drafts[group.id]))
+      .filter((group) => hasContent(draftFor(group.id)))
       .map((group) => {
         const draft = draftFor(group.id);
         return {
@@ -523,8 +509,8 @@ export function DailyRecordEntry({
 
   /** A death with no cause, or more deaths than animals, blocks the round. */
   function problemFor(group: BatchSummary): string | null {
-    const draft = drafts[group.id];
-    if (!draft) return null;
+    if (!drafts[group.id]) return null;
+    const draft = draftFor(group.id);
     if (draft.deaths > group.population) {
       return `${draft.deaths.toLocaleString('en-NG')} is more than the ${group.population.toLocaleString('en-NG')} ${t.animal.many} here.`;
     }
@@ -544,7 +530,14 @@ export function DailyRecordEntry({
 
   const stopProblems = (stop?.groups ?? []).some((group) => problemFor(group) !== null);
   const anyProblem = groups.some((group) => problemFor(group) !== null);
-  const recordedCount = groups.filter((group) => hasContent(drafts[group.id])).length;
+  const recordedCount = groups.filter((group) => hasContent(draftFor(group.id))).length;
+  const roundProductionFields = [
+    ...new Map(
+      groups
+        .flatMap((group) => productionFieldsFor(module, group.purpose, collectionLabels))
+        .map((field) => [field.key, field]),
+    ).values(),
+  ];
   const isLastStop = stopIndex === stops.length - 1;
 
   if (stops.length === 0) {
@@ -660,7 +653,7 @@ export function DailyRecordEntry({
               {scanned ? <div className="notice notice-warning" style={{ marginBottom: 'var(--sp-2)' }}>{scanned}</div> : null}
               <div className="rounds-progress" role="tablist" aria-label="Round stops">
                 {stops.map((candidate, index) => {
-                  const done = candidate.groups.some((group) => hasContent(drafts[group.id]));
+                  const done = candidate.groups.some((group) => hasContent(draftFor(group.id)));
                   const invalid = candidate.groups.some(
                     (group) => problemFor(group) !== null,
                   );
@@ -725,7 +718,7 @@ export function DailyRecordEntry({
                     </span>
                   )) : null;
                 })}
-                {!stop.groups.some((group) => hasContent(drafts[group.id])) ? (
+                {!stop.groups.some((group) => hasContent(draftFor(group.id))) ? (
                   <span className="stop-summary-pill stop-summary-pill-muted">
                     <span className="stop-summary-label">Status</span>
                     <span className="stop-summary-value">empty</span>
@@ -739,7 +732,7 @@ export function DailyRecordEntry({
                 key={group.id}
                 module={module}
                 say={say}
-                fields={fields}
+                fields={productionFieldsFor(module, group.purpose, collectionLabels)}
                 feedNames={feedNames}
                 group={group}
                 draft={draftFor(group.id)}
@@ -784,7 +777,7 @@ export function DailyRecordEntry({
               disabled={stopProblems}
               onClick={() => setStopIndex((index) => Math.min(stops.length - 1, index + 1))}
             >
-              {hasContent(drafts[stop?.groups[0]?.id ?? ''])
+              {hasContent(draftFor(stop?.groups[0]?.id ?? ''))
                 ? say('round.next')
                 : say('round.skip')}
             </button>
@@ -823,7 +816,7 @@ export function DailyRecordEntry({
           <Line label="Date" value={date} />
 
           {stops.map((candidate) => {
-            const recorded = candidate.groups.filter((group) => hasContent(drafts[group.id]));
+            const recorded = candidate.groups.filter((group) => hasContent(draftFor(group.id)));
             if (recorded.length === 0) return null;
             return (
               <div key={candidate.house}>
@@ -840,7 +833,7 @@ export function DailyRecordEntry({
                       {draft.feedKg > 0 ? (
                         <Line label={draft.feedType} value={`${draft.feedKg} kg`} />
                       ) : null}
-                      {fields.map((field) => {
+                      {productionFieldsFor(module, group.purpose, collectionLabels).map((field) => {
                         const value = draft.production[field.key] ?? 0;
                         if (value === 0) return null;
                         return (
@@ -884,7 +877,7 @@ export function DailyRecordEntry({
                 .reduce((sum, group) => sum + draftFor(group.id).deaths, 0)
                 .toLocaleString('en-NG')}
             />
-            {fields.map((field) => {
+            {roundProductionFields.map((field) => {
               const total = groups.reduce(
                 (sum, group) => sum + (draftFor(group.id).production[field.key] ?? 0),
                 0,
@@ -1021,59 +1014,61 @@ function GroupEntry({
         </div>
       </Card>
 
-      <Card
-        title={module.terms.productionRecord}
-        {...(previous
-          ? {
-              action: (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() =>
-                    onChange({
-                      feedKg: previous.feedKg,
-                      production: { ...previous.production },
-                      carriedOver: true,
-                    })
-                  }
-                >
-                  {say('round.sameAsYesterday')}
-                </button>
-              ),
-            }
-          : {})}
-      >
-        {/*
-          Carried-over figures are marked, always. The shortcut saves a great
-          deal of tapping and carries a real risk — someone accepting yesterday
-          without looking produces plausible numbers that are wrong, which is
-          worse than no numbers. Flagging them means the variance watch and
-          anyone reading the record can tell the difference.
-        */}
-        {draft.carriedOver ? (
-          <div className="notice notice-warning" style={{ marginBottom: 'var(--sp-4)' }}>
-            <span>{say('round.carriedOver')}</span>
-          </div>
-        ) : null}
-        {fields.map((field) => (
-          <div className="entry-row" key={field.key}>
-            <div className="entry-label">
-              <div className="entry-label-text">{field.label}</div>
-              {field.hint ? <div className="faint">{field.hint}</div> : null}
-            </div>
-            <Stepper
-              value={draft.production[field.key] ?? 0}
-              step={field.step}
-              {...(field.unit ? { unit: field.unit } : {})}
-              label={`${field.label} ${group.code}`}
-              onChange={(value) =>
-                onChange({ production: { ...draft.production, [field.key]: value } })
+      {fields.length > 0 ? (
+        <Card
+          title={module.terms.productionRecord}
+          {...(previous
+            ? {
+                action: (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() =>
+                      onChange({
+                        feedKg: previous.feedKg,
+                        production: { ...previous.production },
+                        carriedOver: true,
+                      })
+                    }
+                  >
+                    {say('round.sameAsYesterday')}
+                  </button>
+                ),
               }
-              onAdjust={(delta) => onAdjustProduction(field.key, delta)}
-            />
-          </div>
-        ))}
-      </Card>
+            : {})}
+        >
+          {/*
+            Carried-over figures are marked, always. The shortcut saves a great
+            deal of tapping and carries a real risk — someone accepting yesterday
+            without looking produces plausible numbers that are wrong, which is
+            worse than no numbers. Flagging them means the variance watch and
+            anyone reading the record can tell the difference.
+          */}
+          {draft.carriedOver ? (
+            <div className="notice notice-warning" style={{ marginBottom: 'var(--sp-4)' }}>
+              <span>{say('round.carriedOver')}</span>
+            </div>
+          ) : null}
+          {fields.map((field) => (
+            <div className="entry-row" key={field.key}>
+              <div className="entry-label">
+                <div className="entry-label-text">{field.label}</div>
+                {field.hint ? <div className="faint">{field.hint}</div> : null}
+              </div>
+              <Stepper
+                value={draft.production[field.key] ?? 0}
+                step={field.step}
+                {...(field.unit ? { unit: field.unit } : {})}
+                label={`${field.label} ${group.code}`}
+                onChange={(value) =>
+                  onChange({ production: { ...draft.production, [field.key]: value } })
+                }
+                onAdjust={(delta) => onAdjustProduction(field.key, delta)}
+              />
+            </div>
+          ))}
+        </Card>
+      ) : null}
 
       <Card title={say('mortality.title')}>
         <div className="entry-row">

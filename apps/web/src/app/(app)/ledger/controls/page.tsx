@@ -102,52 +102,57 @@ export default async function ControlsPage() {
                     ? 'The company is on the approved chart. What is listed below still needs a Finance decision or a setting.'
                     : 'The company is not yet on the selected five-digit workbook chart. Run the cutover from Approved chart readiness once Finance has approved the account crosswalk and the ledger is reconciled.'}
                 </div>
-                <div className="stack" style={{ marginTop: 'var(--sp-3)' }}>
-                  {provisioning.data.targetChart.missingAccountNumbers.length > 0 ? (
-                    <p className="faint">
-                      Missing target accounts: {provisioning.data.targetChart.missingAccountNumbers.slice(0, 12).join(', ')}
-                      {provisioning.data.targetChart.missingAccountNumbers.length > 12 ? '…' : ''}
-                    </p>
-                  ) : null}
-                  {provisioning.data.targetChart.metadataMismatches.length > 0 ? (
-                    <p className="faint">
-                      Account metadata mismatches: {provisioning.data.targetChart.metadataMismatches.slice(0, 8)
-                        .map((row) => `${row.accountNumber} (${row.fields.join('/')})`).join(', ')}
-                      {provisioning.data.targetChart.metadataMismatches.length > 8 ? '…' : ''}
-                    </p>
-                  ) : null}
-                  {provisioning.data.targetChart.activeAccountsOutsideTarget.length > 0 ? (
-                    <p className="faint">
-                      Active accounts outside target: {provisioning.data.targetChart.activeAccountsOutsideTarget.slice(0, 12)
-                        .map((row) => row.accountNumber).join(', ')}
-                      {provisioning.data.targetChart.activeAccountsOutsideTarget.length > 12 ? '…' : ''}
-                    </p>
-                  ) : null}
-                  {provisioning.data.targetChart.unresolvedPostingMaps.length > 0 ? (
-                    <p className="faint">
-                      Unresolved active posting maps: {provisioning.data.targetChart.unresolvedPostingMaps.slice(0, 8)
-                        .map((row) => `${row.application}/${row.postingGroup}/${row.postingKey} → ${row.accountCode}`).join('; ')}
-                      {provisioning.data.targetChart.unresolvedPostingMaps.length > 8 ? '…' : ''}
-                    </p>
-                  ) : null}
-                  {provisioning.data.targetChart.unresolvedRoles.length > 0 ? (
-                    <p className="faint">
-                      Posting purposes with no usable account on this chart: {provisioning.data.targetChart.unresolvedRoles
-                        .map((row) => `${row.role} (${row.state === 'no-workbook-account' ? 'the workbook names none' : `${row.number} missing`})`).join('; ')}
-                    </p>
-                  ) : null}
-                  {provisioning.data.targetChart.configurationsOutsideTarget.length > 0 ? (
-                    <p className="faint">
-                      Sales and purchasing set-up still naming accounts outside the approved chart: {provisioning.data.targetChart.configurationsOutsideTarget
-                        .map((row) => `${row.configuration} ${row.role} (${row.accountNumber})`).join('; ')}
-                    </p>
-                  ) : null}
-                  {provisioning.data.targetChart.resolvedActivePostingMaps < provisioning.data.targetChart.expectedActivePostingMaps ? (
-                    <p className="faint">
-                      Only {provisioning.data.targetChart.resolvedActivePostingMaps} of {provisioning.data.targetChart.expectedActivePostingMaps} active workbook posting maps are linked to accounts.
-                    </p>
-                  ) : null}
-                </div>
+                <details style={{ marginTop: 'var(--sp-3)' }}>
+                  <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+                    View detailed account and posting-map diagnostics
+                  </summary>
+                  <div className="stack" style={{ marginTop: 'var(--sp-3)' }}>
+                    {provisioning.data.targetChart.missingAccountNumbers.length > 0 ? (
+                      <p className="faint">
+                        Missing target accounts: {provisioning.data.targetChart.missingAccountNumbers.slice(0, 12).join(', ')}
+                        {provisioning.data.targetChart.missingAccountNumbers.length > 12 ? '…' : ''}
+                      </p>
+                    ) : null}
+                    {provisioning.data.targetChart.metadataMismatches.length > 0 ? (
+                      <p className="faint">
+                        Account metadata mismatches: {provisioning.data.targetChart.metadataMismatches.slice(0, 8)
+                          .map((row) => `${row.accountNumber} (${row.fields.join('/')})`).join(', ')}
+                        {provisioning.data.targetChart.metadataMismatches.length > 8 ? '…' : ''}
+                      </p>
+                    ) : null}
+                    {provisioning.data.targetChart.activeAccountsOutsideTarget.length > 0 ? (
+                      <p className="faint">
+                        Active accounts outside target: {provisioning.data.targetChart.activeAccountsOutsideTarget.slice(0, 12)
+                          .map((row) => row.accountNumber).join(', ')}
+                        {provisioning.data.targetChart.activeAccountsOutsideTarget.length > 12 ? '…' : ''}
+                      </p>
+                    ) : null}
+                    {provisioning.data.targetChart.unresolvedPostingMaps.length > 0 ? (
+                      <p className="faint">
+                        Unresolved active posting maps: {provisioning.data.targetChart.unresolvedPostingMaps.slice(0, 8)
+                          .map((row) => `${row.application}/${row.postingGroup}/${row.postingKey} → ${row.accountCode}`).join('; ')}
+                        {provisioning.data.targetChart.unresolvedPostingMaps.length > 8 ? '…' : ''}
+                      </p>
+                    ) : null}
+                    {provisioning.data.targetChart.unresolvedRoles.length > 0 ? (
+                      <p className="faint">
+                        Posting purposes with no usable account on this chart: {provisioning.data.targetChart.unresolvedRoles
+                          .map((row) => `${row.role} (${row.state === 'no-workbook-account' ? 'the workbook names none' : `${row.number} missing`})`).join('; ')}
+                      </p>
+                    ) : null}
+                    {provisioning.data.targetChart.configurationsOutsideTarget.length > 0 ? (
+                      <p className="faint">
+                        Sales and purchasing set-up still naming accounts outside the approved chart: {provisioning.data.targetChart.configurationsOutsideTarget
+                          .map((row) => `${row.configuration} ${row.role} (${row.accountNumber})`).join('; ')}
+                      </p>
+                    ) : null}
+                    {provisioning.data.targetChart.resolvedActivePostingMaps < provisioning.data.targetChart.expectedActivePostingMaps ? (
+                      <p className="faint">
+                        Only {provisioning.data.targetChart.resolvedActivePostingMaps} of {provisioning.data.targetChart.expectedActivePostingMaps} active workbook posting maps are linked to accounts.
+                      </p>
+                    ) : null}
+                  </div>
+                </details>
               </>
             )}
           </Card>

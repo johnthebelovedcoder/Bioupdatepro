@@ -172,6 +172,8 @@ export interface SpeciesModule {
   nav: ModuleNavItem[];
   /** What the daily production record captures for this species. */
   productionFields: DailyField[];
+  /** Production fields that only apply to specific purposes, overriding the default. */
+  productionFieldsByPurpose?: Record<string, DailyField[]>;
   /** What a worker can attribute a death to. Species-specific by nature. */
   mortalityCauses: string[];
   /** Feed items that can be issued to this species. */
@@ -208,6 +210,26 @@ export function defaultFeedFor(
 
   const matches = module.feedTypes.filter(applies).sort((a, b) => score(b) - score(a));
   return matches[0]?.name ?? module.feedTypes[0]?.name ?? '';
+}
+
+/** Resolve a population's production fields and split its primary output by collection. */
+export function productionFieldsFor(
+  module: SpeciesModule,
+  purpose: string,
+  collectionLabels: string[] = [],
+): DailyField[] {
+  const fields = module.productionFieldsByPurpose?.[purpose] ?? module.productionFields;
+  if (collectionLabels.length <= 1) return fields;
+
+  return fields.flatMap((field) =>
+    field.key === fields[0]?.key
+      ? collectionLabels.map((label) => ({
+          ...field,
+          key: `${field.key}:${label.toLowerCase()}`,
+          label: `${field.label} — ${label}`,
+        }))
+      : [field],
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -277,6 +299,11 @@ const POULTRY: SpeciesModule = {
     { key: 'cracked', label: 'Cracked', step: 1 },
     { key: 'dirty', label: 'Dirty', step: 1 },
   ],
+  productionFieldsByPurpose: {
+    Broiler: [],
+    Cockerel: [],
+    Pullet: [],
+  },
   mortalityCauses: [
     'Heat stress',
     'Disease',
