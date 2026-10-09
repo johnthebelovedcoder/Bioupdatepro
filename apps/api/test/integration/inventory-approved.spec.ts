@@ -107,7 +107,7 @@ describe('inventory movements on the approved chart', () => {
     expect(await balance('12100')).toBe(200_000_00n - 80_000_00n); // out of feed ingredients, not raw materials
     expect(await balance('12000')).toBe(0n);
 
-    await transfers.receiveTransfer({ transferId: sent.id, actor });
+    await transfers.receiveTransfer({ transferId: sent.id, actor: approver });
     expect(await balance('12500')).toBe(0n); // in transit clears
     expect(await balance('12100')).toBe(200_000_00n); // and the control is whole again
     expect(await balance('12000')).toBe(0n);
@@ -144,7 +144,7 @@ describe('inventory movements on the approved chart', () => {
     const sent = await transfers.issueTransfer({
       companyId: fixture.companyId, branchId: fixture.branchId, itemId: item.MAIZE!, fromWarehouseId: store.MAIN!, toWarehouseId: store.MILL!, quantity: 400, actor,
     });
-    await transfers.receiveTransfer({ transferId: sent.id, actor });
+    await transfers.receiveTransfer({ transferId: sent.id, actor: approver });
     const requested = await transfers.writeOff({
       companyId: fixture.companyId, branchId: fixture.branchId, itemId: item.MAIZE!, warehouseId: store.MILL!, quantity: 10, reason: 'Spoilt', actor,
     });

@@ -324,7 +324,9 @@ export class PayrollRunService {
         companyId: run.companyId,
         monthlyTaxableGrossKobo: taxableKobo,
         pensionableEmolumentsKobo: pensionableKobo,
-        pensionEnrolled: employee.pensionEnrolled,
+        // Relief follows the contribution actually made. A company below the pension
+        // headcount threshold deducts nothing, so its employees get no relief for it.
+        pensionEnrolled: employee.pensionEnrolled && statutoryResult.applicability.pensionApplicable,
         annualBonusKobo: relief?.annualBonusKobo ?? 0n,
         annualRentKobo: relief?.annualRentKobo ?? 0n,
         nhfAnnualKobo: relief?.nhfAnnualKobo || BigInt(statutoryResult.nhfKobo) * 12n,

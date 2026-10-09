@@ -182,6 +182,14 @@ export class InventoryTransferService {
       );
     }
 
+    // Issued by one person, confirmed by another: the same rule as a write-off.
+    if (transfer.createdById === params.actor.userId) {
+      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: transfer.companyId }, select: { allowSelfApproval: true } });
+      if (!company.allowSelfApproval) {
+        throw new ForbiddenException(`You issued ${transfer.transferNumber}, so someone else confirms it arrived.`);
+      }
+    }
+
     const context = await this.postingContext(transfer.companyId, new Date());
     if (!context) {
       throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', `No open period for ${transfer.transferNumber}.`, {});
@@ -258,6 +266,7 @@ export class InventoryTransferService {
           status: InventoryTransferStatus.RECEIVED,
           receiptJournalEntryId: result.journalEntryId,
           receivedAt: new Date(),
+          receivedById: params.actor.userId,
         },
       });
 
