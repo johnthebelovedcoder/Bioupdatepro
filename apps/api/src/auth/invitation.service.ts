@@ -9,7 +9,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { hashPassword } from './password';
-import { AuthService, type AuthenticatedUser } from './auth.service';
+import { AuthService, type AuthLoginResult } from './auth.service';
 import { passwordProblem } from './registration.service';
 import { AuditAction } from '@bioassetpro/database';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -154,7 +154,7 @@ export class InvitationService {
     token: string;
     fullName: string;
     password: string;
-  }): Promise<{ accessToken: string; user: AuthenticatedUser }> {
+  }): Promise<AuthLoginResult> {
     const fullName = params.fullName.trim();
     if (!fullName) throw new BadRequestException('Enter your name.');
 

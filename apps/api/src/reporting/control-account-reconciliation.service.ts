@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { SalesInvoiceStatus, SupplierInvoiceStatus, StockDirection } from '@bioassetpro/database';
+import { PayrollRunStatus, SalesInvoiceStatus, SupplierInvoiceStatus, StockDirection, WorkflowStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
 import { APPROVED_FEED_MILL_RECOVERY, chartVersionOf, numberFor, processingWipNumbers, recoveryNumberFor, type ChartVersion } from '../chart/chart';
@@ -25,7 +25,7 @@ export interface ControlReconciliationRow {
  * Deliberately NOT a generic sweep over every `PostingKey.ledgerFlag ===
  * CONTROL` row — the register's own audit already found `130100` carrying
  * two conflicting ledger flags across different rules, so that field alone
- * isn't a safe enumeration source. Three concrete, unambiguous pairs instead:
+ * isn't a safe enumeration source. Concrete, unambiguous pairs instead:
  *
  * - AR (120100) vs. the sum of open sales invoices — the same formula the
  *   AR-ageing report already uses.
@@ -34,6 +34,10 @@ export interface ControlReconciliationRow {
  *   points at, vs. the net value of every `StockMovement` for items mapped
  *   to it — covers Raw Materials, Feed Inventory, and every finished-goods
  *   account generically, not one hardcoded number.
+ * - Payroll liabilities, by the account each posted payroll bucket credits,
+ *   net of posted payments.
+ * - PPE cost and accumulated depreciation/impairment, from posted fixed assets
+ *   still on the register (disposed assets have been removed from both GL sides).
  * - WIP, by processing cycle (130410 SnailPro / 130420 PoultryPro / 130430
  *   Feed Mill) vs. the sum of every ProductionOrder's own closing-WIP
  *   figure (`wipDebits - finishedGoodsCostKobo - abnormalLossCostKobo`) —
@@ -57,13 +61,15 @@ export class ControlAccountReconciliationService {
 
     // AR and AP on the company's own chart: 1201/2201 until it moves, 120100/210100 after.
     const version = await chartVersionOf(this.prisma, companyId);
-    const [ar, ap, inventory, wip] = await Promise.all([
+    const [ar, ap, inventory, wip, payroll, fixedAssets] = await Promise.all([
       this.receivables(companyId, balanceOf, numberFor(version, 'receivables')),
       this.payables(companyId, balanceOf, numberFor(version, 'tradePayables')),
       this.inventoryByGlAccount(companyId, balanceOf),
       this.wipByCycle(companyId, balanceOf, version),
+      this.payrollLiabilities(companyId, balanceOf, version),
+      this.fixedAssets(companyId, balanceOf, version),
     ]);
-    return [ar, ap, ...inventory, ...wip];
+    return [ar, ap, ...inventory, ...wip, ...payroll, ...fixedAssets];
   }
 
   private async receivables(companyId: string, balanceOf: (accountNumber: string) => bigint, account: string): Promise<ControlReconciliationRow> {
@@ -86,6 +92,95 @@ export class ControlAccountReconciliationService {
     // is negated here to compare like with like, not the other way round.
     const subledgerKobo = -invoices.reduce((s, i) => s + (i.grossAmountKobo - i.settledAmountKobo), 0n);
     return this.row(account, 'Trade Payables', balanceOf(account), subledgerKobo, `${invoices.length} open supplier invoices`);
+  }
+
+  private async payrollLiabilities(
+    companyId: string,
+    balanceOf: (accountNumber: string) => bigint,
+    version: ChartVersion,
+  ): Promise<ControlReconciliationRow[]> {
+    const runs = await this.prisma.payrollRun.findMany({
+      where: {
+        companyId,
+        status: PayrollRunStatus.POSTED,
+        journalEntry: { is: { reversedBy: { is: null } } },
+      },
+      select: {
+        totalNetPayKobo: true,
+        totalSalarySettledKobo: true,
+        totalPayeKobo: true,
+        totalPayeSettledKobo: true,
+        totalEmployeePensionKobo: true,
+        totalEmployerPensionKobo: true,
+        totalPensionSettledKobo: true,
+        totalNhfKobo: true,
+        totalNhfSettledKobo: true,
+        totalNsitfKobo: true,
+        totalNsitfSettledKobo: true,
+        totalItfKobo: true,
+        totalItfSettledKobo: true,
+      },
+    });
+
+    const buckets = [
+      { label: 'Net salary payable', account: numberFor(version, 'salaryPayable'), total: (r: typeof runs[number]) => r.totalNetPayKobo, settled: (r: typeof runs[number]) => r.totalSalarySettledKobo },
+      { label: 'PAYE payable', account: numberFor(version, 'payePayable'), total: (r: typeof runs[number]) => r.totalPayeKobo, settled: (r: typeof runs[number]) => r.totalPayeSettledKobo },
+      { label: 'Pension payable', account: numberFor(version, 'pensionPayable'), total: (r: typeof runs[number]) => r.totalEmployeePensionKobo + r.totalEmployerPensionKobo, settled: (r: typeof runs[number]) => r.totalPensionSettledKobo },
+      { label: 'NHF payable', account: numberFor(version, 'nhfPayable'), total: (r: typeof runs[number]) => r.totalNhfKobo, settled: (r: typeof runs[number]) => r.totalNhfSettledKobo },
+      { label: 'NSITF payable', account: numberFor(version, 'nsitfPayable'), total: (r: typeof runs[number]) => r.totalNsitfKobo, settled: (r: typeof runs[number]) => r.totalNsitfSettledKobo },
+      { label: 'ITF payable', account: numberFor(version, 'itfPayable'), total: (r: typeof runs[number]) => r.totalItfKobo, settled: (r: typeof runs[number]) => r.totalItfSettledKobo },
+    ];
+    const byAccount = new Map<string, { labels: Set<string>; outstandingKobo: bigint }>();
+
+    for (const bucket of buckets) {
+      const summary = byAccount.get(bucket.account) ?? { labels: new Set<string>(), outstandingKobo: 0n };
+      summary.labels.add(bucket.label);
+      for (const run of runs) summary.outstandingKobo += bucket.total(run) - bucket.settled(run);
+      byAccount.set(bucket.account, summary);
+    }
+
+    return [...byAccount.entries()]
+      .filter(([account, summary]) => runs.length > 0 || balanceOf(account) !== 0n)
+      .map(([account, summary]) =>
+        this.row(
+          account,
+          [...summary.labels].join(' / '),
+          balanceOf(account),
+          -summary.outstandingKobo,
+          `${runs.length} posted payroll runs, net of posted payments`,
+        ),
+      )
+      .sort((a, b) => a.accountNumber.localeCompare(b.accountNumber));
+  }
+
+  private async fixedAssets(
+    companyId: string,
+    balanceOf: (accountNumber: string) => bigint,
+    version: ChartVersion,
+  ): Promise<ControlReconciliationRow[]> {
+    const assets = await this.prisma.fixedAsset.findMany({
+      where: { companyId, status: WorkflowStatus.POSTED, disposedOn: null },
+      select: { costKobo: true, accumulatedDepreciationKobo: true },
+    });
+    const costKobo = assets.reduce((sum, asset) => sum + asset.costKobo, 0n);
+    const accumulatedKobo = assets.reduce((sum, asset) => sum + asset.accumulatedDepreciationKobo, 0n);
+    const ppe = numberFor(version, 'ppe');
+    const accumulatedDepreciation = numberFor(version, 'accumulatedDepreciation');
+
+    return [
+      ...(assets.length > 0 || balanceOf(ppe) !== 0n
+        ? [this.row(ppe, 'Property, plant and equipment', balanceOf(ppe), costKobo, `${assets.length} posted, undisposed fixed assets`)]
+        : []),
+      ...(assets.length > 0 || balanceOf(accumulatedDepreciation) !== 0n
+        ? [this.row(
+            accumulatedDepreciation,
+            'Accumulated depreciation and impairment',
+            balanceOf(accumulatedDepreciation),
+            -accumulatedKobo,
+            `${assets.length} posted, undisposed fixed assets`,
+          )]
+        : []),
+    ];
   }
 
   private async inventoryByGlAccount(companyId: string, balanceOf: (accountNumber: string) => bigint): Promise<ControlReconciliationRow[]> {

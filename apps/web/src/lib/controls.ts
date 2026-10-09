@@ -30,11 +30,36 @@ export interface CheckRow {
 export interface ControlReconciliationRow {
   accountNumber: string;
   accountName: string;
+  exceptionKey?: string;
   glBalanceKobo: string;
   subledgerKobo: string;
   varianceKobo: string;
   reconciled: boolean;
+  evidenceMissing?: boolean;
   source: string;
+}
+
+export interface ControlExceptionCase {
+  key: string;
+  accountNumber: string;
+  accountName: string;
+  source: string;
+  active: boolean;
+  tracked: boolean;
+  status: 'OPEN' | 'IN_PROGRESS' | 'ACCEPTED' | 'RESOLVED';
+  assignedToId: string;
+  assignedToName: string;
+  assignedToEmail: string;
+  dueDate: string;
+  lastNote: string;
+  updatedAt: string | null;
+  updatedBy: string;
+}
+
+export interface ControlExceptionUser {
+  id: string;
+  fullName: string;
+  email: string;
 }
 
 export interface ReleaseSignOff {
@@ -43,7 +68,14 @@ export interface ReleaseSignOff {
   status: string;
   signedOffBy: string;
   exceptionsAcknowledged: string | null;
-  snapshot: { releaseLabel?: string; failingCheckCount?: number; variantAccountCount?: number } | null;
+  snapshot: {
+    releaseLabel?: string;
+    failingCheckCount?: number;
+    variantAccountCount?: number;
+    postingControlChecks?: CheckRow[];
+    controlReconciliation?: ControlReconciliationRow[];
+    exceptionFollowups?: ControlExceptionCase[];
+  } | null;
 }
 
 export interface BuildPhase {
@@ -104,6 +136,12 @@ export const getPostingChecks = () =>
   load<{ rows: CheckRow[]; releasable: boolean }>('/posting-control/checks');
 export const getControlReconciliation = () =>
   load<ControlReconciliationRow[]>('/reporting/control-reconciliation');
+export const getControlDashboard = () =>
+  load<{
+    rows: ControlReconciliationRow[];
+    cases: ControlExceptionCase[];
+    users: ControlExceptionUser[];
+  }>('/reporting/control-dashboard');
 export const getReleaseSignOffs = () => load<ReleaseSignOff[]>('/reporting/release-sign-offs');
 export const getBuildOrder = () => load<BuildPhase[]>('/reporting/build-order');
 export const getPostingRules = (cycle?: string) =>

@@ -270,9 +270,5 @@
   {
     "key": "sales/sales-invoice.service.ts salesInvoice.findMany { customerId, status: { in: [SalesInvoiceStatus.POSTED, SalesInvoiceStatus.PART_PAID], }, }",
     "reason": "openInvoices has no callers; if one is added it must scope customerId to the company first."
-  },
-  {
-    "key": "tax/tax-register.service.ts journalLine.aggregate { glAccountId, journalEntry: { status: 'POSTED', journalDate: { gte: period.startDate, lte: period.endDate }, }, }",
-    "reason": "glAccountId comes from this company’s tax GL mapping, loaded with companyId."
   }
 ]

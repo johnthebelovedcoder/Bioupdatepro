@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProvisioningService } from './provisioning.service';
 import { PostingControlProvisioningService } from '../posting-control/posting-control-provisioning.service';
 import { hashPassword } from './password';
-import { AuthService, type AuthenticatedUser } from './auth.service';
+import { AuthService, type AuthLoginResult } from './auth.service';
 
 /**
  * Signing up a farm.
@@ -34,7 +34,7 @@ export class RegistrationService {
     password: string;
     farmName: string;
     financialYearStartMonth?: number;
-  }): Promise<{ accessToken: string; user: AuthenticatedUser }> {
+  }): Promise<AuthLoginResult> {
     const email = input.email.trim().toLowerCase();
     const fullName = input.fullName.trim();
     const farmName = input.farmName.trim();

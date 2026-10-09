@@ -39,6 +39,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }
   }
   if (!user) return <ServerUnavailable />;
+  if (user.mfaSetupOnly || (user.mfaRequired && !user.mfaEnabled)) redirect('/mfa/setup');
 
   const [activeModule, config, context, roleSectionOverrides] = await Promise.all([
     getActiveModule(),

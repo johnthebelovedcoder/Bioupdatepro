@@ -45,6 +45,32 @@ export async function signOffRelease(
   }
 }
 
+export async function saveControlException(
+  _previous: FlowState,
+  formData: FormData,
+): Promise<FlowState> {
+  const accountNumber = String(formData.get('accountNumber') ?? '');
+  const source = String(formData.get('source') ?? '');
+  const assignedToId = String(formData.get('assignedToId') ?? '');
+  const dueDate = String(formData.get('dueDate') ?? '');
+  const status = String(formData.get('status') ?? '');
+  const comments = String(formData.get('comments') ?? '');
+
+  try {
+    await api('/reporting/control-exceptions', {
+      method: 'POST',
+      body: { accountNumber, source, assignedToId, dueDate, status, comments },
+    });
+    revalidatePath('/ledger/controls');
+    return { error: null, message: 'Exception follow-up saved.' };
+  } catch (caught) {
+    return {
+      error: caught instanceof ApiError ? caught.message : 'Could not save the exception follow-up.',
+      message: null,
+    };
+  }
+}
+
 export interface BacklogState {
   error: string | null;
   result: {

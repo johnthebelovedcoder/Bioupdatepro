@@ -8,9 +8,9 @@ export const metadata = { title: 'Sign in — BioAssetPro' };
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ expired?: string }>;
+  searchParams: Promise<{ expired?: string; mfa?: string }>;
 }) {
-  const [{ expired }, providers] = await Promise.all([searchParams, availableProviders()]);
+  const [{ expired, mfa }, providers] = await Promise.all([searchParams, availableProviders()]);
 
   return (
     <main className="login-page">
@@ -54,6 +54,11 @@ export default async function LoginPage({
             {expired ? (
               <div className="notice notice-warning">
                 Your session has ended. Please sign in again.
+              </div>
+            ) : null}
+            {mfa === 'enabled' ? (
+              <div className="notice notice-success">
+                Authenticator MFA is enabled. Sign in again and keep your recovery codes somewhere safe.
               </div>
             ) : null}
             <LoginForm />

@@ -18,15 +18,34 @@ Tests are in `apps/api/test/integration/`. Run them with
 
 | Status | Rows |
 |---|---|
-| Built | 63 |
+| Built | 64 |
 | Built 26 Sep | 23 |
-| Partial | 1 |
+| Partial | 0 |
 | Not built | 0 |
 
 88 rows; AC-001, a check on the workbook itself rather than the application, is not counted.
 
-**Not built:** none. **Missing parts of partial rows**, the larger ones:
-multi-factor sign-in (INT-034).
+**Not built:** none. **Partial:** none.
+
+## Control exception follow-up
+
+Books → Controls lists current reconciliation exceptions and lets Finance assign
+an active company user and due date, record progress, accept an exception with a
+written reason, or resolve it once the underlying control agrees. Updates are
+append-only audit records; accepted exceptions remain visible as exceptions
+until the reconciliation itself clears.
+
+## Authenticator MFA
+
+Finance, approval and administrator roles must complete authenticator-app MFA
+before accessing the product. This includes the MD/CEO approval role. Sign-in
+requires a current TOTP code or a single-use recovery code; setup-only sessions
+are restricted to MFA setup and confirmation. The encryption key is configured
+as `MFA_ENCRYPTION_KEY` and must be a protected 32-byte hex value backed up
+outside the application server. Restore the exact key with a database backup:
+changing or losing it makes enrolled authenticator secrets unreadable. Key
+rotation requires a coordinated re-encryption or account recovery procedure;
+there is no in-app key-rotation flow.
 
 ## Built 26 Sep
 
@@ -160,4 +179,4 @@ recovery close to zero for both species.
 | INT-031 | TB and statements | Built | Built from postings, never typed balances; reconciliations |
 | INT-032 | Month close | Built | closing.spec |
 | INT-033 | Year close | Built | closing.spec |
-| INT-034 | Security/audit | Partial | Role-based access; append-only audit (posting.spec: "never permits an audit record to be updated or deleted"). Multi-factor sign-in is not built. |
+| INT-034 | Security/audit | Built | Finance, approval and administrator roles require authenticator-app MFA; enrollment, one-time recovery codes, replay protection and restricted setup sessions are covered by auth-session.spec. Role-based access and append-only audit remain enforced. |

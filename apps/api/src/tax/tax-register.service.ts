@@ -188,11 +188,10 @@ export class TaxRegisterService {
   /**
    * The accounting identity for this phase.
    *
-   * For every tax code and direction in a period, the register total must equal
-   * the movement on the mapped GL control account for the same period. If they
-   * disagree, either a posting bypassed the register or a register entry was
-   * written without a posting — both are defects that must surface before a
-   * return is filed, not after.
+   * For every mapped tax control account in a period, the register total must
+   * equal its ledger movement. Codes sharing an account are aggregated, and
+   * mappings are checked even when no register entry exists, so a direct GL
+   * posting cannot disappear from this control.
    */
   async reconcile(companyId: string, taxPeriodId: string): Promise<TaxReconciliation> {
     // Scoped to the company: unscoped, this answered any id with another
@@ -216,47 +215,104 @@ export class TaxRegisterService {
             _sum: { taxKobo: true },
           });
 
-    for (const group of groups) {
-      const registerTotal = group._sum.taxKobo ?? 0n;
-      const glAccountId = await this.engine.glAccountFor(
+    const mappings = await this.prisma.taxGLMapping.findMany({
+      where: {
         companyId,
-        group.taxCodeId,
-        group.direction,
+        effectiveFrom: { lte: period.endDate },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endDate } }],
+        taxCode: { taxType: period.taxType },
+      },
+      orderBy: { effectiveFrom: 'desc' },
+      include: { taxCode: { select: { code: true } } },
+    });
+    const latestMappingByDirection = new Map<
+      string,
+      (typeof mappings)[number]
+    >();
+    for (const mapping of mappings) {
+      const key = `${mapping.taxCodeId}:${mapping.direction}`;
+      if (!latestMappingByDirection.has(key)) latestMappingByDirection.set(key, mapping);
+    }
+
+    const registeredByDirection = new Map(
+      groups.map((group) => [
+        `${group.taxCodeId}:${group.direction}`,
+        group._sum.taxKobo ?? 0n,
+      ]),
+    );
+    const directionsToCheck = new Set([
+      ...registeredByDirection.keys(),
+      ...latestMappingByDirection.keys(),
+    ]);
+    const totalsByAccount = new Map<
+      string,
+      { taxKobo: bigint; directions: Set<string>; codes: Set<string> }
+    >();
+
+    for (const key of directionsToCheck) {
+      const mapping = latestMappingByDirection.get(key);
+      const [taxCodeId, direction] = key.split(':');
+      const glAccountId = mapping?.glAccountId ?? await this.engine.glAccountFor(
+        companyId,
+        taxCodeId!,
+        direction!,
         period.endDate,
         this.prisma,
       );
+      const total = totalsByAccount.get(glAccountId) ?? {
+        taxKobo: 0n,
+        directions: new Set<string>(),
+        codes: new Set<string>(),
+      };
+      total.taxKobo += registeredByDirection.get(key) ?? 0n;
+      total.directions.add(direction!);
+      if (mapping) total.codes.add(mapping.taxCode.code);
+      totalsByAccount.set(glAccountId, total);
+    }
 
-      const account = await this.prisma.gLAccount.findUniqueOrThrow({
-        where: { id: glAccountId },
-        select: { accountNumber: true, name: true, normalBalance: true },
-      });
+    const accountIds = [...totalsByAccount.keys()];
+    const accounts = await this.prisma.gLAccount.findMany({
+      where: { companyId, id: { in: accountIds } },
+      select: { id: true, accountNumber: true, name: true, normalBalance: true },
+    });
+    const accountById = new Map(accounts.map((account) => [account.id, account]));
 
-      // The ledger movement for this account across the tax period's dates.
-      const movement = await this.prisma.journalLine.aggregate({
-        where: {
-          glAccountId,
-          journalEntry: {
-            status: 'POSTED',
-            journalDate: { gte: period.startDate, lte: period.endDate },
+    const movements = accountIds.length
+      ? await this.prisma.journalLine.groupBy({
+          by: ['glAccountId'],
+          where: {
+            companyId,
+            glAccountId: { in: accountIds },
+            journalEntry: {
+              companyId,
+              status: 'POSTED',
+              journalDate: { gte: period.startDate, lte: period.endDate },
+            },
           },
-        },
-        _sum: { debitKobo: true, creditKobo: true },
-      });
+          _sum: { debitKobo: true, creditKobo: true },
+        })
+      : [];
+    const movementByAccount = new Map(movements.map((movement) => [movement.glAccountId, movement]));
 
-      const debit = movement._sum.debitKobo ?? 0n;
-      const credit = movement._sum.creditKobo ?? 0n;
+    for (const [glAccountId, total] of totalsByAccount) {
+      const account = accountById.get(glAccountId);
+      if (!account) {
+        throw new Error(`Tax mapping references missing GL account ${glAccountId}`);
+      }
+      const movement = movementByAccount.get(glAccountId);
+      const debit = movement?._sum.debitKobo ?? 0n;
+      const credit = movement?._sum.creditKobo ?? 0n;
       // Compare on the account's own normal side, so an output-VAT credit
       // balance and an input-VAT debit balance both come out positive.
-      const ledgerBalance =
-        account.normalBalance === 'CREDIT' ? credit - debit : debit - credit;
-
-      const difference = registerTotal - ledgerBalance;
-
+      const ledgerBalance = account.normalBalance === 'CREDIT' ? credit - debit : debit - credit;
+      const difference = total.taxKobo - ledgerBalance;
       lines.push({
-        direction: group.direction,
+        direction: [...total.directions].sort().join(' / '),
+        taxCode: [...total.codes].sort().join(', '),
         glAccountNumber: account.accountNumber,
         glAccountName: account.name,
-        registerTaxKobo: registerTotal.toString(),
+        normalBalance: account.normalBalance,
+        registerTaxKobo: total.taxKobo.toString(),
         ledgerBalanceKobo: ledgerBalance.toString(),
         differenceKobo: difference.toString(),
         agrees: difference === 0n,

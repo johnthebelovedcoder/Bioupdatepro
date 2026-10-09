@@ -13,6 +13,7 @@ import { InvitationService } from './invitation.service';
 import { PasswordResetService } from './password-reset.service';
 import { EmailService } from './email.service';
 import { RoleSectionAccessService } from './role-section-access.service';
+import { MfaService } from './mfa.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CompanyScopeGuard } from './company-scope.guard';
 import { OwnedRecordGuard } from './owned-record.guard';
@@ -52,6 +53,7 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
     PasswordResetService,
     EmailService,
     RoleSectionAccessService,
+    MfaService,
     JwtStrategy,
     // Global: protected by default, opt out with @Public().
     { provide: APP_GUARD, useClass: JwtAuthGuard },
@@ -75,6 +77,6 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
      */
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [AuthService],
+  exports: [AuthService, MfaService],
 })
 export class AuthModule {}

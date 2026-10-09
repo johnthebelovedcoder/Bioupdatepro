@@ -604,6 +604,40 @@ describe('Tax Engine (§4)', () => {
       expect(output.differenceKobo).toBe('-1000000');
     });
 
+    it('detects a mapped tax-control posting when that tax code has no register entry', async () => {
+      await posting.post({
+        sourceModule: 'sales',
+        sourceDocumentType: 'SalesInvoice',
+        journalNumber: 'JRN-ROGUE-NO-REGISTER',
+        journalDate: JAN,
+        narration: 'Output VAT posted without any register entry',
+        ...dims(),
+        idempotencyKey: 'rogue-no-register',
+        actor: { userId: fixture.makerId, roles: ['FINANCE_MANAGER'] },
+        lines: [
+          {
+            glAccountId: fixture.accounts['1101']!,
+            description: 'Bank',
+            debit: kobo(10_000_00),
+            dimensions: dims(),
+          },
+          {
+            glAccountId: fixture.accounts['2120']!,
+            description: 'Output VAT',
+            credit: kobo(10_000_00),
+            dimensions: dims(),
+          },
+        ],
+      });
+
+      const reconciliation = await registers.reconcile(fixture.companyId, vatPeriodId);
+      const output = reconciliation.lines.find((line) => line.direction === 'OUTPUT')!;
+      expect(output.registerTaxKobo).toBe('0');
+      expect(output.ledgerBalanceKobo).toBe('1000000');
+      expect(output.differenceKobo).toBe('-1000000');
+      expect(output.taxCode).toContain('VAT-STD');
+    });
+
     it('summarises the VAT return with only recoverable input tax', async () => {
       await postSalesInvoice(1_000_000_00n, 'INV-001');
 

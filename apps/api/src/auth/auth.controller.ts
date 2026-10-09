@@ -11,6 +11,7 @@ import { PasswordResetService } from './password-reset.service';
 import { EmailService } from './email.service';
 import { RoleSectionAccessService } from './role-section-access.service';
 import { Roles, AnyRole } from './roles.guard';
+import { MfaService } from './mfa.service';
 
 class LoginDto {
   @IsEmail({}, { message: 'Enter a valid email address.' })
@@ -38,6 +39,22 @@ class RegisterDto {
   farmName!: string;
 }
 
+class MfaLoginDto {
+  @IsString()
+  @MinLength(1)
+  challengeToken!: string;
+
+  @IsString()
+  @MinLength(1)
+  code!: string;
+}
+
+class MfaConfirmDto {
+  @IsString()
+  @MinLength(1)
+  code!: string;
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -47,6 +64,7 @@ export class AuthController {
     private readonly passwordResets: PasswordResetService,
     private readonly emailService: EmailService,
     private readonly roleSections: RoleSectionAccessService,
+    private readonly mfa: MfaService,
   ) {}
 
   /*
@@ -65,6 +83,31 @@ export class AuthController {
   @Post('login')
   async login(@Body() body: LoginDto) {
     return this.auth.login(body.email, body.password);
+  }
+
+  @Public()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: minutes(15) } })
+  @Post('mfa/login')
+  async verifyMfaLogin(@Body() body: MfaLoginDto) {
+    return this.auth.verifyMfaLogin(body.challengeToken, body.code);
+  }
+
+  @AnyRole('Authenticator enrollment only; required-factor accounts cannot access product routes before completing this setup.')
+  @Post('mfa/setup')
+  async beginMfaEnrollment(@CurrentUser() actor: WorkflowActor) {
+    return this.mfa.beginEnrollment(actor.userId);
+  }
+
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: minutes(15) } })
+  @AnyRole('Confirm the authenticator setup for this account.')
+  @Post('mfa/confirm')
+  async confirmMfaEnrollment(
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: MfaConfirmDto,
+  ) {
+    return this.mfa.confirmEnrollment(actor.userId, body.code);
   }
 
   /** Create a farm and its first user. */

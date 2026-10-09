@@ -1,7 +1,6 @@
 'use server';
 
-import { redirect } from 'next/navigation';
-import { setToken, type SessionUser } from '@/lib/session';
+import { finishAuthentication, type AuthenticationResult } from '@/lib/auth-result';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
@@ -78,16 +77,11 @@ export async function signup(
     return fail(message, response.status === 409 ? 'email' : null, kept);
   }
 
-  const { accessToken } = (await response.json()) as {
-    accessToken: string;
-    user: SessionUser;
-  };
-
-  await setToken(accessToken);
   // Straight into onboarding rather than the dashboard. A farm with no
   // populations in it has nothing to show, and dropping somebody onto empty
   // charts is how a product gets abandoned in the first five minutes.
-  redirect('/welcome');
+  const result = (await response.json()) as AuthenticationResult;
+  return finishAuthentication(result, '/welcome');
 }
 
 function fail(

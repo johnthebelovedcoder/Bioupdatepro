@@ -16,6 +16,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   /** The return value becomes `request.user`. */
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
-    return this.auth.resolve(payload.sub);
+    return this.auth.resolve(payload.sub, payload.mfaSetupOnly === true);
   }
 }

@@ -8,5 +8,6 @@ import { PaymentFilesController } from './payment-files.controller';
 @Module({
   controllers: [BankingController, PaymentFilesController],
   providers: [BankingService, PaymentFileService],
+  exports: [BankingService],
 })
 export class BankingModule {}

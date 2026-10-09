@@ -83,8 +83,10 @@ export interface TaxReconciliation {
   agrees: boolean;
   lines: Array<{
     direction: string;
+    taxCode: string;
     glAccountNumber: string;
     glAccountName: string;
+    normalBalance: string;
     registerTaxKobo: string;
     ledgerBalanceKobo: string;
     differenceKobo: string;

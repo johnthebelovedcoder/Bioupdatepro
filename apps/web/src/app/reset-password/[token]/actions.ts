@@ -1,7 +1,6 @@
 'use server';
 
-import { redirect } from 'next/navigation';
-import { setToken, type SessionUser } from '@/lib/session';
+import { finishAuthentication, type AuthenticationResult } from '@/lib/auth-result';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
@@ -51,13 +50,8 @@ export async function completeReset(
     return { error: message };
   }
 
-  const { accessToken } = (await response.json()) as {
-    accessToken: string;
-    user: SessionUser;
-  };
-
-  await setToken(accessToken);
-  redirect('/');
+  const result = (await response.json()) as AuthenticationResult;
+  return finishAuthentication(result, '/');
 }
 
 /** What the link resolves to, for the page to show before anybody commits. */

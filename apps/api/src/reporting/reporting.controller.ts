@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Header, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { AuditAction } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService } from './trial-balance.service';
@@ -20,6 +21,10 @@ import { currentFinancialYearId, currentFinancialPeriodId } from './current-fina
 import { CurrentCompany, CurrentUser } from '../auth/current-user.decorator';
 import { Roles, AnyRole } from '../auth/roles.guard';
 import type { WorkflowActor } from '../workflow/workflow.types';
+import { BankingService } from '../banking/banking.service';
+import { BiologicalAssetService } from '../biological-assets/biological-asset.service';
+import { biologicalStageAccountNumber, chartVersionOf, UnresolvedApprovedAccount } from '../chart/chart';
+import { TaxRegisterService } from '../tax/tax-register.service';
 
 /**
  * Read-only reporting for the web app.
@@ -49,6 +54,9 @@ export class ReportingController {
     private readonly customerReceipts: CustomerReceiptService,
     private readonly supplierPayments: SupplierPaymentService,
     private readonly controlReconciliation: ControlAccountReconciliationService,
+    private readonly banking: BankingService,
+    private readonly biologicalAssets: BiologicalAssetService,
+    private readonly taxRegisters: TaxRegisterService,
     private readonly posting: PostingService,
     private readonly postingControlChecks: PostingControlChecksService,
     private readonly auditService: AuditService,
@@ -579,13 +587,333 @@ export class ReportingController {
   /**
    * US-897-029's remaining criterion: does every CONTROL account's GL
    * balance actually equal the subledger detail it's supposed to be the
-   * only thing ever posted to — AR, AP, every inventory GL account, and WIP
-   * by processing cycle.
+   * only thing ever posted to — AR, AP, inventory, payroll, PPE, WIP,
+   * biological assets, tax registers, and active bank accounts.
    */
   @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
   @Get('control-reconciliation')
   async controlReconciliationReport(@CurrentCompany() companyId: string) {
-    return this.controlReconciliation.reconcile(companyId);
+    return this.controlRows(companyId);
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'INTERNAL_AUDITOR', 'FARM_ACCOUNTANT', 'CFO')
+  @Get('control-dashboard')
+  async controlDashboard(@CurrentCompany() companyId: string) {
+    const rows = await this.controlRows(companyId);
+    return { rows, ...(await this.controlExceptionFollowups(companyId, rows)) };
+  }
+
+  private async controlExceptionFollowups(
+    companyId: string,
+    rows: Awaited<ReturnType<ReportingController['controlRows']>>,
+  ) {
+    const activeRows = rows.filter((row) => !row.reconciled);
+    const activeKeys = activeRows.map((row) => controlExceptionKey(row.accountNumber, row.source));
+    const [latestEventTimes, users] = await Promise.all([
+      this.prisma.auditRecord.groupBy({
+        by: ['entityId'],
+        where: { companyId, module: 'reporting', entityType: 'ControlException' },
+        _max: { occurredAt: true },
+      }),
+      this.prisma.user.findMany({
+        where: { companyId, active: true },
+        orderBy: { fullName: 'asc' },
+        select: { id: true, fullName: true, email: true },
+      }),
+    ]);
+    const latestEvents = latestEventTimes.length > 0
+      ? await this.prisma.auditRecord.findMany({
+          where: {
+            companyId,
+            module: 'reporting',
+            entityType: 'ControlException',
+            OR: latestEventTimes.map(({ entityId, _max }) => ({
+              entityId,
+              occurredAt: _max.occurredAt!,
+            })),
+          },
+          orderBy: { occurredAt: 'desc' },
+          include: { user: { select: { fullName: true } } },
+        })
+      : [];
+    const latestByKey = new Map<string, (typeof latestEvents)[number]>();
+    for (const event of latestEvents) {
+      if (!latestByKey.has(event.entityId)) latestByKey.set(event.entityId, event);
+    }
+    const activeCases = activeRows.map((row) => {
+      const key = controlExceptionKey(row.accountNumber, row.source);
+      return exceptionCase(row, key, latestByKey.get(key), true);
+    });
+    const activeKeySet = new Set(activeKeys);
+    const inactiveCases = [...latestByKey.entries()]
+      .filter(([key]) => !activeKeySet.has(key))
+      .map(([key, event]) => exceptionCaseFromEvent(key, event, false));
+
+    return { cases: [...activeCases, ...inactiveCases], users };
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('control-exceptions')
+  async updateControlException(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body()
+    body: {
+      accountNumber: string;
+      source: string;
+      assignedToId: string;
+      dueDate: string;
+      status: 'OPEN' | 'IN_PROGRESS' | 'ACCEPTED' | 'RESOLVED';
+      comments: string;
+    },
+  ) {
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('Provide exception follow-up details.');
+    }
+    const accountNumber = typeof body.accountNumber === 'string' ? body.accountNumber.trim() : '';
+    const source = typeof body.source === 'string' ? body.source.trim() : '';
+    const assignedToId = typeof body.assignedToId === 'string' ? body.assignedToId.trim() : '';
+    const dueDate = typeof body.dueDate === 'string' ? body.dueDate.trim() : '';
+    if (body.comments !== undefined && typeof body.comments !== 'string') {
+      throw new BadRequestException('The follow-up note must be text.');
+    }
+    const comments = body.comments?.trim() ?? '';
+    if (!accountNumber || !source || !assignedToId) {
+      throw new BadRequestException('Choose an exception and an active owner.');
+    }
+    const parsedDueDate = new Date(`${dueDate}T00:00:00.000Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !Number.isFinite(parsedDueDate.getTime()) || parsedDueDate.toISOString().slice(0, 10) !== dueDate) {
+      throw new BadRequestException('Enter a valid due date.');
+    }
+    if (!['OPEN', 'IN_PROGRESS', 'ACCEPTED', 'RESOLVED'].includes(body.status)) {
+      throw new BadRequestException('Choose a valid follow-up status.');
+    }
+    if (['ACCEPTED', 'RESOLVED'].includes(body.status) && !comments) {
+      throw new BadRequestException('Add a note explaining the acceptance or resolution.');
+    }
+    if (comments.length > 2000) {
+      throw new BadRequestException('The follow-up note must be 2,000 characters or fewer.');
+    }
+
+    const key = controlExceptionKey(accountNumber, source);
+    const [rows, previous] = await Promise.all([
+      this.controlRows(companyId),
+      this.prisma.auditRecord.findFirst({
+        where: { companyId, module: 'reporting', entityType: 'ControlException', entityId: key },
+        orderBy: { occurredAt: 'desc' },
+      }),
+    ]);
+    const activeRow = rows.find((row) => controlExceptionKey(row.accountNumber, row.source) === key && !row.reconciled);
+    if (!activeRow && body.status !== 'RESOLVED') {
+      throw new BadRequestException('This exception is no longer active; mark it resolved instead.');
+    }
+    if (activeRow && body.status === 'RESOLVED') {
+      throw new BadRequestException('Resolve this exception after its control agrees or the missing evidence is supplied.');
+    }
+    if (!activeRow && !previous) {
+      throw new NotFoundException('No tracked exception exists for this control.');
+    }
+
+    const owner = await this.prisma.user.findFirst({
+      where: { id: assignedToId, companyId, active: true },
+      select: { id: true, fullName: true, email: true },
+    });
+    if (!owner) throw new NotFoundException('The selected owner is not an active user in this company.');
+
+    const previousValue = exceptionMetadata(previous?.newValueJson);
+    const newValue = {
+      accountNumber,
+      accountName: activeRow?.accountName ?? previousValue.accountName ?? accountNumber,
+      source,
+      assignedToId: owner.id,
+      assignedToName: owner.fullName,
+      assignedToEmail: owner.email,
+      dueDate,
+      status: body.status,
+    };
+    await this.auditService.write({
+      transactionId: key,
+      module: 'reporting',
+      entityType: 'ControlException',
+      entityId: key,
+      status: body.status,
+      action: previous ? AuditAction.UPDATE : AuditAction.CREATE,
+      userId: actor.userId,
+      comments: comments || null,
+      oldValue: previous ? exceptionMetadata(previous.newValueJson) : undefined,
+      newValue,
+    });
+    return { key, status: body.status };
+  }
+
+  private async controlRows(companyId: string) {
+    const [controls, bankAccounts, biologicalRows, taxRows] = await Promise.all([
+      this.controlReconciliation.reconcile(companyId),
+      this.banking.listAccounts(companyId),
+      this.biologicalAssetRows(companyId),
+      this.taxReconciliationRows(companyId),
+    ]);
+    const bankRows = await Promise.all(
+      bankAccounts.filter((account) => account.active && account.glAccount).map(async (account) => {
+        if (!account.latestStatement) {
+          return {
+            accountNumber: account.glAccount!.accountNumber,
+            accountName: account.name,
+            glBalanceKobo: account.ledgerBalanceKobo,
+            subledgerKobo: '0',
+            varianceKobo: '0',
+            reconciled: false,
+            evidenceMissing: true,
+            source: 'No bank statement imported for this account.',
+          };
+        }
+
+        const bank = await this.banking.reconciliation(companyId, account.id);
+        const expectedBalance = BigInt(bank.statementClosingKobo ?? '0') - BigInt(bank.differenceKobo ?? '0');
+        const unmatchedStatements = bank.lines.filter(
+          (line) => line.status !== 'MATCHED' && (!bank.asOf || line.valueDate <= bank.asOf),
+        ).length;
+        return {
+          accountNumber: account.glAccount!.accountNumber,
+          accountName: account.name,
+          glBalanceKobo: bank.ledgerBalanceKobo,
+          subledgerKobo: expectedBalance.toString(),
+          varianceKobo: bank.differenceKobo ?? '0',
+          reconciled: bank.reconciled,
+          evidenceMissing: bank.differenceKobo === null,
+          source: bank.differenceKobo === null
+            ? 'Bank statement could not be reconciled.'
+            : `Bank statement to ${bank.asOf}; ${bank.uncleared.length} uncleared ledger movements; ${unmatchedStatements} unmatched statement lines`,
+        };
+      }),
+    );
+    return [...controls, ...bankRows, ...biologicalRows, ...taxRows].map((row) => ({
+      ...row,
+      ...(row.reconciled ? {} : { exceptionKey: controlExceptionKey(row.accountNumber, row.source) }),
+    }));
+  }
+
+  private async taxReconciliationRows(companyId: string) {
+    const periods = await this.prisma.taxPeriod.findMany({
+      where: { companyId },
+      orderBy: [{ year: 'asc' }, { periodNumber: 'asc' }, { taxType: 'asc' }],
+      select: { id: true, name: true, year: true, taxType: true },
+    });
+    const reconciliations = await Promise.all(
+      periods.map(async (period) => ({
+        period,
+        result: await this.taxRegisters.reconcile(companyId, period.id),
+      })),
+    );
+
+    return reconciliations.flatMap(({ period, result }) =>
+      result.lines
+        .filter((line) => line.registerTaxKobo !== '0' || line.ledgerBalanceKobo !== '0')
+        .map((line) => {
+          const normalSign = line.normalBalance === 'DEBIT' ? 1n : -1n;
+          const glBalanceKobo = BigInt(line.ledgerBalanceKobo) * normalSign;
+          const subledgerKobo = BigInt(line.registerTaxKobo) * normalSign;
+          const varianceKobo = glBalanceKobo - subledgerKobo;
+          return {
+            accountNumber: line.glAccountNumber,
+            accountName: line.glAccountName,
+            glBalanceKobo: glBalanceKobo.toString(),
+            subledgerKobo: subledgerKobo.toString(),
+            varianceKobo: varianceKobo.toString(),
+            reconciled: varianceKobo === 0n,
+            source: `Tax register: ${period.name} ${period.year}, ${line.taxCode} ${line.direction}`,
+          };
+        }),
+    );
+  }
+
+  private async biologicalAssetRows(companyId: string) {
+    const [version, groups, mappings, trialBalance] = await Promise.all([
+      chartVersionOf(this.prisma, companyId),
+      this.prisma.livestockGroup.findMany({
+        where: { companyId, status: 'ACTIVE' },
+        select: { id: true, code: true, speciesKey: true, stage: true, currentFvlctsPerUnitKobo: true },
+        orderBy: [{ speciesKey: 'asc' }, { stage: 'asc' }, { code: 'asc' }],
+      }),
+      this.prisma.biologicalAssetStageAccount.findMany({
+        where: { companyId, active: true },
+        include: { glAccount: { select: { accountNumber: true } } },
+      }),
+      this.trialBalance.build({ companyId }),
+    ]);
+    const ledgerByAccount = new Map(trialBalance.rows.map((row) => [row.accountNumber, row.netKobo]));
+    const mappingByStage = new Map(
+      mappings.map((mapping) => [`${mapping.speciesKey}:${mapping.stage}`, mapping.glAccount.accountNumber]),
+    );
+    const balances = new Map<string, {
+      accountName: string;
+      carryingKobo: bigint;
+      groups: number;
+      unvaluedGroups: string[];
+    }>();
+
+    const expectedBiologicalAccounts = version === 'APPROVED'
+      ? ['16031', '16032', '16041', '16042']
+      : mappings.map((mapping) => mapping.glAccount.accountNumber);
+    for (const accountNumber of expectedBiologicalAccounts) {
+      if ((ledgerByAccount.get(accountNumber) ?? 0n) !== 0n && !balances.has(accountNumber)) {
+        balances.set(accountNumber, {
+          accountName: 'Biological assets',
+          carryingKobo: 0n,
+          groups: 0,
+          unvaluedGroups: [],
+        });
+      }
+    }
+
+    for (const group of groups) {
+      let accountNumber = mappingByStage.get(`${group.speciesKey}:${group.stage}`);
+      if (version === 'APPROVED') {
+        try {
+          accountNumber = biologicalStageAccountNumber(group.speciesKey, group.stage);
+        } catch (error) {
+          if (!(error instanceof UnresolvedApprovedAccount)) throw error;
+          accountNumber = undefined;
+        }
+      }
+      const key = accountNumber ?? `unmapped:${group.speciesKey}:${group.stage}`;
+      const entry = balances.get(key) ?? {
+        accountName: accountNumber ? `Biological assets — ${group.speciesKey} ${group.stage}` : 'Biological assets — unmapped stage',
+        carryingKobo: 0n,
+        groups: 0,
+        unvaluedGroups: [],
+      };
+      entry.groups += 1;
+      if (accountNumber && group.currentFvlctsPerUnitKobo !== null) {
+        const rollForward = await this.biologicalAssets.rollForward(group.id);
+        entry.carryingKobo += BigInt(rollForward.closingBaKobo);
+      } else {
+        entry.unvaluedGroups.push(group.code);
+      }
+      balances.set(key, entry);
+    }
+
+    return [...balances.entries()].map(([key, entry]) => {
+      const evidenceMissing = !key.match(/^\d+$/) || entry.unvaluedGroups.length > 0;
+      const accountNumber = key.match(/^\d+$/) ? key : '—';
+      const glBalanceKobo = ledgerByAccount.get(accountNumber) ?? 0n;
+      const subledgerKobo = evidenceMissing ? 0n : entry.carryingKobo;
+      const varianceKobo = evidenceMissing ? 0n : glBalanceKobo - subledgerKobo;
+      return {
+        accountNumber,
+        accountName: entry.accountName,
+        glBalanceKobo: glBalanceKobo.toString(),
+        subledgerKobo: subledgerKobo.toString(),
+        varianceKobo: varianceKobo.toString(),
+        reconciled: !evidenceMissing && varianceKobo === 0n,
+        evidenceMissing,
+        source: evidenceMissing
+          ? !key.match(/^\d+$/)
+            ? `No GL account is mapped for ${entry.groups} active ${entry.accountName.toLowerCase()} population(s).`
+            : `No complete carrying-value evidence for ${entry.unvaluedGroups.join(', ')}.`
+          : `${entry.groups} active populations; carrying value from each IAS 41 roll-forward`,
+      };
+    });
   }
 
   /**
@@ -617,12 +945,15 @@ export class ReportingController {
 
     const [checks, reconciliation] = await Promise.all([
       this.postingControlChecks.run(companyId),
-      this.controlReconciliation.reconcile(companyId),
+      this.controlRows(companyId),
     ]);
 
     const failingChecks = checks.rows.filter((r) => r.state !== 'PASS');
     const variantAccounts = reconciliation.filter((r) => !r.reconciled);
     const hasExceptions = failingChecks.length > 0 || variantAccounts.length > 0;
+    const followups = hasExceptions
+      ? (await this.controlExceptionFollowups(companyId, reconciliation)).cases.filter((item) => item.active)
+      : [];
 
     if (hasExceptions && !body.exceptionsAcknowledged?.trim()) {
       throw new BadRequestException(
@@ -639,6 +970,7 @@ export class ReportingController {
       postingControlChecks: checks.rows,
       releasableByChecksAlone: checks.releasable,
       controlReconciliation: reconciliation,
+      exceptionFollowups: followups,
       failingCheckCount: failingChecks.length,
       variantAccountCount: variantAccounts.length,
     };
@@ -1146,6 +1478,72 @@ export class ReportingController {
     ]);
     return { costCentres, farms };
   }
+}
+
+function controlExceptionKey(accountNumber: string, source: string): string {
+  return createHash('sha256').update(`${accountNumber}\0${source}`).digest('hex');
+}
+
+function exceptionMetadata(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  );
+}
+
+function exceptionCase(
+  row: { accountNumber: string; accountName: string; source: string },
+  key: string,
+  event: {
+    status: string;
+    newValueJson: unknown;
+    comments: string | null;
+    occurredAt: Date;
+    user: { fullName: string };
+  } | undefined,
+  active: boolean,
+) {
+  const metadata = exceptionMetadata(event?.newValueJson);
+  return {
+    key,
+    accountNumber: row.accountNumber,
+    accountName: row.accountName,
+    source: row.source,
+    active,
+    tracked: Boolean(event),
+    status: event?.status ?? 'OPEN',
+    assignedToId: metadata.assignedToId ?? '',
+    assignedToName: metadata.assignedToName ?? '',
+    assignedToEmail: metadata.assignedToEmail ?? '',
+    dueDate: metadata.dueDate ?? '',
+    lastNote: event?.comments ?? '',
+    updatedAt: event?.occurredAt.toISOString() ?? null,
+    updatedBy: event?.user.fullName ?? '',
+  };
+}
+
+function exceptionCaseFromEvent(
+  key: string,
+  event: {
+    status: string;
+    newValueJson: unknown;
+    comments: string | null;
+    occurredAt: Date;
+    user: { fullName: string };
+  },
+  active: boolean,
+) {
+  const metadata = exceptionMetadata(event.newValueJson);
+  return exceptionCase(
+    {
+      accountNumber: metadata.accountNumber ?? '',
+      accountName: metadata.accountName ?? metadata.accountNumber ?? 'Control exception',
+      source: metadata.source ?? '',
+    },
+    key,
+    event,
+    active,
+  );
 }
 
 /** RFC 4180 quoting — wraps and escapes a cell only when it actually needs it. */

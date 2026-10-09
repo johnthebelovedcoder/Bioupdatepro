@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { withDbRetry } from '../prisma/retry';
 import { verifyPassword } from './password';
+import { MfaService } from './mfa.service';
 
 export interface AuthenticatedUser {
   userId: string;
@@ -19,6 +20,9 @@ export interface AuthenticatedUser {
    * expires. It is read from the database on every request instead.
    */
   companyId: string | null;
+  mfaRequired: boolean;
+  mfaEnabled: boolean;
+  mfaSetupOnly?: boolean;
 }
 
 export interface JwtPayload {
@@ -33,7 +37,14 @@ export interface JwtPayload {
    */
   authAt?: number;
   iat?: number;
+  purpose?: 'MFA_LOGIN';
+  jti?: string;
+  mfaSetupOnly?: boolean;
 }
+
+export type AuthLoginResult =
+  | { accessToken: string; user: AuthenticatedUser; mfaSetupRequired?: true }
+  | { mfaRequired: true; challengeToken: string };
 
 /** However active a session is, the password is asked for again after this. */
 export const MAX_SESSION_SECONDS = 7 * 24 * 60 * 60;
@@ -43,12 +54,13 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly mfa: MfaService,
   ) {}
 
   async login(
     email: string,
     password: string,
-  ): Promise<{ accessToken: string; user: AuthenticatedUser }> {
+  ): Promise<AuthLoginResult> {
     const user = await withDbRetry(() =>
       this.prisma.user.findUnique({
         where: { email: email.trim().toLowerCase() },
@@ -77,6 +89,8 @@ export class AuthService {
       fullName: user.fullName,
       roles: user.roles,
       companyId: user.companyId,
+      mfaRequired: this.mfa.requiredFor(user.roles),
+      mfaEnabled: Boolean(user.mfaEnabledAt && user.mfaSecret),
     };
 
     const payload: JwtPayload = {
@@ -87,7 +101,67 @@ export class AuthService {
       authAt: Math.floor(Date.now() / 1000),
     };
 
+    if (authenticated.mfaRequired && !authenticated.mfaEnabled) {
+      return {
+        accessToken: await this.jwt.signAsync({ ...payload, mfaSetupOnly: true }, { expiresIn: '10m' }),
+        user: { ...authenticated, mfaSetupOnly: true },
+        mfaSetupRequired: true as const,
+      };
+    }
+    if (authenticated.mfaRequired) {
+      const expiresAt = new Date(Date.now() + 5 * 60_000);
+      const challenge = await this.prisma.mfaLoginChallenge.create({
+        data: { userId: user.id, expiresAt },
+        select: { id: true },
+      });
+      await this.prisma.mfaLoginChallenge.deleteMany({
+        where: { expiresAt: { lt: new Date(Date.now() - 24 * 60 * 60_000) } },
+      });
+      return {
+        mfaRequired: true as const,
+        challengeToken: await this.jwt.signAsync(
+          { sub: user.id, authAt: payload.authAt, purpose: 'MFA_LOGIN', jti: challenge.id },
+          { expiresIn: '5m' },
+        ),
+      };
+    }
     return { accessToken: await this.jwt.signAsync(payload), user: authenticated };
+  }
+
+  async verifyMfaLogin(challengeToken: string, code: string) {
+    let challenge: JwtPayload;
+    try {
+      challenge = await this.jwt.verifyAsync<JwtPayload>(challengeToken);
+    } catch {
+      throw new UnauthorizedException('This MFA challenge has expired. Sign in again.');
+    }
+    if (challenge.purpose !== 'MFA_LOGIN' || !challenge.sub || !challenge.authAt || !challenge.jti) {
+      throw new UnauthorizedException('This MFA challenge is not valid. Sign in again.');
+    }
+    const activeChallenge = await this.prisma.mfaLoginChallenge.findFirst({
+      where: { id: challenge.jti, userId: challenge.sub, usedAt: null, expiresAt: { gt: new Date() } },
+      select: { id: true },
+    });
+    if (!activeChallenge) throw new UnauthorizedException('This MFA challenge has already been used or has expired.');
+    if (!(await this.mfa.verifyLogin(challenge.sub, code))) {
+      throw new UnauthorizedException('That authenticator or recovery code is not valid.');
+    }
+    const consumed = await this.prisma.mfaLoginChallenge.updateMany({
+      where: { id: activeChallenge.id, usedAt: null, expiresAt: { gt: new Date() } },
+      data: { usedAt: new Date() },
+    });
+    if (consumed.count !== 1) {
+      throw new UnauthorizedException('This MFA challenge has already been used. Sign in again.');
+    }
+    const user = await this.resolve(challenge.sub);
+    const payload: JwtPayload = {
+      sub: user.userId,
+      email: user.email,
+      name: user.fullName,
+      roles: user.roles,
+      authAt: challenge.authAt,
+    };
+    return { accessToken: await this.jwt.signAsync(payload), user };
   }
 
   /**
@@ -100,6 +174,9 @@ export class AuthService {
    */
   async refresh(token: string): Promise<{ accessToken: string }> {
     const presented = this.jwt.decode<JwtPayload>(token);
+    if (presented?.purpose || presented?.mfaSetupOnly) {
+      throw new UnauthorizedException('Complete MFA setup or verification before renewing this session.');
+    }
     const authAt = presented?.authAt ?? presented?.iat;
     if (!presented?.sub || !authAt) throw new UnauthorizedException('Session is no longer valid.');
     if (Math.floor(Date.now() / 1000) - authAt > MAX_SESSION_SECONDS) {
@@ -123,7 +200,7 @@ export class AuthService {
    * that cannot go stale. The same argument applies to the company: it decides
    * which tenant's data the request can reach.
    */
-  async resolve(userId: string): Promise<AuthenticatedUser> {
+  async resolve(userId: string, mfaSetupOnly = false): Promise<AuthenticatedUser> {
     const user = await withDbRetry(() => this.prisma.user.findUnique({ where: { id: userId } }));
     if (!user || !user.active) {
       throw new UnauthorizedException('Session is no longer valid.');
@@ -134,6 +211,9 @@ export class AuthService {
       fullName: user.fullName,
       roles: user.roles,
       companyId: user.companyId,
+      mfaRequired: this.mfa.requiredFor(user.roles),
+      mfaEnabled: Boolean(user.mfaEnabledAt && user.mfaSecret),
+      ...(mfaSetupOnly ? { mfaSetupOnly: true } : {}),
     };
   }
 }

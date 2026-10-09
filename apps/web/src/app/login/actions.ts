@@ -1,7 +1,8 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { setToken, clearToken, type SessionUser } from '@/lib/session';
+import { clearToken } from '@/lib/session';
+import { finishAuthentication, type AuthenticationResult } from '@/lib/auth-result';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
@@ -64,13 +65,8 @@ export async function login(
     return { error: message };
   }
 
-  const { accessToken } = (await response.json()) as {
-    accessToken: string;
-    user: SessionUser;
-  };
-
-  await setToken(accessToken);
-  redirect('/');
+  const result = (await response.json()) as AuthenticationResult;
+  return finishAuthentication(result, '/');
 }
 
 export async function logout(): Promise<void> {

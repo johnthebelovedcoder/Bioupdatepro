@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import {
   getBuildOrder,
-  getControlReconciliation,
+  getControlDashboard,
   getPostingChecks,
   getPostingControlStatus,
   getReleaseSignOffs,
@@ -12,6 +12,7 @@ import { Tabs } from '@/components/tabs';
 import { ReleaseSignOffForm } from '@/components/release-sign-off-form';
 import { PostBacklogButton } from '@/components/post-backlog-button';
 import { LoadPostingRulesButton } from '@/components/load-posting-rules-button';
+import { ControlExceptionFollowups } from '@/components/control-exception-followup';
 
 export const metadata = { title: 'Controls — BioAssetPro' };
 
@@ -31,14 +32,15 @@ const STATE_TONE: Record<string, string> = {
 export default async function ControlsPage() {
   const [checks, reconciliation, signOffs, buildOrder, provisioning] = await Promise.all([
     getPostingChecks(),
-    getControlReconciliation(),
+    getControlDashboard(),
     getReleaseSignOffs(),
     getBuildOrder(),
     getPostingControlStatus(),
   ]);
 
   const failingChecks = checks.ok ? checks.data.rows.filter((row) => row.state !== 'PASS').length : 0;
-  const variances = reconciliation.ok ? reconciliation.data.filter((row) => !row.reconciled).length : 0;
+  const rows = reconciliation.ok ? reconciliation.data.rows : [];
+  const variances = reconciliation.ok ? rows.filter((row) => !row.reconciled).length : 0;
 
   return (
     <>
@@ -156,8 +158,8 @@ export default async function ControlsPage() {
           subtitle={
             reconciliation.ok
               ? variances === 0
-                ? 'Every control account equals its subledger'
-                : `${variances} account${variances === 1 ? '' : 's'} disagree with the subledger`
+                ? 'Every control account agrees with its reconciliation source'
+                : `${variances} account${variances === 1 ? '' : 's'} need attention`
               : undefined
           }
           padded={false}
@@ -166,7 +168,7 @@ export default async function ControlsPage() {
             <div className="notice notice-error" style={{ margin: 'var(--sp-4)' }}>
               {reconciliation.error}
             </div>
-          ) : reconciliation.data.length === 0 ? (
+          ) : rows.length === 0 ? (
             <p className="faint" style={{ padding: 'var(--sp-5)' }}>
               No control accounts are configured yet.
             </p>
@@ -176,31 +178,35 @@ export default async function ControlsPage() {
                 <thead>
                   <tr>
                     <th>Account</th>
-                    <th>Subledger</th>
+                    <th>Reconciliation basis</th>
                     <th className="right" style={{ width: 140 }}>Ledger</th>
-                    <th className="right" style={{ width: 140 }}>Subledger</th>
+                    <th className="right" style={{ width: 140 }}>Expected balance</th>
                     <th className="right" style={{ width: 130 }}>Variance</th>
                     <th style={{ width: 110 }}>Result</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {reconciliation.data.map((row) => (
+                  {rows.map((row) => (
                     <tr key={`${row.accountNumber}-${row.source}`}>
                       <td style={{ textAlign: 'left' }}>
-                        <Link href={`/ledger/trial-balance/${encodeURIComponent(row.accountNumber)}`}>
-                          {row.accountNumber}
-                        </Link>{' '}
+                        {row.accountNumber === '—' ? (
+                          row.accountNumber
+                        ) : (
+                          <Link href={`/ledger/trial-balance/${encodeURIComponent(row.accountNumber)}`}>
+                            {row.accountNumber}
+                          </Link>
+                        )}{' '}
                         {row.accountName}
                       </td>
                       <td className="faint" style={{ textAlign: 'left' }}>
                         {row.source}
                       </td>
                       <td className="num">{formatNaira(row.glBalanceKobo)}</td>
-                      <td className="num">{formatNaira(row.subledgerKobo)}</td>
-                      <td className="num">{formatNaira(row.varianceKobo)}</td>
+                      <td className="num">{row.evidenceMissing ? '—' : formatNaira(row.subledgerKobo)}</td>
+                      <td className="num">{row.evidenceMissing ? '—' : formatNaira(row.varianceKobo)}</td>
                       <td>
-                        <span className={`badge ${row.reconciled ? 'badge-success' : 'badge-danger'}`}>
-                          {row.reconciled ? 'agrees' : 'differs'}
+                        <span className={`badge ${row.evidenceMissing ? 'badge-warning' : row.reconciled ? 'badge-success' : 'badge-danger'}`}>
+                          {row.evidenceMissing ? 'no evidence' : row.reconciled ? 'agrees' : 'differs'}
                         </span>
                       </td>
                     </tr>
@@ -208,6 +214,21 @@ export default async function ControlsPage() {
                 </tbody>
               </table>
             </div>
+          )}
+        </Card>
+
+        <Card
+          title="Exception follow-up"
+          subtitle="Assign an owner and due date; record acceptance or resolution with a reason"
+        >
+          {!reconciliation.ok ? (
+            <div className="notice notice-error">{reconciliation.error}</div>
+          ) : (
+            <ControlExceptionFollowups
+              cases={reconciliation.data.cases}
+              users={reconciliation.data.users}
+              today={new Date().toISOString().slice(0, 10)}
+            />
           )}
         </Card>
 
@@ -314,8 +335,44 @@ export default async function ControlsPage() {
                         </span>
                       </td>
                       <td style={{ textAlign: 'left' }}>{row.signedOffBy}</td>
-                      <td className="faint" style={{ textAlign: 'left' }}>
-                        {row.exceptionsAcknowledged ?? '—'}
+                      <td style={{ textAlign: 'left' }}>
+                        <p className="faint">{row.exceptionsAcknowledged ?? '—'}</p>
+                        {row.snapshot ? (
+                          <details style={{ marginTop: 'var(--sp-2)' }}>
+                            <summary className="link" style={{ cursor: 'pointer' }}>View captured evidence</summary>
+                            <div className="stack" style={{ marginTop: 'var(--sp-2)', minWidth: 280 }}>
+                              <p className="faint">
+                                {row.snapshot.failingCheckCount ?? 0} posting checks failing ·{' '}
+                                {row.snapshot.variantAccountCount ?? 0} reconciliation exceptions
+                              </p>
+                              {(row.snapshot.postingControlChecks ?? []).filter((check) => check.state !== 'PASS').map((check) => (
+                                <p key={check.id}>
+                                  <strong>{check.state.toLowerCase()}: {check.what}</strong>
+                                  <span className="faint"> — {check.found}{check.next ? `; next: ${check.next}` : ''}</span>
+                                </p>
+                              ))}
+                              {(row.snapshot.controlReconciliation ?? []).filter((item) => !item.reconciled).map((item, index) => (
+                                <p key={`${item.accountNumber}-${item.source}-${index}`}>
+                                  <strong>{item.accountNumber} · {item.accountName}</strong>
+                                  <span className="faint"> — {item.source}; {item.evidenceMissing ? 'evidence missing' : `variance ${formatNaira(item.varianceKobo)}`}</span>
+                                </p>
+                              ))}
+                              {(row.snapshot.exceptionFollowups ?? []).length > 0 ? (
+                                <div>
+                                  <strong>Follow-up at sign-off</strong>
+                                  {(row.snapshot.exceptionFollowups ?? []).map((item) => (
+                                    <p key={item.key} className="faint">
+                                      {item.accountNumber} · {item.status.toLowerCase().replace('_', ' ')}
+                                      {item.assignedToName ? `; owner ${item.assignedToName}` : '; no owner'}
+                                      {item.dueDate ? `; due ${item.dueDate}` : '; no due date'}
+                                      {item.lastNote ? `; note: ${item.lastNote}` : ''}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          </details>
+                        ) : null}
                       </td>
                     </tr>
                   ))}
