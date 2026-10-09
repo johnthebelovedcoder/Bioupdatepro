@@ -178,7 +178,7 @@ beforeEach(async () => {
 
   // 20 kg of meat to the farm shop, and 12 kg of it delivered to a customer.
   const sent = await transfers.issueTransfer({ companyId: fixture.companyId, branchId: fixture.branchId, itemId: item.MEAT!, fromWarehouseId: store.COLD!, toWarehouseId: store.SHOP!, quantity: 20, actor: maker });
-  await transfers.receiveTransfer({ transferId: sent.id, actor: maker });
+  await transfers.receiveTransfer({ transferId: sent.id, actor: { userId: fixture.financeUserId, roles: ['FINANCE_MANAGER'] } });
   const customer = await parties.createCustomer({ companyId: fixture.companyId, code: 'CUS-SUN', name: 'Sunrise Foods', currencyId: fixture.currencyId, actorId: fixture.makerId });
   const order = await prisma.salesOrder.create({
     data: {

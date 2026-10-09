@@ -129,13 +129,27 @@ describe('Inventory control (UAT-006)', () => {
   });
 
 
+  it('refuses a transfer received by whoever issued it, and records who did receive it', async () => {
+    const sent = await transfers.issueTransfer({
+      companyId: fixture.companyId, branchId: fixture.branchId, itemId, fromWarehouseId: store.MAIN!, toWarehouseId: store.MILL!, quantity: 50, actor,
+    });
+    await expect(transfers.receiveTransfer({ transferId: sent.id, actor })).rejects.toThrow(/someone else confirms it arrived/);
+    expect((await prisma.inventoryTransfer.findUniqueOrThrow({ where: { id: sent.id } })).status).toBe('IN_TRANSIT');
+
+    await transfers.receiveTransfer({ transferId: sent.id, actor: approver });
+    const row = await prisma.inventoryTransfer.findUniqueOrThrow({ where: { id: sent.id } });
+    expect(row.status).toBe('RECEIVED');
+    expect(row.receivedById).toBe(approver.userId);
+    expect(row.receivedById).not.toBe(row.createdById);
+  });
+
   it('issues to another store, receives it there, count-adjusts — and the stock ledger agrees with the GL throughout', async () => {
     const sent = await transfers.issueTransfer({
       companyId: fixture.companyId, branchId: fixture.branchId, itemId, fromWarehouseId: store.MAIN!, toWarehouseId: store.MILL!, quantity: 400, actor,
     });
     expect(sent.transferNumber).toMatch(/^WTR-/);
     expect(await onHand(store.MAIN!)).toBe(600);
-    await transfers.receiveTransfer({ transferId: sent.id, actor });
+    await transfers.receiveTransfer({ transferId: sent.id, actor: approver });
     expect(await onHand(store.MILL!)).toBe(400);
 
     const requested = await transfers.writeOff({
