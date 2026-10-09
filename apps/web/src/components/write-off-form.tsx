@@ -23,8 +23,8 @@ export function WriteOffForm({ items, warehouses }: { items: StockItem[]; wareho
       <Sheet open={open} onClose={() => setOpen(false)} title="Write off stock">
         <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
           <p className="faint">
-            Posts immediately — a write-off is not sent for approval, so a reason is required
-            in its place.
+            Nothing leaves the store until someone other than you approves it, so give the
+            reason that person will need.
           </p>
 
           {state.error ? <div className="notice notice-error">{state.error}</div> : null}

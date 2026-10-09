@@ -813,6 +813,19 @@ describe('HR & Payroll (§7, §7.1, §7.2)', () => {
       });
     }
 
+    it('gives no pension relief in PAYE where the company is below the pension headcount and nothing is deducted', async () => {
+      // One enrolled employee in a company whose pension threshold is three people.
+      await makeEmployee({ number: 'EMP001', firstName: 'Amaka', surname: 'Obi', basic: 150_000_00n, housing: 0n, transport: 0n, other: 0n, nhfEnrolled: false });
+      const run = await newRun();
+      await payroll.calculate({ payrollRunId: run.id, actorId: fixture.makerId });
+      const line = await prisma.payrollRunLine.findFirstOrThrow({ where: { payrollRunId: run.id } });
+      expect(line.employeePensionKobo).toBe(0n);
+      expect(line.employerPensionKobo).toBe(0n);
+      expect(line.annualPensionReliefKobo).toBe(0n);
+      // ₦1,800,000 a year, ₦800,000 untaxed, 15% of the rest: ₦12,500 a month, not ₦10,700.
+      expect(line.monthlyPayeKobo).toBe(1_250_000n);
+    });
+
     it('calculates EMP001 using statutory workbook rules and naira PAYE rounding', async () => {
       await makeEmployee({
         number: 'EMP001',

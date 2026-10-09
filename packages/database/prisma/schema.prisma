@@ -3345,6 +3345,8 @@ model InventoryTransfer {
 
   issuedAt   DateTime? @map("issued_at")
   receivedAt DateTime? @map("received_at")
+  /// Who confirmed it arrived. Not the person who issued it, unless the company allows self-approval.
+  receivedById String? @map("received_by_id") @db.Uuid
 
   /// Which lots the quantity left in, earliest expiry first, so they arrive as the same lots.
   lotAllocation Json? @map("lot_allocation")
