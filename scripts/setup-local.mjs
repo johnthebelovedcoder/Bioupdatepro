@@ -41,6 +41,17 @@ if (!/^JWT_SECRET="?[^"\s]+"?\s*$/m.test(envText)) {
   console.log('.env already has a JWT_SECRET; left as it is.');
 }
 
+// Authenticator MFA is required for finance, approval, farm-manager, supervisor and
+// administrator roles, and enrolment refuses to start without this 32-byte hex key.
+if (!/^MFA_ENCRYPTION_KEY="?[0-9a-fA-F]{64}"?\s*$/m.test(envText)) {
+  const key = randomBytes(32).toString('hex');
+  envText = /^MFA_ENCRYPTION_KEY=.*$/m.test(envText)
+    ? envText.replace(/^MFA_ENCRYPTION_KEY=.*$/m, `MFA_ENCRYPTION_KEY="${key}"`)
+    : `${envText.trimEnd()}\nMFA_ENCRYPTION_KEY="${key}"\n`;
+  writeFileSync('.env', envText);
+  console.log('Generated an MFA_ENCRYPTION_KEY (needed to enrol an authenticator). Keep it: losing it locks enrolled users out.');
+}
+
 /** The values in .env, for the child processes that do not read it themselves. */
 function readEnv() {
   const values = {};

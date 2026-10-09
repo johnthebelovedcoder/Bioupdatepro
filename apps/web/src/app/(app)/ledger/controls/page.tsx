@@ -42,6 +42,20 @@ export default async function ControlsPage() {
   const rows = reconciliation.ok ? reconciliation.data.rows : [];
   const variances = reconciliation.ok ? rows.filter((row) => !row.reconciled).length : 0;
 
+  const chart = provisioning.ok ? provisioning.data.targetChart : null;
+  // Each kind of finding is one line in the diagnostics; the heading says how many there are.
+  const diagnosticCount = chart
+    ? [
+        chart.missingAccountNumbers.length > 0,
+        chart.metadataMismatches.length > 0,
+        chart.activeAccountsOutsideTarget.length > 0,
+        chart.unresolvedPostingMaps.length > 0,
+        chart.unresolvedRoles.length > 0,
+        chart.configurationsOutsideTarget.length > 0,
+        chart.resolvedActivePostingMaps < chart.expectedActivePostingMaps,
+      ].filter(Boolean).length
+    : 0;
+
   return (
     <>
       <PageHeader
@@ -102,9 +116,10 @@ export default async function ControlsPage() {
                     ? 'The company is on the approved chart. What is listed below still needs a Finance decision or a setting.'
                     : 'The company is not yet on the selected five-digit workbook chart. Run the cutover from Approved chart readiness once Finance has approved the account crosswalk and the ledger is reconciled.'}
                 </div>
+                {diagnosticCount > 0 ? (
                 <details style={{ marginTop: 'var(--sp-3)' }}>
                   <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
-                    View detailed account and posting-map diagnostics
+                    {diagnosticCount} {diagnosticCount === 1 ? 'finding' : 'findings'} in accounts and posting maps — show details
                   </summary>
                   <div className="stack" style={{ marginTop: 'var(--sp-3)' }}>
                     {provisioning.data.targetChart.missingAccountNumbers.length > 0 ? (
@@ -153,6 +168,7 @@ export default async function ControlsPage() {
                     ) : null}
                   </div>
                 </details>
+                ) : null}
               </>
             )}
           </Card>
