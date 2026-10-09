@@ -968,6 +968,27 @@ function GroupEntry({
 }) {
   const t = module.terms;
 
+  /**
+   * "Same as yesterday" carries feed as well as production, so it has to stay
+   * reachable when a flock has no production record at all (broilers, cockerels
+   * and pullets): it then sits on the feed card instead of the one that is gone.
+   */
+  const sameAsYesterday = previous ? (
+    <button
+      type="button"
+      className="btn btn-sm"
+      onClick={() =>
+        onChange({
+          feedKg: previous.feedKg,
+          production: { ...previous.production },
+          carriedOver: true,
+        })
+      }
+    >
+      {say('round.sameAsYesterday')}
+    </button>
+  ) : null;
+
   return (
     <>
       <Card
@@ -977,10 +998,16 @@ function GroupEntry({
             ? `${group.breed} · ${group.population.toLocaleString('en-NG')} ${t.animal.many}`
             : `${group.code} · ${group.population.toLocaleString('en-NG')} ${t.animal.many} · ${group.breed}`
         }
+        {...(fields.length === 0 && sameAsYesterday ? { action: sameAsYesterday } : {})}
       >
         {showCode ? (
           <div className="field" style={{ marginBottom: 'var(--sp-4)', fontWeight: 600 }}>
             Feed
+          </div>
+        ) : null}
+        {fields.length === 0 && draft.carriedOver ? (
+          <div className="notice notice-warning" style={{ marginBottom: 'var(--sp-4)' }}>
+            <span>{say('round.carriedOver')}</span>
           </div>
         ) : null}
         <div className="stack" style={{ gap: 'var(--sp-4)' }}>
@@ -1017,25 +1044,7 @@ function GroupEntry({
       {fields.length > 0 ? (
         <Card
           title={module.terms.productionRecord}
-          {...(previous
-            ? {
-                action: (
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() =>
-                      onChange({
-                        feedKg: previous.feedKg,
-                        production: { ...previous.production },
-                        carriedOver: true,
-                      })
-                    }
-                  >
-                    {say('round.sameAsYesterday')}
-                  </button>
-                ),
-              }
-            : {})}
+          {...(sameAsYesterday ? { action: sameAsYesterday } : {})}
         >
           {/*
             Carried-over figures are marked, always. The shortcut saves a great
