@@ -55,9 +55,9 @@ export function CreateProductionOrderForm({
         </div>
 
         {mode === 'harvest' ? (
-          <HarvestForm harvests={harvests} recipes={selectable} language={language} onDone={() => setOpen(false)} />
+          <HarvestForm harvests={harvests} recipes={selectable.filter((r) => !r.outputIsFeed)} language={language} onDone={() => setOpen(false)} />
         ) : (
-          <FeedForm recipes={selectable} farms={farms} branches={branches} language={language} onDone={() => setOpen(false)} />
+          <FeedForm recipes={selectable.filter((r) => r.outputIsFeed)} farms={farms} branches={branches} language={language} onDone={() => setOpen(false)} />
         )}
       </Sheet>
     </>

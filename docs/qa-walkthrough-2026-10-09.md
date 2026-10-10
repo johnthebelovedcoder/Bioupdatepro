@@ -18,7 +18,7 @@ The areas the first pass (`docs/qa-walkthrough-2026-10-04.md`) did not reach, on
 
 ## Findings
 
-W1, W2 and W3 were fixed the same day in PR 10 (PAYE relief now follows the pension actually deducted; a transfer is confirmed by someone other than its issuer, with the receiver recorded; the write-off form says it needs approval). The text below describes each as found. W4 (transfer and write-off only) and W6 were fixed in PR 11; W5 and W7 are open.
+W1, W2 and W3 were fixed the same day in PR 10 (PAYE relief now follows the pension actually deducted; a transfer is confirmed by someone other than its issuer, with the receiver recorded; the write-off form says it needs approval). The text below describes each as found. W4, W5 and W6 were fixed in PR 11; W7 is a policy question and is open.
 
 **W3. Medium (tax). PAYE grants pension relief that was never deducted. Fixed in PR 10.** An employee enrolled in pension, in a company below the pension headcount threshold (one employee against a minimum), has ₦0 pension deducted but PAYE is still calculated with 8% pension relief. On ₦150,000 a month: PAYE ₦10,700, annual relief ₦144,000, pension ₦0. Without the relief PAYE is ₦12,500, so tax is understated by ₦1,800 a month for that employee. Cause: the PAYE engine grants the relief on the employee's enrolment flag alone (`paye-engine.service.ts`), while the pension deduction also applies the headcount test (`statutory-engine.service.ts`). Relief should follow the contribution actually made.
 
@@ -26,9 +26,9 @@ W1, W2 and W3 were fixed the same day in PR 10 (PAYE relief now follows the pens
 
 **W2. Medium (control). A stock transfer can be received by the person who issued it, and the receiver is not recorded. Fixed in PR 10.** The form says "the person who moved it is not the person who confirms it arrived"; the server does not check, and the transfer has no received-by field. The farm manager received their own transfer. Either enforce it (and record the receiver) or change the sentence.
 
-**W4. Low. Fixed in PR 11 for transfers and write-offs; the employee sheet is unchanged. After raising a transfer, write-off or employee, the sheet stays open over the page** with the form and a confirmation inside; the person must close it to see the list. Other forms in the app return to the page with a notice.
+**W4. Low. Fixed in PR 11 for transfers, write-offs and every master-data form, including the employee record. After raising a transfer, write-off or employee, the sheet stays open over the page** with the form and a confirmation inside; the person must close it to see the list. Other forms in the app return to the page with a notice.
 
-**W5. Low (observation, server not checked). The feed-mill run form offers processing product recipes** (frozen snail meat and so on) as the thing to mill; the demo has no feed formulas and the form does not tell the two kinds apart.
+**W5. Low. Fixed in PR 11 (feed formulas and processing products are now told apart by the output item's feed flag; an unflagged feed product will not appear in the feed-mill form). The feed-mill run form offers processing product recipes** (frozen snail meat and so on) as the thing to mill; the demo has no feed formulas and the form does not tell the two kinds apart.
 
 **W6. Low (text). Fixed in PR 11. The authenticator setup page says an authenticator is "required for finance, approval, and administrator access"**, shown to a production supervisor. The rule covers farm managers and supervisors too.
 

@@ -406,7 +406,7 @@ export class RecipeService {
     const recipes = await this.prisma.productRecipe.findMany({
       where: { companyId, active: true },
       orderBy: { code: 'asc' },
-      include: { outputItem: { select: { code: true, description: true } } },
+      include: { outputItem: { select: { code: true, description: true, isBiologicalFeed: true } } },
     });
 
     const day = new Date(Date.UTC(on.getUTCFullYear(), on.getUTCMonth(), on.getUTCDate()));
@@ -430,6 +430,7 @@ export class RecipeService {
           outputItemId: recipe.outputItemId,
           outputItemCode: recipe.outputItem.code,
           outputItemDescription: recipe.outputItem.description,
+          outputIsFeed: recipe.outputItem.isBiologicalFeed,
           activeVersionId: version?.id ?? null,
           activeVersionNumber: version?.version ?? null,
           batchSize: version?.batchSize.toString() ?? null,

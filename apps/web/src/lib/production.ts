@@ -170,6 +170,8 @@ export interface Recipe {
   outputItemId: string;
   outputItemCode: string;
   outputItemDescription: string;
+  /** The output item is flagged as feed, so this is a feed formula rather than a processing product. */
+  outputIsFeed: boolean;
   activeVersionId: string | null;
   activeVersionNumber: number | null;
   batchSize: string | null;
