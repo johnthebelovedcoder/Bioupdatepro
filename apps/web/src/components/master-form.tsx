@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import type { MasterState } from '@/app/(app)/admin/actions';
 import { Sheet } from './sheet';
@@ -56,8 +56,18 @@ export function MasterForm({
 
   const [open, setOpen] = useState(false);
 
+  // A saved record returns the person to the list with the confirmation beside the button.
+  useEffect(() => {
+    if (state.created) setOpen(false);
+  }, [state]);
+
   return (
     <>
+      {state.created && !open ? (
+        <div className="notice notice-success">
+          <strong>{state.created}</strong> saved.
+        </div>
+      ) : null}
       <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
         {title}
       </button>
