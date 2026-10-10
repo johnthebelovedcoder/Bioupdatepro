@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { Sheet } from './sheet';
 import { issueTransfer, type FlowState } from '@/app/(app)/inventory/transfers/actions';
@@ -14,8 +14,15 @@ export function IssueTransferForm({ items, warehouses }: { items: StockItem[]; w
   });
   const [open, setOpen] = useState(false);
 
+  // On success, return to the page with the confirmation beside the button, rather than
+  // leaving the sheet open over the list the person came to see.
+  useEffect(() => {
+    if (state.message) setOpen(false);
+  }, [state.message]);
+
   return (
     <>
+      {state.message && !open ? <div className="notice notice-success">{state.message}</div> : null}
       <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
         Transfer stock
       </button>

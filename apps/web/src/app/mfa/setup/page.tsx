@@ -21,7 +21,7 @@ export default async function MfaSetupPage() {
           <div className="card-body stack">
             <h1>Secure your account</h1>
             <p>
-              An authenticator app is required for finance, approval, and administrator access.
+              Your role needs an authenticator app: it is required for finance, approval, farm management, supervisor and administrator roles.
               Add BioAssetPro to your authenticator, then enter its current six-digit code.
             </p>
             <ol className="stack">
