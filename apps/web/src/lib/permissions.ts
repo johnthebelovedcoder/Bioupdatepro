@@ -147,7 +147,10 @@ const BY_ROLE: Record<string, Section[]> = {
     'settings',
   ],
 
-  // Buying, selling and what is owed. Not the ledger itself.
+  // Buying, selling and what is owed. Not the ledger itself. Plus the people
+  // screens: pay is prepared by one person and approved by another, and the API
+  // already lets this role decide a pay change, so without 'staff' the second
+  // approver could not reach the screen (second walk-through, W7).
   FINANCE_MANAGER: [
     'dashboard',
     'livestock',
@@ -157,6 +160,7 @@ const BY_ROLE: Record<string, Section[]> = {
     'money',
     'ledger',
     'approvals',
+    'staff',
   ],
 
   // Runs the farm: the animals, the recording, the store, and the people.
