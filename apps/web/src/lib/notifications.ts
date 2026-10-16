@@ -1,5 +1,5 @@
 import 'server-only';
-import { api } from './api';
+import { api, optional } from './api';
 
 /** One in-app notification — the row itself is the delivery, per NotificationService's own doc comment. */
 export interface InboxNotification {
@@ -15,9 +15,5 @@ export interface InboxNotification {
 
 /** The signed-in user's own notifications. The API scopes it to them. */
 export async function getInbox(): Promise<InboxNotification[]> {
-  try {
-    return await api<InboxNotification[]>('/workflow/inbox');
-  } catch {
-    return [];
-  }
+  return optional('the notification inbox', () => api<InboxNotification[]>('/workflow/inbox'), []);
 }

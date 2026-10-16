@@ -43,11 +43,7 @@ export interface WorkflowDashboard {
 }
 
 export async function getMyDocuments(): Promise<MyDocument[]> {
-  try {
-    return await api<MyDocument[]>('/workflow/mine');
-  } catch {
-    return [];
-  }
+  return api<MyDocument[]>('/workflow/mine');
 }
 
 export async function getHistory(transactionId: string): Promise<HistoryEntry[] | null> {

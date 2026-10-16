@@ -1,5 +1,5 @@
 import 'server-only';
-import { api } from './api';
+import { api, optional } from './api';
 import type { SessionUser } from './session';
 
 /**
@@ -25,11 +25,7 @@ export interface Delegation {
 
 /** Delegations you have granted, and ones lent to you. */
 export async function getDelegations(): Promise<Delegation[]> {
-  try {
-    return await api<Delegation[]>('/workflow/delegations');
-  } catch {
-    return [];
-  }
+  return optional('your delegations', () => api<Delegation[]>('/workflow/delegations'), []);
 }
 
 export interface Colleague {
@@ -44,13 +40,11 @@ export interface Colleague {
  * offering your own name here is a choice that can only ever be rejected.
  */
 export async function getColleagues(): Promise<Colleague[]> {
-  try {
+  return optional('the colleague list', async () => {
     const [names, me] = await Promise.all([
       api<Colleague[]>('/auth/users/names'),
       api<SessionUser>('/auth/me'),
     ]);
     return names.filter((person) => person.id !== me.userId);
-  } catch {
-    return [];
-  }
+  }, []);
 }

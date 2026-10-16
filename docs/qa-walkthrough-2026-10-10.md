@@ -100,8 +100,9 @@ service. This matters most at go-live and for finding stock the books do not
 show, which is exactly when a count is worth doing. The form now offers to name
 the items instead of counting everything held.
 
-**T3. Medium (permissions). A production supervisor cannot record an egg
-collection, and is told the wrong reason. Fixed in PR 15.** On PoultryPro → Incubation the
+**T3. Medium (permissions and honesty). A production supervisor cannot record an
+egg collection, and is told the wrong reason. Fixed in PR 15; the pattern behind
+it swept in PR 18.** On PoultryPro → Incubation the
 collection form says "No active poultry flock" while four flocks are active and
 laying. The cause is that the egg controller's `@Roles` omits
 `PRODUCTION_SUPERVISOR`
@@ -125,6 +126,22 @@ section as well as the API role — a QA officer had `dashboard` and `inventory`
 only, so neither the egg screen nor the incubation log was reachable, and the
 API grant alone would have changed nothing. The two lists now agree role for
 role with nothing exempt, which is what makes the drift test worth having.
+
+**The pattern behind the wrong message, swept.** `catch { return [] }` turns any
+failure into "there are none", so a refusal reads as an empty farm. Twenty-seven
+helpers did it. Two were lying to somebody already: a Farm Manager holds the
+`money` section, so they reach Money → Payroll runs and Money → Journals, while
+both APIs are finance-only — and both screens told them "No payroll run yet" and
+"No manual journal yet", inviting an action they cannot take. Neither was found
+by three walk-throughs, because finding them needs signing in as that role on
+that screen.
+
+Screens whose subject is the data no longer catch at all: the refusal reaches
+the error boundary the first walk-through's finding 14 built, which already says
+"That screen is not yours". The swallow was what defeated it. Where falling back
+to empty is genuinely right — a side panel, a picker's reference list, the
+notification inbox that sits on every page — it goes through a named `optional()`
+helper that logs and reads as the deliberate choice it is.
 
 **T4. Medium (deployment). Two migration runs at once break each other. Fixed in
 PR 15 — and the first diagnosis below was wrong.**

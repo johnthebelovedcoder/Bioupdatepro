@@ -1,5 +1,5 @@
 import 'server-only';
-import { api } from './api';
+import { api, optional } from './api';
 
 export interface ManualJournalRow {
   id: string;
@@ -34,19 +34,11 @@ export interface RecurringJournalRow {
 }
 
 export async function getManualJournals(): Promise<ManualJournalRow[]> {
-  try {
-    return await api<ManualJournalRow[]>('/journal/register');
-  } catch {
-    return [];
-  }
+  return api<ManualJournalRow[]>('/journal/register');
 }
 
 export async function getRecurringJournals(): Promise<RecurringJournalRow[]> {
-  try {
-    return await api<RecurringJournalRow[]>('/journal/recurring');
-  } catch {
-    return [];
-  }
+  return api<RecurringJournalRow[]>('/journal/recurring');
 }
 
 export interface GlAccountOption {
@@ -56,11 +48,7 @@ export interface GlAccountOption {
 }
 
 export async function getGlAccounts(): Promise<GlAccountOption[]> {
-  try {
-    return await api<GlAccountOption[]>('/masters/gl-accounts');
-  } catch {
-    return [];
-  }
+  return optional('the account list', () => api<GlAccountOption[]>('/masters/gl-accounts'), []);
 }
 
 export interface ReasonCodeOption {
@@ -70,9 +58,5 @@ export interface ReasonCodeOption {
 }
 
 export async function getReasonCodes(): Promise<ReasonCodeOption[]> {
-  try {
-    return await api<ReasonCodeOption[]>('/journal/reason-codes');
-  } catch {
-    return [];
-  }
+  return optional('the journal reason codes', () => api<ReasonCodeOption[]>('/journal/reason-codes'), []);
 }

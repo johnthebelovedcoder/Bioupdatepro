@@ -1,5 +1,5 @@
 import 'server-only';
-import { api } from './api';
+import { api, optional } from './api';
 
 export interface FixedAssetRow {
   id: string;
@@ -21,11 +21,7 @@ export interface FixedAssetRow {
 }
 
 export async function getFixedAssets(): Promise<FixedAssetRow[]> {
-  try {
-    return await api<FixedAssetRow[]>('/fixed-assets/assets');
-  } catch {
-    return [];
-  }
+  return api<FixedAssetRow[]>('/fixed-assets/assets');
 }
 
 export interface MachineHoursRow {
@@ -36,9 +32,5 @@ export interface MachineHoursRow {
 
 /** PCR-031 — hours each machine ran on each processing line in a period. */
 export async function getMachineHours(periodId: string): Promise<MachineHoursRow[]> {
-  try {
-    return await api<MachineHoursRow[]>(`/fixed-assets/machine-hours?periodId=${encodeURIComponent(periodId)}`);
-  } catch {
-    return [];
-  }
+  return optional('machine hours for this period', () => api<MachineHoursRow[]>(`/fixed-assets/machine-hours?periodId=${encodeURIComponent(periodId)}`), []);
 }

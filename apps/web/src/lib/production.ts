@@ -1,5 +1,5 @@
 import 'server-only';
-import { api, ApiError } from './api';
+import { api, ApiError, optional } from './api';
 
 /**
  * Production/processing orders — SnailPro, PoultryPro and Feed Mill
@@ -126,11 +126,7 @@ export async function getFeedQuality(id: string): Promise<FeedQuality> {
 }
 
 export async function getProductionOrders(): Promise<ProductionOrderRow[]> {
-  try {
-    return await api<ProductionOrderRow[]>('/production-orders');
-  } catch {
-    return [];
-  }
+  return api<ProductionOrderRow[]>('/production-orders');
 }
 
 export async function getProductionOrder(id: string): Promise<ProductionOrderDetail | null> {
@@ -156,11 +152,7 @@ export async function getAvailableHarvests(): Promise<AvailableHarvest[]> {
   // Restricted to the roles that can actually raise an order — a viewer
   // without that role should still see the order list, just with nothing to
   // pick from in the raise-an-order form.
-  try {
-    return await api<AvailableHarvest[]>('/production-orders/available-harvests');
-  } catch {
-    return [];
-  }
+  return optional('the harvests waiting to be processed', () => api<AvailableHarvest[]>('/production-orders/available-harvests'), []);
 }
 
 export interface Recipe {
@@ -243,11 +235,7 @@ export interface CostPool {
 }
 
 export async function getCostPools(): Promise<CostPool[]> {
-  try {
-    return await api<CostPool[]>('/costing/cost-pools');
-  } catch {
-    return [];
-  }
+  return optional('the cost pools', () => api<CostPool[]>('/costing/cost-pools'), []);
 }
 
 /** Labour/machine standards (US-897-014) for one recipe version. */
@@ -263,11 +251,7 @@ export interface RoutingOperationRow {
 }
 
 export async function getRoutingOperations(recipeVersionId: string): Promise<RoutingOperationRow[]> {
-  try {
-    return await api<RoutingOperationRow[]>(`/masters/recipes/${recipeVersionId}/routing`);
-  } catch {
-    return [];
-  }
+  return optional('the recipe routing', () => api<RoutingOperationRow[]>(`/masters/recipes/${recipeVersionId}/routing`), []);
 }
 
 /* --- Routing on an order, and idle capacity ----------------------------- */
@@ -311,11 +295,7 @@ export async function getProductionVariance(orderId: string): Promise<Production
 }
 
 export async function getProductionRouting(orderId: string): Promise<ProductionRoutingLine[]> {
-  try {
-    return await api<ProductionRoutingLine[]>(`/production/orders/${orderId}/routing`);
-  } catch {
-    return [];
-  }
+  return optional('the order routing', () => api<ProductionRoutingLine[]>(`/production/orders/${orderId}/routing`), []);
 }
 
 export type UnusedCapacity =

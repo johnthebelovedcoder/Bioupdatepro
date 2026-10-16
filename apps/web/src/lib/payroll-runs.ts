@@ -16,11 +16,7 @@ export interface PayrollRunRow {
 }
 
 export async function getPayrollRuns(): Promise<PayrollRunRow[]> {
-  try {
-    return await api<PayrollRunRow[]>('/payroll/runs');
-  } catch {
-    return [];
-  }
+  return api<PayrollRunRow[]>('/payroll/runs');
 }
 
 /* --- One run, in detail ------------------------------------------------- */
