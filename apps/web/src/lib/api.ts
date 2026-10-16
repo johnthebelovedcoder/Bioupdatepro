@@ -1,4 +1,6 @@
 import 'server-only';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getToken } from './session';
 
@@ -33,6 +35,18 @@ interface RequestOptions {
   redirectOnUnauthorised?: boolean;
 }
 
+/**
+ * Set while an `optional()` read is in flight.
+ *
+ * A page whose own subject the API refuses should send the person to the page
+ * that explains it. A side panel the API refuses should not: it is a corner of
+ * somebody's working screen, and navigating away from the screen they asked for
+ * because a reference list was not theirs to read would be worse than the empty
+ * list. This marks which of the two is running, per request, so the refusal
+ * handling below can tell them apart.
+ */
+const insideOptional = new AsyncLocalStorage<true>();
+
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const token = await getToken();
   const {
@@ -64,8 +78,33 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     redirect('/login?expired=1');
   }
 
+  const detail = response.ok ? null : await safeJson(response);
+
+  // A role refusal is a navigation problem, not a crash.
+  //
+  // The API's guard answers 403 with "This needs one of: ...", and letting that
+  // throw left Next.js rendering the screen's error boundary: the right words,
+  // but under HTTP 500. A permissions refusal then arrives in the logs — and in
+  // anything alerting on them — as a server fault, which is noise standing in
+  // front of the real faults. So a read that is refused for role redirects to
+  // the page that explains it, the same way a 401 redirects to the login.
+  //
+  // Only reads, and only this one message. A refused write keeps throwing so its
+  // reason appears next to the button that was pressed rather than on a page
+  // nobody asked for, and every other 403 — a closed period, approving your own
+  // document — still carries its own reason to the screen.
+  if (
+    response.status === 403 &&
+    method === 'GET' &&
+    redirectOnUnauthorised &&
+    !insideOptional.getStore() &&
+    /This needs one of/i.test(messageFrom(detail, 403))
+  ) {
+    const from = (await headers()).get('x-pathname');
+    redirect(from ? `/no-access?from=${encodeURIComponent(from)}` : '/no-access');
+  }
+
   if (!response.ok) {
-    const detail = await safeJson(response);
     throw new ApiError(messageFrom(detail, response.status), response.status, detail);
   }
 
@@ -125,9 +164,21 @@ export async function tryApi<T>(
  */
 export async function optional<T>(what: string, load: () => Promise<T>, fallback: T): Promise<T> {
   try {
-    return await load();
+    return await insideOptional.run(true, load);
   } catch (caught) {
+    // Next.js signals redirect() and notFound() by throwing. Catching those
+    // would turn a navigation into a silently empty list, so they pass through.
+    if (isNavigation(caught)) throw caught;
     console.error(`Could not load ${what}; showing it as empty instead`, caught);
     return fallback;
   }
+}
+
+/** Whether a thrown value is one of Next.js's navigation signals. */
+function isNavigation(caught: unknown): boolean {
+  const digest = (caught as { digest?: unknown } | null | undefined)?.digest;
+  return (
+    typeof digest === 'string' &&
+    (digest === 'NEXT_NOT_FOUND' || digest.startsWith('NEXT_REDIRECT'))
+  );
 }
