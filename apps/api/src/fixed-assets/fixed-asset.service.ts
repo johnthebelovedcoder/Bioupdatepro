@@ -617,12 +617,20 @@ export class FixedAssetService {
     const netBookValueKobo = asset.costKobo - asset.accumulatedDepreciationKobo;
 
     const lines = [
-      {
-        glAccountId: accounts.accumulatedDepreciation,
-        description: `Disposal — ${asset.assetNumber} (accumulated depreciation)`,
-        debit: kobo(asset.accumulatedDepreciationKobo),
-        dimensions,
-      },
+      // Only when there is accumulated depreciation to reverse: an asset
+      // disposed before any depreciation run has none, and a zero line has
+      // neither a debit nor a credit, which the balanced-journal guard
+      // rejects — leaving the disposal stuck with no way to post.
+      ...(asset.accumulatedDepreciationKobo > 0n
+        ? [
+            {
+              glAccountId: accounts.accumulatedDepreciation,
+              description: `Disposal — ${asset.assetNumber} (accumulated depreciation)`,
+              debit: kobo(asset.accumulatedDepreciationKobo),
+              dimensions,
+            },
+          ]
+        : []),
       ...(netBookValueKobo > 0n
         ? [
             {
