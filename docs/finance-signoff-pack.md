@@ -2,6 +2,12 @@
 
 For the Finance Manager, Controller or CFO. Engineering has built the three missing accounts and the price-difference policy to its own recommendations so nothing blocks the cutover; they are marked as proposals in the chart and Finance should confirm or change them. The crosswalk approval has to carry a real person's name and is not filled in. Nothing here has been approved on Finance's behalf.
 
+## A farm with no history does not need the crosswalk
+
+A farm registering now is provisioned straight onto the approved five-digit chart: the workbook's 137 accounts and its 57 cost centres, with sales, procurement, payroll and the livestock stage accounts pointed at approved numbers (`ProvisioningService`, `chart: 'APPROVED'`, which is the default). Its books never hold a four- or six-digit account, so there are no balances to carry across and item 1 below does not arise — the crosswalk and its approval are for a company that has already been posting on an older chart.
+
+Everything else on this list still applies to a new farm, because those items decide where a posting lands rather than where an old balance moves to. `docs/finance-confirmation-sheet.pdf` is the one-page version of them, written for a client to tick and sign.
+
 ## Where each item stands
 
 | # | Item | State | Needed from Finance |

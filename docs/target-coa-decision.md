@@ -17,7 +17,7 @@ The role-by-role findings are in [target-coa-role-crosswalk.md](target-coa-role-
 
 ## Implementation and release gates
 
-1. Make the five-digit workbook the only active target chart for new-company provisioning; retain legacy history and compatibility for existing companies until their approved cutover.
+1. Make the five-digit workbook the only active target chart for new-company provisioning; retain legacy history and compatibility for existing companies until their approved cutover. **Done, 16 October 2026:** `ProvisioningService.provisionCompany` defaults to `chart: 'APPROVED'` and gives a new farm the workbook's 137 accounts and 57 cost centres, with sales, procurement, payroll and livestock stage accounts on approved numbers. `chart: 'LEGACY'` remains for the cutover's own tests, which have to start from a company on the four-digit chart. The account maps, posting-control lines and keys are still loaded separately by Books → Controls: several hundred sequential upserts have no business inside the transaction that creates a user's account.
 2. Generate target accounts from the workbook's complete account metadata and make account-map/posting-key resolution use those five-digit records.
 3. Update chart-role resolution and posting services to use approved workbook accounts. Where role mapping depends on an item, asset, biological stage, or liability nature, use existing subledger dimensions or stop and surface a cutover exception; do not guess.
 4. Update the legacy cutover preview to list and block unresolved split balances. Preserve balanced, linked journals and repoint all account-bearing settings before retiring legacy codes.
