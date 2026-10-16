@@ -1,5 +1,5 @@
 import 'server-only';
-import { api } from './api';
+import { api, optional } from './api';
 import type { RoleSectionOverride } from './permissions';
 
 export type { RoleSectionOverride };
@@ -15,9 +15,5 @@ export type { RoleSectionOverride };
  * back to the hardcoded defaults, not break the sidebar for everyone.
  */
 export async function getRoleSectionOverrides(): Promise<RoleSectionOverride[]> {
-  try {
-    return await api<RoleSectionOverride[]>('/auth/role-sections');
-  } catch {
-    return [];
-  }
+  return optional('the role section overrides', () => api<RoleSectionOverride[]>('/auth/role-sections'), []);
 }

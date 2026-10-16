@@ -106,3 +106,28 @@ export async function tryApi<T>(
     throw error;
   }
 }
+
+/**
+ * For data a screen can do without.
+ *
+ * A read that fails is not the same thing as a read that came back empty, and
+ * the difference matters: `catch { return [] }` turned the API refusing a role
+ * into "No payroll run yet" and "No manual journal yet" — the screen telling
+ * somebody their records do not exist when it had simply not been allowed to
+ * ask. Screens whose subject is the data no longer catch at all: the refusal
+ * reaches the screen's error boundary, which says "That screen is not yours".
+ *
+ * This is for the rest — a side panel, a picker's reference list, something in
+ * the shell that appears on every page — where falling back to empty keeps a
+ * working screen working, and where blanking the whole page over it would be
+ * worse than showing one empty list. It logs, so the failure is visible to
+ * whoever is looking at the server, and names the thing so the log is readable.
+ */
+export async function optional<T>(what: string, load: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await load();
+  } catch (caught) {
+    console.error(`Could not load ${what}; showing it as empty instead`, caught);
+    return fallback;
+  }
+}

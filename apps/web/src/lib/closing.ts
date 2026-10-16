@@ -1,5 +1,5 @@
 import 'server-only';
-import { api } from './api';
+import { api, optional } from './api';
 
 /**
  * Period-End Closing (§8) — the checklist, the validations, and the
@@ -64,11 +64,7 @@ export async function validatePeriod(periodId: string): Promise<PeriodValidation
 }
 
 export async function getReopenRequests(periodId: string): Promise<ReopenRequest[]> {
-  try {
-    return await api<ReopenRequest[]>(`/period/${periodId}/reopen-requests`);
-  } catch {
-    return [];
-  }
+  return optional('the reopen requests for this period', () => api<ReopenRequest[]>(`/period/${periodId}/reopen-requests`), []);
 }
 
 /* --- Year end ----------------------------------------------------------- */
@@ -117,18 +113,12 @@ export async function getYearBalances(
   financialYearId: string,
   opening: boolean,
 ): Promise<YearBalance[]> {
-  try {
-    return await api<YearBalance[]>(`/year-end/${financialYearId}/balances?opening=${opening}`);
-  } catch {
-    return [];
-  }
+  return api<YearBalance[]>(`/year-end/${financialYearId}/balances?opening=${opening}`);
 }
 
 export async function getCloseLog(financialYearId?: string): Promise<CloseLogEntry[]> {
-  try {
+  return optional('the period-close log', async () => {
     const query = financialYearId ? `?financialYearId=${encodeURIComponent(financialYearId)}` : '';
     return await api<CloseLogEntry[]>(`/period-close-log${query}`);
-  } catch {
-    return [];
-  }
+  }, []);
 }

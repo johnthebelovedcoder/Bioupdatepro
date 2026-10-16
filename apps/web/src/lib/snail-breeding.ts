@@ -1,5 +1,5 @@
 import 'server-only';
-import { api } from './api';
+import { api, optional } from './api';
 
 export interface SnailBreedingCycle {
   id: string;
@@ -33,21 +33,13 @@ export interface BreederGroup {
 export interface SnailEggCostSource { id: string; accountNumber: string; name: string }
 
 export async function getSnailBreedingCycles(): Promise<SnailBreedingCycle[]> {
-  try {
-    return await api<SnailBreedingCycle[]>('/snail-breeding/cycles');
-  } catch {
-    return [];
-  }
+  return api<SnailBreedingCycle[]>('/snail-breeding/cycles');
 }
 
 export async function getBreederGroups(): Promise<BreederGroup[]> {
-  try {
-    return await api<BreederGroup[]>('/snail-breeding/breeders');
-  } catch {
-    return [];
-  }
+  return optional('the breeder groups', () => api<BreederGroup[]>('/snail-breeding/breeders'), []);
 }
 
 export async function getSnailEggCostSources(): Promise<SnailEggCostSource[]> {
-  try { return await api<SnailEggCostSource[]>('/snail-breeding/egg-cost-sources'); } catch { return []; }
+  return optional('the egg cost sources', () => api<SnailEggCostSource[]>('/snail-breeding/egg-cost-sources'), []);
 }

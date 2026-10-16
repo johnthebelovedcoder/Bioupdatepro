@@ -1,5 +1,5 @@
 import 'server-only';
-import { api, ApiError } from './api';
+import { api, ApiError, optional } from './api';
 
 /**
  * Tax (Consolidated Reference §4) — the filing calendar, the VAT and WHT
@@ -139,11 +139,7 @@ export function getTaxReconciliation(taxPeriodId: string): Promise<Loaded<TaxRec
 }
 
 export async function getTaxCodes(): Promise<TaxCode[]> {
-  try {
-    return await api<TaxCode[]>('/masters/tax-codes');
-  } catch {
-    return [];
-  }
+  return optional('the tax codes', () => api<TaxCode[]>('/masters/tax-codes'), []);
 }
 
 /** A stored rate — always a fraction, "0.07500000" — as a person reads it: "7.5%". */

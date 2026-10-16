@@ -47,19 +47,11 @@ export interface LayingGroup {
 }
 
 export async function getEggBatches(): Promise<EggBatch[]> {
-  try {
-    return await api<EggBatch[]>('/poultry/eggs/collections');
-  } catch {
-    return [];
-  }
+  return api<EggBatch[]>('/poultry/eggs/collections');
 }
 
 export async function getIncubationBatches(): Promise<IncubationBatch[]> {
-  try {
-    return await api<IncubationBatch[]>('/poultry/eggs/incubations');
-  } catch {
-    return [];
-  }
+  return api<IncubationBatch[]>('/poultry/eggs/incubations');
 }
 
 /**
