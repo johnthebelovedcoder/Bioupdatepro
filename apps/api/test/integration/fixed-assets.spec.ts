@@ -106,6 +106,28 @@ describe('Fixed assets (UAT-007)', () => {
     await expect(assets.dispose({ assetId: mixer, actor: maker, disposedOn: new Date('2026-02-11') })).rejects.toThrow(/already disposed/);
   });
 
+  it('disposes an asset that was never depreciated, writing the whole cost off (regression: zero accumulated depreciation)', async () => {
+    // Capitalised and disposed before any depreciation run, so accumulated
+    // depreciation is zero. The disposal journal must not emit a zero
+    // accumulated-depreciation line — that line has neither a debit nor a
+    // credit and the balanced-journal guard would reject the whole posting,
+    // leaving the disposal stuck with no way to post.
+    const generator = await capitalise('Standby generator', '2026-01-05', 3_600_000_00n, 60);
+    expect(await balance('1701')).toBe(3_600_000_00n);
+
+    const disposal = await assets.dispose({ assetId: generator, actor: maker, disposedOn: new Date('2026-01-20') });
+    await workflow.approve({ transactionId: disposal.awaitingApproval, actor: approver });
+
+    // Cost reversed off PPE, the whole net book value written off, nothing on
+    // accumulated depreciation, and the register marked disposed.
+    expect(await balance('1701')).toBe(0n);
+    expect(await balance('1702')).toBe(0n);
+    expect(await balance('5501')).toBe(3_600_000_00n);
+    const register = await prisma.fixedAsset.findUniqueOrThrow({ where: { id: generator } });
+    expect(register.status).toBe('POSTED');
+    expect(register.disposedOn).not.toBeNull();
+  });
+
   it('schedules depreciation per asset, expensed and absorbed, and ties it to the ledger (POL-010, AC-MFG-009)', async () => {
     for (const [number, name] of [['622100', 'Poultry Processing Conversion Expense'], ['623100', 'Feed Mill Overhead Expense']] as const) {
       await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType: 'EXPENSE', normalBalance: 'DEBIT' } });
