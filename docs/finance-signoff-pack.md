@@ -46,6 +46,19 @@ The alternative is to expense it as a purchase price variance. The workbook alre
 - Expensing price differences to 53000 instead: one change in `supplier-invoice.service.ts` (debit 53000, drop the stock revaluation).
 - Crosswalk approval: nothing to build. The approver's name and reference are typed on the Chart screen when the cutover is run.
 
+## Who should sign
+
+Recommended, so the approval stands up to audit:
+
+| Decision | Signs | Why |
+|---|---|---|
+| 1. Crosswalk approved | **Finance Controller**, countersigned by the **CFO** | It re-classifies every balance in the ledger. |
+| 2. Impairment loss account | **Finance Controller** | A chart and reporting decision. |
+| 3. Capitalised variance accounts | **Finance Controller** | A chart and costing decision. |
+| 4. Price-difference policy | **Finance Manager**, noted by the Controller | A purchasing and stock-cost decision. |
+
+The person who runs the cutover (CFO only) should not be the only approver. Type the Controller's name and the approval reference on Books → Chart, so the audit trail shows two people. The reference should point to something that can be produced later: a signed copy of this page, or a dated email from the approver.
+
 ## Sign-off record
 
 | Decision | Decided by | Date | Reference / account |
