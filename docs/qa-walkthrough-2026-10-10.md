@@ -76,19 +76,25 @@ nine failures, and the whole suite now passes.
 ## Findings
 
 **T1. High (correctness). A fixed asset that was never depreciated cannot be
-disposed of, and the approver is told nothing. Fixed in this PR.** Capitalising
-an asset and disposing of it before any depreciation run leaves accumulated
-depreciation at zero. The disposal journal emits its accumulated-depreciation
-line unconditionally, so that line carries a zero debit and no credit; the
-balanced-journal guard rejects the posting with "Line 1 has neither a debit nor
-a credit", and the disposal sits at its last approval level for ever. The
-approvals screen swallows the error — the approver clicks Approve, the row does
-not move, and no message appears. The net-book-value line immediately below
-already had the `> 0n` guard this line was missing
-(`apps/api/src/fixed-assets/fixed-asset.service.ts`). A regression test covers
-it; it reproduces the exact error without the fix. **The silent swallow is not
-fixed** — an approval that fails server-side should say so, and that is a
-separate change to the approvals screen.
+disposed of. Fixed in PR 14.** Capitalising an asset and disposing of it before
+any depreciation run leaves accumulated depreciation at zero. The disposal
+journal emits its accumulated-depreciation line unconditionally, so that line
+carries a zero debit and no credit; the balanced-journal guard rejects the
+posting with "Line 1 has neither a debit nor a credit", and the disposal sits at
+its last approval level for ever, however many times it is approved. The
+net-book-value line immediately below already had the `> 0n` guard this line was
+missing (`apps/api/src/fixed-assets/fixed-asset.service.ts`). A regression test
+covers it, and reproduces the exact error without the fix.
+
+**Correction.** This finding first added that the approvals screen swallowed the
+error and showed the approver nothing. That is wrong, and it repeats a claim the
+first walk-through made and withdrew for the same reason: the refusal is
+rendered beside the buttons (`approve-button.tsx`, its `problem` branch) in a
+`faint` div whose error colour is an inline style rather than a class — so the
+walk-through's selector, which looked for a class or a `role="alert"`, could not
+match it. The approver does see "Line 1 has neither a debit nor a credit".
+Nothing on the approvals screen is outstanding from this finding: the posting
+bug was the whole of it, and it is fixed.
 
 **T2. Medium. A store with no book stock cannot be counted at all. Fixed in PR
 15.** Starting a
@@ -186,5 +192,5 @@ has an overdue fowl-pox withdrawal), and the screen correctly refuses to raise
 an order without one. The order-from-harvest path is covered by the passing
 `processing-approved`, `snail-processing-approved` and `poultry-processing`
 integration suites instead. Also not covered: asset transfer and the per-machine
-hours split, stock-count recount above the threshold, bank reconciliation a
-second time, and the approvals screen's behaviour when a posting fails (T1).
+hours split, stock-count recount above the threshold, and bank reconciliation a
+second time.
