@@ -130,6 +130,26 @@ describe('Stock counts (INT-009)', () => {
     await expect(prisma.stockCount.update({ where: { id: count.id }, data: { decisionNote: 'edited' } })).rejects.toThrow(/is POSTED; it cannot change/);
   });
 
+  it('counts a store whose book is empty when the items are named, and refuses when they are not', async () => {
+    // Finding stock the books do not show is exactly when a count is worth
+    // taking, so an empty store has to be countable — but only by naming the
+    // items, because there is nothing in the book to build the sheet from.
+    const empty = (
+      await prisma.warehouse.create({
+        data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'RM-2', name: 'Overflow shed', type: 'RAW_MATERIAL' },
+      })
+    ).id;
+
+    await expect(counts.start({ companyId: fixture.companyId, warehouseId: empty, actor: counter })).rejects.toThrow(
+      /RM-2 holds nothing to count/,
+    );
+
+    const count = await counts.start({ companyId: fixture.companyId, warehouseId: empty, itemIds: [item.MAIZE!], actor: counter });
+    const lines = await prisma.stockCountLine.findMany({ where: { stockCountId: count.id } });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.bookQuantity.toNumber()).toBe(0);
+  });
+
   it('brings a surplus in at the frozen cost: Dr inventory, Cr 640100', async () => {
     const count = await counts.start({ companyId: fixture.companyId, warehouseId: store, itemIds: [item.MAIZE!], recountThresholdPercent: 10, actor: counter });
     await counts.record({ companyId: fixture.companyId, countId: count.id, counts: [{ itemId: item.MAIZE!, quantity: 104, reason: 'Delivery of 4 kg received without a GRN' }], actor: counter });

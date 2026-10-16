@@ -19,11 +19,18 @@ export async function startCount(_previous: CountState, formData: FormData): Pro
   const warehouseId = String(formData.get('warehouseId') ?? '');
   const threshold = String(formData.get('recountThresholdPercent') ?? '').trim();
   if (!warehouseId) return { error: 'Choose the store to count.', message: null };
+  // Named items, for a store whose book holds nothing to count — without them
+  // the service has no lines to freeze and refuses the count outright.
+  const itemIds = formData.getAll('itemIds').map((value) => String(value)).filter(Boolean);
   let id: string;
   try {
     const started = await api<{ id: string }>('/inventory/counts', {
       method: 'POST',
-      body: { warehouseId, ...(threshold ? { recountThresholdPercent: threshold } : {}) },
+      body: {
+        warehouseId,
+        ...(threshold ? { recountThresholdPercent: threshold } : {}),
+        ...(itemIds.length ? { itemIds } : {}),
+      },
     });
     id = started.id;
   } catch (caught) {

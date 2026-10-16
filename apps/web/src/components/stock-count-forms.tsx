@@ -26,8 +26,18 @@ function Submit({ label, pending }: { label: string; pending: string }) {
   );
 }
 
-export function StartCountForm({ stores }: { stores: Array<{ id: string; label: string }> }) {
+export function StartCountForm({
+  stores,
+  items,
+}: {
+  stores: Array<{ id: string; label: string }>;
+  items: Array<{ id: string; label: string }>;
+}) {
   const [state, action] = useActionState(startCount, EMPTY);
+  // Naming items is how an empty store gets counted at all: the count is built
+  // from what the book already holds, so a store with no movements has nothing
+  // to freeze unless the items are named.
+  const [naming, setNaming] = useState(false);
   return (
     <form action={action} className="stack" style={{ gap: 'var(--sp-3)' }}>
       <Notices state={state} />
@@ -51,8 +61,40 @@ export function StartCountForm({ stores }: { stores: Array<{ id: string; label: 
           <span className="faint">A difference bigger than this is counted twice</span>
         </label>
       </div>
+      {naming ? (
+        <label className="field">
+          Items to count
+          <select name="itemIds" multiple size={8} required>
+            {items.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          <span className="faint">
+            Hold Ctrl (or Cmd) to pick more than one. Only these items are counted, whatever else the store
+            holds.
+          </span>
+        </label>
+      ) : null}
       <p className="faint" style={{ margin: 0 }}>
-        Starting freezes the store: nothing moves in or out until the count is posted or cancelled.
+        Starting freezes the store: nothing moves in or out until the count is posted or cancelled.{' '}
+        {naming ? (
+          <>
+            <button type="button" className="link" onClick={() => setNaming(false)}>
+              Count everything the store holds
+            </button>{' '}
+            instead.
+          </>
+        ) : (
+          <>
+            By default everything the store holds is counted —{' '}
+            <button type="button" className="link" onClick={() => setNaming(true)}>
+              name the items instead
+            </button>
+            , which is the only way to count a store whose book is empty.
+          </>
+        )}
       </p>
       <div>
         <Submit label="Start count" pending="Freezing the store…" />
