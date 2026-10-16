@@ -117,11 +117,14 @@ guard. The helper returns `null` rather than `[]` when it cannot read the list,
 and the form says the list is unavailable instead of claiming there are no
 flocks. A unit test pins the two controllers together.
 
-**Still open:** `QA_OFFICER` also keeps the incubation log but cannot record a
-collection. Whether a QA officer should grade a collection into hatching, table
-and reject is a question for the farm, not engineering; it is recorded as an
-explicit exception in `poultry-recorders.spec.ts` so the difference is visible
-rather than accidental.
+The unit test immediately surfaced one more gap, since settled: `QA_OFFICER`
+kept the incubation log but could not record a collection. Grading into
+hatching, table and reject is a quality call, so the farm settled it the same
+way as the log and the role now records collections too. That needed the web
+section as well as the API role — a QA officer had `dashboard` and `inventory`
+only, so neither the egg screen nor the incubation log was reachable, and the
+API grant alone would have changed nothing. The two lists now agree role for
+role with nothing exempt, which is what makes the drift test worth having.
 
 **T4. Medium (deployment). Two migration runs at once break each other. Fixed in
 PR 15 — and the first diagnosis below was wrong.**

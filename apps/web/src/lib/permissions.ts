@@ -79,10 +79,21 @@ const BY_ROLE: Record<string, Section[]> = {
   // ROL-006. "Receive, issue, transfer and count inventory; site scoped."
   STOREKEEPER: ['dashboard', 'inventory'],
 
-  // ROL-007. "Inspect, hold, release or reject lots; independent from
-  // production." No dedicated QA section exists yet — inventory is the
-  // closest home for lot-level decisions until one does.
-  QA_OFFICER: ['dashboard', 'inventory'],
+  /*
+   * ROL-007. "Inspect, hold, release or reject lots; independent from
+   * production." No dedicated QA section exists yet — inventory is the
+   * closest home for lot-level decisions until one does.
+   *
+   * Plus `livestock`, because the quality work does not stop at the store: the
+   * incubation log and the egg collection grading (hatching / table / reject)
+   * both live under it, and the API has always let this role keep the log.
+   * Without the section a QA officer could not reach either screen, so granting
+   * it on the API alone would have changed nothing. The section only opens
+   * navigation — the finance-shaped pages it contains, biological-asset
+   * valuations among them, keep their own narrower @Roles on the API and still
+   * refuse this role.
+   */
+  QA_OFFICER: ['dashboard', 'inventory', 'livestock'],
 
   // ROL-008. Processing/production orders are not built (see the core-gap
   // audit), so this mirrors the supervisor roles until there is a production
