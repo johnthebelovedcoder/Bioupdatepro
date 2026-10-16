@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   AccountType,
   AuditAction,
@@ -18,6 +18,17 @@ import {
   approvedRoleReadiness,
   chartVersionOf,
 } from '../chart/chart';
+import {
+  approvedAccountType,
+  type ApprovedRow,
+  type ApprovedWorkbook,
+  databaseSrcDir,
+  dateValue,
+  intValue,
+  loadApprovedWorkbook,
+  text,
+  yes,
+} from '../chart/approved-workbook';
 
 /**
  * Loading the client's posting rules, keys, approved workbook chart, and
@@ -58,18 +69,6 @@ interface RuleRow {
   sourceDocument: string; scenario: string; debitKey: string; creditKey: string;
   basis: string; dimensions: string; maker: string; approver: string; blocking: string;
   reversal: string; reportImpact: string; status: string;
-}
-type ApprovedRow = Record<string, string | number | null>;
-interface ApprovedWorkbook {
-  source: string;
-  sheets: {
-    accounts: ApprovedRow[];
-    postingControls: ApprovedRow[];
-    postingKeys: ApprovedRow[];
-    postingGroups: ApprovedRow[];
-    accountMaps: ApprovedRow[];
-    costCentres: ApprovedRow[];
-  };
 }
 
 /** Copied from seed-posting-control.ts — see its own comments for each entry's reason. */
@@ -573,43 +572,16 @@ let cache: Loaded | null = null;
 /** Find packages/database/src from wherever the API is running (src in dev, dist in production). */
 function load(): Loaded {
   if (cache) return cache;
-  let dir = __dirname;
-  for (let i = 0; i < 8; i += 1) {
-    const candidate = join(dir, 'packages', 'database', 'src');
-    if (existsSync(join(candidate, 'posting-control.json'))) {
-      const control = JSON.parse(readFileSync(join(candidate, 'posting-control.json'), 'utf8')) as {
-        rules: RuleRow[];
-        keys: KeyRow[];
-      };
-      const coa = JSON.parse(readFileSync(join(candidate, 'recommended-coa.json'), 'utf8')) as CoaRow[];
-      const approved = JSON.parse(readFileSync(join(candidate, 'approved-posting-engine.json'), 'utf8')) as ApprovedWorkbook;
-      cache = { coa, keys: control.keys, rules: control.rules, approved };
-      return cache;
-    }
-    dir = dirname(dir);
-  }
-  throw new Error('Could not find packages/database/src/posting-control.json from ' + __dirname);
+  const dir = databaseSrcDir();
+  const control = JSON.parse(readFileSync(join(dir, 'posting-control.json'), 'utf8')) as {
+    rules: RuleRow[];
+    keys: KeyRow[];
+  };
+  const coa = JSON.parse(readFileSync(join(dir, 'recommended-coa.json'), 'utf8')) as CoaRow[];
+  cache = { coa, keys: control.keys, rules: control.rules, approved: loadApprovedWorkbook() };
+  return cache;
 }
 
-function text(value: unknown): string { return value === null || value === undefined ? '' : String(value).trim(); }
-function yes(value: unknown): boolean { return text(value).toLowerCase() === 'yes'; }
-function intValue(value: unknown): number { const number = Number(value); return Number.isInteger(number) ? number : 0; }
-function dateValue(value: unknown): Date | null {
-  const date = value instanceof Date ? value : value ? new Date(String(value)) : null;
-  return date && Number.isFinite(date.getTime()) ? new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())) : null;
-}
-function approvedAccountType(type: string, code: string): AccountType {
-  const kind = type.toLowerCase();
-  if (kind === 'asset' || kind === 'contra asset') return AccountType.ASSET;
-  if (kind === 'liability') return AccountType.LIABILITY;
-  if (kind === 'equity') return AccountType.EQUITY;
-  if (kind === 'income') return AccountType.REVENUE;
-  if (kind === 'expense' || kind === 'contra expense') return AccountType.EXPENSE;
-  // Mixed settlement/clearing and suspense accounts are non-posting by policy;
-  // their statement class follows the approved balance-sheet caption.
-  if (kind === 'asset/liability') return code.startsWith('1') ? AccountType.ASSET : AccountType.LIABILITY;
-  throw new Error(`Unsupported approved COA account type "${type}" for ${code}.`);
-}
 function controlLineData(companyId: string, row: ApprovedRow) {
   return {
     companyId, application: text(row.Application), applicationRuleId: text(row['Application Rule ID']),

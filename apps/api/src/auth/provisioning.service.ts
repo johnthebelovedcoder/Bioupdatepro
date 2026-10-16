@@ -8,6 +8,15 @@ import {
   WarehouseType,
 } from '@bioassetpro/database';
 import { loadStandardBreeds } from '../masters/standard-breeds';
+import {
+  APPROVED_PROCUREMENT_DEFAULTS,
+  APPROVED_SALES_DEFAULTS,
+  biologicalStageAccountNumber,
+  numberFor,
+  POULTRY_STAGE_MATURITY,
+  SNAIL_STAGE_MATURITY,
+} from '../chart/chart';
+import { approvedAccountRows, approvedCostCentres } from '../chart/approved-workbook';
 
 /**
  * Everything a new farm needs before it can record anything.
@@ -22,11 +31,32 @@ import { loadStandardBreeds } from '../masters/standard-breeds';
  * So registration provisions the skeleton in the same transaction as the user.
  * Either a working farm exists or none does.
  *
- * The chart of accounts below is the same one the demo seed uses, and is drawn
- * from the source workbooks rather than invented — see packages/database
- * seed.ts, which carries the per-account citations. It is duplicated here
- * deliberately rather than imported: that file executes a seed on import, and
- * an API that ran the demo seed when someone signed up would be a catastrophe.
+ * A new farm is provisioned on the client's approved chart of accounts — the
+ * 137 five-digit accounts of their own posting-engine workbook, read from
+ * packages/database/src/approved-posting-engine.json, with the workbook's 57
+ * cost centres. That is the whole point of `ProvisionChart` below: a farm
+ * created on the old four-digit chart would have to be carried across by the
+ * balance cutover later, and until it was its books would hold two
+ * generations of account numbers at once — which is exactly the state the
+ * cutover exists to undo, and the one thing a brand-new farm need never be in.
+ *
+ * The four-digit chart below is kept for `chart: 'LEGACY'`: the cutover's own
+ * tests have to start from a company that is on it. It is the same chart the
+ * demo seed uses, drawn from the source workbooks rather than invented — see
+ * packages/database seed.ts, which carries the per-account citations. It is
+ * duplicated here deliberately rather than imported: that file executes a seed
+ * on import, and an API that ran the demo seed when someone signed up would be
+ * a catastrophe.
+ *
+ * What provisioning does NOT load is the rest of the posting engine: the 227
+ * account maps, 669 posting-control lines and the posting keys. Those are
+ * loaded by Books → Controls (`PostingControlProvisioningService.provision`),
+ * which is hundreds of sequential upserts and has no business inside the
+ * transaction that creates a user's account. Until it is run, the farm can
+ * record and post through the services that resolve their own accounts; the
+ * declarative posting rules (manual journals, transfers, processing) show as
+ * unloaded on the Controls page, which is where somebody looking for them
+ * would look.
  *
  * What this does NOT provision, stated plainly because onboarding has to say
  * so: tax codes and rates, sales and procurement configuration, and payroll
@@ -259,10 +289,27 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+/**
+ * Which chart of accounts a new farm starts on.
+ *
+ * `APPROVED` is the client's own posting-engine workbook — the 137 five-digit
+ * accounts, with their IFRS captions and cost-centre rules — and is what a new
+ * farm gets. `LEGACY` is the 44-account four-digit chart this file used to
+ * provision unconditionally; it remains reachable because the balance-cutover
+ * tests have to start from a company that is on it.
+ *
+ * `SPEC`, the six-digit chart, is not offered: it is superseded, its own
+ * cutover route already answers a conflict, and provisioning a farm onto it
+ * would create the two-generation chart the cutover exists to undo.
+ */
+export type ProvisionChart = 'LEGACY' | 'APPROVED';
+
 export interface ProvisionInput {
   farmName: string;
   /** 1–12. The financial year starts on the first of this month. */
   financialYearStartMonth?: number;
+  /** Defaults to the approved workbook chart. */
+  chart?: ProvisionChart;
 }
 
 @Injectable()
@@ -278,6 +325,7 @@ export class ProvisioningService {
     input: ProvisionInput,
   ): Promise<{ companyId: string; branchId: string; farmId: string }> {
     const currency = await this.nairaCurrency(tx);
+    const chart: ProvisionChart = input.chart ?? 'APPROVED';
 
     // A short, unique code from the name. Companies are addressed by code in
     // several places, and two farms called "Green Farms" must not collide.
@@ -288,6 +336,7 @@ export class ProvisioningService {
         code,
         name: input.farmName.trim(),
         baseCurrency: { connect: { id: currency.id } },
+        chartVersion: chart,
       },
     });
 
@@ -295,39 +344,24 @@ export class ProvisioningService {
       data: { companyId: company.id, code: 'HQ', name: 'Head Office' },
     });
 
-    // Cost centres, parents first so the child can point at one.
-    const centres = new Map<string, string>();
-    for (const centre of COST_CENTRES) {
-      const created = await tx.costCentre.create({
-        data: {
-          companyId: company.id,
-          code: centre.code,
-          name: centre.name,
-          // Cost centres are effective-dated. Today, because the farm starts
-          // existing today — backdating one would let costs be attributed to a
-          // period before the centre was agreed.
-          effectiveDate: new Date(),
-          ...(centre.parent && centres.has(centre.parent)
-            ? { parentId: centres.get(centre.parent) }
-            : {}),
-        },
-      });
-      centres.set(centre.code, created.id);
-    }
+    await this.seedCostCentres(tx, company.id, chart);
 
     // One round trip for the whole chart rather than one per account — this
     // list has grown from 24 rows to 33 with the biological-asset accounts
     // below, and every extra sequential round trip narrows the margin
     // against Prisma's interactive-transaction timeout under Neon's latency.
     await tx.gLAccount.createMany({
-      data: ACCOUNTS.map((account) => ({
-        companyId: company.id,
-        accountNumber: account.number,
-        name: account.name,
-        accountType: account.type,
-        normalBalance: account.normal,
-        requiresCostCentre: account.requiresCostCentre ?? false,
-      })),
+      data:
+        chart === 'APPROVED'
+          ? approvedAccountRows(company.id)
+          : ACCOUNTS.map((account) => ({
+              companyId: company.id,
+              accountNumber: account.number,
+              name: account.name,
+              accountType: account.type,
+              normalBalance: account.normal,
+              requiresCostCentre: account.requiresCostCentre ?? false,
+            })),
     });
 
     const farm = await tx.farm.create({
@@ -355,12 +389,76 @@ export class ProvisioningService {
     // post anything dated before January (found by the 40-step rehearsal).
     const effectiveFrom = yearStart < BASELINE ? yearStart : BASELINE;
     await this.seedWorkflow(tx, company.id, effectiveFrom);
-    await this.seedDomainAccountConfiguration(tx, company.id, effectiveFrom);
+    await this.seedDomainAccountConfiguration(tx, company.id, effectiveFrom, chart);
     // The workbook's approved species and breeds, with their stage ages.
     await loadStandardBreeds(tx, company.id);
 
     this.logger.log(`Provisioned ${company.name} (${code})`);
     return { companyId: company.id, branchId: branch.id, farmId: farm.id };
+  }
+
+  /**
+   * The cost centres costs are attributed to.
+   *
+   * On the approved chart this is not a convenience: 104 of its 137 accounts
+   * carry a "required" cost-centre rule, so a farm with no centre that allows
+   * posting could create documents and never approve one. The workbook's own
+   * 57 centres are used, with their business unit, function, stage, location
+   * and responsibility owner, rather than two invented ones.
+   */
+  private async seedCostCentres(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    chart: ProvisionChart,
+  ): Promise<void> {
+    // Cost centres are effective-dated. Today, because the farm starts
+    // existing today — backdating one would let costs be attributed to a
+    // period before the centre was agreed.
+    const effectiveDate = new Date();
+    const ids = new Map<string, string>();
+
+    if (chart === 'APPROVED') {
+      // Parents before children, which `approvedCostCentres` guarantees, so
+      // each row can name a parent that already exists.
+      for (const centre of approvedCostCentres()) {
+        const created = await tx.costCentre.create({
+          data: {
+            companyId,
+            code: centre.code,
+            name: centre.name,
+            effectiveDate,
+            approvedApplication: centre.approvedApplication,
+            businessUnit: centre.businessUnit,
+            functionName: centre.functionName,
+            activityStage: centre.activityStage,
+            location: centre.location,
+            responsibilityOwner: centre.responsibilityOwner,
+            postingAllowed: centre.postingAllowed,
+            active: centre.active,
+            ...(centre.parentCode && ids.has(centre.parentCode)
+              ? { parentId: ids.get(centre.parentCode) }
+              : {}),
+          },
+          select: { id: true },
+        });
+        ids.set(centre.code, created.id);
+      }
+      return;
+    }
+
+    for (const centre of COST_CENTRES) {
+      const created = await tx.costCentre.create({
+        data: {
+          companyId,
+          code: centre.code,
+          name: centre.name,
+          effectiveDate,
+          ...(centre.parent && ids.has(centre.parent) ? { parentId: ids.get(centre.parent) } : {}),
+        },
+        select: { id: true },
+      });
+      ids.set(centre.code, created.id);
+    }
   }
 
   /**
@@ -471,6 +569,7 @@ export class ProvisioningService {
     tx: Prisma.TransactionClient,
     companyId: string,
     effectiveFrom: Date,
+    chart: ProvisionChart,
   ): Promise<void> {
     const accounts = await tx.gLAccount.findMany({
       where: { companyId },
@@ -484,14 +583,30 @@ export class ProvisioningService {
     // Prisma's interactive-transaction timeout under Neon's latency (a
     // recurring pattern this codebase has hit repeatedly elsewhere).
     const rows: Array<{ companyId: string; speciesKey: string; stage: string; glAccountId: string }> = [];
-    for (const [speciesKey, stages] of [
-      ['snail', SNAIL_STAGE_ACCOUNTS],
-      ['poultry', POULTRY_STAGE_ACCOUNTS],
-    ] as const) {
+    /*
+     * On the approved chart a population's carrying account follows the
+     * maturity of its stage — 16031/16041 for snails, 16032/16042 for poultry
+     * — so the stage vocabulary comes from the two maturity tables in
+     * chart.ts rather than from the legacy per-stage accounts. Those tables
+     * are the approved chart's own vocabulary: a stage absent from them has no
+     * account and is refused at posting time, which is why none is invented
+     * here either.
+     */
+    const stageAccounts: ReadonlyArray<readonly [string, Record<string, string>]> =
+      chart === 'APPROVED'
+        ? [
+            ['snail', Object.fromEntries(Object.keys(SNAIL_STAGE_MATURITY).map((stage) => [stage, biologicalStageAccountNumber('snail', stage)]))],
+            ['poultry', Object.fromEntries(Object.keys(POULTRY_STAGE_MATURITY).map((stage) => [stage, biologicalStageAccountNumber('poultry', stage)]))],
+          ]
+        : [
+            ['snail', SNAIL_STAGE_ACCOUNTS],
+            ['poultry', POULTRY_STAGE_ACCOUNTS],
+          ];
+    for (const [speciesKey, stages] of stageAccounts) {
       for (const [stage, accountNumber] of Object.entries(stages)) {
         const glAccountId = byNumber.get(accountNumber);
         // Cannot be missing — every code these maps name was just added to
-        // ACCOUNTS above — but skip rather than throw if that ever drifts,
+        // the chart above — but skip rather than throw if that ever drifts,
         // matching the demo seed's own tolerance for an unmapped stage.
         if (!glAccountId) continue;
         rows.push({ companyId, speciesKey, stage, glAccountId });
@@ -524,23 +639,27 @@ export class ProvisioningService {
      * delivery or raise an invoice AT ALL, with no path to fix it short of
      * an admin screen most farms would not think to look for on day one.
      */
-    const grni = byNumber.get('210200');
-    const payables = byNumber.get('2201');
+    const approved = chart === 'APPROVED';
+    const grni = byNumber.get(approved ? APPROVED_PROCUREMENT_DEFAULTS.grni : '210200');
+    const payables = byNumber.get(approved ? APPROVED_PROCUREMENT_DEFAULTS.payables : '2201');
+    const whtPayable = approved ? byNumber.get(APPROVED_PROCUREMENT_DEFAULTS.whtPayable) : undefined;
     if (grni && payables) {
       await tx.procurementConfiguration.create({
         data: {
           companyId,
           grniGlAccountId: grni,
           payablesGlAccountId: payables,
+          ...(whtPayable ? { whtPayableGlAccountId: whtPayable } : {}),
           effectiveFrom,
         },
       });
     }
 
-    const receivable = byNumber.get('1201');
-    const revenue = byNumber.get('4101');
-    const costOfSales = byNumber.get('5001');
-    const finishedGoods = byNumber.get('1401');
+    const receivable = byNumber.get(approved ? APPROVED_SALES_DEFAULTS.receivable : '1201');
+    const revenue = byNumber.get(approved ? APPROVED_SALES_DEFAULTS.revenue : '4101');
+    const costOfSales = byNumber.get(approved ? APPROVED_SALES_DEFAULTS.costOfSales : '5001');
+    const finishedGoods = byNumber.get(approved ? APPROVED_SALES_DEFAULTS.inventory : '1401');
+    const whtReceivable = approved ? byNumber.get(APPROVED_SALES_DEFAULTS.whtReceivable) : undefined;
     if (receivable && revenue && costOfSales && finishedGoods) {
       await tx.salesConfiguration.create({
         data: {
@@ -549,6 +668,7 @@ export class ProvisioningService {
           revenueGlAccountId: revenue,
           costOfSalesGlAccountId: costOfSales,
           inventoryGlAccountId: finishedGoods,
+          ...(whtReceivable ? { whtReceivableGlAccountId: whtReceivable } : {}),
           effectiveFrom,
         },
       });
@@ -565,14 +685,24 @@ export class ProvisioningService {
      * only ever getting it from a seed script that never runs against a
      * real tenant.
      */
-    await this.seedSalaryComponents(tx, companyId, byNumber);
+    await this.seedSalaryComponents(tx, companyId, byNumber, chart);
   }
 
   private async seedSalaryComponents(
     tx: Prisma.TransactionClient,
     companyId: string,
     byNumber: Map<string, string>,
+    chart: ProvisionChart,
   ): Promise<void> {
+    /*
+     * The same purposes, numbered for whichever chart the farm is on. The
+     * approved chart folds several of these together — every payroll expense
+     * is 52000, pension and NHF share the payroll liability 20700, NSITF and
+     * ITF the accrued-expenses control 20200 — which is the workbook's own
+     * grouping, not a simplification made here.
+     */
+    const version = chart === 'APPROVED' ? 'APPROVED' : 'LEGACY';
+    const account = (role: Parameters<typeof numberFor>[1]) => byNumber.get(numberFor(version, role)) ?? null;
     const earnings = [
       { code: 'BASIC', name: 'Basic salary', taxable: true, pensionable: true, nhfBase: true },
       { code: 'HOUSING', name: 'Housing allowance', taxable: true, pensionable: true, nhfBase: false },
@@ -586,8 +716,8 @@ export class ProvisioningService {
       { code: 'COMMISSION', name: 'Commission', taxable: true, pensionable: false, nhfBase: false },
     ] as const;
 
-    const salaryExpense = byNumber.get('5101');
-    const salaryPayable = byNumber.get('2101');
+    const salaryExpense = account('salaryExpense');
+    const salaryPayable = account('salaryPayable');
 
     const rows: Prisma.SalaryComponentCreateManyInput[] = earnings.map((spec) => ({
       companyId,
@@ -598,40 +728,40 @@ export class ProvisioningService {
       isPensionable: spec.pensionable,
       isNhfBase: spec.nhfBase,
       isGrossPayComponent: true,
-      expenseGlAccountId: salaryExpense ?? null,
-      payableGlAccountId: salaryPayable ?? null,
+      expenseGlAccountId: salaryExpense,
+      payableGlAccountId: salaryPayable,
     }));
 
     const statutory: Array<{
       code: string;
       name: string;
       type: SalaryComponentType;
-      payable: string;
-      expense?: string;
+      payable: Parameters<typeof numberFor>[1];
+      expense?: Parameters<typeof numberFor>[1];
     }> = [
-      { code: 'PAYE', name: 'PAYE', type: SalaryComponentType.DEDUCTION, payable: '2110' },
-      { code: 'PENSION-EE', name: 'Employee pension', type: SalaryComponentType.DEDUCTION, payable: '2102' },
-      { code: 'NHF', name: 'NHF', type: SalaryComponentType.DEDUCTION, payable: '2103' },
+      { code: 'PAYE', name: 'PAYE', type: SalaryComponentType.DEDUCTION, payable: 'payePayable' },
+      { code: 'PENSION-EE', name: 'Employee pension', type: SalaryComponentType.DEDUCTION, payable: 'pensionPayable' },
+      { code: 'NHF', name: 'NHF', type: SalaryComponentType.DEDUCTION, payable: 'nhfPayable' },
       {
         code: 'PENSION-ER',
         name: 'Employer pension',
         type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
-        payable: '2102',
-        expense: '5102',
+        payable: 'pensionPayable',
+        expense: 'employerPensionExpense',
       },
       {
         code: 'NSITF',
         name: 'NSITF',
         type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
-        payable: '2104',
-        expense: '5103',
+        payable: 'nsitfPayable',
+        expense: 'nsitfExpense',
       },
       {
         code: 'ITF',
         name: 'ITF',
         type: SalaryComponentType.EMPLOYER_CONTRIBUTION,
-        payable: '2105',
-        expense: '5104',
+        payable: 'itfPayable',
+        expense: 'itfExpense',
       },
     ];
 
@@ -644,8 +774,8 @@ export class ProvisioningService {
         isTaxable: false,
         isPensionable: false,
         isGrossPayComponent: false,
-        payableGlAccountId: byNumber.get(spec.payable) ?? null,
-        expenseGlAccountId: spec.expense ? (byNumber.get(spec.expense) ?? null) : null,
+        payableGlAccountId: account(spec.payable),
+        expenseGlAccountId: spec.expense ? account(spec.expense) : null,
       });
     }
 

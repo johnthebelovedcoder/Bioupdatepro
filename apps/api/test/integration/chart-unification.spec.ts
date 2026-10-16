@@ -188,8 +188,8 @@ describe('ChartUnificationService', () => {
     expect(preview.blockers.join()).toMatch(/first day of a month/);
   });
 
-  it('keeps a new farm on its provisioned chart until the approved five-digit cutover exists', async () => {
-    const { companyId } = await prisma.$transaction((tx) => new ProvisioningService().provisionCompany(tx, { farmName: 'New Farm' }), { timeout: 60_000 });
+  it('keeps a farm provisioned on the four-digit chart on it, with every setting pointing there', async () => {
+    const { companyId } = await prisma.$transaction((tx) => new ProvisioningService().provisionCompany(tx, { farmName: 'New Farm', chart: 'LEGACY' }), { timeout: 60_000 });
     expect((await prisma.company.findUniqueOrThrow({ where: { id: companyId } })).chartVersion).toBe('LEGACY');
     const active = await prisma.gLAccount.findMany({ where: { companyId, active: true, isPostingAccount: true }, select: { accountNumber: true } });
     expect(active.some((a) => /^\d{4}$/.test(a.accountNumber))).toBe(true);
