@@ -17,14 +17,12 @@ import { join } from 'node:path';
 const src = join(__dirname, '..', '..', 'src', 'poultry-egg');
 
 /*
- * Roles that keep the incubation log but are NOT on the egg endpoints, listed
- * here so the difference is a decision somebody can see rather than an
- * oversight. This is not a claim that the difference is right: whether a QA
- * officer should grade a collection into hatching, table and reject is an open
- * question for the farm, raised by the third walk-through. Granting it is a
- * one-word change here and in the controller.
+ * The two lists now agree role for role. The QA officer was the last difference
+ * — grading a collection into hatching, table and reject is a quality call, so
+ * the farm settled it the same way as the log — and nothing is exempt, which is
+ * what makes the assertion below worth having.
  */
-const NOT_YET_ON_EGGS = new Set(['QA_OFFICER']);
+const NOT_YET_ON_EGGS = new Set<string>();
 
 /** The roles on the class-level `@Roles(...)` — the guard every endpoint inherits. */
 function classRoles(file: string): Set<string> {
@@ -47,9 +45,10 @@ describe('who may record in PoultryPro', () => {
     expect(missing, `roles that keep the incubation log but cannot record a collection: ${missing.join(', ')}`).toEqual([]);
   });
 
-  it('keeps both supervisor roles on the egg endpoints', () => {
+  it('keeps the floor roles on the egg endpoints', () => {
     const eggs = classRoles('poultry-egg.controller.ts');
-    expect(eggs.has('PRODUCTION_SUPERVISOR')).toBe(true);
-    expect(eggs.has('POULTRY_SUPERVISOR')).toBe(true);
+    for (const role of ['POULTRY_SUPERVISOR', 'PRODUCTION_SUPERVISOR', 'QA_OFFICER']) {
+      expect(eggs.has(role), `${role} should be able to record an egg collection`).toBe(true);
+    }
   });
 });

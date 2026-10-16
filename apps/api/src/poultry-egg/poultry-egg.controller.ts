@@ -21,17 +21,20 @@ function requireKey(key: string | undefined): string {
 
 /** PoultryPro egg production, incubation and hatching — Poultry_Egg_Production, PCR-067/068/069. */
 @Controller('poultry/eggs')
-// The people who actually collect eggs are on the floor, so the supervisor
-// roles belong here too — the incubation log beside this one (its RECORDERS)
-// has always listed them, and without them the collection form tells a
-// supervisor there is no active flock when there is. Setting the egg VALUE
-// stays finance-only; that endpoint keeps its own narrower @Roles below.
+// The people who actually collect eggs are on the floor, so this matches the
+// incubation log beside it (its RECORDERS) role for role — the two had drifted,
+// and the gaps showed up as the collection form telling a supervisor there is no
+// active flock when there is. Grading a collection into hatching, table and
+// reject is a quality call, which is why the QA officer is here as well as on
+// the log. Setting the egg VALUE stays finance-only; that endpoint keeps its own
+// narrower @Roles below.
 @Roles(
   'FARM_MANAGER',
   'FARM_ATTENDANT',
   'POULTRY_SUPERVISOR',
   'PRODUCTION_SUPERVISOR',
   'PRODUCTION_LEAD',
+  'QA_OFFICER',
   'FINANCE_MANAGER',
   'FINANCE_CONTROLLER',
   'CFO',
