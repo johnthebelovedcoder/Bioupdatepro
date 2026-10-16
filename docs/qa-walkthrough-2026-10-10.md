@@ -27,7 +27,7 @@ nine failures, and the whole suite now passes.
 | Area | Result |
 |---|---|
 | Buying: order, approval ladder, goods receipt, rejection | Works. Postings tie out. |
-| Stock counts | Works end to end. Findings T2, T6. |
+| Stock counts | Works end to end. Findings T2 (fixed in PR 15), T6. |
 | Fixed assets: capitalise, depreciate, impair | Works; arithmetic correct to the naira. |
 | Fixed asset disposal | **Broken. Finding T1.** |
 | Approval delegations | Works, and the audit trail records who acted for whom. |
@@ -90,32 +90,61 @@ it; it reproduces the exact error without the fix. **The silent swallow is not
 fixed** — an approval that fails server-side should say so, and that is a
 separate change to the approvals screen.
 
-**T2. Medium. A store with no book stock cannot be counted at all.** Starting a
+**T2. Medium. A store with no book stock cannot be counted at all. Fixed in PR
+15.** Starting a
 count on an empty store is refused with "RAW-WH holds nothing to count. Name the
 items to count." — but the form offers only a store and a recount threshold,
 with no way to name an item. The API already accepts `itemIds`
-(`stock-count.service.ts`), so the field is missing from the screen, not the
+(`stock-count.service.ts`), so the field was missing from the screen, not the
 service. This matters most at go-live and for finding stock the books do not
-show, which is exactly when a count is worth doing.
+show, which is exactly when a count is worth doing. The form now offers to name
+the items instead of counting everything held.
 
 **T3. Medium (permissions). A production supervisor cannot record an egg
-collection, and is told the wrong reason.** On PoultryPro → Incubation the
+collection, and is told the wrong reason. Fixed in PR 15.** On PoultryPro → Incubation the
 collection form says "No active poultry flock" while four flocks are active and
 laying. The cause is that the egg controller's `@Roles` omits
 `PRODUCTION_SUPERVISOR`
 (`apps/api/src/poultry-egg/poultry-egg.controller.ts`), so the API refuses the
 request, and the web helper turns any error into an empty list
 (`apps/web/src/lib/poultry-eggs.ts` — `catch { return []; }`). The same form
-lists all four flocks for the CFO. Two decisions are needed: whether a
-supervisor should be able to record a collection, and that the helper should not
-present a refusal as "none exist".
+lists all four flocks for the CFO.
 
-**T4. Medium (setup). `npm run setup` fails on a clean database.** The first run
-applied all 51 migrations and then stopped at `030_tax_constraints.sql` with
-`duplicate key value violates unique constraint "pg_extension_name_index"` on
-`btree_gist`. A second run of the same command succeeded, so the failure is
-invisible to anyone who simply retries — but it is what a new developer and any
-fresh environment hits first.
+The egg controller now carries `POULTRY_SUPERVISOR` and `PRODUCTION_SUPERVISOR`,
+which the incubation log beside it had listed as its recorders all along — the
+two had drifted; setting the egg value stays finance-only on its own narrower
+guard. The helper returns `null` rather than `[]` when it cannot read the list,
+and the form says the list is unavailable instead of claiming there are no
+flocks. A unit test pins the two controllers together.
+
+**Still open:** `QA_OFFICER` also keeps the incubation log but cannot record a
+collection. Whether a QA officer should grade a collection into hatching, table
+and reject is a question for the farm, not engineering; it is recorded as an
+explicit exception in `poultry-recorders.spec.ts` so the difference is visible
+rather than accidental.
+
+**T4. Medium (deployment). Two migration runs at once break each other. Fixed in
+PR 15 — and the first diagnosis below was wrong.**
+
+What was seen: a run of `npm run setup` applied all 51 migrations and then
+stopped at `030_tax_constraints.sql` with `duplicate key value violates unique
+constraint "pg_extension_name_index"` on `btree_gist`; a second run succeeded.
+This was first written up as "fails on a clean database". **That is not true.** A
+full migrate against a freshly created database applies all 19 SQL files
+cleanly, verified afterwards.
+
+The real cause is concurrency, and here it was self-inflicted: two `npm run
+setup` runs were overlapping in the test container. `CREATE EXTENSION IF NOT
+EXISTS` checks the catalogue and then inserts, so two runs reaching 030 together
+both pass the check and the slower one fails on the unique index, taking the
+whole migration down with it. Reproduced deliberately: two concurrent sessions,
+one succeeds and one fails with exactly that error.
+
+It is worth fixing rather than dismissing, because it is reachable in
+production: the API runs `db:migrate` from its start command (`render.yaml`), so
+two instances starting together — or a deploy overlapping a manual run — race
+the same way. `prisma migrate deploy` already holds an advisory lock for its own
+run; the constraint step had none and now takes one.
 
 **T5. Compliance. The ledger is written in two chart generations at once.** The
 demo company is on `chartVersion` LEGACY and carries 35 four-digit and 68
