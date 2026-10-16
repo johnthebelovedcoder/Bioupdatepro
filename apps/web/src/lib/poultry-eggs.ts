@@ -62,10 +62,17 @@ export async function getIncubationBatches(): Promise<IncubationBatch[]> {
   }
 }
 
-export async function getLayingGroups(): Promise<LayingGroup[]> {
+/**
+ * `null` when the list could not be read at all, which is not the same as the
+ * farm having no flocks: swallowing a refusal into an empty array made the
+ * collection form tell a supervisor "No active poultry flock" while four were
+ * laying. The caller has to say which it is.
+ */
+export async function getLayingGroups(): Promise<LayingGroup[] | null> {
   try {
     return await api<LayingGroup[]>('/poultry/eggs/groups');
-  } catch {
-    return [];
+  } catch (caught) {
+    console.error('Could not read the laying flocks for the egg collection form', caught);
+    return null;
   }
 }

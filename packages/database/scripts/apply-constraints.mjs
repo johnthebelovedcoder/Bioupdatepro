@@ -39,6 +39,30 @@ async function connect(attempts = 6) {
 }
 const client = await connect();
 
+/*
+ * One run at a time, for the whole set.
+ *
+ * Every file is idempotent on its own, but idempotent is not the same as
+ * concurrency-safe: `CREATE EXTENSION IF NOT EXISTS` checks the catalogue and
+ * then inserts, so two runs that reach 030_tax_constraints.sql together have
+ * both passed the check and the slower one fails with "duplicate key value
+ * violates unique constraint pg_extension_name_index" — taking the whole
+ * migration down with it. `DROP CONSTRAINT IF EXISTS` / `ADD CONSTRAINT` pairs
+ * race the same way.
+ *
+ * That is a real deployment, not a hypothetical: the API runs `db:migrate` from
+ * its start command (render.yaml), so two instances starting together, or a
+ * deploy overlapping a manual run, race here. `prisma migrate deploy` already
+ * holds an advisory lock for its own run; this step needs its own.
+ *
+ * The lock is released when the session ends, so a crashed run cannot wedge the
+ * next one. The key is arbitrary but fixed — it only has to be the same number
+ * in every copy of this script.
+ */
+const LOCK_KEY = 8_314_207;
+
+await client.query('SELECT pg_advisory_lock($1)', [LOCK_KEY]);
+
 try {
   const files = readdirSync(sqlDir).filter((f) => f.endsWith('.sql')).sort();
   for (const file of files) {
@@ -48,5 +72,6 @@ try {
   }
   console.log(`Applied ${files.length} SQL file(s).`);
 } finally {
+  await client.query('SELECT pg_advisory_unlock($1)', [LOCK_KEY]).catch(() => {});
   await client.end();
 }

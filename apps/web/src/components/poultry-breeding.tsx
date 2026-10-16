@@ -34,7 +34,7 @@ export function PoultryBreeding({
 }: {
   eggBatches: EggBatch[];
   incubationBatches: IncubationBatch[];
-  layingGroups: LayingGroup[];
+  layingGroups: LayingGroup[] | null;
   today: string;
 }) {
   const [queuedCollections, setQueuedCollections] = useState<string[]>([]);
@@ -291,12 +291,15 @@ function CollectionSheet({
   onClose,
   onRecorded,
 }: {
-  groups: LayingGroup[];
+  groups: LayingGroup[] | null;
   today: string;
   onClose: () => void;
   onRecorded: (label: string) => void;
 }) {
-  const [groupId, setGroupId] = useState(groups[0]?.id ?? '');
+  // null means the list could not be read, which is not "there are none".
+  const unavailable = groups === null;
+  const flocks = groups ?? [];
+  const [groupId, setGroupId] = useState(flocks[0]?.id ?? '');
   const [code, setCode] = useState('');
   const [date, setDate] = useState(today);
   const [hatching, setHatching] = useState('');
@@ -353,14 +356,21 @@ function CollectionSheet({
       <div className="stack" style={{ gap: 'var(--sp-4)' }}>
         <label className="field">
           Which flock?
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-            {groups.length === 0 ? <option value="">No active poultry flock</option> : null}
-            {groups.map((g) => (
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} disabled={unavailable}>
+            {unavailable ? <option value="">Flock list unavailable</option> : null}
+            {!unavailable && flocks.length === 0 ? <option value="">No active poultry flock</option> : null}
+            {flocks.map((g) => (
               <option key={g.id} value={g.id}>
                 {g.code} · {g.stage} · {g.population.toLocaleString('en-NG')} birds
               </option>
             ))}
           </select>
+          {unavailable ? (
+            <span className="faint">
+              The flock list could not be read, so a collection cannot be recorded here. Your role may not
+              cover egg collection — ask an administrator.
+            </span>
+          ) : null}
         </label>
 
         <label className="field">
