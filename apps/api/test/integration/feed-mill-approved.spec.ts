@@ -178,7 +178,11 @@ async function allocateActualCosts(orderIds: string[]) {
     });
   };
   const [labourAccount, overheadAccount, bankAccount] = await Promise.all([
-    account('621100', 'Feed Mill Labour Actual'), account('623100', 'Feed Mill Overhead Actual'),
+    // The source ledgers actual labour and overhead land in before they are
+    // allocated. On the approved chart those are the workbook's own accounts —
+    // the six-digit 621100/623100 belong to the superseded chart and are
+    // inactive on a company that posts on this one.
+    account('52700', 'Feed milling conversion cost'), account('52400', 'Depreciation expense'),
     prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '1101' } }),
   ]);
   const routing = new RoutingService(prisma, new AuditService(prisma));
