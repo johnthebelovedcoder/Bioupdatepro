@@ -113,3 +113,18 @@ So what step 2 was meant to buy — the client's own document deciding which acc
 - the workbook's 669 control lines, including the **447 that carry a cost-centre requirement** and the blocking controls and required-fields columns, are loaded and enforced by nothing;
 - `resolveApprovedAccount` reads the maps at runtime for one service; everywhere else the same numbers are compile-time constants, correct but fixed, so a change the client makes to a map needs a code change rather than a reload;
 - posting groups are not a field on any master record, which is how the client's workbook says they should be assigned.
+
+## The cost-centre rule, measured and enforced (17 October 2026)
+
+The earlier note said 447 control lines carry a cost-centre requirement and none was enforced. Both halves were loose. The precise counts are **306 Required, 222 Inherited, 141 Not required**, and the per-line columns hold no per-rule nuance at all — one value each, repeated:
+
+- **Cost Centre Source**, on all 306: "Source document, item, batch or work centre"
+- **Cost Centre Validation**, on all 306: "Active; Posting Allowed = Yes; application matches or approved YifrehCore shared centre"
+
+So the enforceable content is one rule in three clauses, and two of them were already enforced on every posting. `DimensionValidatorService` refuses a cost centre that is inactive, that belongs to another company, or that the approved master marks non-posting. Account-level presence is enforced too: `requiresCostCentre` comes from the workbook's own Cost Centre Rule column (104 of the 137 accounts) and a line that omits one is refused.
+
+The third clause — **application matches** — was not enforced, and that was the real gap. A poultry cost could be charged to a snail cost centre and nothing objected: the journal balances, the trial balance balances, and the error surfaces in the segment report at the year end, by which time it is a restatement rather than a correction.
+
+It is enforced now. The workbook's centres carry their application (SNP-* YifrehSnail, PLP-* YifrehPoultry, COR-* and FDM-* YifrehCore), and a line that carries both a `speciesKey` and a cost centre must use that business's own centre or a shared YifrehCore one. Centres with no application — every centre on the four- and six-digit charts — are left alone: this is the approved chart's rule, and inventing a classification for a centre nobody classified would refuse postings a farm has always made.
+
+The full integration suite passes unchanged (61 files, 620 tests), so no flow the suite covers was charging across businesses.

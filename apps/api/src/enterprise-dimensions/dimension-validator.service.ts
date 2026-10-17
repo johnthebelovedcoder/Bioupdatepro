@@ -208,7 +208,7 @@ export class DimensionValidatorService {
         }),
         db.costCentre.findMany({
           where: { id: { in: costCentreIds } },
-          select: { id: true, companyId: true, active: true, code: true, postingAllowed: true },
+          select: { id: true, companyId: true, active: true, code: true, postingAllowed: true, approvedApplication: true },
         }),
         db.farm.findMany({
           where: { id: { in: farmIds } },
@@ -263,6 +263,7 @@ export class DimensionValidatorService {
         throw new MissingDimensionError('Cost Centre', `"${centre.code}" is marked non-posting in the approved cost-centre master`);
       }
     }
+    this.checkCostCentreApplication(targets, costCentres);
     check('Farm', farmIds, farms);
     check('Project', projectIds, projects);
     check(
@@ -276,4 +277,55 @@ export class DimensionValidatorService {
       })),
     );
   }
+
+  /**
+   * A line's cost centre must belong to the business it is charging.
+   *
+   * The client's posting engine says it of every line that needs a centre:
+   * "Active; Posting Allowed = Yes; application matches or approved YifrehCore
+   * shared centre". The first two clauses are checked above. This is the
+   * third, and without it a poultry cost could be attributed to a snail
+   * centre and nothing would object — the ledger would balance, the segment
+   * report would be wrong, and the farm would find out at the year end.
+   *
+   * The centres the workbook provisions carry their application (SNP-*
+   * YifrehSnail, PLP-* YifrehPoultry, COR-* and FDM-* YifrehCore, which is
+   * the shared one and always allowed). Centres on the older charts carry
+   * none, so they are left alone: this is the approved chart's rule and
+   * inventing an application for a centre nobody classified would refuse
+   * postings the farm has always made.
+   */
+  private checkCostCentreApplication(
+    targets: DimensionValidationTarget[],
+    costCentres: Array<{ id: string; code: string; approvedApplication: string | null }>,
+  ): void {
+    const byId = new Map(costCentres.map((centre) => [centre.id, centre]));
+    for (const target of targets) {
+      const { costCentreId, speciesKey } = target.dimensions;
+      if (!costCentreId || !speciesKey) continue;
+      const wanted = APPLICATION_FOR_SPECIES[speciesKey];
+      // A species the workbook does not classify is not ours to adjudicate.
+      if (!wanted) continue;
+      const centre = byId.get(costCentreId);
+      const application = centre?.approvedApplication?.trim();
+      if (!centre || !application || application === SHARED_APPLICATION) continue;
+      if (application !== wanted) {
+        throw new MissingDimensionError(
+          'Cost Centre',
+          `"${centre.code}" belongs to ${application}, so it cannot carry a ${speciesKey} cost — ` +
+            `use one of that business's own centres or a shared ${SHARED_APPLICATION} centre`,
+          target.lineNumber,
+        );
+      }
+    }
+  }
 }
+
+/** The workbook's application for each species it carries. */
+const APPLICATION_FOR_SPECIES: Record<string, string> = {
+  snail: 'YifrehSnail',
+  poultry: 'YifrehPoultry',
+};
+
+/** The shared application, whose centres any business may charge. */
+const SHARED_APPLICATION = 'YifrehCore';
