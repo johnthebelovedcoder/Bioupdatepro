@@ -40,6 +40,7 @@ import {
  */
 interface WorkbookAccount {
   'GL Code': string;
+  'GL Name': string;
   'Control Account': string;
   'Posting Account': string;
   'Developer Note'?: string | null;
@@ -86,6 +87,24 @@ const WORKBOOK_SOURCE: Partial<Record<AccountRole, string>> = {
   itfExpense: 'COR-PAYROLL/LABOUR_EXPENSE',
   operatingExpenses: 'COR-SVC-ADMIN/SERVICE_EXPENSE',
   depreciationExpense: 'COR-FA-EQUIP/DEPRECIATION_EXPENSE',
+  // Pension and NHF are withheld into the one payroll liability the workbook
+  // carries; it has no separate key for either.
+  pensionPayable: 'COR-PAYROLL/PAYROLL_PAYABLE',
+  nhfPayable: 'COR-PAYROLL/PAYROLL_PAYABLE',
+};
+
+/**
+ * Roles the workbook's account master answers but its account maps do not.
+ *
+ * The maps have no posting key for PAYE or for packaging stock — the client's
+ * engine reaches neither through a key — so these two are taken from the chart
+ * itself, by the account the client named for exactly that purpose. Pinned
+ * here rather than left to "exists in the workbook" so the choice is a cited
+ * one: the name is the citation.
+ */
+const ACCOUNT_MASTER_SOURCE: Partial<Record<AccountRole, string>> = {
+  payePayable: 'PAYE payable',
+  packaging: 'Packaging inventory control',
 };
 
 const roles = Object.keys(ROLE_ACCOUNTS) as AccountRole[];
@@ -95,6 +114,40 @@ const UNRESOLVED: AccountRole[] = [];
 const PROPOSED: Array<[AccountRole, string]> = [['impairmentLoss', '52800'], ['fgCapitalisedVariance', '12490'], ['wipCapitalisedVariance', '13190']];
 
 describe('approved five-digit chart roles', () => {
+  /*
+   * No role may reach the ledger without a line in the client's own document
+   * behind it. Every one is either taken from an account map, taken from the
+   * account master because the maps have no key for it, or an engineering
+   * proposal Finance has still to confirm — and this says which, by name, so
+   * a role added later cannot quietly be a number somebody chose.
+   */
+  it('traces every role to the client’s document, or names it as a proposal', () => {
+    const cited = new Set([
+      ...Object.keys(WORKBOOK_SOURCE),
+      ...Object.keys(ACCOUNT_MASTER_SOURCE),
+      ...PROPOSED.map(([role]) => role),
+    ]);
+    const untraced = roles.filter((role) => !cited.has(role));
+    expect(untraced, 'every role is cited to the workbook or declared a proposal').toEqual([]);
+
+    // And no role is cited twice, which would hide a disagreement between the
+    // two sources behind whichever check ran first.
+    const twice = Object.keys(WORKBOOK_SOURCE).filter((role) => role in ACCOUNT_MASTER_SOURCE);
+    expect(twice, 'no role is cited to both the maps and the account master').toEqual([]);
+  });
+
+  it('takes the roles the maps have no key for from the account the client named', () => {
+    for (const [role, name] of Object.entries(ACCOUNT_MASTER_SOURCE) as [AccountRole, string][]) {
+      const number = ROLE_ACCOUNTS[role][2]!;
+      expect(accounts.get(number), `${role} → ${number}`).toBeDefined();
+      expect(accounts.get(number)!['GL Name'], `${role} → ${number}`).toBe(name);
+      // The maps really do lack a key for it — if the client adds one, this
+      // role belongs in WORKBOOK_SOURCE instead.
+      const named = workbook.sheets.accountMaps.some((m) => m['GL Code'] === number && m.Status === 'Active');
+      expect(named, `${number} is still absent from the account maps`).toBe(false);
+    }
+  });
+
   it("takes every role from the workbook's own account map", () => {
     for (const [role, source] of Object.entries(WORKBOOK_SOURCE) as [AccountRole, string][]) {
       expect(coreMap.get(source), `${source} is an active workbook map`).toBeDefined();
