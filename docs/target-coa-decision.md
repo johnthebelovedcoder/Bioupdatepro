@@ -18,6 +18,8 @@ The role-by-role findings are in [target-coa-role-crosswalk.md](target-coa-role-
 ## Implementation and release gates
 
 1. Make the five-digit workbook the only active target chart for new-company provisioning; retain legacy history and compatibility for existing companies until their approved cutover. **Done, 16 October 2026:** `ProvisioningService.provisionCompany` defaults to `chart: 'APPROVED'` and gives a new farm the workbook's 137 accounts and 57 cost centres, with sales, procurement, payroll and livestock stage accounts on approved numbers. `chart: 'LEGACY'` remains for the cutover's own tests, which have to start from a company on the four-digit chart. The account maps, posting-control lines and keys are still loaded separately by Books → Controls: several hundred sequential upserts have no business inside the transaction that creates a user's account.
+
+   **Corrected, 17 October 2026:** registration calls that load itself, straight after the company commits, so a registered farm did receive the 75 six-digit compatibility accounts after all — 75 of the 145 accounts its manual-journal picker offered. The first claim here was tested against `provisionCompany` alone and missed it. Those accounts exist because 89 of the 172 keys in the old `posting-control.json` table still name a six-digit account, and a key with nothing to point at cannot be loaded. They are now created **inactive and non-posting** on a company already on the approved chart, so the links hold while the chart a person sees is the client's own. `test/integration/register-farm-chart.spec.ts` asserts it through `RegistrationService`, the path a signup actually takes.
 2. Generate target accounts from the workbook's complete account metadata and make account-map/posting-key resolution use those five-digit records.
 3. Update chart-role resolution and posting services to use approved workbook accounts. Where role mapping depends on an item, asset, biological stage, or liability nature, use existing subledger dimensions or stop and surface a cutover exception; do not guess.
 4. Update the legacy cutover preview to list and block unresolved split balances. Preserve balanced, linked journals and repoint all account-bearing settings before retiring legacy codes.
@@ -64,3 +66,26 @@ Limits to know before running it: a poultry cohort's fair-value uplift on the ol
 Still not done: Finance's approval of the crosswalk, and its confirmation of the three accounts added for the roles the workbook lacked: impairment loss 52800, finished-goods capitalised variance 12490 and WIP capitalised variance 13190 (engineering proposals, marked as such in `approved-posting-engine.json`; see `docs/finance-signoff-pack.md`). The old six-digit chart still posts a transfer or write-off credit to one rule account regardless of item (an existing inconsistency, fixed only for the approved chart). The older six-digit cutover (`ChartUnificationService`) is kept but its routes stay disabled.
 
 The readiness page stays blocked for a company until its cutover is run; after it, it shows what still lacks an account.
+
+## The client's own posting engine is loaded and largely unread (17 October 2026)
+
+Measured against `packages/database/src/approved-posting-engine.json`, the workbook the client supplied:
+
+| | |
+|---|---|
+| Rule lines | 669, across 357 application rules |
+| Lines that post to the ledger | 624 |
+| Resolve to an account from the client's own maps | **618** |
+| Resolve by the client's own dynamic rule | 6 (`SOURCE_COST_REVERSAL`, "resolve from the original document map") |
+| Unspecified | **0** |
+
+The maps cover 67 posting keys across 76 posting groups for YifrehSnail, YifrehPoultry and YifrehCore, all Active and effective-dated, and 447 of the 669 lines carry an explicit cost-centre requirement.
+
+What the application does with that: the 669 control lines are loaded into `ApprovedPostingControlLine` and read by nothing; the 227 maps are read through `resolveApprovedAccount` by one service (snail breeding); everything else posts through the superseded PCR engine (86 rules, 172 keys) or through constants transcribed by hand into `chart.ts`. That is why the compatibility accounts above are needed at all.
+
+Moving the remaining modules onto the client's maps — payroll, procurement, inventory, AP/AR, month end, the snail and poultry lifecycles — needs no decision from Finance, because the client has already made every one of them. It is engineering work, not a sign-off item, and it is what would let the PCR table and its 75 accounts be deleted outright.
+
+Two places where what is built does not match what the workbook says, each worth one question to Finance:
+
+- **Capitalised variance.** The approved chart carries engineering-proposed asset accounts 12490 and 13190. The workbook maps every variance key to the P&L (`PRODUCTION_VARIANCE` → 53000, `WIP_VARIANCE` and `RECOVERY_VARIANCE` → 53500, `FEED_YIELD_VARIANCE` → 53600) and has no asset-side variance account at all.
+- **Stage maturity.** `POULTRY_STAGE_MATURITY` and `SNAIL_STAGE_MATURITY` in `chart.ts` decide which stages are immature. The workbook's posting groups are `Master Type: Lifecycle stage`, `Developer Use: assign to the relevant master record` — the client expects the group to be a field on each breed or stage record, set by their own staff. No such field exists in the schema.

@@ -443,6 +443,29 @@ export class PostingControlProvisioningService {
   /* --- Historical six-digit compatibility accounts -------------------- */
 
   private async loadSpecChart(companyId: string, data: Loaded) {
+    /*
+     * A company already on the approved chart gets these as inert rows.
+     *
+     * They exist for one reason: 89 of the 172 keys in the old posting-key
+     * table still name a six-digit account, and a key with nothing to point at
+     * cannot be loaded. On a company that posts on the four- or six-digit
+     * chart they are ordinary accounts. On one provisioned straight onto the
+     * approved chart they are scaffolding, and leaving them active put 75
+     * superseded accounts in front of a brand-new farm's bookkeeper — more
+     * than half of everything the manual-journal picker offered, with
+     * "130100 Raw Materials" sitting beside the real "12000 Raw materials".
+     *
+     * Inactive and non-posting, they still satisfy the key links, while the
+     * chart a person sees and can post to is the client's own. If some path
+     * does resolve through one of those keys, `PostingControlService.side()`
+     * refuses an inactive account by name rather than posting to the wrong
+     * generation of the chart — which is the failure worth having.
+     *
+     * This only ever applies to rows created here. A company that reaches the
+     * approved chart by cutover keeps its own accounts exactly as they are:
+     * they hold its history, and the cutover retires them itself.
+     */
+    const inert = (await chartVersionOf(this.prisma, companyId)) === 'APPROVED';
     const wanted = new Map<string, { name: string; type: AccountType; normal: NormalBalance }>();
     for (const row of data.coa) {
       const type = statedType(row.klass);
@@ -475,8 +498,9 @@ export class PostingControlProvisioningService {
           name: account.name,
           accountType: account.type,
           normalBalance: account.normal,
-          isPostingAccount: true,
-          active: true,
+          isPostingAccount: !inert,
+          active: !inert,
+          manualJournalAllowed: !inert,
           // Work in progress must be attributable — same rule as seedSpecChart.
           requiresCostCentre: code.startsWith('1304'),
         })),

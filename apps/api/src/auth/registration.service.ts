@@ -88,9 +88,11 @@ export class RegistrationService {
       { timeout: 30_000 },
     );
 
-    // Load control metadata after the company commits. The approved five-digit
-    // cutover is not implemented yet, so signup must not move balances to the
-    // superseded six-digit chart. A load failure does not invalidate signup;
+    // Load control metadata after the company commits: the posting rules, the
+    // keys, and the workbook's account maps and control lines. The farm is
+    // already on the approved chart (ProvisioningService), so the six-digit
+    // compatibility accounts this also creates arrive inactive and
+    // non-posting — they are there for the old key table, not for the farm. A load failure does not invalidate signup;
     // Books → Controls offers the same load again.
     const created = await this.prisma.user.findUnique({ where: { email }, select: { id: true, companyId: true } });
     if (created?.companyId) {
