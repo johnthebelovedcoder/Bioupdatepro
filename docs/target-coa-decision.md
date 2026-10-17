@@ -89,3 +89,27 @@ Two places where what is built does not match what the workbook says, each worth
 
 - **Capitalised variance.** The approved chart carries engineering-proposed asset accounts 12490 and 13190. The workbook maps every variance key to the P&L (`PRODUCTION_VARIANCE` → 53000, `WIP_VARIANCE` and `RECOVERY_VARIANCE` → 53500, `FEED_YIELD_VARIANCE` → 53600) and has no asset-side variance account at all.
 - **Stage maturity.** `POULTRY_STAGE_MATURITY` and `SNAIL_STAGE_MATURITY` in `chart.ts` decide which stages are immature. The workbook's posting groups are `Master Type: Lifecycle stage`, `Developer Use: assign to the relevant master record` — the client expects the group to be a field on each breed or stage record, set by their own staff. No such field exists in the schema.
+
+## What posts through the old engine, measured (17 October 2026)
+
+The recommendation above was that the remaining modules be moved onto the client's account maps. Measuring which code paths actually read the old PCR engine shows most of that is already true, by a different route.
+
+Every runtime reader of a PCR posting key, and what it resolves to on a company on the approved chart:
+
+| Caller | Rules | Resolves to |
+|---|---|---|
+| `InventoryTransferService` | PCR-012, PCR-013, PCR-014 | 12500 / 12000 / 51200 — five-digit |
+| `StockCountService` | PCR-014 | 51200 / 12000 — five-digit |
+| `IncomeTaxService` | PCR-084 | 58000 / 20900 — five-digit |
+| `ProductionOrderService` | PCR-032…036, 051…058, 074…080 | 13110 / 13120 / 13200 / 12410 / 12420 / 12450 / 54xxx / 53xxx — five-digit |
+| `VarianceProrationService` | PCR-036-DR, PCR-058-DR, PCR-080-DR | 53600 / 53500 — five-digit |
+
+Not one reaches a six-digit account. The 89 keys that still carry a six-digit link belong to rules no code resolves — procurement (PCR-004…011), sales (PCR-015…017), payroll (PCR-019…028), fixed assets (PCR-029…031) and the biological-asset lifecycle (PCR-037…073) are posted by services that resolve their own accounts. For those companies the PCR table is reference data, not posting logic.
+
+The accounts those services use are pinned to the client's document by `test/unit/chart-approved.spec.ts`, which checks each against the account map it cites — the 43 `APPROVED_POSTING_KEYS`, the sales and procurement defaults, the valuation, mortality and stage accounts, and the chart roles. As of today every role is cited: 24 to an account map, 2 (PAYE payable 20600, packaging 12200) to the account master because the maps hold no key for them, and 3 declared engineering proposals. A role added without a citation now fails the suite.
+
+So what step 2 was meant to buy — the client's own document deciding which account a posting lands in — is in place and checked. What remains undone is narrower, and worth stating as itself rather than as a migration:
+
+- the workbook's 669 control lines, including the **447 that carry a cost-centre requirement** and the blocking controls and required-fields columns, are loaded and enforced by nothing;
+- `resolveApprovedAccount` reads the maps at runtime for one service; everywhere else the same numbers are compile-time constants, correct but fixed, so a change the client makes to a map needs a code change rather than a reload;
+- posting groups are not a field on any master record, which is how the client's workbook says they should be assigned.
