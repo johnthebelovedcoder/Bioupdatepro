@@ -8,6 +8,10 @@ A farm registering now is provisioned straight onto the approved five-digit char
 
 Everything else on this list still applies to a new farm, because those items decide where a posting lands rather than where an old balance moves to. `docs/finance-confirmation-sheet.pdf` is the one-page version of them, written for a client to tick and sign.
 
+**The sheet now asks five questions, not thirteen (17 October 2026).** Reading the client's account maps properly settled six of them, and sending those back would have said we had not opened their file: eggs in incubation (their `FARM_WIP` and `WIP_CONTROL` both map to 13020), processing material (`SOURCE_INVENTORY` → 12000), finished feed (`FINISHED_FEED_INVENTORY` → 12450), farm feed issues (`FARM_FEED_INVENTORY` → 12100), the recovery variance (`RECOVERY_VARIANCE` → 53500) and income tax (`INCOME_TAX_PAYABLE` → 20900, with 58000 the only tax expense account in their chart). The sheet lists all six under "Settled by your own workbook", so the client can see the file was read.
+
+What remains genuinely open: the impairment account, the capitalised-variance accounts, the stage-maturity lists, the approval thresholds and the abnormal-mortality rate. Two of those carry a point the client should see rather than merely approve — their workbook maps every variance to the P&L and has no asset-side variance account, and it says the posting group belongs on each master record rather than in our code.
+
 ## Where each item stands
 
 | # | Item | State | Needed from Finance |
