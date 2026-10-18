@@ -191,6 +191,69 @@ describe('PostingService — Enterprise Dimensions (§1.1)', () => {
     );
   });
 
+  /**
+   * The client's posting engine asks three things of a line's cost centre:
+   * active, posting allowed, and "application matches or approved YifrehCore
+   * shared centre". The first two have rules above. This is the third.
+   */
+  describe('the cost centre belongs to the business being charged', () => {
+    const centre = (code: string, application: string | null) =>
+      prisma.costCentre.create({
+        data: {
+          companyId: fixture.companyId,
+          code,
+          name: code,
+          effectiveDate: new Date('2026-01-01'),
+          postingAllowed: true,
+          ...(application ? { approvedApplication: application } : {}),
+        },
+        select: { id: true },
+      });
+
+    const chargedTo = async (costCentreId: string, speciesKey: string) => {
+      const request = materialIssue(fixture, 100_00n, `species-${speciesKey}-${costCentreId.slice(0, 8)}`);
+      for (const line of request.lines) {
+        (line.dimensions as Record<string, unknown>).costCentreId = costCentreId;
+        (line.dimensions as Record<string, unknown>).speciesKey = speciesKey;
+      }
+      return posting.post(request);
+    };
+
+    it('refuses a poultry cost charged to a snail centre, naming both', async () => {
+      const snail = await centre('SNP-GROW', 'YifrehSnail');
+      await expect(chargedTo(snail.id, 'poultry')).rejects.toThrow(
+        /SNP-GROW.*YifrehSnail.*poultry/is,
+      );
+    });
+
+    it('refuses a snail cost charged to a poultry centre', async () => {
+      const poultry = await centre('PLP-LAYER', 'YifrehPoultry');
+      await expect(chargedTo(poultry.id, 'snail')).rejects.toThrow(/PLP-LAYER.*YifrehPoultry/is);
+    });
+
+    it('allows a centre of the matching business', async () => {
+      const snail = await centre('SNP-PEN', 'YifrehSnail');
+      await expect(chargedTo(snail.id, 'snail')).resolves.toBeDefined();
+    });
+
+    it('allows the shared YifrehCore centres to carry either business', async () => {
+      const shared = await centre('COR-ADMIN', 'YifrehCore');
+      await expect(chargedTo(shared.id, 'poultry')).resolves.toBeDefined();
+      const alsoShared = await centre('FDM-MILL', 'YifrehCore');
+      await expect(chargedTo(alsoShared.id, 'snail')).resolves.toBeDefined();
+    });
+
+    it('leaves a centre with no application alone — the old charts classify none', async () => {
+      const unclassified = await centre('OLD-1', null);
+      await expect(chargedTo(unclassified.id, 'poultry')).resolves.toBeDefined();
+    });
+
+    it('says nothing about a species the workbook does not carry', async () => {
+      const snail = await centre('SNP-OTHER', 'YifrehSnail');
+      await expect(chargedTo(snail.id, 'cattle')).resolves.toBeDefined();
+    });
+  });
+
   it('rejects an inactive cost centre', async () => {
     await prisma.costCentre.update({
       where: { id: fixture.costCentreId },
