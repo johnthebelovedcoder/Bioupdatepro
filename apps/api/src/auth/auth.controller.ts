@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { IsEmail, IsString, MinLength } from 'class-validator';
-import { Throttle, ThrottlerGuard, minutes } from '@nestjs/throttler';
+import { SkipThrottle, Throttle, ThrottlerGuard, minutes } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService, AuthenticatedUser } from './auth.service';
 import { CurrentCompany, CurrentUser, Public } from './current-user.decorator';
@@ -12,6 +12,7 @@ import { EmailService } from './email.service';
 import { RoleSectionAccessService } from './role-section-access.service';
 import { Roles, AnyRole } from './roles.guard';
 import { MfaService } from './mfa.service';
+import { LoginThrottlerGuard } from './login-throttle.guard';
 
 class LoginDto {
   @IsEmail({}, { message: 'Enter a valid email address.' })
@@ -71,23 +72,29 @@ export class AuthController {
    * Brute-force protection lives here, not on every route: this is the one
    * place a stolen password list actually gets tested against, and unlike
    * everywhere else in the API, the cost of guessing wrong is not "hold a
-   * valid bearer token" — it's nothing at all. Per-IP rather than per-email
-   * on purpose: keying on the email in the body would let an attacker
-   * rotate through addresses to stay under the limit while hammering one
-   * password, which is the more realistic attack against a farm where
-   * everyone's email follows the same pattern.
+   * valid bearer token" — it's nothing at all.
+   *
+   * Ten attempts per account, and a hundred per caller. It used to be ten per
+   * caller, to stop an attacker rotating through addresses to stay under a
+   * per-email limit — but the caller is the web server for everyone who signs
+   * in through the form, so that was ten attempts per company per fifteen
+   * minutes and one person's typing locked the farm out. The ceiling is what
+   * answers the rotation attack now; see LoginThrottlerGuard.
    */
   @Public()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 10, ttl: minutes(15) } })
+  @UseGuards(LoginThrottlerGuard)
+  @SkipThrottle({ default: true })
+  @Throttle({ account: { limit: 10, ttl: minutes(15) }, ceiling: { limit: 100, ttl: minutes(15) } })
   @Post('login')
   async login(@Body() body: LoginDto) {
     return this.auth.login(body.email, body.password);
   }
 
+  /** Counted per challenge token, for the same reason sign-in is per account. */
   @Public()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 5, ttl: minutes(15) } })
+  @UseGuards(LoginThrottlerGuard)
+  @SkipThrottle({ default: true })
+  @Throttle({ account: { limit: 5, ttl: minutes(15) }, ceiling: { limit: 100, ttl: minutes(15) } })
   @Post('mfa/login')
   async verifyMfaLogin(@Body() body: MfaLoginDto) {
     return this.auth.verifyMfaLogin(body.challengeToken, body.code);
