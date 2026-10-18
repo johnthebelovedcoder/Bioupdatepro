@@ -42,7 +42,20 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
      * applies its own @Throttle() limit; this default only covers one that
      * doesn't bother to override it.
      */
-    ThrottlerModule.forRoot([{ name: 'default', ttl: minutes(15), limit: 20 }]),
+    ThrottlerModule.forRoot([
+      { name: 'default', ttl: minutes(15), limit: 20 },
+      /*
+       * Sign-in counts twice: once against the account being signed in to,
+       * which is the bucket that stops a password being guessed, and once
+       * against the caller, which is a loose ceiling that stops somebody
+       * working through a list of accounts. The caller is the web server for
+       * every member of staff, so the ceiling has to clear a whole farm
+       * arriving at once — a hundred attempts in a quarter of an hour does,
+       * and a password list does not.
+       */
+      { name: 'account', ttl: minutes(15), limit: 10 },
+      { name: 'ceiling', ttl: minutes(15), limit: 100 },
+    ]),
   ],
   controllers: [AuthController],
   providers: [
