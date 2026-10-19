@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { IsEmail, IsString, MinLength } from 'class-validator';
-import { SkipThrottle, Throttle, ThrottlerGuard, minutes } from '@nestjs/throttler';
+import { SkipThrottle, Throttle, minutes } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService, AuthenticatedUser } from './auth.service';
 import { CurrentCompany, CurrentUser, Public } from './current-user.decorator';
@@ -106,8 +106,15 @@ export class AuthController {
     return this.mfa.beginEnrollment(actor.userId);
   }
 
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 5, ttl: minutes(15) } })
+  /*
+   * Per signed-in user. Shared, this was five confirmations per quarter of an
+   * hour for the whole farm — and a farm enrolls its authenticators on one
+   * morning, everybody at once, which is the only time this route is ever
+   * busy. The sixth person would have been told to come back later.
+   */
+  @UseGuards(LoginThrottlerGuard)
+  @SkipThrottle({ default: true })
+  @Throttle({ account: { limit: 5, ttl: minutes(15) }, ceiling: { limit: 100, ttl: minutes(15) } })
   @AnyRole('Confirm the authenticator setup for this account.')
   @Post('mfa/confirm')
   async confirmMfaEnrollment(
@@ -119,8 +126,9 @@ export class AuthController {
 
   /** Create a farm and its first user. */
   @Public()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 5, ttl: minutes(60) } })
+  @UseGuards(LoginThrottlerGuard)
+  @SkipThrottle({ default: true })
+  @Throttle({ account: { limit: 5, ttl: minutes(60) }, ceiling: { limit: 100, ttl: minutes(60) } })
   @Post('register')
   async register(@Body() body: RegisterDto) {
     return this.registration.register(body);
@@ -259,8 +267,9 @@ export class AuthController {
    * only calling the service when the email looks plausible.
    */
   @Public()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 5, ttl: minutes(15) } })
+  @UseGuards(LoginThrottlerGuard)
+  @SkipThrottle({ default: true })
+  @Throttle({ account: { limit: 5, ttl: minutes(15) }, ceiling: { limit: 100, ttl: minutes(15) } })
   @Post('forgot-password')
   async forgotPassword(@Body() body: { email: string }) {
     await this.passwordResets.requestForSelf(body.email ?? '');
@@ -284,8 +293,9 @@ export class AuthController {
   }
 
   @Public()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 10, ttl: minutes(15) } })
+  @UseGuards(LoginThrottlerGuard)
+  @SkipThrottle({ default: true })
+  @Throttle({ account: { limit: 10, ttl: minutes(15) }, ceiling: { limit: 100, ttl: minutes(15) } })
   @Post('password-reset/token/:token/complete')
   async completePasswordReset(
     @Param('token') token: string,
@@ -305,9 +315,15 @@ export class AuthController {
     return this.invitations.describe(token);
   }
 
+  /*
+   * Per invitation. Shared, ten acceptances per quarter of an hour covered a
+   * whole farm — and a farm's staff accept their invitations on one morning,
+   * which is the only time this route is ever busy.
+   */
   @Public()
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 10, ttl: minutes(15) } })
+  @UseGuards(LoginThrottlerGuard)
+  @SkipThrottle({ default: true })
+  @Throttle({ account: { limit: 10, ttl: minutes(15) }, ceiling: { limit: 100, ttl: minutes(15) } })
   @Post('invitations/token/:token/accept')
   async acceptInvitation(
     @Param('token') token: string,
