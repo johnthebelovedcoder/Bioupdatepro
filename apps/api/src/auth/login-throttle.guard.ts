@@ -1,5 +1,5 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerGuard, type ThrottlerRequest } from '@nestjs/throttler';
 import { createHash } from 'node:crypto';
 
 /** The throttler whose bucket is one account rather than one caller. */
@@ -33,20 +33,38 @@ export interface ThrottledRequest {
  * Sign-in and the authenticator step are identified by different things — an
  * email on one, a challenge token on the other — and the token is hashed
  * because this key outlives the request and a challenge token is a credential.
+ *
+ * A request that names no account at all — a form posted with the email blank,
+ * a malformed body — is not counted against the account bucket. Keying those on
+ * the caller recreated the very bug this guard exists to fix, one pile of ten
+ * attempts per fifteen minutes shared by everyone arriving through the web
+ * server. They still count against the caller's ceiling, which is what bounds
+ * them; and a request naming nobody cannot be an attempt on anybody's password.
  */
 @Injectable()
 export class LoginThrottlerGuard extends ThrottlerGuard {
+  protected async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
+    if (requestProps.throttler.name === ACCOUNT_THROTTLER) {
+      const request = requestProps.context.switchToHttp().getRequest<ThrottledRequest>();
+      if (!accountKey(request)) return true;
+    }
+    return super.handleRequest(requestProps);
+  }
+
   protected generateKey(context: ExecutionContext, suffix: string, name: string): string {
     if (name !== ACCOUNT_THROTTLER) return super.generateKey(context, suffix, name);
     const request = context.switchToHttp().getRequest<ThrottledRequest>();
-    return super.generateKey(context, accountKey(request) ?? suffix, name);
+    // handleRequest has already let an unidentified request past this throttler,
+    // so the fallback is unreachable; it is here so a future caller of this
+    // method cannot silently key an anonymous attempt on the web server.
+    return super.generateKey(context, accountKey(request) ?? `anonymous:${suffix}`, name);
   }
 }
 
 /**
  * Whose attempt this is, or null when the request names nobody — in which case
- * it falls back to the caller's own bucket rather than sharing one anonymous
- * bucket with every other unidentifiable request.
+ * the account throttler sits the request out entirely and only the caller's
+ * ceiling applies.
  *
  * Four ways a request says who it is for, in the order they are trusted:
  * the signed-in user (the authenticator confirmation, where the body carries

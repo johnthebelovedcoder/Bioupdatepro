@@ -1,5 +1,6 @@
+import type { ExecutionContext } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
-import { accountKey } from '../../src/auth/login-throttle.guard';
+import { ACCOUNT_THROTTLER, LoginThrottlerGuard, accountKey } from '../../src/auth/login-throttle.guard';
 
 /**
  * Which bucket a sign-in attempt is counted in.
@@ -76,7 +77,7 @@ describe('the bucket an authentication attempt is counted in', () => {
     ).toBe('email:ngozi@kajolafarms.ng');
   });
 
-  it('names nobody for a request that identifies nobody, so the caller’s own bucket is used', () => {
+  it('names nobody for a request that identifies nobody', () => {
     const requests = [
       null,
       undefined,
@@ -98,3 +99,82 @@ describe('the bucket an authentication attempt is counted in', () => {
     }
   });
 });
+
+/**
+ * The guard itself, driven the way Nest drives it.
+ *
+ * `accountKey` returning null was the whole story only until the guard had to
+ * decide what to do with it. It keyed those attempts on the caller — the web
+ * server, for everyone — which rebuilt the shared ten-attempt bucket this
+ * guard exists to abolish: a handful of sign-ins posted before the address was
+ * typed, or by anything speaking to the API malformed, and the form answered
+ * "too many sign-in attempts" to a farm that had barely started its morning.
+ */
+describe('the guard, over a sequence of attempts', () => {
+  it('does not spend the account bucket on requests that name no account', async () => {
+    const { attempt } = harness({ accountLimit: 2 });
+    for (let i = 1; i <= 5; i += 1) {
+      await expect(attempt({ body: {} }), `attempt ${i}`).resolves.toBe(true);
+    }
+  });
+
+  it('still stops a password being guessed at one address', async () => {
+    const { attempt } = harness({ accountLimit: 2 });
+    const body = { email: 'ngozi@kajolafarms.ng' };
+    await expect(attempt({ body })).resolves.toBe(true);
+    await expect(attempt({ body })).resolves.toBe(true);
+    await expect(attempt({ body })).rejects.toThrow();
+  });
+
+  it('leaves a colleague untouched while one address is locked out', async () => {
+    const { attempt } = harness({ accountLimit: 2 });
+    for (let i = 0; i < 3; i += 1) {
+      await attempt({ body: { email: 'ngozi@kajolafarms.ng' } }).catch(() => undefined);
+    }
+    await expect(attempt({ body: { email: 'chinedu@kajolafarms.ng' } })).resolves.toBe(true);
+  });
+
+  it('still bounds unidentified requests by the caller’s ceiling', async () => {
+    const { attempt } = harness({ accountLimit: 2, ceilingLimit: 3 });
+    await expect(attempt({ body: {} })).resolves.toBe(true);
+    await expect(attempt({ body: {} })).resolves.toBe(true);
+    await expect(attempt({ body: {} })).resolves.toBe(true);
+    await expect(attempt({ body: {} })).rejects.toThrow();
+  });
+});
+
+/** A guard wired to counters held in a Map, and one call of `canActivate`. */
+function harness({ accountLimit, ceilingLimit = 1_000 }: { accountLimit: number; ceilingLimit?: number }) {
+  const hits = new Map<string, number>();
+  const storage = {
+    async increment(key: string, ttl: number, limit: number) {
+      const totalHits = (hits.get(key) ?? 0) + 1;
+      hits.set(key, totalHits);
+      return { totalHits, timeToExpire: ttl, isBlocked: totalHits > limit, timeToBlockExpire: ttl };
+    },
+  };
+  const options = [
+    { name: 'default', ttl: 1_000, limit: 1_000 },
+    { name: ACCOUNT_THROTTLER, ttl: 1_000, limit: accountLimit },
+    { name: 'ceiling', ttl: 1_000, limit: ceilingLimit },
+  ];
+  const reflector = { getAllAndOverride: () => undefined };
+
+  const guard = new LoginThrottlerGuard(options as never, storage as never, reflector as never);
+  let ready: Promise<void> | null = null;
+
+  return {
+    async attempt(request: Record<string, unknown>): Promise<boolean> {
+      // Every caller is the web server, which is the point.
+      const req = { ip: '10.0.0.7', headers: {}, ...request };
+      const context = {
+        switchToHttp: () => ({ getRequest: () => req, getResponse: () => ({ header: () => undefined }) }),
+        getHandler: () => function login() {},
+        getClass: () => class AuthController {},
+      } as unknown as ExecutionContext;
+      ready ??= guard.onModuleInit();
+      await ready;
+      return guard.canActivate(context);
+    },
+  };
+}
