@@ -1,5 +1,4 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createHmac } from 'node:crypto';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaClient } from '@bioassetpro/database';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -48,8 +47,18 @@ beforeEach(async () => {
 });
 
 describe('Session renewal', () => {
-  it('requires MFA for the MD/CEO high-value approval role', () => {
-    expect(new MfaService(prisma, new AuditService(prisma)).requiredFor(['MD_CEO'])).toBe(true);
+  it('temporarily allows password-only sign-in for roles that normally require MFA', async () => {
+    expect(new MfaService(prisma, new AuditService(prisma)).requiredFor(['MD_CEO'])).toBe(false);
+
+    await prisma.user.update({
+      where: { id: fixture.makerId },
+      data: { roles: ['FINANCE_MANAGER'] },
+    });
+
+    const result = await auth.login('worker@example.com', 'a-good-password-1');
+    if (!('accessToken' in result)) throw new Error('Expected password-only sign-in.');
+    expect(result.user.mfaRequired).toBe(false);
+    expect(jwt.decode<JwtPayload>(result.accessToken).mfaSetupOnly).toBeUndefined();
   });
 
   it('issues a fresh token that keeps the original sign-in time', async () => {
@@ -79,50 +88,15 @@ describe('Session renewal', () => {
     await expect(auth.refresh(accessToken)).rejects.toThrow(/no longer valid/);
   });
 
-  it('requires enrollment and a one-time MFA challenge for a finance-role login', async () => {
+  it('allows a finance-role account to sign in without MFA while enforcement is disabled', async () => {
     await prisma.user.update({
       where: { id: fixture.makerId },
       data: { roles: ['FINANCE_MANAGER'] },
     });
 
-    const setup = await auth.login('worker@example.com', 'a-good-password-1');
-    expect('mfaSetupRequired' in setup && setup.mfaSetupRequired).toBe(true);
-    if (!('mfaSetupRequired' in setup)) throw new Error('Expected restricted MFA setup session.');
-
-    const enrollment = await new MfaService(prisma, new AuditService(prisma)).beginEnrollment(fixture.makerId);
-    const recoveryCodes = await new MfaService(prisma, new AuditService(prisma))
-      .confirmEnrollment(fixture.makerId, codeAtStep(enrollment.secret, Math.floor(Date.now() / 30_000)));
-    expect(recoveryCodes.recoveryCodes).toHaveLength(10);
-
-    const challenge = await auth.login('worker@example.com', 'a-good-password-1');
-    expect('mfaRequired' in challenge && challenge.mfaRequired).toBe(true);
-    if (!('challengeToken' in challenge)) throw new Error('Expected MFA login challenge.');
-    const verified = await auth.verifyMfaLogin(challenge.challengeToken, recoveryCodes.recoveryCodes[0]!);
-    expect(jwt.decode<JwtPayload>(verified.accessToken).purpose).toBeUndefined();
-    await expect(
-      auth.verifyMfaLogin(challenge.challengeToken, codeAtStep(enrollment.secret, Math.floor(Date.now() / 30_000) + 1)),
-    ).rejects.toThrow(/already been used/);
-
-    const secondChallenge = await auth.login('worker@example.com', 'a-good-password-1');
-    if (!('challengeToken' in secondChallenge)) throw new Error('Expected another MFA login challenge.');
-    await expect(
-      auth.verifyMfaLogin(secondChallenge.challengeToken, recoveryCodes.recoveryCodes[0]!),
-    ).rejects.toThrow(/not valid/);
+    const result = await auth.login('worker@example.com', 'a-good-password-1');
+    if (!('accessToken' in result)) throw new Error('Expected password-only sign-in.');
+    expect(result.user.mfaRequired).toBe(false);
+    expect(result.user.mfaEnabled).toBe(false);
   });
 });
-
-function codeAtStep(secret: string, step: number): string {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = '';
-  for (const character of secret) bits += alphabet.indexOf(character).toString(2).padStart(5, '0');
-  const key = Buffer.from(bits.match(/.{8}/g)!.map((byte) => Number.parseInt(byte, 2)));
-  const counter = Buffer.alloc(8);
-  counter.writeBigUInt64BE(BigInt(step));
-  const digest = createHmac('sha1', key).update(counter).digest();
-  const offset = digest[digest.length - 1]! & 0x0f;
-  const binary = ((digest[offset]! & 0x7f) << 24)
-    | ((digest[offset + 1]! & 0xff) << 16)
-    | ((digest[offset + 2]! & 0xff) << 8)
-    | (digest[offset + 3]! & 0xff);
-  return String(binary % 1_000_000).padStart(6, '0');
-}

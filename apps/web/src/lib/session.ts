@@ -23,7 +23,6 @@ export interface SessionUser {
   roles: string[];
   mfaRequired: boolean;
   mfaEnabled: boolean;
-  mfaSetupOnly?: boolean;
 }
 
 export async function getToken(): Promise<string | null> {

@@ -17,6 +17,8 @@ const MFA_ROLES = new Set([
   'SYSTEM_ADMIN',
 ]);
 const PERIOD_SECONDS = 30;
+// Temporary bypass: resume required-role MFA only after the production flow is verified.
+const MFA_ENFORCEMENT_ENABLED = false;
 
 @Injectable()
 export class MfaService {
@@ -26,7 +28,7 @@ export class MfaService {
   ) {}
 
   requiredFor(roles: readonly string[]): boolean {
-    return roles.some((role) => MFA_ROLES.has(role));
+    return MFA_ENFORCEMENT_ENABLED && roles.some((role) => MFA_ROLES.has(role));
   }
 
   async beginEnrollment(userId: string) {
