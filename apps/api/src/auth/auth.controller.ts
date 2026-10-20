@@ -1,7 +1,19 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  Param,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { SkipThrottle, Throttle, minutes } from '@nestjs/throttler';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { AuthService, AuthenticatedUser } from './auth.service';
 import { CurrentCompany, CurrentUser, Public } from './current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -13,6 +25,7 @@ import { RoleSectionAccessService } from './role-section-access.service';
 import { Roles, AnyRole } from './roles.guard';
 import { MfaService } from './mfa.service';
 import { LoginThrottlerGuard } from './login-throttle.guard';
+import { LoginFailureLimiter } from './login-failure-limiter.service';
 
 class LoginDto {
   @IsEmail({}, { message: 'Enter a valid email address.' })
@@ -66,6 +79,7 @@ export class AuthController {
     private readonly emailService: EmailService,
     private readonly roleSections: RoleSectionAccessService,
     private readonly mfa: MfaService,
+    private readonly loginFailures: LoginFailureLimiter,
   ) {}
 
   /*
@@ -74,20 +88,40 @@ export class AuthController {
    * everywhere else in the API, the cost of guessing wrong is not "hold a
    * valid bearer token" — it's nothing at all.
    *
-   * Ten attempts per account, and a hundred per caller. It used to be ten per
-   * caller, to stop an attacker rotating through addresses to stay under a
-   * per-email limit — but the caller is the web server for everyone who signs
-   * in through the form, so that was ten attempts per company per fifteen
-   * minutes and one person's typing locked the farm out. The ceiling is what
-   * answers the rotation attack now; see LoginThrottlerGuard.
+   * Failed passwords are counted per account; the caller ceiling remains to
+   * bound password spraying without locking out everyone behind the web server.
    */
   @Public()
   @UseGuards(LoginThrottlerGuard)
-  @SkipThrottle({ default: true })
-  @Throttle({ account: { limit: 10, ttl: minutes(15) }, ceiling: { limit: 100, ttl: minutes(15) } })
+  @SkipThrottle({ default: true, account: true })
+  @Throttle({ ceiling: { limit: 100, ttl: minutes(15) } })
   @Post('login')
-  async login(@Body() body: LoginDto) {
-    return this.auth.login(body.email, body.password);
+  async login(
+    @Body() body: LoginDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const retryAfter = this.loginFailures.retryAfter(body.email);
+    if (retryAfter > 0) {
+      response.setHeader('Retry-After-account', retryAfter);
+      throw new HttpException(
+        'Too many unsuccessful sign-in attempts. Try again after the retry period.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    try {
+      const result = await this.auth.login(body.email, body.password);
+      this.loginFailures.clear(body.email);
+      return result;
+    } catch (error) {
+      if (
+        error instanceof UnauthorizedException
+        && error.message === 'Email or password is incorrect.'
+      ) {
+        this.loginFailures.recordFailure(body.email);
+      }
+      throw error;
+    }
   }
 
   /** Counted per challenge token, for the same reason sign-in is per account. */

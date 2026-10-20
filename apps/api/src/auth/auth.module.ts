@@ -7,6 +7,7 @@ import { CoreModule } from '../core.module';
 import { PostingControlModule } from '../posting-control/posting-control.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { LoginFailureLimiter } from './login-failure-limiter.service';
 import { RegistrationService } from './registration.service';
 import { ProvisioningService } from './provisioning.service';
 import { InvitationService } from './invitation.service';
@@ -60,6 +61,7 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
   controllers: [AuthController],
   providers: [
     AuthService,
+    LoginFailureLimiter,
     RegistrationService,
     ProvisioningService,
     InvitationService,
