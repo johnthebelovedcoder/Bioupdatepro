@@ -162,12 +162,13 @@ export class MfaService {
 
 function encryptionKey(): Buffer {
   const configured = process.env.MFA_ENCRYPTION_KEY?.trim();
-  if (!configured || !/^[a-fA-F0-9]{64}$/.test(configured)) {
+  if (!configured || configured.length < 32) {
     throw new InternalServerErrorException(
-      'MFA_ENCRYPTION_KEY must be a 32-byte hex key before authenticator MFA can be configured.',
+      'MFA_ENCRYPTION_KEY must contain at least 32 characters before authenticator MFA can be configured.',
     );
   }
-  return Buffer.from(configured, 'hex');
+  if (/^[a-fA-F0-9]{64}$/.test(configured)) return Buffer.from(configured, 'hex');
+  return createHash('sha256').update(configured, 'utf8').digest();
 }
 
 function encryptSecret(secret: string): string {

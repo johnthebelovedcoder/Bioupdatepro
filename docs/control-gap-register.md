@@ -40,12 +40,13 @@ until the reconciliation itself clears.
 Finance, approval and administrator roles must complete authenticator-app MFA
 before accessing the product. This includes the MD/CEO approval role. Sign-in
 requires a current TOTP code or a single-use recovery code; setup-only sessions
-are restricted to MFA setup and confirmation. The encryption key is configured
-as `MFA_ENCRYPTION_KEY` and must be a protected 32-byte hex value backed up
-outside the application server. Restore the exact key with a database backup:
-changing or losing it makes enrolled authenticator secrets unreadable. Key
-rotation requires a coordinated re-encryption or account recovery procedure;
-there is no in-app key-rotation flow.
+are restricted to MFA setup and confirmation. `MFA_ENCRYPTION_KEY` is generated
+once by Render and must remain stable and be backed up outside the application
+server. The API accepts an existing 32-byte hex key or derives a 256-bit
+encryption key from the generated high-entropy value. Restore the exact value
+with a database backup: changing or losing it makes enrolled authenticator
+secrets unreadable. Key rotation requires a coordinated re-encryption or
+account recovery procedure; there is no in-app key-rotation flow.
 
 ## Built 26 Sep
 

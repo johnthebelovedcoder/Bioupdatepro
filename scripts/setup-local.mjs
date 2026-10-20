@@ -42,7 +42,7 @@ if (!/^JWT_SECRET="?[^"\s]+"?\s*$/m.test(envText)) {
 }
 
 // Authenticator MFA is required for finance, approval, farm-manager, supervisor and
-// administrator roles, and enrolment refuses to start without this 32-byte hex key.
+// administrator roles; generate a stable key before any authenticator is enrolled.
 if (!/^MFA_ENCRYPTION_KEY="?[0-9a-fA-F]{64}"?\s*$/m.test(envText)) {
   const key = randomBytes(32).toString('hex');
   envText = /^MFA_ENCRYPTION_KEY=.*$/m.test(envText)

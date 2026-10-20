@@ -89,15 +89,13 @@ services:
       # records are encrypted on the next start. Never change it once set.
       - key: PII_ENCRYPTION_KEY
         sync: false
-      # Encrypts authenticator (MFA) secrets at rest. REQUIRED: administrator,
-      # CFO, finance, auditor, farm-manager and supervisor accounts must enrol an
-      # authenticator before they can use the app, and enrolment refuses to start
-      # without this key, so those users cannot sign in until it is set. A 32-byte
-      # hex string (node -e "console.log(require('crypto').randomBytes(32).toString('hex'))").
-      # Entered by hand, kept in the password manager and restored with database
-      # backups; losing or changing it locks enrolled users out.
+      # Encrypts authenticator (MFA) secrets at rest. Generated once by Render
+      # and kept stable across deploys. The API derives a 256-bit key from this
+      # high-entropy value; existing 32-byte hex keys remain supported. Back up
+      # this value with database backups: losing or changing it locks enrolled
+      # users out.
       - key: MFA_ENCRYPTION_KEY
-        sync: false
+        generateValue: true
 
   # ---------------------------------------------------------------------------
   # Web — Next.js. The farm-facing application.
