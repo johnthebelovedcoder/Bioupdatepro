@@ -4,6 +4,7 @@ import { PrismaClient } from '@bioassetpro/database';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { AuthService, MAX_SESSION_SECONDS, type JwtPayload } from '../../src/auth/auth.service';
 import { MfaService } from '../../src/auth/mfa.service';
+import { LoginFailureLimiter } from '../../src/auth/login-failure-limiter.service';
 import { AuditService } from '../../src/audit/audit.service';
 import { hashPassword } from '../../src/auth/password';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
@@ -98,5 +99,20 @@ describe('Session renewal', () => {
     if (!('accessToken' in result)) throw new Error('Expected password-only sign-in.');
     expect(result.user.mfaRequired).toBe(false);
     expect(result.user.mfaEnabled).toBe(false);
+  });
+});
+
+describe('shared login failure limiting', () => {
+  it('shares a failed-password window across limiter instances and clears it on success', async () => {
+    const firstInstance = new LoginFailureLimiter(prisma);
+    const secondInstance = new LoginFailureLimiter(prisma);
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await (attempt % 2 === 0 ? firstInstance : secondInstance).recordFailure('Worker@Example.com');
+    }
+
+    expect(await secondInstance.retryAfter('worker@example.com')).toBeGreaterThan(0);
+    await firstInstance.clear('WORKER@example.com');
+    expect(await secondInstance.retryAfter('worker@example.com')).toBe(0);
   });
 });

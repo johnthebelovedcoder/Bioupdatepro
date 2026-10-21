@@ -88,19 +88,15 @@ export class AuthController {
    * everywhere else in the API, the cost of guessing wrong is not "hold a
    * valid bearer token" — it's nothing at all.
    *
-   * Failed passwords are counted per account; the caller ceiling remains to
-   * bound password spraying without locking out everyone behind the web server.
+   * Failed passwords are counted per account in shared database storage.
    */
   @Public()
-  @UseGuards(LoginThrottlerGuard)
-  @SkipThrottle({ default: true, account: true })
-  @Throttle({ ceiling: { limit: 100, ttl: minutes(15) } })
   @Post('login')
   async login(
     @Body() body: LoginDto,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const retryAfter = this.loginFailures.retryAfter(body.email);
+    const retryAfter = await this.loginFailures.retryAfter(body.email);
     if (retryAfter > 0) {
       response.setHeader('Retry-After-account', retryAfter);
       throw new HttpException(
@@ -111,14 +107,14 @@ export class AuthController {
 
     try {
       const result = await this.auth.login(body.email, body.password);
-      this.loginFailures.clear(body.email);
+      await this.loginFailures.clear(body.email);
       return result;
     } catch (error) {
       if (
         error instanceof UnauthorizedException
         && error.message === 'Email or password is incorrect.'
       ) {
-        this.loginFailures.recordFailure(body.email);
+        await this.loginFailures.recordFailure(body.email);
       }
       throw error;
     }

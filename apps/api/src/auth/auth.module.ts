@@ -34,10 +34,9 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
       }),
     }),
     /*
-     * Scoped here, not registered globally — the routes that actually need
-     * brute-force protection (login, register, forgot-password, a reset or
-     * invitation token being redeemed) are the handful of @Public() ones in
-     * this module that accept credentials from someone with no session yet.
+     * Scoped here, not registered globally — the credential and token
+     * redemption routes in this module are the handful of @Public() endpoints
+     * that accept credentials from someone with no session yet.
      * Everything else already sits behind JwtAuthGuard, where the cost of
      * guessing is a valid bearer token, not a password. Each route below
      * applies its own @Throttle() limit; this default only covers one that
@@ -45,15 +44,9 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
      */
     ThrottlerModule.forRoot([
       { name: 'default', ttl: minutes(15), limit: 20 },
-      /*
-       * Sign-in counts twice: once against the account being signed in to,
-       * which is the bucket that stops a password being guessed, and once
-       * against the caller, which is a loose ceiling that stops somebody
-       * working through a list of accounts. The caller is the web server for
-       * every member of staff, so the ceiling has to clear a whole farm
-       * arriving at once — a hundred attempts in a quarter of an hour does,
-       * and a password list does not.
-       */
+      // Authentication challenges and token redemption use account-scoped
+      // limits. Password login has a database-backed failed-attempt limiter;
+      // it does not use the shared web-service caller as a throttle key.
       { name: 'account', ttl: minutes(15), limit: 10 },
       { name: 'ceiling', ttl: minutes(15), limit: 100 },
     ]),
