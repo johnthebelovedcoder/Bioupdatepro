@@ -2473,6 +2473,25 @@ body:has(.offline-banner) .app-sidebar {
   max-width: 400px;
 }
 
+.login-error-notice {
+  display: block;
+}
+
+.login-error-copy,
+.login-error-recovery {
+  margin: 0;
+}
+
+.login-error-recovery {
+  margin-top: var(--sp-2);
+}
+
+.login-error-recovery a {
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* ==========================================================================
    Utilities
    ========================================================================== */

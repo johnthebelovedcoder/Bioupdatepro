@@ -53,8 +53,8 @@ export async function login(
         : retrySecondsFromHeader(response);
     return {
       error: retryAfterSeconds > 0
-        ? `Sign-in is temporarily paused for this account. ${retryAdvice(retryAfterSeconds)}`
-        : 'Sign-in is temporarily paused for this account. Please wait a few minutes before trying again.',
+        ? `Too many unsuccessful sign-in attempts were made for this account. ${retryAdvice(retryAfterSeconds)}`
+        : 'Too many unsuccessful sign-in attempts were made for this account. Sign-in is paused for up to 15 minutes.',
       // Keep the recovery link visible even if an intermediary dropped both
       // retry details and the API's structured response field.
       retryAfterSeconds: retryAfterSeconds > 0 ? retryAfterSeconds : 0,

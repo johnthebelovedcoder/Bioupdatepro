@@ -14,13 +14,12 @@ export function LoginForm() {
   return (
     <form action={formAction} className="stack">
       {state.error ? (
-        <div className="notice notice-error" role="alert">
-          {state.error}
+        <div className="notice notice-error login-error-notice" role="alert">
+          <p className="login-error-copy">{state.error}</p>
           {state.retryAfterSeconds !== null ? (
-            <>
-              {' '}
-              <Link href="/forgot-password">Reset your password</Link> if you can’t sign in after the wait.
-            </>
+            <p className="login-error-recovery">
+              <Link href="/forgot-password">Reset your password</Link> to regain access sooner.
+            </p>
           ) : null}
         </div>
       ) : null}
