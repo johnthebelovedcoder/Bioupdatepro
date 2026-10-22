@@ -98,11 +98,15 @@ export class AuthController {
   ) {
     const retryAfter = await this.loginFailures.retryAfter(body.email);
     if (retryAfter > 0) {
-      response.setHeader('Retry-After-account', retryAfter);
-      throw new HttpException(
-        'Too many unsuccessful sign-in attempts. Try again after the retry period.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      // Use the standard header so hosting proxies and HTTP clients preserve
+      // the actual cooldown. A custom bucket-specific header was sometimes
+      // stripped in transit, leaving the sign-in page with its vague fallback.
+      response.setHeader('Retry-After', retryAfter);
+      throw new HttpException({
+        statusCode: HttpStatus.TOO_MANY_REQUESTS,
+        message: 'Too many unsuccessful sign-in attempts.',
+        retryAfterSeconds: retryAfter,
+      }, HttpStatus.TOO_MANY_REQUESTS);
     }
 
     try {

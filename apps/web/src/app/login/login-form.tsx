@@ -6,7 +6,7 @@ import { useFormStatus } from 'react-dom';
 import { login, type LoginState } from './actions';
 import { PasswordField } from '@/components/password-field';
 
-const initialState: LoginState = { error: null };
+const initialState: LoginState = { error: null, retryAfterSeconds: null };
 
 export function LoginForm() {
   const [state, formAction] = useActionState(login, initialState);
@@ -16,6 +16,12 @@ export function LoginForm() {
       {state.error ? (
         <div className="notice notice-error" role="alert">
           {state.error}
+          {state.retryAfterSeconds !== null ? (
+            <>
+              {' '}
+              <Link href="/forgot-password">Reset your password</Link> if you can’t sign in after the wait.
+            </>
+          ) : null}
         </div>
       ) : null}
 

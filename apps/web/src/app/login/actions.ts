@@ -8,6 +8,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
 export interface LoginState {
   error: string | null;
+  retryAfterSeconds: number | null;
 }
 
 /**
@@ -24,7 +25,7 @@ export async function login(
   const password = String(formData.get('password') ?? '');
 
   if (!email || !password) {
-    return { error: 'Enter your email address and password.' };
+    return { error: 'Enter your email address and password.', retryAfterSeconds: null };
   }
 
   let response: Response;
@@ -38,16 +39,26 @@ export async function login(
   } catch {
     return {
       error: `Cannot reach the BioAssetPro API at ${API_URL}. Is it running?`,
+      retryAfterSeconds: null,
     };
   }
 
   if (response.status === 429) {
-    // The API's throttle answers with its exception's name, which means nothing
-    // to a person. It does say how long the wait is, though, in a Retry-After
-    // header named after whichever bucket ran out — and "wait a few minutes"
-    // sent people back to the form every thirty seconds to spend the attempts
-    // they were waiting to get back.
-    return { error: `Too many sign-in attempts. ${retryAdvice(response)}` };
+    // The response body carries the cooldown as well as the standard header:
+    // some hosting layers preserve one but not the other.
+    const body = (await response.json().catch(() => null)) as { retryAfterSeconds?: unknown } | null;
+    const retryAfterSeconds =
+      typeof body?.retryAfterSeconds === 'number' && Number.isFinite(body.retryAfterSeconds)
+        ? body.retryAfterSeconds
+        : retrySecondsFromHeader(response);
+    return {
+      error: retryAfterSeconds > 0
+        ? `Sign-in is temporarily paused for this account. ${retryAdvice(retryAfterSeconds)}`
+        : 'Sign-in is temporarily paused for this account. Please wait a few minutes before trying again.',
+      // Keep the recovery link visible even if an intermediary dropped both
+      // retry details and the API's structured response field.
+      retryAfterSeconds: retryAfterSeconds > 0 ? retryAfterSeconds : 0,
+    };
   }
 
   if (!response.ok) {
@@ -66,7 +77,7 @@ export async function login(
       : typeof body?.message === 'string'
         ? body.message
         : "BioAssetPro didn't respond correctly — it may still be starting up. Wait a few seconds and try again.";
-    return { error: message };
+    return { error: message, retryAfterSeconds: null };
   }
 
   const result = (await response.json()) as AuthenticationResult;
@@ -74,23 +85,22 @@ export async function login(
 }
 
 /**
- * How long to wait, from whichever Retry-After header the throttle sent.
- *
- * The headers are named per bucket — `Retry-After-account` when it is this
- * account's attempts that are spent, `Retry-After-ceiling` when the whole
- * server is being hammered — so take the longest of them rather than guessing
- * which one applies.
+ * How long to wait from the standard Retry-After header. Accept older
+ * bucket-specific headers during a rolling deployment.
  */
-function retryAdvice(response: Response): string {
+function retrySecondsFromHeader(response: Response): number {
   let seconds = 0;
   response.headers.forEach((value, name) => {
     if (!name.toLowerCase().startsWith('retry-after')) return;
     const parsed = Number.parseInt(value, 10);
     if (Number.isFinite(parsed) && parsed > seconds) seconds = parsed;
   });
+  return seconds;
+}
 
+function retryAdvice(seconds: number): string {
   if (seconds <= 0) return 'Wait a few minutes, then try again.';
-  if (seconds < 90) return `Try again in ${Math.max(1, Math.ceil(seconds / 10) * 10)} seconds.`;
+  if (seconds < 90) return `Try again in ${seconds} seconds.`;
   const minutes = Math.ceil(seconds / 60);
   return `Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
 }
