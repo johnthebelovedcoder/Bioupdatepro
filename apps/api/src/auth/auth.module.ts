@@ -7,7 +7,6 @@ import { CoreModule } from '../core.module';
 import { PostingControlModule } from '../posting-control/posting-control.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { LoginFailureLimiter } from './login-failure-limiter.service';
 import { RegistrationService } from './registration.service';
 import { ProvisioningService } from './provisioning.service';
 import { InvitationService } from './invitation.service';
@@ -45,8 +44,7 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
     ThrottlerModule.forRoot([
       { name: 'default', ttl: minutes(15), limit: 20 },
       // Authentication challenges and token redemption use account-scoped
-      // limits. Password login has a database-backed failed-attempt limiter;
-      // it does not use the shared web-service caller as a throttle key.
+      // limits. Password login does not lock accounts after failed attempts.
       { name: 'account', ttl: minutes(15), limit: 10 },
       { name: 'ceiling', ttl: minutes(15), limit: 100 },
     ]),
@@ -54,7 +52,6 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
   controllers: [AuthController],
   providers: [
     AuthService,
-    LoginFailureLimiter,
     RegistrationService,
     ProvisioningService,
     InvitationService,

@@ -2,18 +2,14 @@ import {
   Body,
   Controller,
   Get,
-  HttpException,
-  HttpStatus,
   Param,
   Post,
   Req,
-  Res,
-  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { IsEmail, IsString, MinLength } from 'class-validator';
 import { SkipThrottle, Throttle, minutes } from '@nestjs/throttler';
-import type { Request, Response } from 'express';
+import type { Request } from 'express';
 import { AuthService, AuthenticatedUser } from './auth.service';
 import { CurrentCompany, CurrentUser, Public } from './current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -25,7 +21,6 @@ import { RoleSectionAccessService } from './role-section-access.service';
 import { Roles, AnyRole } from './roles.guard';
 import { MfaService } from './mfa.service';
 import { LoginThrottlerGuard } from './login-throttle.guard';
-import { LoginFailureLimiter } from './login-failure-limiter.service';
 
 class LoginDto {
   @IsEmail({}, { message: 'Enter a valid email address.' })
@@ -79,49 +74,13 @@ export class AuthController {
     private readonly emailService: EmailService,
     private readonly roleSections: RoleSectionAccessService,
     private readonly mfa: MfaService,
-    private readonly loginFailures: LoginFailureLimiter,
   ) {}
 
-  /*
-   * Brute-force protection lives here, not on every route: this is the one
-   * place a stolen password list actually gets tested against, and unlike
-   * everywhere else in the API, the cost of guessing wrong is not "hold a
-   * valid bearer token" — it's nothing at all.
-   *
-   * Failed passwords are counted per account in shared database storage.
-   */
+  /** A failed password never locks the account or blocks its next sign-in. */
   @Public()
   @Post('login')
-  async login(
-    @Body() body: LoginDto,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    const retryAfter = await this.loginFailures.retryAfter(body.email);
-    if (retryAfter > 0) {
-      // Use the standard header so hosting proxies and HTTP clients preserve
-      // the actual cooldown. A custom bucket-specific header was sometimes
-      // stripped in transit, leaving the sign-in page with its vague fallback.
-      response.setHeader('Retry-After', retryAfter);
-      throw new HttpException({
-        statusCode: HttpStatus.TOO_MANY_REQUESTS,
-        message: 'Too many unsuccessful sign-in attempts.',
-        retryAfterSeconds: retryAfter,
-      }, HttpStatus.TOO_MANY_REQUESTS);
-    }
-
-    try {
-      const result = await this.auth.login(body.email, body.password);
-      await this.loginFailures.clear(body.email);
-      return result;
-    } catch (error) {
-      if (
-        error instanceof UnauthorizedException
-        && error.message === 'Email or password is incorrect.'
-      ) {
-        await this.loginFailures.recordFailure(body.email);
-      }
-      throw error;
-    }
+  async login(@Body() body: LoginDto) {
+    return this.auth.login(body.email, body.password);
   }
 
   /** Counted per challenge token, for the same reason sign-in is per account. */

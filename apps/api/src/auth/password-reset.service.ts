@@ -12,7 +12,6 @@ import { EmailService } from './email.service';
 import { hashPassword } from './password';
 import { passwordProblem } from './registration.service';
 import { AuthService, type AuthLoginResult } from './auth.service';
-import { LoginFailureLimiter } from './login-failure-limiter.service';
 import { AuditAction } from '@bioassetpro/database';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
@@ -51,7 +50,6 @@ export class PasswordResetService {
     private readonly audit: AuditService,
     private readonly auth: AuthService,
     private readonly email: EmailService,
-    private readonly loginFailures: LoginFailureLimiter,
   ) {}
 
   /** Create a reset link and return the raw token ONCE — same discipline as `InvitationService.invite()`. */
@@ -223,10 +221,6 @@ export class PasswordResetService {
       );
     });
 
-    // A changed password makes the old failed-password window obsolete. Clear
-    // it before issuing the new session so a later sign-in cannot be blocked
-    // by attempts against the password that was just replaced.
-    await this.loginFailures.clear(reset.user.email);
     return this.auth.login(reset.user.email, params.password);
   }
 

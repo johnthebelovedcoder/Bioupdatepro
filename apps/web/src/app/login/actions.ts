@@ -8,7 +8,6 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
 export interface LoginState {
   error: string | null;
-  retryAfterSeconds: number | null;
 }
 
 /**
@@ -25,7 +24,7 @@ export async function login(
   const password = String(formData.get('password') ?? '');
 
   if (!email || !password) {
-    return { error: 'Enter your email address and password.', retryAfterSeconds: null };
+    return { error: 'Enter your email address and password.' };
   }
 
   let response: Response;
@@ -39,13 +38,13 @@ export async function login(
   } catch {
     return {
       error: `Cannot reach the BioAssetPro API at ${API_URL}. Is it running?`,
-      retryAfterSeconds: null,
     };
   }
 
   if (response.status === 429) {
-    // The response body carries the cooldown as well as the standard header:
-    // some hosting layers preserve one but not the other.
+    // Account-specific lockout was removed. A 429 now means an upstream
+    // platform is temporarily limiting traffic, so never claim the account is
+    // blocked or suggest a password reset as a way around it.
     const body = (await response.json().catch(() => null)) as { retryAfterSeconds?: unknown } | null;
     const retryAfterSeconds =
       typeof body?.retryAfterSeconds === 'number' && Number.isFinite(body.retryAfterSeconds)
@@ -53,11 +52,8 @@ export async function login(
         : retrySecondsFromHeader(response);
     return {
       error: retryAfterSeconds > 0
-        ? `Too many unsuccessful sign-in attempts were made for this account. ${retryAdvice(retryAfterSeconds)}`
-        : 'Too many unsuccessful sign-in attempts were made for this account. Sign-in is paused for up to 15 minutes.',
-      // Keep the recovery link visible even if an intermediary dropped both
-      // retry details and the API's structured response field.
-      retryAfterSeconds: retryAfterSeconds > 0 ? retryAfterSeconds : 0,
+        ? `The sign-in service is temporarily limiting requests. ${retryAdvice(retryAfterSeconds)}`
+        : 'The sign-in service is temporarily limiting requests. Please wait a moment and try again.',
     };
   }
 
@@ -77,7 +73,7 @@ export async function login(
       : typeof body?.message === 'string'
         ? body.message
         : "BioAssetPro didn't respond correctly — it may still be starting up. Wait a few seconds and try again.";
-    return { error: message, retryAfterSeconds: null };
+    return { error: message };
   }
 
   const result = (await response.json()) as AuthenticationResult;

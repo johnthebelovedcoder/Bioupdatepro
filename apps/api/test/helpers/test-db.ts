@@ -39,7 +39,6 @@ export async function resetDatabase(prisma: PrismaClient): Promise<void> {
   // runs this.
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
-      login_failure_windows,
       close_packs,
       farm_abc_rates,
       egg_value_policies,
