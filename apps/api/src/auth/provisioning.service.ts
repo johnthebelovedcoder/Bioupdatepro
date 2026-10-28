@@ -281,7 +281,6 @@ export const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boole
   { type: 'PAYROLL_PAYMENT', name: 'Payroll Payment', autoPost: true },
   { type: 'PERIOD_CLOSE', name: 'Period Close', autoPost: false },
   { type: 'PERIOD_REOPEN', name: 'Period Reopen', autoPost: false },
-  { type: 'PERIOD_REOPEN', name: 'Period Reopen', autoPost: false },
 ];
 
 const MONTHS = [
