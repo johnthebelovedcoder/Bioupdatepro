@@ -32,4 +32,25 @@ describe('approval routes at sign-up', () => {
     expect(submitted.size).toBeGreaterThan(10);
     expect([...submitted].filter((type) => !routed.has(type)).sort()).toEqual([]);
   });
+
+  /*
+   * A type listed twice gives the new farm two company-wide ladders for it,
+   * both with no scope at all — and routing refuses a tie rather than guess
+   * ("Approval routing must be unambiguous"). So a duplicate does not create a
+   * harmless extra row: it blocks that document type outright, for every farm
+   * provisioned since the duplicate was added. PERIOD_REOPEN was listed twice,
+   * which meant a finance team that closed a month by mistake could not get it
+   * reopened. The set above cannot see this, which is why it is counted here.
+   */
+  it('list each transaction type exactly once', () => {
+    const provisioning = readFileSync(join(src, 'auth', 'provisioning.service.ts'), 'utf8');
+    const block = provisioning.slice(
+      provisioning.indexOf('const WORKFLOW_TYPES'),
+      provisioning.indexOf('];', provisioning.indexOf('const WORKFLOW_TYPES')),
+    );
+    const listed = [...block.matchAll(/type: '([A-Z_]+)'/g)].map((m) => m[1]!);
+    const seen = new Set<string>();
+    const twice = listed.filter((type) => (seen.has(type) ? true : (seen.add(type), false)));
+    expect(twice).toEqual([]);
+  });
 });
