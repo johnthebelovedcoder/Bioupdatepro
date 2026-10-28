@@ -6,6 +6,17 @@ import { finishAuthentication, type AuthenticationResult } from '@/lib/auth-resu
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
+/*
+ * Long enough to outlast a cold start, short enough to end in an explanation.
+ *
+ * The API runs on an instance type that stops when nobody is using it, and the
+ * next request has to wait for it to come back: measured at 53 to 56 seconds
+ * from cold. Without a deadline the form waits on the platform's, which is
+ * both longer and silent. Anything under a minute would turn a successful
+ * wake-up into a failure, which is the opposite of the point.
+ */
+const WAKE_TIMEOUT_MS = 75_000;
+
 export interface LoginState {
   error: string | null;
 }
@@ -34,11 +45,17 @@ export async function login(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email, password }),
       cache: 'no-store',
+      signal: AbortSignal.timeout(WAKE_TIMEOUT_MS),
     });
   } catch {
-    return {
-      error: `Cannot reach the BioAssetPro API at ${API_URL}. Is it running?`,
-    };
+    /*
+     * This used to name the API's address and ask whether it was running,
+     * which reads as a developer's note to themselves. The person seeing it
+     * signs into a farm system; the address is of no use to them, and it is
+     * not theirs to publish either — the browser never calls the API, so this
+     * server-side address appeared on screen for no reason.
+     */
+    return { error: unreachableMessage() };
   }
 
   if (response.status === 429) {
@@ -54,6 +71,21 @@ export async function login(
       error: retryAfterSeconds > 0
         ? `The sign-in service is temporarily limiting requests. ${retryAdvice(retryAfterSeconds)}`
         : 'The sign-in service is temporarily limiting requests. Please wait a moment and try again.',
+    };
+  }
+
+  /*
+   * 502/503/504 from the platform while the instance comes back up. The body
+   * is the platform's HTML, not ours, so there is nothing to quote — and the
+   * general wording below says "wait a few seconds", which undersells a wake
+   * that takes the better part of a minute and invites a second click that
+   * starts the wait again.
+   */
+  if (response.status === 502 || response.status === 503 || response.status === 504) {
+    return {
+      error:
+        'BioAssetPro is starting up. This takes up to a minute after a quiet ' +
+        'spell — wait for it to finish rather than signing in again.',
     };
   }
 
@@ -99,6 +131,24 @@ function retryAdvice(seconds: number): string {
   if (seconds < 90) return `Try again in ${seconds} seconds.`;
   const minutes = Math.ceil(seconds / 60);
   return `Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+}
+
+/**
+ * What to say when the API could not be reached at all.
+ *
+ * Away from production the address is the useful part of the message, because
+ * the reader is the person who has to start it. In production it is noise at
+ * best, so the message says what happened and what to do instead.
+ */
+function unreachableMessage(): string {
+  if (process.env.NODE_ENV !== 'production') {
+    return `Cannot reach the BioAssetPro API at ${API_URL}. Is it running?`;
+  }
+  return (
+    'BioAssetPro did not answer in time. It may be starting up after a quiet ' +
+    'spell — wait a moment and try again. If this keeps happening, tell whoever ' +
+    'administers the server.'
+  );
 }
 
 export async function logout(): Promise<void> {

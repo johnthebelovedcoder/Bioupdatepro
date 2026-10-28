@@ -96,6 +96,16 @@ services:
       # users out.
       - key: MFA_ENCRYPTION_KEY
         generateValue: true
+      # Which services the API pings every ten minutes so Render does not stop
+      # them mid-morning (see apps/api/src/common/keep-warm.service.ts). It
+      # pings only on weekdays, 06:00-19:00 Lagos, because a free workspace has
+      # 750 instance hours a month across every free service and Render
+      # suspends them all for the rest of the month once they are spent —
+      # holding two services awake around the clock would need about 1,488.
+      # Remove this once the services are on an instance type that does not
+      # stop; then nothing needs keeping awake.
+      - key: KEEP_WARM_URLS
+        value: https://bioassetpro-api.onrender.com/api/health,https://bioassetpro-web.onrender.com/login
 
   # ---------------------------------------------------------------------------
   # Web — Next.js. The farm-facing application.
