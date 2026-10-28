@@ -1,4 +1,5 @@
 import { HealthController } from './common/health.controller';
+import { KeepWarmService } from './common/keep-warm.service';
 import { Module } from '@nestjs/common';
 import { AuthModule } from './auth/auth.module';
 import { CoreModule } from './core.module';
@@ -88,7 +89,7 @@ const developmentOnlyControllers =
     LeaveModule,
     NotificationsModule,
   ],
-  providers: [KpiService],
+  providers: [KpiService, KeepWarmService],
   controllers: [
     HealthController,
     MastersController,
