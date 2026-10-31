@@ -18,10 +18,16 @@ Tests are in `apps/api/test/integration/`. Run them with
 
 | Status | Rows |
 |---|---|
-| Built | 64 |
+| Built | 63 |
 | Built 26 Sep | 23 |
 | Partial | 0 |
-| Not built | 0 |
+| Not enforced | 1 |
+
+The one not enforced is INT-034, authenticator MFA: built, then switched off
+on 2026-10-20 pending a test of the setup, verification and recovery flow. It
+is counted here rather than left inside the Built total, because a control
+register that reports a security control as built while it is off is worse
+than one that reports nothing.
 
 88 rows; AC-001, a check on the workbook itself rather than the application, is not counted.
 
@@ -62,12 +68,12 @@ rows marked Built above):
 | AC-HR-003 | Leave on the Nigerian Labour Act minimums (s.18 annual 6 days after 12 months, carried a year then lapsing; s.16 sick 12 days with a certificate; s.54 maternity 12 weeks at 50% after 6 months); requests checked for balance and overlap and approved by someone else; balances and liability (RPT-HR-007); unpaid days off gross before PAYE, shown on the payslip | leave.spec; payroll.spec: "takes approved unpaid leave off gross before PAYE" |
 | AC-ENT-001 / AC-013 | The direct-method cash flow: every bank movement classified by the other side of its journal (customers, suppliers, employees, taxes, investing, financing), beside the indirect method, with the checks direct = bank, indirect = bank, direct operating = indirect operating. It found the indirect method leaving VAT and withholding out of working capital, now fixed | cash-flow.spec; case-500-snail.spec (REP-019) |
 | AC-MFG-009 / POL-010 | The depreciation schedule: per asset, cost, opening and closing accumulated depreciation, the charge split between depreciation expense and each processing line (read from the posted journals), disposal write-offs and net book value; checks that the charge equals expensed plus absorbed, and that accumulated depreciation and cost agree with the ledger | fixed-assets.spec: "schedules depreciation per asset, expensed and absorbed" |
-| INT-025 | Incubators are registered with their capacity and a set that would overfill one is refused; setter readings outside the standard must be acknowledged before a hatch; the hatch reconciles to candling; eggs from a flock in withdrawal cannot be table eggs | poultry-egg.spec (to be written with the joint test) |
-| AC-HR-002 | Approved hours reconcile to the payroll register, payroll expense to what was allocated to batches, and nobody with approved hours goes unpaid; the period cannot close until it agrees | labour-reconciliation.spec (to be written with the joint test) |
-| AC-MFG-004 | A cost pool is tied to its ledger accounts, and its ledger cost reconciles to absorbed cost plus unused capacity, with the spending variance shown | costing.spec (to be written with the joint test) |
-| POL-009 | Variances can be prorated at year end over cost of sales, finished goods and WIP, and reversed into the next year | standard-costing.spec (to be written with the joint test) |
-| INT-013 | Overlapping shifts and time on closed orders or batches are refused, at entry and again at approval | farm-costing.spec (to be written with the joint test) |
-| AC-015 | Email and WhatsApp notices go only for events approved for that channel, to active users, and by WhatsApp only to a number verified by a 6-digit code (10 minutes, five tries) with consent not withdrawn; the gate runs again when the message is sent, and a blocked message is kept as failed with its reason | notifications.spec (to be written with the joint test) |
+| INT-025 | Incubators are registered with their capacity and a set that would overfill one is refused; setter readings outside the standard must be acknowledged before a hatch; the hatch reconciles to candling; eggs from a flock in withdrawal cannot be table eggs | controls.spec: "fits sets to registered incubators and holds the hatch for unacknowledged exceptions and candling" |
+| AC-HR-002 | Approved hours reconcile to the payroll register, payroll expense to what was allocated to batches, and nobody with approved hours goes unpaid; the period cannot close until it agrees | controls.spec: "refuses overlapping shifts and time on a closed order, and reconciles hours to pay" |
+| AC-MFG-004 | A cost pool is tied to its ledger accounts, and its ledger cost reconciles to absorbed cost plus unused capacity, with the spending variance shown | production-order.spec (cost pool against absorbed cost plus unused capacity) |
+| POL-009 | Variances can be prorated at year end over cost of sales, finished goods and WIP, and reversed into the next year | standard-costing.spec, feed-mill-approved.spec (year-end variance proration) |
+| INT-013 | Overlapping shifts and time on closed orders or batches are refused, at entry and again at approval | controls.spec: "refuses overlapping shifts and time on a closed order, and reconciles hours to pay" |
+| AC-015 | Email and WhatsApp notices go only for events approved for that channel, to active users, and by WhatsApp only to a number verified by a 6-digit code (10 minutes, five tries) with consent not withdrawn; the gate runs again when the message is sent, and a blocked message is kept as failed with its reason | controls.spec (WhatsApp verification, consent, and the gate re-checked at send) |
 | AC-PAY-002 | Neither the preparer nor the approver of a payroll run can pay it | payroll.spec: "is paid by neither whoever prepared the run nor whoever approved it" |
 | POL-001 tolerance | A total variance beyond the year's tolerance settles only with a reason | standard-costing.spec: "settles a variance beyond the year's tolerance only with a reason" |
 | POL-003 | Standards carry six parts: material, packaging, labour, machine, overhead, depreciation | standard-costing.spec: "reports the six parts of POL-003" |
@@ -176,4 +182,4 @@ recovery close to zero for both species.
 | INT-031 | TB and statements | Built | Built from postings, never typed balances; reconciliations |
 | INT-032 | Month close | Built | closing.spec |
 | INT-033 | Year close | Built | closing.spec |
-| INT-034 | Security/audit | Built | Finance, approval and administrator roles require authenticator-app MFA; enrollment, one-time recovery codes, replay protection and restricted setup sessions are covered by auth-session.spec. Role-based access and append-only audit remain enforced. |
+| INT-034 | Security/audit | **Not enforced** | Enrollment, one-time recovery codes, replay protection and restricted setup sessions are built. Enforcement was switched off on 2026-10-20 (`6c891ea`), so finance, approval and administrator roles sign in on a password alone, and auth-session.spec now asserts that ("temporarily allows password-only sign-in for roles that normally require MFA"). Role-based access and append-only audit remain enforced. See "Authenticator MFA" above. |

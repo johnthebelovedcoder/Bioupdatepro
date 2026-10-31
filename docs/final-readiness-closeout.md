@@ -4,6 +4,35 @@
 
 ## Current readiness
 
+> **Superseded in part, 2026-10-31.** The bullets below were written on
+> 2 October and several are no longer true. Corrected against commit
+> `6839448`:
+>
+> - **The suite is green.** Unit 118/118, integration 620/620 across 61 files,
+>   in 11 minutes. The "520 passing and 9 failing" and "54/54 unit" figures
+>   below are superseded, as is the 50-minute run time behind the 90-minute CI
+>   timeout.
+> - **Provisioning is on the approved five-digit chart.** `ProvisionChart`
+>   defaults to `'APPROVED'`, and posting-control provisioning marks the
+>   superseded chart inert for a company already on it. The statements below
+>   that the application "still provisions and posts against six-digit SPEC
+>   codes" no longer hold.
+> - **Migrations are applied.** The live database reports `0053`; `0037–0045`
+>   are long since in. Gate 4's rehearsal step is written against a gap that
+>   has closed.
+> - **Nothing is unpushed.** Everything described here is merged to `main`.
+> - **Requirement traceability now exists** for handbook §11: see
+>   [frs-traceability.md](frs-traceability.md).
+>
+> What has **not** changed: Finance has not signed the account-level
+> crosswalk, the UAT and data-classification work in Gates 2, 3 and 5 is
+> outstanding, and the database credential in action-register item 1 has not
+> been rotated. Two controls are satisfied in code but not in the running
+> deployment — `PII_ENCRYPTION_KEY` is unset and MFA enforcement is off — both
+> recorded in the traceability document above. The release decision below
+> stands until Finance and the client sponsor move it.
+
+
 - Baseline application changes through commit `82ece7a` are pushed to `origin/main`; the current closeout changes in the working tree have not been pushed.
 - API source and test TypeScript checks pass. Focused integration suites on the disposable local PostgreSQL database passed 11/11 snail UAT, poultry UAT, and feed-mill standard-costing tests. Subsequent focused reruns also passed the journal-number format, finance soft-close restriction, approved posting-engine provisioning count, sales receipt validation, variance proration, and relative-sales-value/by-product-NRV cases. The indirect cash-flow bridge includes viable egg balances and removes biological/produce gains presented as other income.
 - The CI job timeout is now 90 minutes because the latest full local integration run took about 50 minutes. CI has not yet run on this working tree; the latest full run still has one confirmed COA failure. The local change gives CI enough time to report the complete suite result.
