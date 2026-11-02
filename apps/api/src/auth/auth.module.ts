@@ -5,6 +5,7 @@ import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule, minutes } from '@nestjs/throttler';
 import { CoreModule } from '../core.module';
 import { PostingControlModule } from '../posting-control/posting-control.module';
+import { FarmConfigModule } from '../farm-config/farm-config.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { RegistrationService } from './registration.service';
@@ -25,6 +26,7 @@ import { JWT_EXPIRES_IN, jwtSecret } from './jwt.config';
   imports: [
     CoreModule,
     PostingControlModule,
+    FarmConfigModule,
     PassportModule,
     JwtModule.registerAsync({
       useFactory: () => ({

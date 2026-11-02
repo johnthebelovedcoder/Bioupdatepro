@@ -42,6 +42,7 @@ export async function signup(
   const farmName = String(formData.get('farmName') ?? '').trim();
   const email = String(formData.get('email') ?? '').trim();
   const password = String(formData.get('password') ?? '');
+  const modules = formData.getAll('modules').map(String).filter(Boolean);
 
   // Handed back on every failure path so nothing typed is ever lost.
   const kept = { fullName, farmName, email };
@@ -58,7 +59,7 @@ export async function signup(
     response = await fetch(`${API_URL}/auth/register`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ fullName, email, password, farmName }),
+      body: JSON.stringify({ fullName, email, password, farmName, modules: modules.length ? modules : undefined }),
       cache: 'no-store',
     });
   } catch {

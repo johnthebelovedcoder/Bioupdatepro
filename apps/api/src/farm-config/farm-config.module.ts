@@ -5,5 +5,6 @@ import { FarmConfigService } from './farm-config.service';
 @Module({
   controllers: [FarmConfigController],
   providers: [FarmConfigService],
+  exports: [FarmConfigService],
 })
 export class FarmConfigModule {}

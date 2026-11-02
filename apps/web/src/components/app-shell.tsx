@@ -16,6 +16,7 @@ import { NotificationBell } from './notification-bell';
 import { SyncStatus } from './sync-status';
 import { BottomNav } from './bottom-nav';
 import { OfflineSupport } from './offline-support';
+import { RememberUser } from './remember-user';
 import { IconMenu } from './icons';
 
 /**
@@ -69,6 +70,7 @@ export function AppShell({
     <RolesProvider roles={user.roles} roleSectionOverrides={roleSectionOverrides}>
     <div className="app-shell">
       <OfflineSupport />
+      <RememberUser email={user.email} fullName={user.fullName} />
       {navOpen ? (
         <button
           type="button"
