@@ -22,7 +22,7 @@ somebody.
 | # | Check | How | If it fails |
 |---|---|---|---|
 | 1 | **The API is awake** | Open `/api/health`. It should answer at once and report the current commit. | A cold start takes 53–56 seconds. Open it ten minutes before the call, not at the start. |
-| 2 | **Period reopen works** | **Period close** → close a period, then reopen it. | If it refuses with a workflow-routing error naming two matching definitions, migration `0053` has not reached that database. Stop and say so; do not demonstrate FR-GL-02. |
+| 2 | **Period close is ready** | **Period close** → open the checklist for an older period. Verify you can see the 14 items and that settlement and close are not blocked by a routing error. | If it refuses with a workflow-routing error naming two matching definitions, migration `0053` has not reached that database. Stop and say so; do not demonstrate FR-GL-02. **Do not attempt a full close — it requires settling all 14 checklist items, raising FVLCTS valuations for every population, and approving them through a four-level ladder. That is real month-end, not a demo step.** |
 | 3 | **Employee numbers are encrypted** | **Employees** → open one → reveal the bank account. | If `PII_ENCRYPTION_KEY` is still unset the number shows in clear from storage. You can still demo the control (access is logged), but say plainly it is not yet encrypted at rest. |
 | 4 | **Know what MFA will do** | Sign in once, fresh. | Enforcement is off, so a CFO sign-in asks for a password only. If they ask, answer straight: built, switched off on 20 October pending a test of the recovery flow. |
 
@@ -164,14 +164,37 @@ payment. Three numbers, one figure.
 |---|---|
 | **Journal entries** (`/ledger/journals`) | A posted journal: balanced, dimensioned, drilling back to its source |
 | **Journals** (`/finance/journals`) | That a correction is a reversal, never an edit |
-| **Period close** (`/ledger/period-close`) | The checklist; posting into a closed period refused |
+| **Period close** (`/ledger/period-close`) | The checklist and what the close demands (see below) |
 | **Year-end close** (`/ledger/year-end`) | Revenue swept, balance sheet carried forward |
 
-**The reopen demonstration (FR-GL-02)** is the one to rehearse beforehand —
-check 2 in the preparation table. Close a period, show the refusal, then
-reopen it through the approval workflow and show the reopen in the audit
-trail. *"All reopen activity audited"* is the acceptance rule, so finish on
-**Audit trail**, not on the close screen.
+> **Period close is real month-end, not a demo step.** Closing a period
+> requires settling every item on its 14-point checklist (mark each
+> COMPLETE or WAIVED), raising an FVLCTS valuation for every live
+> population, approving each valuation through the four-level approval
+> ladder (Farm Manager → Finance Manager → Controller → CFO), and only
+> then does the close button succeed. Reopening a closed period also
+> routes through the approval ladder. This is by design — it enforces
+> the discipline the acceptance rules demand — but it is **not** a
+> two-minute demo.
+
+**What to show instead of a live close:**
+
+1. Open **Period close** and show the checklist for an older period — the 14
+   items, the settlement controls, and the "Close" button that refuses until
+   everything is settled and every valuation approved.
+2. Show that posting into an already-closed period is refused (pick a period
+   the seed data already closed, or show the API's `PostingService` period
+   gate in the code).
+3. Explain the reopen path: *"Reopening routes through the same approval
+   ladder, and every reopen is logged in the audit trail — that is the
+   FR-GL-02 acceptance rule."*
+4. If they ask to see a live close, offer to walk through it in a follow-up
+   working session — it is a 30–45 minute process with real data, which is
+   exactly the point.
+
+Finish on **Audit trail** — *"all reopen activity audited"* is the
+acceptance rule, and showing that an audit row exists for every period
+state change lands better than trying to race through the workflow.
 
 ---
 
