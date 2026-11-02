@@ -7,7 +7,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
 import { SkipThrottle, Throttle, minutes } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService, AuthenticatedUser } from './auth.service';
@@ -46,6 +46,11 @@ class RegisterDto {
   @IsString()
   @MinLength(2, { message: 'Enter the name of your farm.' })
   farmName!: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  modules?: string[];
 }
 
 class MfaLoginDto {

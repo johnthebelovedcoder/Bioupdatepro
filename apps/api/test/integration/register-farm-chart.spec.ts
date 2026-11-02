@@ -8,6 +8,7 @@ import { MfaService } from '../../src/auth/mfa.service';
 import { ProvisioningService } from '../../src/auth/provisioning.service';
 import { RegistrationService } from '../../src/auth/registration.service';
 import { PostingControlProvisioningService } from '../../src/posting-control/posting-control-provisioning.service';
+import { FarmConfigService } from '../../src/farm-config/farm-config.service';
 import { resetDatabase } from '../helpers/test-db';
 
 /**
@@ -43,6 +44,7 @@ beforeAll(() => {
     new ProvisioningService(),
     auth,
     new PostingControlProvisioningService(prisma, audit),
+    new FarmConfigService(prisma, audit),
   );
 });
 

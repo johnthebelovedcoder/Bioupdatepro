@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { ProvisioningService } from './provisioning.service';
 import { PostingControlProvisioningService } from '../posting-control/posting-control-provisioning.service';
+import { FarmConfigService } from '../farm-config/farm-config.service';
 import { hashPassword } from './password';
 import { AuthService, type AuthLoginResult } from './auth.service';
 
@@ -26,6 +27,7 @@ export class RegistrationService {
     private readonly provisioning: ProvisioningService,
     private readonly auth: AuthService,
     private readonly postingControlProvisioning: PostingControlProvisioningService,
+    private readonly farmConfig: FarmConfigService,
   ) {}
 
   async register(input: {
@@ -34,6 +36,7 @@ export class RegistrationService {
     password: string;
     farmName: string;
     financialYearStartMonth?: number;
+    modules?: string[];
   }): Promise<AuthLoginResult> {
     const email = input.email.trim().toLowerCase();
     const fullName = input.fullName.trim();
@@ -97,6 +100,18 @@ export class RegistrationService {
     const created = await this.prisma.user.findUnique({ where: { email }, select: { id: true, companyId: true } });
     if (created?.companyId) {
       await this.postingControlProvisioning.provision(created.companyId, created.id).catch(() => undefined);
+
+      // Save the selected modules as the farm's configuration. When no modules
+      // are picked the default config applies — poultry and snail, per
+      // DEFAULT_CONFIG in farm-config.ts. Selecting specific modules writes
+      // only the override so a farm that chose everything still stores nothing.
+      if (input.modules && input.modules.length > 0) {
+        await this.farmConfig.save({
+          companyId: created.companyId,
+          actor: { userId: created.id, roles: ['owner'], ipAddress: null, device: null },
+          overrides: { modules: input.modules },
+        }).catch(() => undefined);
+      }
     }
 
     // Sign them straight in. Making somebody type the password they just chose

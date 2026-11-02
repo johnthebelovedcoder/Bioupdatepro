@@ -22,7 +22,7 @@ export default async function SignupPage() {
               marginTop: 'var(--sp-4)',
             }}
           >
-            Create your farm
+            BioAssetPro
           </div>
           <div className="muted" style={{ marginTop: 4, fontSize: 14 }}>
             A few minutes now, and your books are set up for the year
@@ -36,14 +36,6 @@ export default async function SignupPage() {
           </div>
         </div>
 
-        {/*
-          Said before they commit, not after.
-
-          Signing up builds a real set of books — a chart of accounts, cost
-          centres and twelve open periods. Somebody should know that is what
-          the button does, and that the parts requiring their accountant are
-          not being guessed at on their behalf.
-        */}
         <p className="faint" style={{ fontSize: 13, textAlign: 'center' }}>
           Your chart of accounts and financial calendar are set up automatically.
           Tax rates and approval limits are left for you and your accountant.
