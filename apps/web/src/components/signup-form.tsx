@@ -65,6 +65,20 @@ const AVAILABLE_MODULES = [
 type Step = 0 | 1 | 2 | 3 | 4 | 5;
 const TOTAL_STEPS = 6;
 
+const underlineInput: React.CSSProperties = {
+  fontSize: 22,
+  padding: '14px 0',
+  border: 'none',
+  borderBottom: '2px solid var(--gray-300)',
+  borderRadius: 0,
+  outline: 'none',
+  background: 'transparent',
+  boxShadow: 'none',
+  width: '100%',
+  minHeight: 'unset',
+  transition: 'border-color 0.2s',
+};
+
 export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
   const [state, action] = useActionState<SignupState, FormData>(signup, {
     error: null,
@@ -78,12 +92,20 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [farmName, setFarmName] = useState('');
   const [selectedModules, setSelectedModules] = useState<string[]>(['poultry', 'snail']);
+  const [animating, setAnimating] = useState(false);
+  const [slideDir, setSlideDir] = useState<'left' | 'right'>('left');
 
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    setAnimating(true);
+    const t = setTimeout(() => setAnimating(false), 300);
+    return () => clearTimeout(t);
   }, [step]);
+
+  useEffect(() => {
+    if (!animating) inputRef.current?.focus();
+  }, [animating]);
 
   if (state.values && step === 5) {
     if (state.values.fullName && !fullName) setFullName(state.values.fullName);
@@ -106,11 +128,17 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
   }
 
   function next() {
-    if (step < 5) setStep((step + 1) as Step);
+    if (step < 5) {
+      setSlideDir('left');
+      setStep((step + 1) as Step);
+    }
   }
 
   function back() {
-    if (step > 0) setStep((step - 1) as Step);
+    if (step > 0) {
+      setSlideDir('right');
+      setStep((step - 1) as Step);
+    }
   }
 
   function onEnter(e: KeyboardEvent, canProceed: boolean) {
@@ -130,6 +158,16 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
     4: farmName.trim().length > 0,
     5: selectedModules.length > 0,
   };
+
+  const contentAnimation: React.CSSProperties = animating
+    ? {
+        opacity: 0,
+        transform: slideDir === 'left' ? 'translateX(40px)' : 'translateX(-40px)',
+      }
+    : {
+        opacity: 1,
+        transform: 'translateX(0)',
+      };
 
   return (
     <div style={{
@@ -174,7 +212,7 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
         </Link>
       </div>
 
-      {/* Main content area — centered */}
+      {/* Main content area */}
       <div style={{
         flex: 1,
         display: 'flex',
@@ -183,18 +221,23 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
         padding: '0 24px',
         overflow: 'auto',
       }}>
-        <div style={{ width: '100%', maxWidth: 480 }}>
+        <div style={{
+          width: '100%',
+          maxWidth: 520,
+          transition: 'opacity 0.3s ease, transform 0.3s ease',
+          ...contentAnimation,
+        }}>
           {/* Step 1: Name */}
           {step === 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 10 }}>
                   1 / {TOTAL_STEPS}
                 </div>
-                <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+                <h1 style={{ fontSize: 32, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
                   What is your name?
                 </h1>
-                <p className="muted" style={{ margin: '8px 0 0', fontSize: 15 }}>
+                <p className="muted" style={{ margin: '10px 0 0', fontSize: 16 }}>
                   This is how you appear on reports and approvals.
                 </p>
               </div>
@@ -206,78 +249,87 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
                 onChange={(e) => setFullName(e.target.value)}
                 onKeyDown={(e) => onEnter(e, canNext[0])}
                 placeholder="e.g. Adebayo Okafor"
-                style={{
-                  fontSize: 20,
-                  padding: '14px 0',
-                  border: 'none',
-                  borderBottom: '2px solid var(--gray-300)',
-                  outline: 'none',
-                  background: 'transparent',
-                  width: '100%',
-                  transition: 'border-color 0.2s',
-                }}
+                style={underlineInput}
                 onFocus={(e) => { e.target.style.borderBottomColor = 'var(--brand-600)'; }}
                 onBlur={(e) => { e.target.style.borderBottomColor = 'var(--gray-300)'; }}
               />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!canNext[0]}
+                  onClick={next}
+                  style={{ padding: '12px 32px', fontSize: 15 }}
+                >
+                  Next
+                </button>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  or press Enter
+                </span>
+              </div>
             </div>
           )}
 
           {/* Step 2: Email */}
           {step === 1 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 10 }}>
                   2 / {TOTAL_STEPS}
                 </div>
-                <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+                <h1 style={{ fontSize: 32, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
                   What is your email?
                 </h1>
-                <p className="muted" style={{ margin: '8px 0 0', fontSize: 15 }}>
+                <p className="muted" style={{ margin: '10px 0 0', fontSize: 16 }}>
                   You will sign in with this.
                 </p>
               </div>
-              <input
-                ref={inputRef}
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => onEnter(e, canNext[1])}
-                placeholder="you@example.com"
-                style={{
-                  fontSize: 20,
-                  padding: '14px 0',
-                  border: 'none',
-                  borderBottom: '2px solid var(--gray-300)',
-                  outline: 'none',
-                  background: 'transparent',
-                  width: '100%',
-                  transition: 'border-color 0.2s',
-                }}
-                onFocus={(e) => { e.target.style.borderBottomColor = 'var(--brand-600)'; }}
-                onBlur={(e) => { e.target.style.borderBottomColor = 'var(--gray-300)'; }}
-              />
-              {state.field === 'email' && (
-                <div className="notice notice-error" style={{ fontSize: 14 }}>{state.error}</div>
-              )}
+              <div>
+                <input
+                  ref={inputRef}
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => onEnter(e, canNext[1])}
+                  placeholder="you@example.com"
+                  style={underlineInput}
+                  onFocus={(e) => { e.target.style.borderBottomColor = 'var(--brand-600)'; }}
+                  onBlur={(e) => { e.target.style.borderBottomColor = 'var(--gray-300)'; }}
+                />
+                {state.field === 'email' && (
+                  <p style={{ color: 'var(--red-600)', fontSize: 14, margin: '8px 0 0' }}>{state.error}</p>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingTop: 8 }}>
+                <button type="button" className="btn btn-ghost" onClick={back} style={{ padding: '12px 24px', fontSize: 15 }}>
+                  Back
+                </button>
+                <button type="button" className="btn btn-primary" disabled={!canNext[1]} onClick={next} style={{ padding: '12px 32px', fontSize: 15 }}>
+                  Next
+                </button>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  or press Enter
+                </span>
+              </div>
             </div>
           )}
 
           {/* Step 3: Password */}
           {step === 2 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 10 }}>
                   3 / {TOTAL_STEPS}
                 </div>
-                <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+                <h1 style={{ fontSize: 32, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
                   Choose a password
                 </h1>
-                <p className="muted" style={{ margin: '8px 0 0', fontSize: 15 }}>
+                <p className="muted" style={{ margin: '10px 0 0', fontSize: 16 }}>
                   At least 10 characters. A short phrase you will remember beats a complicated word you will not.
                 </p>
               </div>
-              <div>
+              <div className="wizard-password">
                 <PasswordField
                   name="password"
                   autoComplete="new-password"
@@ -287,80 +339,102 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
                   onChange={(event) => setPassword(event.target.value)}
                 />
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingTop: 8 }}>
+                <button type="button" className="btn btn-ghost" onClick={back} style={{ padding: '12px 24px', fontSize: 15 }}>
+                  Back
+                </button>
+                <button type="button" className="btn btn-primary" disabled={!canNext[2]} onClick={next} style={{ padding: '12px 32px', fontSize: 15 }}>
+                  Next
+                </button>
+              </div>
             </div>
           )}
 
           {/* Step 4: Confirm password */}
           {step === 3 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 10 }}>
                   4 / {TOTAL_STEPS}
                 </div>
-                <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+                <h1 style={{ fontSize: 32, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
                   Confirm your password
                 </h1>
-                <p className="muted" style={{ margin: '8px 0 0', fontSize: 15 }}>
+                <p className="muted" style={{ margin: '10px 0 0', fontSize: 16 }}>
                   Type it again to catch a typo.
                 </p>
               </div>
               <div>
-                <PasswordField
-                  name="confirmPassword"
-                  autoComplete="new-password"
-                  required
-                  autoFocus
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  ariaInvalid={mismatch}
-                />
+                <div className="wizard-password">
+                  <PasswordField
+                    name="confirmPassword"
+                    autoComplete="new-password"
+                    required
+                    autoFocus
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    ariaInvalid={mismatch}
+                  />
+                </div>
                 {mismatch && (
                   <p style={{ color: 'var(--red-600)', fontSize: 14, margin: '8px 0 0' }}>
                     This does not match the password above.
                   </p>
                 )}
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingTop: 8 }}>
+                <button type="button" className="btn btn-ghost" onClick={back} style={{ padding: '12px 24px', fontSize: 15 }}>
+                  Back
+                </button>
+                <button type="button" className="btn btn-primary" disabled={!canNext[3]} onClick={next} style={{ padding: '12px 32px', fontSize: 15 }}>
+                  Next
+                </button>
+              </div>
             </div>
           )}
 
           {/* Step 5: Farm name */}
           {step === 4 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 10 }}>
                   5 / {TOTAL_STEPS}
                 </div>
-                <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+                <h1 style={{ fontSize: 32, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
                   What is your farm called?
                 </h1>
-                <p className="muted" style={{ margin: '8px 0 0', fontSize: 15 }}>
+                <p className="muted" style={{ margin: '10px 0 0', fontSize: 16 }}>
                   This appears on your reports and invoices.
                 </p>
               </div>
-              <input
-                ref={inputRef}
-                type="text"
-                autoComplete="organization"
-                value={farmName}
-                onChange={(e) => setFarmName(e.target.value)}
-                onKeyDown={(e) => onEnter(e, canNext[4])}
-                placeholder="e.g. Kajola Farms"
-                style={{
-                  fontSize: 20,
-                  padding: '14px 0',
-                  border: 'none',
-                  borderBottom: '2px solid var(--gray-300)',
-                  outline: 'none',
-                  background: 'transparent',
-                  width: '100%',
-                  transition: 'border-color 0.2s',
-                }}
-                onFocus={(e) => { e.target.style.borderBottomColor = 'var(--brand-600)'; }}
-                onBlur={(e) => { e.target.style.borderBottomColor = 'var(--gray-300)'; }}
-              />
-              {state.field === 'farmName' && (
-                <div className="notice notice-error" style={{ fontSize: 14 }}>{state.error}</div>
-              )}
+              <div>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  autoComplete="organization"
+                  value={farmName}
+                  onChange={(e) => setFarmName(e.target.value)}
+                  onKeyDown={(e) => onEnter(e, canNext[4])}
+                  placeholder="e.g. Kajola Farms"
+                  style={underlineInput}
+                  onFocus={(e) => { e.target.style.borderBottomColor = 'var(--brand-600)'; }}
+                  onBlur={(e) => { e.target.style.borderBottomColor = 'var(--gray-300)'; }}
+                />
+                {state.field === 'farmName' && (
+                  <p style={{ color: 'var(--red-600)', fontSize: 14, margin: '8px 0 0' }}>{state.error}</p>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, paddingTop: 8 }}>
+                <button type="button" className="btn btn-ghost" onClick={back} style={{ padding: '12px 24px', fontSize: 15 }}>
+                  Back
+                </button>
+                <button type="button" className="btn btn-primary" disabled={!canNext[4]} onClick={next} style={{ padding: '12px 32px', fontSize: 15 }}>
+                  Next
+                </button>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  or press Enter
+                </span>
+              </div>
             </div>
           )}
 
@@ -377,13 +451,13 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--brand-600)', marginBottom: 10 }}>
                     6 / {TOTAL_STEPS}
                   </div>
-                  <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+                  <h1 style={{ fontSize: 32, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
                     What does your farm do?
                   </h1>
-                  <p className="muted" style={{ margin: '8px 0 0', fontSize: 15 }}>
+                  <p className="muted" style={{ margin: '10px 0 0', fontSize: 16 }}>
                     Pick the modules you need. You can change this later.
                   </p>
                 </div>
@@ -435,7 +509,7 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
                           checked={checked}
                           disabled={disabled}
                           onChange={() => toggleModule(mod.key)}
-                          style={{ marginTop: 3, accentColor: 'var(--brand-600)', width: 18, height: 18 }}
+                          style={{ marginTop: 3, accentColor: 'var(--brand-600)', width: 18, height: 18, minHeight: 'unset', boxShadow: 'none' }}
                         />
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 15, fontWeight: 600 }}>
@@ -468,19 +542,8 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
                   })}
                 </div>
 
-                {/* Submit button row for last step */}
-                <div style={{
-                  display: 'flex',
-                  gap: 12,
-                  paddingTop: 8,
-                  paddingBottom: 16,
-                }}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={back}
-                    style={{ padding: '12px 24px', fontSize: 15 }}
-                  >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8, paddingBottom: 16 }}>
+                  <button type="button" className="btn btn-ghost" onClick={back} style={{ padding: '12px 24px', fontSize: 15 }}>
                     Back
                   </button>
                   <SubmitButton disabled={selectedModules.length === 0} />
@@ -490,41 +553,6 @@ export function SignupForm({ hasSocialSignIn }: { hasSocialSignIn?: boolean }) {
           )}
         </div>
       </div>
-
-      {/* Footer nav — shown on steps 0-4 (step 5 has its own submit) */}
-      {step < 5 && (
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '20px 24px',
-          maxWidth: 528,
-          width: '100%',
-          margin: '0 auto',
-        }}>
-          {step > 0 ? (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={back}
-              style={{ padding: '12px 24px', fontSize: 15 }}
-            >
-              Back
-            </button>
-          ) : (
-            <div />
-          )}
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={!canNext[step]}
-            onClick={next}
-            style={{ padding: '12px 32px', fontSize: 15 }}
-          >
-            Next
-          </button>
-        </div>
-      )}
     </div>
   );
 }

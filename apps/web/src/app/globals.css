@@ -1286,6 +1286,28 @@ label.field select[aria-invalid='true'] {
   background: var(--gray-50);
 }
 
+.wizard-password input {
+  font-size: 22px;
+  padding: 14px 40px 14px 0;
+  border: none;
+  border-bottom: 2px solid var(--gray-300);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  min-height: unset;
+}
+
+.wizard-password input:focus {
+  border-bottom-color: var(--brand-600);
+  box-shadow: none;
+}
+
+.wizard-password .password-toggle {
+  bottom: 12px;
+  top: unset;
+  transform: none;
+}
+
 input,
 select,
 textarea {
