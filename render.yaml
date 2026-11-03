@@ -121,6 +121,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Public address used in invitation and password-reset links. Set this
+      # to the web service's HTTPS URL (or your custom domain).
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
       # Where the web server reaches the API.
       #
       # Despite the NEXT_PUBLIC_ prefix this is only ever read on the server —

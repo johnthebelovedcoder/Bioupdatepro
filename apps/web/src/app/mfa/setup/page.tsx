@@ -40,9 +40,14 @@ export default async function MfaSetupPage() {
   return (
     <main className="login-page">
       <div className="login-panel">
+        <div style={{ textAlign: 'center' }}>
+          <span className="brand-mark" aria-hidden="true">
+            BA
+          </span>
+          <h1 style={{ marginTop: 'var(--sp-4)' }}>Secure your account</h1>
+        </div>
         <div className="card">
           <div className="card-body stack">
-            <h1>Secure your account</h1>
             <p>
               Your role needs an authenticator app: it is required for finance, approval, farm management, supervisor and administrator roles.
               Add BioAssetPro to your authenticator, then enter its current six-digit code.
@@ -86,9 +91,16 @@ function EnrollmentUnavailable({ reason }: { reason: string }) {
   return (
     <main className="login-page">
       <div className="login-panel">
+        <div style={{ textAlign: 'center' }}>
+          <span className="brand-mark" aria-hidden="true">
+            BA
+          </span>
+          <h1 style={{ marginTop: 'var(--sp-4)' }}>
+            Authenticator setup is unavailable
+          </h1>
+        </div>
         <div className="card">
           <div className="card-body stack">
-            <h1>Authenticator setup is unavailable</h1>
             <p className="notice notice-error">{reason}</p>
             <p>
               Your sign-in worked. Your role needs an authenticator app before you can go any

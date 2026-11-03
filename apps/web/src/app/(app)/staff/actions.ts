@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { api } from '@/lib/api';
+import { getAppOrigin } from '@/lib/app-origin';
 
 export interface InviteResult {
   error: string | null;
@@ -31,6 +32,7 @@ export async function createInvitation(
   if (roles.length === 0) return { error: 'Choose what this person will be allowed to do.' };
 
   try {
+    const origin = await getAppOrigin();
     const invitation = await api<{ id: string; email: string; token: string }>(
       '/auth/invitations',
       // The helper stringifies the body itself — passing a string here would
@@ -38,7 +40,6 @@ export async function createInvitation(
       { method: 'POST', body: { email, roles } },
     );
 
-    const origin = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     revalidatePath('/staff');
     return {
       error: null,
@@ -181,11 +182,11 @@ export interface PasswordResetResult {
 
 export async function resetPersonPassword(id: string): Promise<PasswordResetResult> {
   try {
+    const origin = await getAppOrigin();
     const reset = await api<{ token: string; email: string; emailed: boolean }>(
       `/auth/users/${id}/reset-password`,
       { method: 'POST' },
     );
-    const origin = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     return {
       error: null,
       email: reset.email,

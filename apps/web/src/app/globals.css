@@ -229,6 +229,101 @@ a:hover {
   min-width: 0;
 }
 
+/* ==========================================================================
+   Authentication screens
+   ========================================================================== */
+
+.login-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-8) var(--sp-5);
+  background: linear-gradient(180deg, #f3faf6 0%, #f8f9fa 45%, #f8f9fa 100%);
+}
+
+.login-panel {
+  width: min(100%, 400px);
+}
+
+.login-panel > div:first-child .brand-mark {
+  width: 44px;
+  height: 44px;
+  margin-inline: auto;
+  font-size: 17px;
+}
+
+.login-panel .card-body {
+  gap: var(--sp-4);
+}
+
+.login-panel .card {
+  margin-top: var(--sp-5);
+}
+
+.login-panel .btn {
+  width: 100%;
+  min-height: 48px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.login-panel .field {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-700);
+}
+
+.login-panel .field input,
+.login-panel .field select,
+.login-panel .field textarea {
+  min-height: 46px;
+  border-radius: 8px;
+  border-color: var(--gray-300);
+  background: #fff;
+  box-shadow: none;
+}
+
+.login-panel .field input:focus,
+.login-panel .field select:focus,
+.login-panel .field textarea:focus {
+  box-shadow: 0 0 0 4px rgb(18 183 106 / 0.08);
+}
+
+.login-panel .password-field {
+  min-height: 46px;
+}
+
+.login-panel .password-toggle {
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  color: var(--gray-500);
+}
+
+.login-error-notice {
+  display: block;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: 10px;
+  border-color: #f1b5ae;
+  background: #feeceb;
+}
+
+.login-error-copy {
+  margin: 0;
+  color: var(--error-700);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+  font-weight: 500;
+}
+
+.login-panel .faint {
+  font-size: 13px;
+}
+
 /* Brand lockup */
 
 .brand {
@@ -2473,34 +2568,6 @@ body:has(.offline-banner) .app-sidebar {
 
 .meter-fill.is-critical {
   background: var(--error-500);
-}
-
-/* ==========================================================================
-   Sign in
-   ========================================================================== */
-
-.login-page {
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: var(--sp-6) var(--sp-4);
-  background:
-    radial-gradient(60rem 30rem at 50% -10rem, var(--brand-50), transparent),
-    var(--gray-50);
-}
-
-.login-panel {
-  width: 100%;
-  max-width: 400px;
-}
-
-.login-error-notice {
-  display: block;
-}
-
-.login-error-copy {
-  margin: 0;
 }
 
 /* ==========================================================================

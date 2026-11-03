@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { getModule, title, type ModuleKey } from '@/lib/modules';
 import { parseNairaToKobo, formatNaira } from '@/lib/money';
@@ -169,14 +170,28 @@ export function NewGroupForm({
 
             <label className="field">
               {title(t.housing.one)}
-              <select value={house} onChange={(event) => setHouse(event.target.value)}>
-                {houses.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
+              <select
+                value={house}
+                disabled={houses.length === 0}
+                onChange={(event) => setHouse(event.target.value)}
+              >
+                {houses.length === 0 ? (
+                  <option value="">No active {t.housing.many} available</option>
+                ) : (
+                  houses.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))
+                )}
               </select>
             </label>
+            {houses.length === 0 ? (
+              <p className="faint">
+                Add an active {t.housing.one} in <Link href="/pens">Houses &amp; pens</Link> before
+                recording this {t.group.one}.
+              </p>
+            ) : null}
           </div>
         </Card>
 
