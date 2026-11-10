@@ -6,6 +6,7 @@ import {
   Headers,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -55,6 +56,41 @@ export class OperationsController {
   @Get('groups')
   async groups(@CurrentCompany() companyId: string, @Query('species') species: string) {
     return this.reads.groups(companyId, species);
+  }
+
+  @AnyRole('Mortality cause choices are governed farm master data.')
+  @Get('mortality-causes')
+  async mortalityCauseCatalog(@CurrentCompany() companyId: string, @Query('species') species: string) {
+    if (!species) throw new BadRequestException('Say which species.');
+    return this.operations.mortalityCauseCatalog(companyId, species);
+  }
+
+  @Roles('FARM_MANAGER', 'CFO')
+  @Post('mortality-causes')
+  async addMortalityCause(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Body() body: { speciesKey: string; code: string; label: string }) {
+    return this.operations.addMortalityCause({ companyId, actor, speciesKey: body?.speciesKey ?? '', code: body?.code ?? '', label: body?.label ?? '' });
+  }
+
+  @Roles('FARM_MANAGER', 'CFO')
+  @Patch('mortality-causes/:id')
+  async setMortalityCauseActive(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Param('id') id: string, @Body() body: { active: boolean }) {
+    return this.operations.setMortalityCauseActive({ companyId, actor, id, active: body?.active === true });
+  }
+
+  @Roles('FARM_MANAGER', 'PRODUCTION_SUPERVISOR', 'PRODUCTION_LEAD', 'POULTRY_SUPERVISOR', 'SNAIL_SUPERVISOR', 'CFO')
+  @Get('bio-master-checks')
+  async bioMasterChecks(@CurrentCompany() companyId: string) {
+    return this.profiles.bioMasterChecks(companyId);
+  }
+
+  @Roles('FARM_MANAGER', 'PRODUCTION_LEAD', 'CFO')
+  @Post('bio-master-checks/sign-off')
+  async signOffBioMasterChecks(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { releaseLabel: string; exceptionsAcknowledged?: string },
+  ) {
+    return this.profiles.signOffBioMasterChecks({ companyId, actor, releaseLabel: body?.releaseLabel ?? '', exceptionsAcknowledged: body?.exceptionsAcknowledged });
   }
 
   @AnyRole('Livestock reads are the shared ground floor of the product.')
@@ -365,20 +401,45 @@ export class OperationsController {
     @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
     @Param('code') code: string,
-    @Body() body: { hatchedOn: string | null; estimated?: boolean },
+    @Body() body: { hatchedOn: string | null; estimated?: boolean; evidence?: string },
   ) {
     const hatchedOn = body?.hatchedOn ?? null;
     if (hatchedOn !== null && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(hatchedOn)) {
       throw new BadRequestException('hatchedOn must be a date, YYYY-MM-DD, or null.');
     }
-    await this.profiles.setHatchDate({
+    const result = await this.profiles.setHatchDate({
       companyId,
       code,
       hatchedOn: hatchedOn ? new Date(`${hatchedOn}T00:00:00.000Z`) : null,
       estimated: body?.estimated === true,
+      evidence: body?.evidence,
       actor,
     });
-    return { ok: true };
+    return result;
+  }
+
+  @Roles('FARM_MANAGER', 'POULTRY_SUPERVISOR', 'SNAIL_SUPERVISOR', 'PRODUCTION_SUPERVISOR', 'PRODUCTION_LEAD', 'CFO')
+  @Post('groups/:code/hatch-date/approve')
+  async approveEstimatedHatchDate(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Param('code') code: string) {
+    return this.profiles.approveEstimatedHatchDate({ companyId, code, actor });
+  }
+
+  @Roles('FARM_MANAGER', 'POULTRY_SUPERVISOR', 'SNAIL_SUPERVISOR', 'PRODUCTION_SUPERVISOR', 'PRODUCTION_LEAD', 'CFO')
+  @Post('groups/:code/hatch-date/reject')
+  async rejectHatchDateRequest(@CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Param('code') code: string, @Body() body: { reason: string }) {
+    return this.profiles.rejectHatchDateRequest({ companyId, code, actor, reason: body?.reason ?? '' });
+  }
+
+  @Roles('PRODUCTION_SUPERVISOR', 'SNAIL_SUPERVISOR', 'POULTRY_SUPERVISOR', 'PRODUCTION_LEAD', 'FARM_MANAGER', 'CFO')
+  @Post('groups/:code/hatch-date/correction')
+  async requestHatchDateCorrection(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('code') code: string,
+    @Body() body: { hatchedOn: string; estimated?: boolean; evidence: string; reason: string },
+  ) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body?.hatchedOn ?? '')) throw new BadRequestException('hatchedOn must be a date in YYYY-MM-DD form.');
+    return this.profiles.requestHatchDateCorrection({ companyId, code, actor, hatchedOn: new Date(`${body.hatchedOn}T00:00:00.000Z`), estimated: body.estimated === true, evidence: body.evidence ?? '', reason: body.reason ?? '' });
   }
 
   // FARM_ACCOUNTANT (ROL-012) reconciles BA/inventory/WIP/journals day to

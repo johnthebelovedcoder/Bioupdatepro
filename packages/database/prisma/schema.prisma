@@ -43,14 +43,8 @@ enum AccountType {
   EXPENSE
 }
 
-/// A governed financial-statement placement for an account (US-897-002),
-/// distinct from `AccountType`: type says asset-vs-liability-vs-equity-etc,
-/// this says where within a statement it sits — current vs non-current, cost
-/// of sales vs operating expense. Nullable and not yet read by any report:
-/// Balance Sheet and Profit & Loss still use their own stated account-number
-/// conventions (COST_OF_SALES_ACCOUNTS, the ASSET/LIABILITY/EQUITY partition)
-/// rather than this field, so that migrating them is a deliberate, separate
-/// change and setting this value can never silently move a live line.
+/// Governed financial-statement placement, distinct from the broad ledger
+/// side recorded in `AccountType`. Reports use this field for presentation.
 enum FsCategory {
   CURRENT_ASSET
   NON_CURRENT_ASSET
@@ -62,6 +56,7 @@ enum FsCategory {
   OPERATING_EXPENSE
   OTHER_INCOME
   OTHER_EXPENSE
+  INCOME_TAX
 }
 
 enum NormalBalance {
@@ -200,6 +195,9 @@ model User {
   eggBatchesRecorded        EggCollectionBatch[]       @relation("EggCollectionRecorder")
   incubationBatchesRecorded IncubationBatch[]          @relation("IncubationRecorder")
   hatchEventsRecorded       HatchEvent[]               @relation("HatchRecorder")
+  hatchDatesEstimated       LivestockGroup[]           @relation("HatchDateEstimator")
+  hatchDatesApproved        LivestockGroup[]           @relation("HatchDateApprover")
+  hatchDateRequests         LivestockGroup[]           @relation("HatchDateRequester")
   invitationsSent           Invitation[]               @relation("InvitationSender")
   passwordResetsReceived    PasswordResetToken[]       @relation("PasswordResetTarget")
   passwordResetsIssued      PasswordResetToken[]       @relation("PasswordResetIssuer")
@@ -340,6 +338,7 @@ model Company {
   fixedAssets                   FixedAsset[]
   depreciationRuns              DepreciationRun[]
   speciesBreeds                 SpeciesBreed[]
+  mortalityCauses               MortalityCause[]
   marketPriceLists              MarketPriceList[]
   payrollPayments                PayrollPayment[]
   roleSectionAccess               RoleSectionAccess[]
@@ -5542,6 +5541,7 @@ model GoodsReceiptNoteLine {
   invoiceLines      SupplierInvoiceLine[]
 
   returnLines SupplierReturnLine[]
+  originatedLivestockGroup LivestockGroup? @relation("LivestockGrnOrigin")
 
   @@unique([goodsReceiptNoteId, lineNumber])
   @@map("goods_receipt_note_lines")
@@ -6024,6 +6024,23 @@ model SpeciesBreed {
   @@map("species_breeds")
 }
 
+/// Company-approved biological mortality cause vocabulary, scoped by species.
+model MortalityCause {
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @map("company_id") @db.Uuid
+  speciesKey String @map("species_key")
+  code      String
+  label     String
+  active    Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, speciesKey, code])
+  @@index([companyId, speciesKey, active])
+  @@map("mortality_causes")
+}
+
 /// One lifecycle stage's minimum age, in days, for a SpeciesBreed — the
 /// workbook's "Hatchling min day" / "Stage 1 min day" columns turned into
 /// rows so a breed with five stages and one with four are the same shape.
@@ -6040,6 +6057,10 @@ model SpeciesBreedStage {
   /// Weighings are compared against it. Blank where no standard is set.
   targetWeightGrams Int? @map("target_weight_grams")
 
+  /// Finance-approved IAS 41 account class. NULL means unclassified and
+  /// approved-chart postings must stop until a controller sets it.
+  maturityClass String? @map("maturity_class")
+
   /// Standard feed per animal per day at this stage, in grams — the feed
   /// plan's fallback where a batch has no recent feeding to go on.
   dailyFeedGramsPerHead Int? @map("daily_feed_grams_per_head")
@@ -6055,6 +6076,15 @@ enum LivestockGroupStatus {
   /// Sold out, harvested out, or otherwise finished. Kept forever: a closed
   /// batch is where the profit of a completed cycle is measured.
   CLOSED
+}
+
+enum LivestockOrigin {
+  PURCHASE
+  HATCHED
+  PRODUCED
+  OPENING_BALANCE
+  MIGRATION
+  OTHER
 }
 
 /// A managed population — a poultry batch, a snail colony, a pond of fish.
@@ -6107,6 +6137,17 @@ model LivestockGroup {
   /// True when the hatch date is an estimate (bought-in stock, a vendor's
   /// word) — the age basis the masters call ESTIMATED rather than EXACT.
   hatchDateEstimated Boolean @default(false) @map("hatch_date_estimated")
+  hatchDateEvidence String? @map("hatch_date_evidence")
+  hatchDateEstimatedById String? @map("hatch_date_estimated_by_id") @db.Uuid
+  hatchDateApprovedById String? @map("hatch_date_approved_by_id") @db.Uuid
+  hatchDateApprovedAt DateTime? @map("hatch_date_approved_at")
+  hatchDateApprovalStatus String? @map("hatch_date_approval_status")
+  hatchDateRejectionReason String? @map("hatch_date_rejection_reason")
+  pendingHatchedOn DateTime? @map("pending_hatched_on") @db.Date
+  pendingHatchEvidence String? @map("pending_hatch_evidence")
+  pendingHatchRequestedById String? @map("pending_hatch_requested_by_id") @db.Uuid
+  pendingHatchDateEstimated Boolean @default(false) @map("pending_hatch_date_estimated")
+  pendingHatchCorrectionReason String? @map("pending_hatch_correction_reason")
   closedOn  DateTime? @map("closed_on") @db.Date
 
   /// The approved-chart account this cohort's rearing cost sits in when a feed,
@@ -6133,6 +6174,10 @@ model LivestockGroup {
   /// Who supplied the stock. Free text: a farm buys day-olds from a hatchery
   /// it will not find in a supplier master.
   source String?
+  originType LivestockOrigin @default(OTHER) @map("origin_type")
+  originEvidence String? @map("origin_evidence")
+  originParentGroupId String? @map("origin_parent_group_id") @db.Uuid
+  originGoodsReceiptNoteLineId String? @unique @map("origin_grn_line_id") @db.Uuid
 
   /// MONEY. What the stock itself cost to acquire, in kobo.
   acquisitionCostKobo BigInt @default(0) @map("acquisition_cost_kobo")
@@ -6156,6 +6201,12 @@ model LivestockGroup {
   branch   Branch   @relation(fields: [branchId], references: [id])
   farm     Farm     @relation(fields: [farmId], references: [id])
   penHouse PenHouse @relation("GroupPenHouse", fields: [penHouseId], references: [id])
+  hatchDateEstimatedBy User? @relation("HatchDateEstimator", fields: [hatchDateEstimatedById], references: [id], onDelete: Restrict)
+  hatchDateApprovedBy User? @relation("HatchDateApprover", fields: [hatchDateApprovedById], references: [id], onDelete: Restrict)
+  pendingHatchRequestedBy User? @relation("HatchDateRequester", fields: [pendingHatchRequestedById], references: [id], onDelete: Restrict)
+  originParentGroup LivestockGroup? @relation("LivestockLineage", fields: [originParentGroupId], references: [id])
+  offspringGroups LivestockGroup[] @relation("LivestockLineage")
+  originGoodsReceiptNoteLine GoodsReceiptNoteLine? @relation("LivestockGrnOrigin", fields: [originGoodsReceiptNoteLineId], references: [id])
 
   dailyRecords DailyRecord[]
   healthEvents HealthEvent[]

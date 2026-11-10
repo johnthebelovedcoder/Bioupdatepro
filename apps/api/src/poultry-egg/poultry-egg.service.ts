@@ -245,7 +245,11 @@ export class PoultryEggService {
             openingPopulation: params.hatchedCount,
             population: params.hatchedCount,
             startedOn: params.hatchedOn,
+            hatchedOn: params.hatchedOn,
             source: `Hatched from ${incubation.eggBatch.code} / ${incubation.code}`,
+            originType: 'HATCHED',
+            originEvidence: `INCUBATION:${incubation.id};EGG_BATCH:${incubation.eggBatchId}`,
+            originParentGroupId: incubation.eggBatch.sourceGroupId,
             acquisitionCostKobo: 0n,
           },
         });

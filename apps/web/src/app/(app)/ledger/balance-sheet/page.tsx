@@ -55,7 +55,7 @@ export default async function BalanceSheetPage() {
     <div className="stack">
       <PageHeader
         title="Balance sheet"
-        subtitle="What the company owns, owes, and is worth, as at today"
+        subtitle="Current and non-current assets and liabilities, equity, as at today"
         actions={<ExportLink report="balance-sheet" />}
       />
 

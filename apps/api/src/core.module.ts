@@ -14,6 +14,7 @@ import { BalanceSheetService } from './reporting/balance-sheet.service';
 import { CashFlowService } from './reporting/cash-flow.service';
 import { DepreciationScheduleService } from './reporting/depreciation-schedule.service';
 import { ControlAccountReconciliationService } from './reporting/control-account-reconciliation.service';
+import { BatchProfileService } from './operations/batch-profile.service';
 
 /**
  * The shared platform every later module builds on.
@@ -41,6 +42,7 @@ import { ControlAccountReconciliationService } from './reporting/control-account
     CashFlowService,
     DepreciationScheduleService,
     ControlAccountReconciliationService,
+    BatchProfileService,
   ],
   exports: [
     PrismaService,
@@ -58,6 +60,7 @@ import { ControlAccountReconciliationService } from './reporting/control-account
     CashFlowService,
     DepreciationScheduleService,
     ControlAccountReconciliationService,
+    BatchProfileService,
   ],
 })
 export class CoreModule {}

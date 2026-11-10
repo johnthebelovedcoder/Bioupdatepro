@@ -23,8 +23,9 @@ import { Roles, AnyRole } from '../auth/roles.guard';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { BankingService } from '../banking/banking.service';
 import { BiologicalAssetService } from '../biological-assets/biological-asset.service';
-import { biologicalStageAccountNumber, chartVersionOf, UnresolvedApprovedAccount } from '../chart/chart';
+import { chartVersionOf } from '../chart/chart';
 import { TaxRegisterService } from '../tax/tax-register.service';
+import { BatchProfileService } from '../operations/batch-profile.service';
 
 /**
  * Read-only reporting for the web app.
@@ -56,6 +57,7 @@ export class ReportingController {
     private readonly controlReconciliation: ControlAccountReconciliationService,
     private readonly banking: BankingService,
     private readonly biologicalAssets: BiologicalAssetService,
+    private readonly bioMaster: BatchProfileService,
     private readonly taxRegisters: TaxRegisterService,
     private readonly posting: PostingService,
     private readonly postingControlChecks: PostingControlChecksService,
@@ -870,9 +872,12 @@ export class ReportingController {
       let accountNumber = mappingByStage.get(`${group.speciesKey}:${group.stage}`);
       if (version === 'APPROVED') {
         try {
-          accountNumber = biologicalStageAccountNumber(group.speciesKey, group.stage);
-        } catch (error) {
-          if (!(error instanceof UnresolvedApprovedAccount)) throw error;
+          accountNumber = (await this.biologicalAssets.stageAccount({
+            companyId, speciesKey: group.speciesKey, stage: group.stage,
+          })).accountNumber;
+        } catch {
+          // Unclassified stages remain visible as unmapped exceptions in this
+          // report; approved-chart posting itself refuses them.
           accountNumber = undefined;
         }
       }
@@ -943,14 +948,15 @@ export class ReportingController {
       throw new BadRequestException('A release label is required (e.g. "v8.9.7").');
     }
 
-    const [checks, reconciliation] = await Promise.all([
+    const [checks, reconciliation, bioMasterChecks] = await Promise.all([
       this.postingControlChecks.run(companyId),
       this.controlRows(companyId),
+      this.bioMaster.bioMasterChecks(companyId),
     ]);
 
     const failingChecks = checks.rows.filter((r) => r.state !== 'PASS');
     const variantAccounts = reconciliation.filter((r) => !r.reconciled);
-    const hasExceptions = failingChecks.length > 0 || variantAccounts.length > 0;
+    const hasExceptions = failingChecks.length > 0 || variantAccounts.length > 0 || !bioMasterChecks.ready;
     const followups = hasExceptions
       ? (await this.controlExceptionFollowups(companyId, reconciliation)).cases.filter((item) => item.active)
       : [];
@@ -958,7 +964,7 @@ export class ReportingController {
     if (hasExceptions && !body.exceptionsAcknowledged?.trim()) {
       throw new BadRequestException(
         `Cannot sign off clean: ${failingChecks.length} posting-control check(s) and ` +
-          `${variantAccounts.length} control-account row(s) are not resolved. Resolve them, ` +
+        `${variantAccounts.length} control-account row(s) and ${bioMasterChecks.issues.length} biological master check(s) are not resolved. Resolve them, ` +
           `or supply exceptionsAcknowledged explaining why release proceeds anyway — a sign-off ` +
           `is a decision made in the open, not a silent pass.`,
       );
@@ -970,9 +976,11 @@ export class ReportingController {
       postingControlChecks: checks.rows,
       releasableByChecksAlone: checks.releasable,
       controlReconciliation: reconciliation,
+      biologicalMasterChecks: bioMasterChecks,
       exceptionFollowups: followups,
       failingCheckCount: failingChecks.length,
       variantAccountCount: variantAccounts.length,
+      biologicalMasterIssueCount: bioMasterChecks.issues.length,
     };
 
     await this.auditService.write({

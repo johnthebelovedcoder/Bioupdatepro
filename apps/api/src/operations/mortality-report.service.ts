@@ -25,7 +25,7 @@ export class MortalityReportService {
       orderBy: { startedOn: 'desc' },
     });
     const ids = groups.map((g) => g.id);
-    const [deaths, stageChanges, culls] = await Promise.all([
+    const [deaths, stageChanges, culls, causes] = await Promise.all([
       this.prisma.mortalityRecord.findMany({
         where: { dailyRecord: { companyId: params.companyId, groupId: { in: ids }, ...(dated ? { recordedOn: dated } : {}) } },
         select: { quantity: true, causes: true, classification: true, dailyRecord: { select: { groupId: true, recordedOn: true } } },
@@ -40,7 +40,9 @@ export class MortalityReportService {
         where: { groupId: { in: ids }, method: 'CULLED', group: { companyId: params.companyId }, ...(dated ? { occurredOn: dated } : {}) },
         _sum: { quantity: true },
       }),
+      this.prisma.mortalityCause.findMany({ where: { companyId: params.companyId, speciesKey: params.speciesKey }, select: { code: true, label: true } }),
     ]);
+    const causeLabels = new Map(causes.flatMap((cause) => [[cause.code, cause.label], [cause.label, cause.label]]));
 
     const stageOn = (groupId: string, day: Date, current: string) => {
       const moves = stageChanges.filter((c) => c.groupId === groupId);
@@ -58,7 +60,7 @@ export class MortalityReportService {
       tally(deathsByGroup, d.dailyRecord.groupId, d.quantity);
       if (d.classification === 'ABNORMAL') tally(abnormalByGroup, d.dailyRecord.groupId, d.quantity);
       // A death recorded with two causes is one death; it is counted once, under both named together.
-      tally(byCause, d.causes.length ? d.causes.join(' + ') : 'Not stated', d.quantity);
+      tally(byCause, d.causes.length ? d.causes.map((cause) => causeLabels.get(cause) ?? cause).join(' + ') : 'Not stated', d.quantity);
       tally(byStage, stageOn(d.dailyRecord.groupId, d.dailyRecord.recordedOn, stageOf.get(d.dailyRecord.groupId) ?? ''), d.quantity);
     }
     const cullsByGroup = new Map(culls.map((c) => [c.groupId, c._sum.quantity ?? 0]));

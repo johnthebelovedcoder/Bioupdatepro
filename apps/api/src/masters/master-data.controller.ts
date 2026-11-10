@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   EmploymentStatus,
   FsCategory,
@@ -846,6 +846,22 @@ export class MasterDataController {
       dailyFeedGramsPerHead: n(body?.dailyFeedGramsPerHead),
       actor,
     });
+  }
+
+  /** Finance-owned IAS 41 stage classification; NULL remains explicitly unapproved. */
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('species-breeds/stages/:stageId/maturity')
+  async setStageMaturity(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('stageId') stageId: string,
+    @Body() body: { maturityClass?: 'IMMATURE' | 'MATURE' | null },
+  ) {
+    const maturityClass = body?.maturityClass === undefined ? null : body.maturityClass;
+    if (maturityClass !== null && maturityClass !== 'IMMATURE' && maturityClass !== 'MATURE') {
+      throw new BadRequestException('Choose IMMATURE, MATURE, or null to clear the classification.');
+    }
+    return this.structure.setStageMaturity({ companyId, actor, stageId, maturityClass });
   }
 
   /** The workbook's approved species and breeds, for a farm that has not got them. */

@@ -89,6 +89,8 @@ export const SECTIONS: NavSection[] = [
     href: '/farm',
     children: [
       { href: '/farm', label: 'Overview', hint: 'Every farm, house and pen at a glance' },
+      { href: '/farm/bio-master-checks', label: 'BIO_MASTER_CHECKS', hint: 'Supervisor checklist for biological master data and lifecycle controls', keywords: ['biological master data', 'release gate', 'species', 'breed', 'provenance'] },
+      { href: '/farm/mortality-causes', label: 'Mortality causes', hint: 'Manage approved cause codes by species', keywords: ['cause codes', 'deaths', 'mortality master'] },
       {
         href: '/pens',
         label: 'Houses & pens',

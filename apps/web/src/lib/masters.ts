@@ -78,6 +78,12 @@ export async function getFeedItemNames(): Promise<string[]> {
   return items.filter((item) => item.isBiologicalFeed).map((item) => item.name);
 }
 
+export interface MortalityCauseOption { id: string; code: string; label: string; speciesKey: string; active: boolean }
+
+export async function getMortalityCauses(speciesKey: string): Promise<MortalityCauseOption[]> {
+  return api<MortalityCauseOption[]>(`/operations/mortality-causes?species=${encodeURIComponent(speciesKey)}`);
+}
+
 export interface StockMovementRow {
   id: string;
   itemCode: string;

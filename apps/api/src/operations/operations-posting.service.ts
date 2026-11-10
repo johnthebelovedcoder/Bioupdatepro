@@ -4,6 +4,7 @@ import { chartVersionOf, numberFor, rearingNumberFor, rearingNumbersFor, snailIn
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { kobo } from '../common/money';
+import { AccountingRuleViolation } from '../common/errors';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { RearingCostService } from '../biological-assets/rearing-cost.service';
 import { StockMovementService } from '../inventory/stock-movement.service';
@@ -415,7 +416,22 @@ export class OperationsPostingService {
     // On the approved chart poultry cost goes to the account of the flock's
     // stage today (immature or mature); the account is kept on the row so a
     // later death or sale relieves the accounts that actually hold the cost.
-    const debitNumber = rearingNumberFor(version, speciesKey, stage) ?? snailInputExpenseNumber(version, purpose);
+    let debitNumber = version === 'APPROVED' && speciesKey.trim().toLowerCase() === 'poultry'
+      ? null
+      : rearingNumberFor(version, speciesKey, stage);
+    if (version === 'APPROVED' && speciesKey.trim().toLowerCase() === 'poultry') {
+      const rows = await this.prisma.speciesBreedStage.findMany({
+        where: { stageName: stage, speciesBreed: { companyId, speciesKey, active: true } },
+        select: { maturityClass: true },
+      });
+      const classes = [...new Set(rows.map((row) => row.maturityClass).filter((value): value is string => !!value))];
+      if (!rows.length || classes.length !== 1 || rows.some((row) => !row.maturityClass)) {
+        throw new AccountingRuleViolation('Consolidated Reference §66 — biological stage classification', `Finance must assign one consistent maturity class to poultry stage "${stage}" before rearing cost can post.`, { companyId, speciesKey, stage });
+      }
+      debitNumber = classes[0] === 'IMMATURE' ? '16032' : classes[0] === 'MATURE' ? '16042' : null;
+      if (!debitNumber) throw new AccountingRuleViolation('Consolidated Reference §66 — biological stage classification', `Poultry stage "${stage}" has an invalid maturity class.`, { speciesKey, stage, maturityClass: classes[0] });
+    }
+    debitNumber ??= snailInputExpenseNumber(version, purpose);
     const creditNumber = numberFor(version, purpose === 'feed' ? 'feedInventory' : 'rawMaterials');
     const rows = await this.prisma.gLAccount.findMany({
       where: { companyId, accountNumber: { in: [debitNumber, creditNumber] }, active: true },

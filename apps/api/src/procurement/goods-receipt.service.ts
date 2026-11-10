@@ -687,6 +687,22 @@ export class GoodsReceiptService {
       const count = Number(line.acceptedQuantity.toString());
       if (count <= 0) continue;
 
+      const breedMaster = await tx.speciesBreed.findFirst({
+        where: {
+          companyId: grn.companyId, speciesKey: species, active: true,
+          status: { notIn: ['Restricted', 'Inactive', 'Rejected'] },
+          OR: [{ name: placement.breed.trim() }, { code: placement.breed.trim() }],
+        },
+        include: { stages: { select: { stageName: true } } },
+      });
+      if (!breedMaster || !breedMaster.stages.some((stage) => stage.stageName === placement.stage)) {
+        throw new AccountingRuleViolation(
+          'BIO_MASTER_CHECKS — Goods receipt',
+          `Configure an active approved species/breed and its ${placement.stage} stage before accepting ${grn.grnNumber}.`,
+          { speciesKey: species, breed: placement.breed, stage: placement.stage },
+        );
+      }
+
       const pen = await tx.penHouse.findFirst({
         where: { code: placement.house, farm: { companyId: grn.companyId } },
         include: { farm: { select: { branchId: true } } },
@@ -715,13 +731,16 @@ export class GoodsReceiptService {
           penHouseId: pen.id,
           code: placement.code,
           speciesKey: species,
-          breed: placement.breed,
+          breed: breedMaster.name,
           purpose: placement.purpose ?? placement.stage,
           stage: placement.stage,
           openingPopulation: count,
           population: count,
           startedOn: grn.receiptDate,
           source: `${grn.grnNumber} (${grn.purchaseOrder.orderNumber})`,
+          originType: 'PURCHASE',
+          originEvidence: `GRN:${grn.id};GRN_LINE:${line.id};PO:${grn.purchaseOrderId}`,
+          originGoodsReceiptNoteLineId: line.id,
           acquisitionCostKobo: line.valueKobo,
           // Carried at cost from arrival; marks the acquisition as booked, so a
           // later placement posting does not book it a second time.

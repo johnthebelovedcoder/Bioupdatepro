@@ -12,10 +12,7 @@ import {
   APPROVED_PROCUREMENT_DEFAULTS,
   APPROVED_SALES_DEFAULTS,
   chartVersionOf,
-  poultryStageAccountNumber,
-  snailStageAccountNumber,
   Species,
-  UnresolvedApprovedAccount,
 } from './chart';
 import {
   APPROVED_PRODUCT_CLASSES,
@@ -569,12 +566,9 @@ export class ApprovedCutoverService {
     const poultry = populations.filter((p) => speciesName(p.speciesKey) === 'poultry' && p.status === 'ACTIVE');
     const cohortAccount = new Map<string, string>();
     for (const cohort of poultry) {
-      try {
-        cohortAccount.set(cohort.id, poultryStageAccountNumber(cohort.stage));
-      } catch (e) {
-        if (!(e instanceof UnresolvedApprovedAccount)) throw e;
-        blockers.push(`Poultry cohort ${cohort.code} is at stage "${cohort.stage}", which is not classed as immature or mature (POULTRY_STAGE_MATURITY).`);
-      }
+      const target = await this.biologicalStageTarget(client, companyId, cohort.speciesKey, cohort.stage);
+      if (target) cohortAccount.set(cohort.id, target);
+      else blockers.push(`Poultry cohort ${cohort.code} is at stage "${cohort.stage}", which lacks one consistent Finance-approved maturity class on its breed-stage master.`);
     }
     const cohortCost = new Map<string, bigint>();
     for (const cohort of poultry) cohortCost.set(cohort.id, await this.rearing.remaining(cohort.id, client));
@@ -612,16 +606,13 @@ export class ApprovedCutoverService {
       where: { companyId, speciesKey: 'snail' },
       select: { stage: true, glAccountId: true },
     });
-    const snailAssetTarget = (number: string, accountId: string): { to: string; basis: string; assumed: boolean } | null => {
+    const snailAssetTarget = async (number: string, accountId: string): Promise<{ to: string; basis: string; assumed: boolean } | null> => {
       const stages = stageRows.filter((r) => r.glAccountId === accountId).map((r) => r.stage);
       const targets = new Set<string>();
       for (const stage of stages) {
-        try {
-          targets.add(snailStageAccountNumber(stage));
-        } catch (e) {
-          if (!(e instanceof UnresolvedApprovedAccount)) throw e;
-          blockers.push(`Snail stage "${stage}" (held in ${number}) is not classed as immature or mature (SNAIL_STAGE_MATURITY).`);
-        }
+        const target = await this.biologicalStageTarget(client, companyId, 'snail', stage);
+        if (target) targets.add(target);
+        else blockers.push(`Snail stage "${stage}" (held in ${number}) lacks one consistent Finance-approved maturity class on its breed-stage master.`);
       }
       if (targets.size === 1) return { to: [...targets][0]!, basis: `${stages.join(', ')} stage`, assumed: false };
       if (targets.size > 1) {
@@ -680,7 +671,7 @@ export class ApprovedCutoverService {
           break;
         }
         case 'snailAsset': {
-          const t = snailAssetTarget(g.accountNumber, g.glAccountId);
+          const t = await snailAssetTarget(g.accountNumber, g.glAccountId);
           if (t) add(t.to, t.basis, t.assumed);
           else unmapped.add(g.accountNumber);
           break;
@@ -885,7 +876,7 @@ export class ApprovedCutoverService {
     // --- Biological asset stage accounts: by stage, not by account ----------
     const stageRows = await tx.biologicalAssetStageAccount.findMany({ where: { companyId, glAccountId: { in: pairs.map((p) => p.from) } } });
     for (const row of stageRows) {
-      const to = biologicalStageTarget(row.speciesKey, row.stage);
+      const to = await this.biologicalStageTarget(tx, companyId, row.speciesKey, row.stage);
       if (!to) continue;
       await tx.biologicalAssetStageAccount.update({ where: { id: row.id }, data: { glAccountId: id(to) } });
       count++;
@@ -897,14 +888,17 @@ export class ApprovedCutoverService {
     const all = await client.gLAccount.findMany({ where: { companyId }, select: { id: true, accountNumber: true } });
     return new Map(all.map((a) => [a.accountNumber, a.id]));
   }
-}
 
-function biologicalStageTarget(speciesKey: string, stage: string): string | null {
-  try {
-    return speciesKey.trim().toLowerCase() === 'snail' ? snailStageAccountNumber(stage) : poultryStageAccountNumber(stage);
-  } catch (e) {
-    if (e instanceof UnresolvedApprovedAccount) return null;
-    throw e;
+  private async biologicalStageTarget(client: Prisma.TransactionClient, companyId: string, speciesKey: string, stage: string): Promise<string | null> {
+    const rows = await client.speciesBreedStage.findMany({
+      where: { stageName: stage, speciesBreed: { companyId, speciesKey, active: true } },
+      select: { maturityClass: true },
+    });
+    const values = [...new Set(rows.map((row) => row.maturityClass).filter((value): value is string => !!value))];
+    if (!rows.length || values.length !== 1 || rows.some((row) => !row.maturityClass)) return null;
+    if (values[0] !== 'IMMATURE' && values[0] !== 'MATURE') return null;
+    if (speciesKey.trim().toLowerCase() === 'snail') return values[0] === 'IMMATURE' ? '16031' : '16041';
+    return values[0] === 'IMMATURE' ? '16032' : '16042';
   }
 }
 

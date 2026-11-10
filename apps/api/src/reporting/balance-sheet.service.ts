@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { AccountType } from '@bioassetpro/database';
+import { AccountType, FsCategory } from '@bioassetpro/database';
+import { UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TrialBalanceService, type TrialBalanceFilter } from './trial-balance.service';
 import { ProfitLossService } from './profit-loss.service';
@@ -13,7 +14,11 @@ export interface BalanceSheetLine {
 
 export interface BalanceSheet {
   assets: BalanceSheetLine[];
+  currentAssets: BalanceSheetLine[];
+  nonCurrentAssets: BalanceSheetLine[];
   liabilities: BalanceSheetLine[];
+  currentLiabilities: BalanceSheetLine[];
+  nonCurrentLiabilities: BalanceSheetLine[];
   equity: BalanceSheetLine[];
   totalAssetsKobo: string;
   totalLiabilitiesKobo: string;
@@ -54,11 +59,36 @@ export class BalanceSheetService {
   async build(filter: Omit<TrialBalanceFilter, 'financialPeriodId' | 'financialYearId'>): Promise<BalanceSheet> {
     const tb = await this.trialBalance.build(filter);
 
-    const assets = toLines(tb.rows.filter((row) => row.accountType === AccountType.ASSET));
-    const liabilities = toLines(
-      tb.rows.filter((row) => row.accountType === AccountType.LIABILITY),
-    );
-    const equity = toLines(tb.rows.filter((row) => row.accountType === AccountType.EQUITY));
+    const unclassified = tb.rows.filter((row) => row.fsCategory === null);
+    if (unclassified.length) {
+      throw new UnprocessableEntityException({
+        message: 'Classify all accounts with activity before producing financial statements.',
+        accounts: unclassified.map(({ accountNumber, accountName }) => ({ accountNumber, accountName })),
+      });
+    }
+    const categoryType: Record<FsCategory, AccountType> = {
+      [FsCategory.CURRENT_ASSET]: AccountType.ASSET,
+      [FsCategory.NON_CURRENT_ASSET]: AccountType.ASSET,
+      [FsCategory.CURRENT_LIABILITY]: AccountType.LIABILITY,
+      [FsCategory.NON_CURRENT_LIABILITY]: AccountType.LIABILITY,
+      [FsCategory.EQUITY]: AccountType.EQUITY,
+      [FsCategory.REVENUE]: AccountType.REVENUE,
+      [FsCategory.COST_OF_SALES]: AccountType.EXPENSE,
+      [FsCategory.OPERATING_EXPENSE]: AccountType.EXPENSE,
+      [FsCategory.OTHER_INCOME]: AccountType.REVENUE,
+      [FsCategory.OTHER_EXPENSE]: AccountType.EXPENSE,
+      [FsCategory.INCOME_TAX]: AccountType.EXPENSE,
+    };
+    const invalid = tb.rows.filter((row) => row.fsCategory && categoryType[row.fsCategory] !== row.accountType);
+    if (invalid.length) throw new UnprocessableEntityException({ message: 'FS category conflicts with the account type.', accounts: invalid.map(({ accountNumber, accountName }) => ({ accountNumber, accountName })) });
+
+    const currentAssets = toLines(tb.rows.filter((row) => row.fsCategory === FsCategory.CURRENT_ASSET));
+    const nonCurrentAssets = toLines(tb.rows.filter((row) => row.fsCategory === FsCategory.NON_CURRENT_ASSET));
+    const assets = [...currentAssets, ...nonCurrentAssets];
+    const currentLiabilities = toLines(tb.rows.filter((row) => row.fsCategory === FsCategory.CURRENT_LIABILITY));
+    const nonCurrentLiabilities = toLines(tb.rows.filter((row) => row.fsCategory === FsCategory.NON_CURRENT_LIABILITY));
+    const liabilities = [...currentLiabilities, ...nonCurrentLiabilities];
+    const equity = toLines(tb.rows.filter((row) => row.fsCategory === FsCategory.EQUITY));
 
     const currentYearId = await currentFinancialYearId(this.prisma, filter.companyId);
     const currentYearEarningsKobo = currentYearId
@@ -75,8 +105,8 @@ export class BalanceSheetService {
     const totalLiabilitiesAndEquityKobo = totalLiabilitiesKobo + totalEquityKobo;
 
     return {
-      assets,
-      liabilities,
+      assets, currentAssets, nonCurrentAssets,
+      liabilities, currentLiabilities, nonCurrentLiabilities,
       equity,
       totalAssetsKobo: totalAssetsKobo.toString(),
       totalLiabilitiesKobo: totalLiabilitiesKobo.toString(),

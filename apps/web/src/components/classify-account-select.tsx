@@ -14,6 +14,7 @@ const CATEGORIES = [
   'OPERATING_EXPENSE',
   'OTHER_INCOME',
   'OTHER_EXPENSE',
+  'INCOME_TAX',
 ];
 
 function label(value: string): string {

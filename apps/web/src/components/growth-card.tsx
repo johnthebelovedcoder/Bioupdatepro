@@ -6,9 +6,12 @@ import { useRouter } from 'next/navigation';
 import { Card } from './ui';
 import { Sheet } from './sheet';
 import {
+  approveEstimatedHatchDate,
   approveWeighing,
   recordWeighing,
   rejectWeighing,
+  rejectHatchDateRequest,
+  requestHatchDateCorrection,
   setHatchDate,
   type GrowthState,
 } from '@/app/(app)/m/batch-profile-actions';
@@ -35,6 +38,9 @@ export interface WeighingRow {
 export interface BatchProfile {
   placedOn: string;
   hatchedOn: string | null;
+  hatchDateApprovalStatus: string | null;
+  hatchDateRejectionReason: string | null;
+  canCorrectHatchDate: boolean;
   ageBasis: 'EXACT' | 'ESTIMATED' | 'PLACEMENT';
   ageDays: number;
   ageWeeks: string;
@@ -90,9 +96,10 @@ export function GrowthCard({
   today: string;
   unit: 'g' | 'kg';
 }) {
-  const [open, setOpen] = useState<'weigh' | 'hatch' | null>(null);
+  const [open, setOpen] = useState<'weigh' | 'hatch' | 'correction' | null>(null);
   const [weighState, weighAction] = useActionState<GrowthState, FormData>(recordWeighing, { error: null, message: null });
   const [hatchState, hatchAction] = useActionState<GrowthState, FormData>(setHatchDate, { error: null, message: null });
+  const [correctionState, correctionAction] = useActionState<GrowthState, FormData>(requestHatchDateCorrection, { error: null, message: null });
   const [decision, setDecision] = useState<GrowthState>({ error: null, message: null });
   const [pending, startTransition] = useTransition();
   const router = useRouter();
@@ -116,6 +123,7 @@ export function GrowthCard({
             <button type="button" className="btn btn-sm" onClick={() => setOpen('hatch')}>
               Hatch date
             </button>
+            {profile.canCorrectHatchDate ? <button type="button" className="btn btn-sm" onClick={() => setOpen('correction')}>Correct hatch date</button> : null}
             <button type="button" className="btn btn-sm btn-primary" onClick={() => setOpen('weigh')}>
               Weigh
             </button>
@@ -124,6 +132,14 @@ export function GrowthCard({
       }
     >
       <div className="stack" style={{ gap: 'var(--sp-3)' }}>
+        {profile.hatchDateApprovalStatus === 'PENDING' ? (
+          <div className="notice notice-warning stack" style={{ gap: 'var(--sp-3)' }}>
+            <span>Hatch-date request awaits a different supervisor&rsquo;s review.</span>
+            <form action={approveEstimatedHatchDate}><input type="hidden" name="code" value={code} /><button type="submit" className="btn btn-sm btn-primary">Approve request</button></form>
+            <form action={rejectHatchDateRequest} className="row" style={{ gap: 'var(--sp-2)', alignItems: 'end' }}><input type="hidden" name="code" value={code} /><label className="field">Rejection reason<input name="reason" required /></label><button type="submit" className="btn btn-sm">Reject</button></form>
+          </div>
+        ) : null}
+        {profile.hatchDateApprovalStatus === 'REJECTED' ? <div className="notice notice-error">Hatch-date change rejected: {profile.hatchDateRejectionReason}</div> : null}
         {profile.stageStatus === 'REVIEW' ? (
           <div className="notice notice-warning">
             Recorded as <strong>{profile.configuredStage}</strong>, but at {profile.ageDays} days the breed standard says{' '}
@@ -329,7 +345,23 @@ export function GrowthCard({
             <input type="checkbox" name="estimated" defaultChecked={profile.ageBasis === 'ESTIMATED'} />
             This date is an estimate (the vendor&rsquo;s word, or worked back from size)
           </label>
+          <label className="field">
+            Evidence for estimated date
+            <input name="evidence" type="text" maxLength={1000} placeholder="Supplier record, document reference, or estimation basis" />
+          </label>
           <Submit label="Save hatch date" />
+        </form>
+      </Sheet>
+      <Sheet open={open === 'correction'} onClose={() => setOpen(null)} title={`Correct hatch date for ${code}`}>
+        <form action={correctionAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+          <input type="hidden" name="code" value={code} />
+          {correctionState.error ? <div className="notice notice-error">{correctionState.error}</div> : null}
+          {correctionState.message ? <div className="notice notice-success">{correctionState.message}</div> : null}
+          <label className="field">Correct hatch date<input name="hatchedOn" type="date" max={profile.placedOn} required /></label>
+          <label className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center' }}><input type="checkbox" name="estimated" />The corrected date is estimated</label>
+          <label className="field">Evidence<input name="evidence" type="text" maxLength={1000} required /></label>
+          <label className="field">Reason for correction<input name="reason" type="text" maxLength={1000} required /></label>
+          <Submit label="Submit correction for approval" />
         </form>
       </Sheet>
     </Card>

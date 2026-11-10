@@ -126,6 +126,7 @@ export function DailyRecordEntry({
   moduleKey,
   groups,
   feedItemNames,
+  mortalityCauses,
   today,
   startAt,
   collectionLabels,
@@ -150,6 +151,7 @@ export function DailyRecordEntry({
    * generic species list rather than being empty outright.
    */
   feedItemNames: string[];
+  mortalityCauses: string[];
   today: string;
   /** Population to open on, when arriving from that population's own page. */
   startAt?: string;
@@ -734,6 +736,7 @@ export function DailyRecordEntry({
                 say={say}
                 fields={productionFieldsFor(module, group.purpose, collectionLabels)}
                 feedNames={feedNames}
+                mortalityCauses={mortalityCauses}
                 group={group}
                 draft={draftFor(group.id)}
                 problem={problemFor(group)}
@@ -935,6 +938,7 @@ function GroupEntry({
   say,
   fields,
   feedNames,
+  mortalityCauses,
   mortalityPhoto,
   multipleCauses,
   previous,
@@ -953,6 +957,7 @@ function GroupEntry({
   fields: SpeciesModule['productionFields'];
   /** What the feed picker offers — see `DailyRecordEntry`'s own prop. */
   feedNames: string[];
+  mortalityCauses: string[];
   mortalityPhoto: 'off' | 'optional' | 'required';
   multipleCauses: boolean;
   /** Yesterday's figures, when the farm has that shortcut switched on. */
@@ -1148,7 +1153,7 @@ function GroupEntry({
             ) : null}
 
             <div className="chip-row" role="group" aria-label={`Cause of death ${group.code}`}>
-              {module.mortalityCauses.map((option) => (
+              {mortalityCauses.map((option) => (
                 <button
                   key={option}
                   type="button"

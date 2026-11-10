@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { assertReportFilter } from './report-filter';
-import { AccountType, NormalBalance } from '@bioassetpro/database';
+import { AccountType, FsCategory, NormalBalance } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { EnterpriseDimensions } from '../enterprise-dimensions/dimensions.types';
 
@@ -20,6 +20,7 @@ export interface TrialBalanceRow {
   /// ones at year end: the first are swept to retained earnings, the second
   /// carry forward.
   accountType: AccountType;
+  fsCategory: FsCategory | null;
   normalBalance: NormalBalance;
   totalDebitKobo: bigint;
   totalCreditKobo: bigint;
@@ -116,6 +117,7 @@ export class TrialBalanceService {
         accountNumber: true,
         name: true,
         accountType: true,
+        fsCategory: true,
         normalBalance: true,
       },
     });
@@ -177,6 +179,7 @@ export class TrialBalanceService {
           accountNumber: account?.accountNumber ?? '(unknown)',
           accountName: account?.name ?? '(unknown)',
           accountType,
+          fsCategory: account?.fsCategory ?? null,
           normalBalance,
           totalDebitKobo: debit,
           totalCreditKobo: credit,

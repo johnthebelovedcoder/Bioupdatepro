@@ -158,19 +158,6 @@ export const APPROVED_SPECIES_ACCOUNTS: Partial<Record<SpeciesRole, Record<Speci
  * is producing — for Finance to confirm. A stage not listed has no account:
  * it is refused, not guessed.
  */
-export const POULTRY_STAGE_MATURITY: Record<string, 'immature' | 'mature'> = {
-  Chick: 'immature',
-  Grower: 'immature',
-  Pullet: 'immature',
-  Cockerel: 'immature',
-  'Market-ready': 'mature',
-  'Point-of-lay': 'mature',
-  Layer: 'mature',
-  Broiler: 'mature',
-  Breeder: 'mature',
-};
-const APPROVED_POULTRY_BA = { immature: '16032', mature: '16042' } as const;
-
 /** Raised when the APPROVED chart has no account for a purpose, or none for the stage or context asked about. */
 export class UnresolvedApprovedAccount extends Error {
   constructor(readonly purpose: string) {
@@ -178,6 +165,19 @@ export class UnresolvedApprovedAccount extends Error {
       `${purpose} has no single account on the approved five-digit chart: it depends on the item, asset, stage or liability behind the posting (docs/target-coa-role-crosswalk.md).`,
     );
   }
+}
+
+/** Approved biological accounts are resolved from Finance-classified master data at runtime. */
+export function poultryStageAccountNumber(stage: string): string {
+  throw new UnresolvedApprovedAccount(`poultry stage "${stage}" — resolve its Finance-approved class from the breed-stage master`);
+}
+
+export function snailStageAccountNumber(stage: string): string {
+  throw new UnresolvedApprovedAccount(`snail stage "${stage}" — resolve its Finance-approved class from the breed-stage master`);
+}
+
+export function biologicalStageAccountNumber(species: string, stage: string): string {
+  return species.trim().toLowerCase() === 'snail' ? snailStageAccountNumber(stage) : poultryStageAccountNumber(stage);
 }
 
 /** On SPEC, what a snail's feed and medication are charged to instead of being held (PCR-042). */
@@ -269,20 +269,13 @@ export function approvedRoleReadiness(isActive: (accountNumber: string) => boole
   // both must exist; snail feed and treatment are expensed to their own accounts.
   const addAll = (role: string, numbers: string[]) =>
     result.push({ role, number: numbers.join('/'), state: numbers.every(isActive) ? 'ready' : 'missing-account' });
-  addAll('rearingCost:poultry', Object.values(APPROVED_POULTRY_BA));
+  addAll('rearingCost:poultry', ['16032', '16042']);
   for (const species of ['poultry', 'snail'] as const) {
     const results = biologicalResultAccountsFor('APPROVED', species)!;
     addAll(`biologicalResults:${species}`, [results.gain, results.loss, results.normalMortality, results.abnormalMortality]);
   }
   addAll('rearingCost:snail', [snailInputExpenseNumber('APPROVED', 'feed'), snailInputExpenseNumber('APPROVED', 'treatment')]);
   return result;
-}
-
-/** The approved-chart biological asset account a poultry stage is carried in. */
-export function poultryStageAccountNumber(stage: string): string {
-  const maturity = POULTRY_STAGE_MATURITY[stage];
-  if (!maturity) throw new UnresolvedApprovedAccount(`poultry stage "${stage}"`);
-  return APPROVED_POULTRY_BA[maturity];
 }
 
 /**
@@ -293,12 +286,13 @@ export function poultryStageAccountNumber(stage: string): string {
  */
 export function rearingNumberFor(version: ChartVersion, species: string, stage: string): string | null {
   if (version !== 'APPROVED') return speciesNumberFor(version, 'rearingCost', species);
-  return species.trim().toLowerCase() === 'snail' ? null : poultryStageAccountNumber(stage);
+  if (species.trim().toLowerCase() === 'snail') return null;
+  throw new UnresolvedApprovedAccount(`poultry stage "${stage}" — resolve its Finance-approved class from the breed-stage master`);
 }
 
 /** Every account a species' rearing cost can sit in on that chart — for per-account balances. */
 export function rearingNumbersFor(version: ChartVersion, species: string): string[] {
-  if (version === 'APPROVED') return species.trim().toLowerCase() === 'snail' ? [] : Object.values(APPROVED_POULTRY_BA);
+  if (version === 'APPROVED') return species.trim().toLowerCase() === 'snail' ? [] : ['16032', '16042'];
   const one = speciesNumberFor(version, 'rearingCost', species);
   return one ? [one] : [];
 }
@@ -351,39 +345,8 @@ export function eggAccountsFor(version: ChartVersion): EggAccounts {
 
 /** Where day-old chicks are carried on hatching: 130210 on the old charts, the stage's account on the approved one. */
 export function hatchedChickAccountNumber(version: ChartVersion, stage: string): string {
-  return version === 'APPROVED' ? poultryStageAccountNumber(stage) : '130210';
-}
-
-/**
- * Snail stage → immature (16031) or mature (16041) biological assets on the
- * approved chart. As with poultry (POULTRY_STAGE_MATURITY) the workbook names
- * the two accounts (SNP-BA-IMM, SNP-BA-MAT) but not the stages: an engineering
- * proposal for Finance to confirm — immature until the snail is market-ready or
- * a breeder. The snail breeding module already carries viable eggs in 16031.
- */
-export const SNAIL_STAGE_MATURITY: Record<string, 'immature' | 'mature'> = {
-  Egg: 'immature',
-  Hatchling: 'immature',
-  Juvenile: 'immature',
-  Juveniles: 'immature',
-  Grower: 'immature',
-  Growers: 'immature',
-  'Market-ready': 'mature',
-  Breeder: 'mature',
-  'Breeder cohort': 'mature',
-};
-const APPROVED_SNAIL_BA = { immature: '16031', mature: '16041' } as const;
-
-/** The approved-chart biological asset account a snail stage is carried in. */
-export function snailStageAccountNumber(stage: string): string {
-  const maturity = SNAIL_STAGE_MATURITY[stage];
-  if (!maturity) throw new UnresolvedApprovedAccount(`snail stage "${stage}"`);
-  return APPROVED_SNAIL_BA[maturity];
-}
-
-/** The approved-chart account a population of either species is carried in at a stage. */
-export function biologicalStageAccountNumber(species: string, stage: string): string {
-  return species.trim().toLowerCase() === 'snail' ? snailStageAccountNumber(stage) : poultryStageAccountNumber(stage);
+  if (version === 'APPROVED') throw new UnresolvedApprovedAccount(`chick stage "${stage}" — resolve its Finance-approved class from the breed-stage master`);
+  return '130210';
 }
 
 /**

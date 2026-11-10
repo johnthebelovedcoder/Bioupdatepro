@@ -8,9 +8,7 @@ import {
   WorkflowStatus,
 } from '@bioassetpro/database';
 import {
-  UnresolvedApprovedAccount,
   biologicalResultAccountsFor,
-  biologicalStageAccountNumber,
   chartVersionOf,
   holdsRearingInAsset as holdsRearingInAssetOn,
   numberFor,
@@ -207,16 +205,28 @@ export class BiologicalAssetService {
     // the same accounts its rearing cost is held in, so fair value and cost
     // always meet.
     if ((await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED') {
-      let number: string;
-      try {
-        number = biologicalStageAccountNumber(params.speciesKey, params.stage);
-      } catch (error) {
-        if (!(error instanceof UnresolvedApprovedAccount)) throw error;
-        throw new AccountingRuleViolation('Consolidated Reference §67 — Biological asset stage account', error.message, {
+      const stages = await this.prisma.speciesBreedStage.findMany({
+        where: {
+          stageName: params.stage,
+          speciesBreed: { companyId: params.companyId, speciesKey: params.speciesKey, active: true },
+        },
+        select: { maturityClass: true },
+      });
+      const classes = [...new Set(stages.map((row) => row.maturityClass).filter((value): value is string => !!value))];
+      if (stages.length === 0 || classes.length !== 1 || stages.some((row) => !row.maturityClass)) {
+        throw new AccountingRuleViolation('Consolidated Reference §67 — Biological asset stage account', `Finance must assign one consistent immature or mature classification to ${params.speciesKey} stage "${params.stage}" before approved-chart posting.`, {
           speciesKey: params.speciesKey,
           stage: params.stage,
+          reason: stages.length === 0 ? 'stage_not_in_master' : 'missing_or_conflicting_finance_classification',
         });
       }
+      const maturityClass = classes[0];
+      if (maturityClass !== 'IMMATURE' && maturityClass !== 'MATURE') {
+        throw new AccountingRuleViolation('Consolidated Reference §67 — Biological asset stage account', `The Finance classification for ${params.speciesKey} stage "${params.stage}" is invalid.`, { speciesKey: params.speciesKey, stage: params.stage });
+      }
+      const number = params.speciesKey.trim().toLowerCase() === 'snail'
+        ? maturityClass === 'IMMATURE' ? '16031' : '16041'
+        : maturityClass === 'IMMATURE' ? '16032' : '16042';
       const account = await this.prisma.gLAccount.findFirst({
         where: { companyId: params.companyId, accountNumber: number, active: true },
         select: { id: true, accountNumber: true, name: true },

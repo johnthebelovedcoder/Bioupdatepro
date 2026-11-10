@@ -15,6 +15,8 @@ import { AuditService } from '../audit/audit.service';
 import { OperationsPostingService } from './operations-posting.service';
 import { BiologicalAssetService } from '../biological-assets/biological-asset.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
+import { DEFAULT_MORTALITY_CAUSES, mortalityCauseRows } from './mortality-cause-catalog';
+
 
 /**
  * Where the work recorded on a phone actually lands.
@@ -73,6 +75,8 @@ export class OperationsService {
       openingPopulation: number;
       startedOn: string;
       source?: string | null;
+      originType?: 'OPENING_BALANCE' | 'MIGRATION' | 'PURCHASE' | 'HATCHED' | 'PRODUCED' | 'OTHER';
+      originEvidence?: string | null;
       acquisitionCostKobo?: string | null;
       expectedTransferDate?: string | null;
       expectedHarvestDate?: string | null;
@@ -85,6 +89,10 @@ export class OperationsService {
       throw new BadRequestException('Opening population must be greater than zero.');
     }
     if (!payload.stage?.trim()) throw new BadRequestException('A starting stage is required.');
+    if (payload.originType === 'PURCHASE') throw new BadRequestException('Purchased animals must be recorded through an approved purchase order and accepted GRN.');
+    if (!['OPENING_BALANCE', 'MIGRATION'].includes(payload.originType ?? '')) throw new BadRequestException('Choose Opening balance or Migration for manual placement; purchases and hatchlings use their governed workflows.');
+    const originEvidence = payload.originEvidence?.trim();
+    if (!originEvidence) throw new BadRequestException('Provide the source document or migration reference for this opening population.');
 
     return this.prisma.$transaction(async (tx) => {
       const scope = 'operations.placement';
@@ -92,6 +100,21 @@ export class OperationsService {
       if (reserved.replayed) return { id: reserved.resultRef!, replayed: true };
 
       const penHouse = await this.resolvePenHouse(tx, companyId, payload.house);
+
+      const breed = await tx.speciesBreed.findFirst({
+        where: {
+          companyId,
+          speciesKey: payload.module,
+          active: true,
+          status: { notIn: ['Restricted', 'Inactive', 'Rejected'] },
+          OR: [{ name: payload.breed.trim() }, { code: payload.breed.trim() }],
+        },
+        include: { stages: true },
+      });
+      if (!breed) throw new BadRequestException('Choose an active, approved breed from the species master.');
+      if (!breed.stages.some((configured) => configured.stageName === payload.stage.trim())) {
+        throw new BadRequestException(`Stage “${payload.stage}” is not configured for ${breed.name}.`);
+      }
 
       // UAT-010/016: a batch code is used once, and a house is not overfilled.
       const code = payload.code.trim();
@@ -111,7 +134,7 @@ export class OperationsService {
           penHouseId: penHouse.id,
           code: payload.code.trim(),
           speciesKey: payload.module,
-          breed: payload.breed,
+          breed: breed.name,
           purpose: payload.purpose,
           // A population starts at the first stage its module declares. The web
           // app owns that list, so it is sent rather than guessed here — the
@@ -122,6 +145,8 @@ export class OperationsService {
           population: payload.openingPopulation,
           startedOn: asDate(payload.startedOn),
           source: payload.source ?? null,
+          originType: payload.originType,
+          originEvidence,
           acquisitionCostKobo: payload.acquisitionCostKobo
             ? BigInt(payload.acquisitionCostKobo)
             : 0n,
@@ -165,6 +190,38 @@ export class OperationsService {
       }
       return result;
     });
+  }
+
+  async mortalityCauseCatalog(companyId: string, speciesKey: string) {
+    return this.mortalityCauses(this.prisma, companyId, speciesKey);
+  }
+
+  async addMortalityCause(params: { companyId: string; actor: WorkflowActor; speciesKey: string; code: string; label: string }) {
+    const code = params.code.trim().toUpperCase();
+    const label = params.label.trim();
+    if (!DEFAULT_MORTALITY_CAUSES[params.speciesKey]) throw new BadRequestException('Unknown species key.');
+    if (!/^[A-Z0-9_]{2,50}$/.test(code) || !label) throw new BadRequestException('Provide a cause code and label.');
+    const cause = await this.prisma.mortalityCause.create({ data: { companyId: params.companyId, speciesKey: params.speciesKey, code, label, active: true } });
+    await this.audit.write({ transactionId: cause.id, module: 'operations', entityType: 'MortalityCause', entityId: cause.id, status: 'ACTIVE', action: AuditAction.CREATE, userId: params.actor.userId, comments: `Added mortality cause ${code} — ${label} for ${params.speciesKey}.` });
+    return cause;
+  }
+
+  async setMortalityCauseActive(params: { companyId: string; actor: WorkflowActor; id: string; active: boolean }) {
+    const cause = await this.prisma.mortalityCause.findFirst({ where: { id: params.id, companyId: params.companyId } });
+    if (!cause) throw new NotFoundException('No such mortality cause.');
+    const updated = await this.prisma.mortalityCause.update({ where: { id: cause.id }, data: { active: params.active } });
+    await this.audit.write({ transactionId: cause.id, module: 'operations', entityType: 'MortalityCause', entityId: cause.id, status: params.active ? 'ACTIVE' : 'INACTIVE', action: AuditAction.UPDATE, userId: params.actor.userId, comments: `${cause.code} ${params.active ? 'activated' : 'deactivated'}.`, oldValue: { active: cause.active }, newValue: { active: params.active } });
+    return updated;
+  }
+
+  private async mortalityCauses(client: Prisma.TransactionClient | PrismaService, companyId: string, speciesKey: string) {
+    let rows = await client.mortalityCause.findMany({ where: { companyId, speciesKey, active: true }, orderBy: { label: 'asc' } });
+    if (rows.length === 0) {
+      const defaults = mortalityCauseRows(companyId, speciesKey);
+      if (defaults.length) await client.mortalityCause.createMany({ data: defaults, skipDuplicates: true });
+      rows = await client.mortalityCause.findMany({ where: { companyId, speciesKey, active: true }, orderBy: { label: 'asc' } });
+    }
+    return rows;
   }
 
   /* ------------------------------------------------------------------ */
@@ -211,6 +268,16 @@ export class OperationsService {
           const group = await this.resolveGroup(tx, companyId, entry.groupCode);
 
           const deaths = Math.max(0, Math.trunc(entry.deaths ?? 0));
+          let mortalityCauseCodes: string[] = [];
+          if (deaths > 0) {
+            const causes = await this.mortalityCauses(tx, companyId, group.speciesKey);
+            const allowed = new Set(causes.map((cause) => cause.label));
+            const selectedCauses = [...new Set((entry.causes ?? []).map((cause) => cause.trim()).filter(Boolean))];
+            if (!selectedCauses.length || selectedCauses.some((cause) => !allowed.has(cause))) {
+              throw new BadRequestException(`Choose one or more configured mortality causes for ${group.speciesKey} on ${group.code}.`);
+            }
+            mortalityCauseCodes = causes.filter((cause) => selectedCauses.includes(cause.label)).map((cause) => cause.code);
+          }
           if (deaths > group.population) {
             throw new BadRequestException(
               `${group.code} has ${group.population} left — cannot record ${deaths} lost.`,
@@ -290,7 +357,7 @@ export class OperationsService {
                       create: [
                         {
                           quantity: deaths,
-                          causes: entry.causes ?? [],
+                          causes: mortalityCauseCodes,
                           carcassDisposal:
                             entry.carcassDisposal && (CARCASS_DISPOSALS as readonly string[]).includes(entry.carcassDisposal)
                               ? entry.carcassDisposal

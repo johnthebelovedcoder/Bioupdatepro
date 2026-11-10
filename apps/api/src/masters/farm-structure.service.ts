@@ -533,6 +533,34 @@ export class FarmStructureService {
     return { id: updated.id };
   }
 
+  async setStageMaturity(params: {
+    companyId: string;
+    stageId: string;
+    maturityClass: 'IMMATURE' | 'MATURE' | null;
+    actor: WorkflowActor;
+  }) {
+    const stage = await this.prisma.speciesBreedStage.findFirst({
+      where: { id: params.stageId, speciesBreed: { companyId: params.companyId } },
+      include: { speciesBreed: { select: { code: true, speciesKey: true } } },
+    });
+    if (!stage) throw new NotFoundException('No such stage.');
+    if (params.maturityClass !== null && !['IMMATURE', 'MATURE'].includes(params.maturityClass)) {
+      throw new BadRequestException('Choose immature, mature, or leave the stage unclassified.');
+    }
+    const updated = await this.prisma.speciesBreedStage.update({
+      where: { id: stage.id }, data: { maturityClass: params.maturityClass },
+    });
+    await this.audit.write({
+      transactionId: stage.speciesBreedId, module: 'MASTERS', entityType: 'SpeciesBreedStage',
+      entityId: stage.id, status: 'ACTIVE', action: AuditAction.UPDATE,
+      userId: params.actor.userId, ipAddress: params.actor.ipAddress ?? null,
+      device: params.actor.device ?? null,
+      oldValue: { maturityClass: stage.maturityClass }, newValue: { maturityClass: updated.maturityClass },
+      comments: `IAS 41 maturity classification for ${stage.speciesBreed.speciesKey} ${stage.speciesBreed.code} ${stage.stageName}.`,
+    });
+    return { id: updated.id, maturityClass: updated.maturityClass };
+  }
+
   async listSpeciesBreeds(companyId: string, speciesKey?: string) {
     return this.prisma.speciesBreed.findMany({
       where: { companyId, active: true, ...(speciesKey ? { speciesKey } : {}) },

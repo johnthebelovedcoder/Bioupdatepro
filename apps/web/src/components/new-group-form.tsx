@@ -28,20 +28,22 @@ export function NewGroupForm({
   houses: string[];
   today: string;
   /** Real breed names from the species/breed master (US-897-004/005), shown
-   *  alongside module.breeds' starter list — still just suggestions. */
+ *  Only approved master values are selectable. */
   governedBreeds?: string[];
 }) {
   const module = getModule(moduleKey)!;
   const t = module.terms;
-  const breedOptions = [...new Set([...governedBreeds, ...module.breeds])];
+  const breedOptions = [...new Set(governedBreeds)];
 
   const [code, setCode] = useState('');
-  const [breed, setBreed] = useState(breedOptions[0] ?? '');
+  const [breed, setBreed] = useState('');
   const [purpose, setPurpose] = useState(module.purposes[0] ?? '');
   const [house, setHouse] = useState(houses[0] ?? '');
   const [count, setCount] = useState('');
   const [startedOn, setStartedOn] = useState(today);
   const [source, setSource] = useState('');
+  const [originType, setOriginType] = useState<'OPENING_BALANCE' | 'MIGRATION'>('OPENING_BALANCE');
+  const [originEvidence, setOriginEvidence] = useState('');
   const [cost, setCost] = useState('');
   const [queued, setQueued] = useState(false);
 
@@ -52,6 +54,8 @@ export function NewGroupForm({
   if (code.trim().length === 0) problems.push(`Give the ${t.group.one} a code`);
   if (countValue <= 0) problems.push(`Enter how many ${t.animal.many} arrived`);
   if (!house) problems.push(`Choose a ${t.housing.one}`);
+  if (!breed) problems.push('Choose a breed from the approved species master');
+  if (!originEvidence.trim()) problems.push('Add an opening balance or migration source reference');
   if (cost.trim() !== '' && costKobo === null) problems.push('Cost is not a valid amount');
 
   function submit() {
@@ -74,6 +78,8 @@ export function NewGroupForm({
         openingPopulation: countValue,
         startedOn,
         source: source.trim(),
+        originType,
+        originEvidence: originEvidence.trim(),
         acquisitionCostKobo: costKobo !== null ? costKobo.toString() : null,
       },
     });
@@ -137,24 +143,16 @@ export function NewGroupForm({
               />
             </label>
 
-            {/*
-              A list of suggestions rather than a fixed dropdown. Farms keep
-              breeds nobody put in a registry, and a select that cannot hold
-              "local breed" is a select people work around.
-            */}
             <label className="field">
               Breed
-              <input
+              <select
                 value={breed}
                 onChange={(event) => setBreed(event.target.value)}
-                list="breed-options"
-                placeholder="Type or choose"
-              />
-              <datalist id="breed-options">
-                {breedOptions.map((option) => (
-                  <option key={option} value={option} />
-                ))}
-              </datalist>
+                disabled={!breedOptions.length}
+              >
+                <option value="">{breedOptions.length ? 'Choose an approved breed' : 'No active approved breeds configured'}</option>
+                {breedOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
             </label>
 
             <label className="field">
@@ -197,6 +195,17 @@ export function NewGroupForm({
 
         <Card title={t.intake}>
           <div className="stack" style={{ gap: 'var(--sp-4)' }}>
+            <label className="field">
+              Population source
+              <select value={originType} onChange={(event) => setOriginType(event.target.value as 'OPENING_BALANCE' | 'MIGRATION')}>
+                <option value="OPENING_BALANCE">Opening balance</option>
+                <option value="MIGRATION">Migration</option>
+              </select>
+            </label>
+            <label className="field">
+              Source document or migration reference
+              <input value={originEvidence} onChange={(event) => setOriginEvidence(event.target.value)} maxLength={500} required />
+            </label>
             <label className="field">
               How many {t.animal.many} arrived
               <input

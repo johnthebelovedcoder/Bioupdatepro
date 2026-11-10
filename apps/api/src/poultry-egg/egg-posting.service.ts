@@ -361,12 +361,27 @@ export class EggPostingService {
         const chicks = hatch.hatchedCount > 0 && hatch.chickGroupId;
         const version = await chartVersionOf(tx, hatch.companyId);
         const group = chicks ? await tx.livestockGroup.findUniqueOrThrow({ where: { id: hatch.chickGroupId! } }) : null;
+        let chickAccountNumber = speciesNumberFor(version, 'productionLoss', 'poultry')!;
+        if (group && version === 'APPROVED') {
+          const stageRows = await tx.speciesBreedStage.findMany({
+            where: { stageName: group.stage, speciesBreed: { companyId: hatch.companyId, speciesKey: group.speciesKey, active: true } },
+            select: { maturityClass: true },
+          });
+          const classes = [...new Set(stageRows.map((row) => row.maturityClass).filter((value): value is string => !!value))];
+          if (!stageRows.length || classes.length !== 1 || stageRows.some((row) => !row.maturityClass)) {
+            throw new BadRequestException(`Finance must assign one consistent maturity class to chick stage "${group.stage}" before hatch accounting can post.`);
+          }
+          if (classes[0] !== 'IMMATURE' && classes[0] !== 'MATURE') throw new BadRequestException(`Chick stage "${group.stage}" has an invalid Finance maturity class.`);
+          chickAccountNumber = classes[0] === 'IMMATURE' ? '16032' : '16042';
+        } else if (group) {
+          chickAccountNumber = hatchedChickAccountNumber(version, group.stage);
+        }
         const [context, incubationAccount, target] = await Promise.all([
           this.context(tx, hatch.companyId, hatch.hatchedOn),
           this.account(hatch.companyId, eggAccountsFor(version).incubation, tx),
           this.account(
             hatch.companyId,
-            group ? hatchedChickAccountNumber(version, group.stage) : speciesNumberFor(version, 'productionLoss', 'poultry')!,
+            chickAccountNumber,
             tx,
           ),
         ]);

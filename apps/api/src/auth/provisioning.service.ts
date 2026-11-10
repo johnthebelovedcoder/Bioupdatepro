@@ -11,12 +11,10 @@ import { loadStandardBreeds } from '../masters/standard-breeds';
 import {
   APPROVED_PROCUREMENT_DEFAULTS,
   APPROVED_SALES_DEFAULTS,
-  biologicalStageAccountNumber,
   numberFor,
-  POULTRY_STAGE_MATURITY,
-  SNAIL_STAGE_MATURITY,
 } from '../chart/chart';
 import { approvedAccountRows, approvedCostCentres } from '../chart/approved-workbook';
+import { mortalityCauseRows } from '../operations/mortality-cause-catalog';
 
 /**
  * Everything a new farm needs before it can record anything.
@@ -391,6 +389,7 @@ export class ProvisioningService {
     await this.seedDomainAccountConfiguration(tx, company.id, effectiveFrom, chart);
     // The workbook's approved species and breeds, with their stage ages.
     await loadStandardBreeds(tx, company.id);
+    await tx.mortalityCause.createMany({ data: mortalityCauseRows(company.id) });
 
     this.logger.log(`Provisioned ${company.name} (${code})`);
     return { companyId: company.id, branchId: branch.id, farmId: farm.id };
@@ -593,10 +592,7 @@ export class ProvisioningService {
      */
     const stageAccounts: ReadonlyArray<readonly [string, Record<string, string>]> =
       chart === 'APPROVED'
-        ? [
-            ['snail', Object.fromEntries(Object.keys(SNAIL_STAGE_MATURITY).map((stage) => [stage, biologicalStageAccountNumber('snail', stage)]))],
-            ['poultry', Object.fromEntries(Object.keys(POULTRY_STAGE_MATURITY).map((stage) => [stage, biologicalStageAccountNumber('poultry', stage)]))],
-          ]
+        ? [] // Finance-classified breed stages resolve their five-digit account at posting time.
         : [
             ['snail', SNAIL_STAGE_ACCOUNTS],
             ['poultry', POULTRY_STAGE_ACCOUNTS],

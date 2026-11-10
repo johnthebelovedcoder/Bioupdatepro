@@ -2,7 +2,7 @@
 
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { saveStageStandards, type FlowState } from '@/app/(app)/admin/breeds/actions';
+import { saveStageMaturity, saveStageStandards, type FlowState } from '@/app/(app)/admin/breeds/actions';
 
 function Save() {
   const { pending } = useFormStatus();
@@ -31,6 +31,28 @@ export function StageStandardsForm({
       </span>
       <input name="targetWeightGrams" type="number" min="1" step="1" defaultValue={stage.targetWeightGrams ?? ''} placeholder="Target g" aria-label={`${stage.stageName} target weight, grams`} style={{ width: 110 }} />
       <input name="dailyFeedGramsPerHead" type="number" min="1" step="1" defaultValue={stage.dailyFeedGramsPerHead ?? ''} placeholder="Feed g/day" aria-label={`${stage.stageName} feed per head per day, grams`} style={{ width: 110 }} />
+      <Save />
+      {state.error ? <span className="notice notice-error">{state.error}</span> : null}
+      {state.message ? <span className="faint">{state.message}</span> : null}
+    </form>
+  );
+}
+
+export function StageMaturityForm({
+  stage,
+}: {
+  stage: { id: string; stageName: string; maturityClass: string | null };
+}) {
+  const [state, action] = useActionState<FlowState, FormData>(saveStageMaturity, { error: null, message: null });
+  return (
+    <form action={action} className="row" style={{ gap: 'var(--sp-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+      <input type="hidden" name="stageId" value={stage.id} />
+      <span className="faint" style={{ minWidth: 150 }}>Finance approved class</span>
+      <select name="maturityClass" defaultValue={stage.maturityClass ?? ''} aria-label={`${stage.stageName} IAS 41 maturity class`}>
+        <option value="">Unclassified</option>
+        <option value="IMMATURE">Immature</option>
+        <option value="MATURE">Mature</option>
+      </select>
       <Save />
       {state.error ? <span className="notice notice-error">{state.error}</span> : null}
       {state.message ? <span className="faint">{state.message}</span> : null}

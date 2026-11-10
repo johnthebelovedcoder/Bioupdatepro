@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getModule, title, type SpeciesModule } from '@/lib/modules';
 import { getGroups } from '@/lib/operations';
-import { getFeedItemNames } from '@/lib/masters';
+import { getFeedItemNames, getMortalityCauses } from '@/lib/masters';
 import { getFarmConfig } from '@/lib/farm-config.server';
 import { getYesterday } from '@/lib/operations';
 import { NotBuiltYet } from '@/components/ui';
@@ -46,10 +46,11 @@ export default async function ModuleSectionPage({
 
   if (section === 'records') {
     const query = await searchParams;
-    const [groups, config, feedItemNames] = await Promise.all([
+    const [groups, config, feedItemNames, mortalityCauses] = await Promise.all([
       getGroups(module.key),
       getFarmConfig(),
       getFeedItemNames(),
+      getMortalityCauses(module.key),
     ]);
 
     /*
@@ -65,6 +66,7 @@ export default async function ModuleSectionPage({
         moduleKey={module.key}
         groups={groups.filter((group) => group.status === 'ACTIVE')}
         feedItemNames={feedItemNames}
+        mortalityCauses={mortalityCauses.map((cause) => cause.label)}
         today={new Date().toISOString().slice(0, 10)}
         collectionLabels={config.operations.collectionLabels}
         mortalityPhoto={config.operations.mortalityPhoto}

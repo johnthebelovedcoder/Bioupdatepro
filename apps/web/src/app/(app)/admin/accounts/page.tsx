@@ -10,9 +10,8 @@ export const metadata = { title: 'GL accounts — BioAssetPro' };
  * Where each account sits within a statement (US-897-002) — distinct from
  * its accountType (asset/liability/equity/revenue/expense), which only says
  * which side of the ledger it's on, not current-vs-non-current or cost of
- * sales vs operating expense. Classifying here does not move any live report:
- * Profit & Loss and Balance Sheet still read their own stated conventions,
- * so this is data being made governed, not a report being silently changed.
+ * sales vs operating expense. P&L and Balance Sheet now use this classification
+ * and identify active accounts that still need a finance decision.
  */
 export default async function GlAccountsPage() {
   const accounts = await getGlAccounts();

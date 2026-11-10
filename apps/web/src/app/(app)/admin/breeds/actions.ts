@@ -83,6 +83,24 @@ export async function saveStageStandards(_previous: FlowState, formData: FormDat
   return { error: null, message: 'Saved.' };
 }
 
+/** Finance's explicit IAS 41 stage classification; a blank value stays unresolved. */
+export async function saveStageMaturity(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const stageId = String(formData.get('stageId') ?? '');
+  const value = String(formData.get('maturityClass') ?? '').trim();
+  if (value !== '' && value !== 'IMMATURE' && value !== 'MATURE') {
+    return { error: 'Choose immature or mature.', message: null };
+  }
+  try {
+    await api(`/masters/species-breeds/stages/${stageId}/maturity`, {
+      method: 'POST', body: { maturityClass: value || null },
+    });
+  } catch (caught) {
+    return { error: caught instanceof ApiError ? caught.message : 'Could not save the maturity class.', message: null };
+  }
+  revalidatePath('/admin/breeds');
+  return { error: null, message: 'Finance classification saved.' };
+}
+
 /**
  * Load the workbook's approved species and breeds (SNAIL_SPECIES_MASTER,
  * POULTRY_BREED_MASTER) for one species. Adds only the codes the farm does not

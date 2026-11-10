@@ -43,6 +43,9 @@ export interface BatchProfile {
   breed: string;
   placedOn: string;
   hatchedOn: string | null;
+  hatchDateApprovalStatus: string | null;
+  hatchDateRejectionReason: string | null;
+  canCorrectHatchDate: boolean;
   ageBasis: AgeBasis;
   /** Days old today, or on the day the batch closed — a closed batch stops ageing. */
   ageDays: number;
@@ -115,6 +118,59 @@ export class BatchProfileService {
     private readonly audit: AuditService,
   ) {}
 
+  /** Release gate for the named BIO_MASTER_CHECKS checklist. */
+  async bioMasterChecks(companyId: string) {
+    const [groups, masters, currentWeighings, weighingHistory] = await Promise.all([
+      this.prisma.livestockGroup.findMany({ where: { companyId, status: 'ACTIVE' }, select: { id: true, code: true, speciesKey: true, breed: true, stage: true, population: true, hatchDateEstimated: true, hatchDateEvidence: true, hatchDateApprovedById: true, hatchDateApprovedAt: true, originType: true, originEvidence: true, originParentGroupId: true, originParentGroup: { select: { companyId: true } }, originGoodsReceiptNoteLine: { select: { goodsReceiptNote: { select: { companyId: true, status: true } } } }, hatchedOn: true, startedOn: true, hatchDateApprovalStatus: true, hatchDateRejectionReason: true } }),
+      this.prisma.speciesBreed.findMany({ where: { companyId, active: true }, include: { stages: { select: { stageName: true, minDay: true }, orderBy: { minDay: 'asc' } } } }),
+      this.prisma.livestockWeighing.groupBy({ by: ['groupId'], where: { companyId, isCurrent: true, status: 'APPROVED' }, _count: { _all: true } }),
+      this.prisma.livestockWeighing.groupBy({ by: ['groupId'], where: { companyId }, _count: { _all: true } }),
+    ]);
+    const currentByGroup = new Map(currentWeighings.map((row) => [row.groupId, row._count._all]));
+    const historyByGroup = new Map(weighingHistory.map((row) => [row.groupId, row._count._all]));
+    const issues = groups.flatMap((group) => {
+      const master = masters.find((row) => row.speciesKey === group.speciesKey && row.name === group.breed);
+      const reasons: string[] = [];
+      if (group.population < 0) reasons.push('negative_population');
+      if (group.originType === 'OTHER' || !group.originEvidence) reasons.push('missing_origin_evidence');
+      if (group.originType === 'PURCHASE' && (!group.originGoodsReceiptNoteLine || group.originGoodsReceiptNoteLine.goodsReceiptNote.status !== 'POSTED')) reasons.push('purchase_missing_posted_grn_link');
+      if (group.originType === 'PURCHASE' && group.originGoodsReceiptNoteLine?.goodsReceiptNote.companyId !== companyId) reasons.push('purchase_origin_tenant_mismatch');
+      if (['HATCHED', 'PRODUCED'].includes(group.originType) && (!group.originParentGroupId || group.originParentGroup?.companyId !== companyId)) reasons.push('biological_origin_missing_or_invalid_parent_link');
+      if (!master) reasons.push('unapproved_or_missing_breed');
+      else {
+        const ageDays = Math.max(0, Math.floor(((group.hatchedOn ?? group.startedOn).getTime() - new Date().setUTCHours(0, 0, 0, 0)) / -86_400_000));
+        if (!master.stages.some((stage) => stage.stageName === group.stage)) reasons.push('stage_not_configured');
+        const expected = [...master.stages].reverse().find((stage) => stage.minDay <= ageDays);
+        if (expected && expected.stageName !== group.stage) reasons.push('stage_age_mismatch');
+      }
+      if (group.hatchDateEstimated && (!group.hatchDateEvidence || !group.hatchDateApprovedById || !group.hatchDateApprovedAt)) reasons.push('estimated_hatch_missing_evidence_or_approval');
+      if (group.hatchDateApprovalStatus === 'PENDING') reasons.push('estimated_hatch_awaiting_independent_approval');
+      if (group.hatchDateApprovalStatus === 'REJECTED') reasons.push('hatch_date_request_rejected');
+      const current = currentByGroup.get(group.id) ?? 0;
+      if (current > 1) reasons.push('multiple_current_approved_weighings');
+      if ((historyByGroup.get(group.id) ?? 0) > 0 && current !== 1) reasons.push('weighing_history_has_no_single_current_approved_record');
+      return reasons.map((reason) => ({ groupCode: group.code, speciesKey: group.speciesKey, reason }));
+    });
+    return { checklist: 'BIO_MASTER_CHECKS', ready: issues.length === 0, groupsChecked: groups.length, issues };
+  }
+
+  async signOffBioMasterChecks(params: { companyId: string; actor: WorkflowActor; releaseLabel: string; exceptionsAcknowledged?: string }) {
+    if (!params.releaseLabel.trim()) throw new BadRequestException('A release label is required.');
+    const snapshot = await this.bioMasterChecks(params.companyId);
+    if (!snapshot.ready && !params.exceptionsAcknowledged?.trim()) {
+      throw new BadRequestException(`BIO_MASTER_CHECKS has ${snapshot.issues.length} issue(s). Resolve them or document the accepted exceptions.`);
+    }
+    const entityId = `${params.companyId}:${params.releaseLabel.trim()}:${Date.now()}`;
+    await this.audit.write({
+      transactionId: entityId, module: 'operations', entityType: 'BioMasterReleaseSignOff', entityId,
+      status: snapshot.ready ? 'RELEASED' : 'RELEASED_WITH_EXCEPTIONS', action: AuditAction.CREATE,
+      userId: params.actor.userId, ipAddress: params.actor.ipAddress ?? null, device: params.actor.device ?? null,
+      comments: params.exceptionsAcknowledged?.trim() ?? null,
+      newValue: { releaseLabel: params.releaseLabel.trim(), checklist: snapshot, signedOffBy: params.actor.userId },
+    });
+    return { releaseLabel: params.releaseLabel.trim(), verdict: snapshot.ready ? 'RELEASED' : 'RELEASED_WITH_EXCEPTIONS', ...snapshot };
+  }
+
   async profile(companyId: string, code: string, today = new Date()): Promise<BatchProfile> {
     const group = await this.prisma.livestockGroup.findFirst({
       where: { code, companyId },
@@ -124,6 +180,8 @@ export class BatchProfileService {
           include: { recordedBy: { select: { fullName: true } }, approvedBy: { select: { fullName: true } } },
         },
         disposals: { orderBy: { occurredOn: 'asc' } },
+        dailyRecords: { select: { id: true }, take: 1 },
+        stageChanges: { select: { id: true }, take: 1 },
       },
     });
     if (!group) throw new NotFoundException('No such group.');
@@ -157,6 +215,9 @@ export class BatchProfileService {
       breed: group.breed,
       placedOn: day(group.startedOn),
       hatchedOn: group.hatchedOn ? day(group.hatchedOn) : null,
+      hatchDateApprovalStatus: group.hatchDateApprovalStatus,
+      hatchDateRejectionReason: group.hatchDateRejectionReason,
+      canCorrectHatchDate: Boolean(group.dailyRecords.length || group.stageChanges.length || group.weighings.length || group.disposals.length || group.originType === 'HATCHED' || group.originType === 'PRODUCED'),
       ageBasis: age.basis,
       ageDays: age.days,
       ageWeeks: (age.days / 7).toFixed(1),
@@ -498,15 +559,66 @@ export class BatchProfileService {
     return rows.map((w) => ({ ...toRow(w), groupCode: w.group.code, speciesKey: w.group.speciesKey }));
   }
 
-  async setHatchDate(params: { companyId: string; code: string; hatchedOn: Date | null; estimated?: boolean; actor: WorkflowActor }) {
+  async setHatchDate(params: { companyId: string; code: string; hatchedOn: Date | null; estimated?: boolean; evidence?: string; actor: WorkflowActor }) {
     const group = await this.prisma.livestockGroup.findFirst({ where: { code: params.code, companyId: params.companyId } });
     if (!group) throw new NotFoundException('No such group.');
+    if (group.hatchDateApprovalStatus === 'PENDING') throw new BadRequestException('Resolve the pending hatch-date approval first.');
+    if (group.originType === 'HATCHED' || group.originType === 'PRODUCED') throw new BadRequestException('Biological event dates are source history. Submit a controlled correction with evidence and independent approval.');
+    if (params.hatchedOn && params.estimated && !params.evidence?.trim()) {
+      throw new BadRequestException('Add the evidence used to estimate this hatch date.');
+    }
+    const [dailyRecord, stageChange, weighing, disposal, harvest, healthEvent, treatment] = await Promise.all([
+      this.prisma.dailyRecord.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.stageChange.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.livestockWeighing.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.livestockGroupDisposal.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.harvestRecord.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.healthEvent.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.treatmentRecord.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+    ]);
+    if (dailyRecord || stageChange || weighing || disposal || harvest || healthEvent || treatment) {
+      throw new BadRequestException('This group has posted lifecycle history. Correct the hatch date through a controlled correction; direct edits are locked.');
+    }
     if (params.hatchedOn && params.hatchedOn > group.startedOn) {
       throw new BadRequestException(`${group.code} was placed on ${day(group.startedOn)}; it must have hatched on or before that.`);
     }
+    if (params.hatchedOn && params.estimated) {
+      const updated = await this.prisma.livestockGroup.update({
+        where: { id: group.id },
+        data: {
+          pendingHatchedOn: params.hatchedOn,
+          pendingHatchEvidence: params.evidence!.trim(),
+          pendingHatchRequestedById: params.actor.userId,
+          pendingHatchDateEstimated: true,
+          pendingHatchCorrectionReason: null,
+          hatchDateApprovalStatus: 'PENDING',
+          hatchDateRejectionReason: null,
+        },
+      });
+      await this.audit.write({
+        transactionId: group.id, module: 'operations', entityType: 'LivestockGroup', entityId: group.id,
+        status: group.status, action: AuditAction.UPDATE, userId: params.actor.userId,
+        comments: `${group.code} estimated hatch date ${day(params.hatchedOn)} submitted for independent approval.`,
+      });
+      return { id: updated.id, status: 'PENDING' };
+    }
     await this.prisma.livestockGroup.update({
       where: { id: group.id },
-      data: { hatchedOn: params.hatchedOn, hatchDateEstimated: params.hatchedOn ? params.estimated === true : false },
+      data: {
+        hatchedOn: params.hatchedOn,
+        hatchDateEstimated: params.hatchedOn ? params.estimated === true : false,
+        hatchDateEvidence: params.hatchedOn && params.estimated ? params.evidence!.trim() : null,
+        hatchDateEstimatedById: params.hatchedOn && params.estimated ? params.actor.userId : null,
+        hatchDateApprovedById: params.hatchedOn && params.estimated ? params.actor.userId : null,
+        hatchDateApprovedAt: params.hatchedOn && params.estimated ? new Date() : null,
+        hatchDateApprovalStatus: null,
+        hatchDateRejectionReason: null,
+        pendingHatchedOn: null,
+        pendingHatchEvidence: null,
+        pendingHatchRequestedById: null,
+        pendingHatchDateEstimated: false,
+        pendingHatchCorrectionReason: null,
+      },
     });
     await this.audit.write({
       transactionId: group.id,
@@ -517,9 +629,89 @@ export class BatchProfileService {
       action: AuditAction.UPDATE,
       userId: params.actor.userId,
       comments: params.hatchedOn
-        ? `${group.code} hatch date set to ${day(params.hatchedOn)} (${params.estimated ? 'estimated' : 'exact'}).`
+        ? `${group.code} exact hatch date set to ${day(params.hatchedOn)}.`
         : `${group.code} hatch date cleared.`,
     });
+    return { status: 'SAVED' };
+  }
+
+  async approveEstimatedHatchDate(params: { companyId: string; code: string; actor: WorkflowActor }) {
+    this.assertApprover(params.actor);
+    const group = await this.prisma.livestockGroup.findFirst({ where: { companyId: params.companyId, code: params.code } });
+    if (!group) throw new NotFoundException('No such group.');
+    if (group.hatchDateApprovalStatus !== 'PENDING' || !group.pendingHatchedOn || !group.pendingHatchRequestedById || !group.pendingHatchEvidence) {
+      throw new BadRequestException('There is no complete estimated hatch date awaiting approval.');
+    }
+    if (group.pendingHatchRequestedById === params.actor.userId) throw new ForbiddenException('The person who submitted this estimate cannot approve it.');
+    const now = new Date();
+    const changed = await this.prisma.livestockGroup.updateMany({
+      where: { id: group.id, hatchDateApprovalStatus: 'PENDING', pendingHatchRequestedById: { not: params.actor.userId } },
+      data: {
+        hatchedOn: group.pendingHatchedOn, hatchDateEstimated: group.pendingHatchDateEstimated,
+        hatchDateEvidence: group.pendingHatchDateEstimated ? group.pendingHatchEvidence : null,
+        hatchDateEstimatedById: group.pendingHatchDateEstimated ? group.pendingHatchRequestedById : null,
+        hatchDateApprovedById: group.pendingHatchDateEstimated || group.pendingHatchCorrectionReason ? params.actor.userId : null,
+        hatchDateApprovedAt: group.pendingHatchDateEstimated || group.pendingHatchCorrectionReason ? now : null,
+        hatchDateApprovalStatus: group.pendingHatchCorrectionReason ? 'CORRECTED' : 'APPROVED',
+        hatchDateRejectionReason: null,
+        pendingHatchedOn: null, pendingHatchEvidence: null, pendingHatchRequestedById: null,
+        pendingHatchDateEstimated: false, pendingHatchCorrectionReason: null,
+      },
+    });
+    if (!changed.count) throw new BadRequestException('That hatch-date request was already resolved or you submitted it.');
+    const updated = await this.prisma.livestockGroup.findUniqueOrThrow({ where: { id: group.id } });
+    await this.audit.write({
+      transactionId: group.id, module: 'operations', entityType: 'LivestockGroup', entityId: group.id,
+      status: group.status, action: AuditAction.UPDATE, userId: params.actor.userId,
+      comments: `${group.code} hatch date ${day(updated.hatchedOn!)} independently approved${group.pendingHatchCorrectionReason ? ` as a correction: ${group.pendingHatchCorrectionReason}` : ''}.`,
+      metadata: { requestedById: group.pendingHatchRequestedById, approvedById: params.actor.userId, evidence: group.pendingHatchEvidence, correctionReason: group.pendingHatchCorrectionReason },
+    });
+    return { status: 'APPROVED', hatchedOn: day(updated.hatchedOn!) };
+  }
+
+  async requestHatchDateCorrection(params: { companyId: string; code: string; hatchedOn: Date; estimated: boolean; evidence: string; reason: string; actor: WorkflowActor }) {
+    const group = await this.prisma.livestockGroup.findFirst({ where: { companyId: params.companyId, code: params.code } });
+    if (!group) throw new NotFoundException('No such group.');
+    if (!params.reason.trim() || !params.evidence.trim()) throw new BadRequestException('A correction reason and supporting evidence are required.');
+    if (params.hatchedOn > group.startedOn) throw new BadRequestException('The hatch date must be on or before placement.');
+    if (group.hatchDateApprovalStatus === 'PENDING') throw new BadRequestException('Resolve the existing hatch-date request first.');
+    const [daily, stage, weighing, disposal, harvest, healthEvent, treatment] = await Promise.all([
+      this.prisma.dailyRecord.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.stageChange.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.livestockWeighing.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.livestockGroupDisposal.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.harvestRecord.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.healthEvent.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+      this.prisma.treatmentRecord.findFirst({ where: { groupId: group.id }, select: { id: true } }),
+    ]);
+    if (!daily && !stage && !weighing && !disposal && !harvest && !healthEvent && !treatment && group.originType !== 'HATCHED' && group.originType !== 'PRODUCED') throw new BadRequestException('Use the normal hatch-date form before lifecycle events exist.');
+    await this.prisma.livestockGroup.update({
+      where: { id: group.id },
+      data: { pendingHatchedOn: params.hatchedOn, pendingHatchEvidence: params.evidence.trim(), pendingHatchRequestedById: params.actor.userId, pendingHatchDateEstimated: params.estimated, pendingHatchCorrectionReason: params.reason.trim(), hatchDateApprovalStatus: 'PENDING', hatchDateRejectionReason: null },
+    });
+    await this.audit.write({
+      transactionId: group.id, module: 'operations', entityType: 'LivestockGroup', entityId: group.id,
+      status: group.status, action: AuditAction.UPDATE, userId: params.actor.userId,
+      comments: `${group.code} hatch-date correction requested: ${params.reason.trim()}`,
+      metadata: { proposedHatchedOn: day(params.hatchedOn), evidence: params.evidence.trim() },
+    });
+    return { status: 'PENDING_CORRECTION' };
+  }
+
+  async rejectHatchDateRequest(params: { companyId: string; code: string; actor: WorkflowActor; reason: string }) {
+    this.assertApprover(params.actor);
+    if (!params.reason.trim()) throw new BadRequestException('A rejection reason is required.');
+    const group = await this.prisma.livestockGroup.findFirst({ where: { companyId: params.companyId, code: params.code } });
+    if (!group) throw new NotFoundException('No such group.');
+    if (group.hatchDateApprovalStatus !== 'PENDING' || !group.pendingHatchRequestedById) throw new BadRequestException('There is no pending hatch-date request.');
+    if (group.pendingHatchRequestedById === params.actor.userId) throw new ForbiddenException('The person who requested the hatch-date change cannot reject it.');
+    const changed = await this.prisma.livestockGroup.updateMany({
+      where: { id: group.id, hatchDateApprovalStatus: 'PENDING', pendingHatchRequestedById: { not: params.actor.userId } },
+      data: { hatchDateApprovalStatus: 'REJECTED', hatchDateRejectionReason: params.reason.trim(), pendingHatchedOn: null, pendingHatchEvidence: null, pendingHatchRequestedById: null, pendingHatchDateEstimated: false, pendingHatchCorrectionReason: null },
+    });
+    if (!changed.count) throw new BadRequestException('That request was already resolved or you submitted it.');
+    await this.audit.write({ transactionId: group.id, module: 'operations', entityType: 'LivestockGroup', entityId: group.id, status: group.status, action: AuditAction.UPDATE, userId: params.actor.userId, comments: `${group.code} hatch-date request rejected: ${params.reason.trim()}` });
+    return { status: 'REJECTED' };
   }
 
   private assertApprover(actor: WorkflowActor) {

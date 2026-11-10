@@ -4,7 +4,7 @@ import { subscribedModules } from '@/lib/modules';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { BreedForm } from '@/components/breed-form';
-import { StageStandardsForm } from '@/components/stage-standards';
+import { StageMaturityForm, StageStandardsForm } from '@/components/stage-standards';
 import { LoadStandardBreeds } from '@/components/load-standard-breeds';
 
 export const metadata = { title: 'Breeds — BioAssetPro' };
@@ -18,7 +18,7 @@ interface Breed {
   openingStage: string;
   status: string;
   controlNote: string | null;
-  stages: Array<{ id: string; stageName: string; minDay: number; targetWeightGrams: number | null; dailyFeedGramsPerHead: number | null }>;
+  stages: Array<{ id: string; stageName: string; minDay: number; targetWeightGrams: number | null; dailyFeedGramsPerHead: number | null; maturityClass: string | null }>;
 }
 
 /**
@@ -113,7 +113,10 @@ export default async function BreedsPage() {
                                     Target live weight and feed per head per day, in grams — harvest readiness and the feed plan use them.
                                   </span>
                                   {breed.stages.map((s) => (
-                                    <StageStandardsForm key={s.id} stage={s} />
+                                    <div key={s.id} className="stack" style={{ gap: 'var(--sp-1)' }}>
+                                      <StageStandardsForm stage={s} />
+                                      {module.key === 'snail' || module.key === 'poultry' ? <StageMaturityForm stage={s} /> : null}
+                                    </div>
                                   ))}
                                 </div>
                               </details>

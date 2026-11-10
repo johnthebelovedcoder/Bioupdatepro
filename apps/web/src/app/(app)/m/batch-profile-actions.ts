@@ -65,14 +65,46 @@ export async function setHatchDate(_previous: GrowthState, formData: FormData): 
   const code = String(formData.get('code') ?? '');
   const hatchedOn = String(formData.get('hatchedOn') ?? '').trim();
   const estimated = formData.get('estimated') === 'on';
+  const evidence = String(formData.get('evidence') ?? '').trim();
   try {
-    await api(`/operations/groups/${encodeURIComponent(code)}/hatch-date`, {
+    const result = await api<{ status: string }>(`/operations/groups/${encodeURIComponent(code)}/hatch-date`, {
       method: 'POST',
-      body: { hatchedOn: hatchedOn || null, estimated },
+      body: { hatchedOn: hatchedOn || null, estimated, evidence },
     });
     revalidatePath('/', 'layout');
-    return { error: null, message: hatchedOn ? 'Hatch date saved. Age now counts from it.' : 'Hatch date cleared. Age counts from placement.' };
+    return { error: null, message: result.status === 'PENDING' ? 'Estimate submitted. A different supervisor must approve it before it affects age.' : hatchedOn ? 'Exact hatch date saved. Age now counts from it.' : 'Hatch date cleared. Age counts from placement.' };
   } catch (caught) {
     return failed(caught, 'Could not save the hatch date.');
+  }
+}
+
+export async function approveEstimatedHatchDate(formData: FormData): Promise<void> {
+  const code = String(formData.get('code') ?? '');
+  await api(`/operations/groups/${encodeURIComponent(code)}/hatch-date/approve`, { method: 'POST' });
+  revalidatePath('/', 'layout');
+}
+
+export async function rejectHatchDateRequest(formData: FormData): Promise<void> {
+  const code = String(formData.get('code') ?? '');
+  await api(`/operations/groups/${encodeURIComponent(code)}/hatch-date/reject`, { method: 'POST', body: { reason: formData.get('reason') } });
+  revalidatePath('/', 'layout');
+}
+
+export async function requestHatchDateCorrection(_previous: GrowthState, formData: FormData): Promise<GrowthState> {
+  const code = String(formData.get('code') ?? '');
+  try {
+    await api(`/operations/groups/${encodeURIComponent(code)}/hatch-date/correction`, {
+      method: 'POST',
+      body: {
+        hatchedOn: String(formData.get('hatchedOn') ?? ''),
+        estimated: formData.get('estimated') === 'on',
+        evidence: String(formData.get('evidence') ?? ''),
+        reason: String(formData.get('reason') ?? ''),
+      },
+    });
+    revalidatePath('/', 'layout');
+    return { error: null, message: 'Correction submitted. A different supervisor must approve it.' };
+  } catch (caught) {
+    return failed(caught, 'Could not request hatch-date correction.');
   }
 }

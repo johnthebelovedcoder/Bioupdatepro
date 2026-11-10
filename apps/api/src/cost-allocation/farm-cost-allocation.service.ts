@@ -211,7 +211,7 @@ export class FarmCostAllocationService {
       this.prisma.company.findUniqueOrThrow({ where: { id: params.companyId }, select: { baseCurrencyId: true } }),
       this.prisma.livestockGroup.findMany({
         where: { id: { in: shares.map((s) => s.groupId) } },
-        select: { id: true, code: true, branchId: true, farmId: true, penHouseId: true, stage: true },
+        select: { id: true, code: true, branchId: true, farmId: true, penHouseId: true, speciesKey: true, stage: true },
       }),
       this.prisma.costCentre.findFirst({ where: { companyId: params.companyId, active: true, postingAllowed: true }, orderBy: { code: 'asc' } }),
       this.prisma.farmCostAllocation.count({ where: { companyId: params.companyId, financialPeriodId: period.id } }),
@@ -229,6 +229,23 @@ export class FarmCostAllocationService {
       exchangeRate: '1',
     };
 
+    const poultryAccountByGroup = new Map<string, string>();
+    for (const group of groups.filter((row) => row.speciesKey.trim().toLowerCase() === 'poultry')) {
+      let number = targets.version === 'APPROVED' ? null : rearingNumberFor(targets.version, 'poultry', group.stage);
+      if (targets.version === 'APPROVED') {
+        const stageRows = await this.prisma.speciesBreedStage.findMany({
+          where: { stageName: group.stage, speciesBreed: { companyId: params.companyId, speciesKey: group.speciesKey, active: true } },
+          select: { maturityClass: true },
+        });
+        const classes = [...new Set(stageRows.map((row) => row.maturityClass).filter((value): value is string => !!value))];
+        if (!stageRows.length || classes.length !== 1 || stageRows.some((row) => !row.maturityClass)) {
+          throw new BadRequestException(`Finance must assign one consistent maturity class to poultry stage "${group.stage}" before labour and overhead can be allocated.`);
+        }
+        number = classes[0] === 'IMMATURE' ? '16032' : classes[0] === 'MATURE' ? '16042' : null;
+      }
+      if (!number) throw new BadRequestException(`No approved rearing account is configured for poultry stage "${group.stage}".`);
+      poultryAccountByGroup.set(group.id, number);
+    }
     const debitLines = shares.map((share) => {
       const group = groupById.get(share.groupId)!;
       const normalizedSpeciesKey = share.speciesKey.trim().toLowerCase();
@@ -236,7 +253,7 @@ export class FarmCostAllocationService {
       // the approved chart the account of its stage today.
       const glAccountId =
         normalizedSpeciesKey === 'poultry'
-          ? targets.poultryByNumber.get(rearingNumberFor(targets.version, 'poultry', group.stage)!)!
+          ? targets.poultryByNumber.get(poultryAccountByGroup.get(group.id)!)!
           : targets.snail!;
       // (A snail share is expensed on either chart, so no rearing cost is held for it.)
       return {
