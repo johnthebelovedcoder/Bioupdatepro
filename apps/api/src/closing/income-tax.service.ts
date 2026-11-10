@@ -4,9 +4,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
 import { PostingControlService } from '../posting-control/posting-control.service';
+import { chartVersionOf } from '../chart/chart';
 import { ProfitLossService } from '../reporting/profit-loss.service';
+import { AccountingRuleViolation } from '../common/errors';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { kobo } from '../common/money';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 
 export interface IncomeTaxProvision {
   periodName: string;
@@ -73,9 +76,21 @@ export class IncomeTaxService {
       throw new BadRequestException(`${period.name} is ${period.status.toLowerCase()}; provide for tax in an open period.`);
     }
 
-    const rule = await this.postingControl.resolve({ companyId: params.companyId, ruleId: 'PCR-084', on: period.endDate });
-    const expense = rule.debit?.glAccountId;
-    const payable = rule.credit?.glAccountId;
+    const approvedChart = (await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED';
+    let expense: string | undefined;
+    let payable: string | undefined;
+    if (approvedChart) {
+      const [expenseMap, payableMap] = await Promise.all([
+        resolveApprovedMappedAccount(this.prisma, { companyId: params.companyId, application: 'YifrehCore', postingGroup: 'COR-FIN-DEFAULT', postingKey: 'INCOME_TAX_EXPENSE', on: period.endDate }),
+        resolveApprovedMappedAccount(this.prisma, { companyId: params.companyId, application: 'YifrehCore', postingGroup: 'COR-FIN-DEFAULT', postingKey: 'INCOME_TAX_PAYABLE', on: period.endDate }),
+      ]);
+      expense = expenseMap.glAccountId;
+      payable = payableMap.glAccountId;
+    } else {
+      const rule = await this.postingControl.resolve({ companyId: params.companyId, ruleId: 'PCR-084', on: period.endDate });
+      expense = rule.debit?.glAccountId;
+      payable = rule.credit?.glAccountId;
+    }
     if (!expense || !payable) {
       throw new BadRequestException('PCR-084 has no accounts. Load the posting rules (Books → Controls) first.');
     }
@@ -111,6 +126,10 @@ export class IncomeTaxService {
       ...dimensions,
       idempotencyKey: `income-tax:${period.id}:${result.taxDueYtdKobo}`,
       actor: params.actor,
+      ...(approvedChart ? { approvedControl: {
+        application: 'YifrehCore', applicationRuleId: 'COR-APP-TAX-PROV-001', ...(delta < 0n ? { reversedApplicationRuleIds: ['COR-APP-TAX-PROV-001'] } : {}),
+        expectedLineAmountsKobo: { 'COR-APP-TAX-PROV-001:1': amount.toString(), 'COR-APP-TAX-PROV-001:2': amount.toString() },
+      } } : {}),
       lines: [
         { glAccountId: expense, description: 'PCR-084 — income tax expense', ...(delta > 0n ? { debit: amount } : { credit: amount }), dimensions: expenseDimensions },
         { glAccountId: payable, description: 'PCR-084 — income tax payable', ...(delta > 0n ? { credit: amount } : { debit: amount }), dimensions },

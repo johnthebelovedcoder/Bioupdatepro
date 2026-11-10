@@ -72,7 +72,7 @@ export function CustomerReceiptForm({
 
       <Sheet open={open} onClose={() => setOpen(false)} title={label}>
         <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
-          <p className="faint">Only posted, unpaid invoices are shown.</p>
+          <p className="faint">Only posted receivables with an outstanding balance are shown.</p>
 
           {state.error ? <div className="notice notice-error">{state.error}</div> : null}
 
@@ -128,7 +128,7 @@ export function CustomerReceiptForm({
             <table className="data">
               <thead>
                 <tr>
-                  <th>Invoice</th>
+                  <th>Receivable</th>
                   <th className="right" style={{ width: 130 }}>
                     Outstanding
                   </th>
@@ -137,7 +137,7 @@ export function CustomerReceiptForm({
               </thead>
               <tbody>
                 {customerInvoices.map((invoice) => (
-                  <InvoiceRow key={invoice.id} invoice={invoice} />
+                  <InvoiceRow key={`${invoice.targetType ?? 'INVOICE'}:${invoice.id}`} invoice={invoice} />
                 ))}
               </tbody>
             </table>
@@ -151,12 +151,13 @@ export function CustomerReceiptForm({
 }
 
 function InvoiceRow({ invoice }: { invoice: SalesInvoiceRow }) {
-  const [amount, setAmount] = useState(formatNaira(invoice.outstandingKobo).replace(/[₦,]/g, ''));
+  const [amount, setAmount] = useState(formatNaira(invoice.availableToReceiveKobo ?? invoice.outstandingKobo).replace(/[₦,]/g, ''));
 
   return (
     <tr>
       <td>
-        <input type="hidden" name="invoiceId" value={invoice.id} />
+        <input type="hidden" name="allocationTargetId" value={invoice.id} />
+        <input type="hidden" name={`targetType:${invoice.id}`} value={invoice.targetType ?? 'INVOICE'} />
         <span className="strong">{invoice.invoiceNumber}</span>
         {invoice.orderNumber ? <div className="faint">{invoice.orderNumber}</div> : null}
       </td>

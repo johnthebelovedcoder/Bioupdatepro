@@ -20,6 +20,7 @@ import { TaxRegisterService } from '../tax/tax-register.service';
 import { ProcurementConfigService } from './procurement-config.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
+import { chartVersionOf } from '../chart/chart';
 
 export interface SupplierInvoiceLineInput {
   /** Where the line comes from. A GRN reference is what lets it clear GRNI. */
@@ -141,7 +142,7 @@ export class SupplierInvoiceService {
       );
     }
 
-    const settings = await this.config.resolve(input.companyId, input.invoiceDate);
+    const settings = await this.config.resolve(input.companyId, input.invoiceDate, undefined, input.supplierId);
 
     const prepared: Prisma.SupplierInvoiceLineCreateManyInvoiceInput[] = [];
     let net = 0n;
@@ -320,7 +321,7 @@ export class SupplierInvoiceService {
       };
     }
 
-    const settings = await this.config.resolve(invoice.companyId, invoice.invoiceDate);
+    const settings = await this.config.resolve(invoice.companyId, invoice.invoiceDate, undefined, invoice.supplierId);
     const quantityTolerance = new Decimal(settings.quantityTolerancePercent.toString());
     const priceTolerance = new Decimal(settings.priceTolerancePercent.toString());
 
@@ -446,7 +447,7 @@ export class SupplierInvoiceService {
     }
 
     const match = await this.threeWayMatch(invoice.id);
-    const settings = await this.config.resolve(invoice.companyId, invoice.invoiceDate);
+    const settings = await this.config.resolve(invoice.companyId, invoice.invoiceDate, undefined, invoice.supplierId);
 
     const transactionType =
       match.status === MatchStatus.EXCEPTION
@@ -593,6 +594,8 @@ export class SupplierInvoiceService {
       credit: invoice.grossAmountKobo,
     });
 
+    const approvedChart = await chartVersionOf(params.tx, invoice.companyId) === 'APPROVED';
+    const matchedGrni = invoice.lines.length > 0 && invoice.lines.every((line) => line.clearsGrni && !variances.get(line.id));
     const result = await this.posting.post(
       {
         sourceModule: 'procurement',
@@ -604,6 +607,20 @@ export class SupplierInvoiceService {
           `Supplier invoice ${invoice.supplierInvoiceNumber} — ${invoice.supplier.name}`,
         ...dimensions,
         idempotencyKey: `supplier-invoice:${invoice.id}`,
+        ...(approvedChart && matchedGrni ? { approvedControl: {
+          application: 'YifrehCore',
+          applicationRuleId: 'COR-YFR-011A',
+          ...(invoice.vatAmountKobo > 0n ? { additionalApplicationRuleIds: ['COR-YFR-011B'] } : {}),
+          dynamicAccountIds: { 'COR-YFR-011A:AP_CONTROL': [settings.payablesGlAccountId] },
+          expectedLineAmountsKobo: {
+            'COR-YFR-011A:1': invoice.netAmountKobo.toString(),
+            'COR-YFR-011A:2': invoice.netAmountKobo.toString(),
+            ...(invoice.vatAmountKobo > 0n ? {
+              'COR-YFR-011B:1': invoice.vatAmountKobo.toString(),
+              'COR-YFR-011B:2': invoice.vatAmountKobo.toString(),
+            } : {}),
+          },
+        } } : {}),
         actor: params.actor,
         lines: lines.map((line) => ({
           glAccountId: line.glAccountId,

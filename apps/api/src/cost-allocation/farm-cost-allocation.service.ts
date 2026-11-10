@@ -10,6 +10,7 @@ import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
 import { TimesheetService } from './timesheet.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
+import { resolveApprovedLifecycleStageAccount } from '../posting-control/approved-account-map';
 
 /**
  * Farm labour and overhead charged to the populations that used it —
@@ -172,6 +173,29 @@ export class FarmCostAllocationService {
 
     const sources = params.sources.filter((s) => s.amountKobo > 0n);
     if (sources.length === 0) throw new BadRequestException('Choose at least one amount to allocate.');
+    const approvedChart = await chartVersionOf(this.prisma, params.companyId) === 'APPROVED';
+    if (approvedChart && basis === 'HOURS') {
+      const labourMaps = await this.prisma.approvedPostingMap.findMany({
+        where: {
+          companyId: params.companyId,
+          application: { in: ['YifrehCore', 'YifrehSnail', 'YifrehPoultry'] },
+          postingKey: 'LABOUR_EXPENSE',
+          status: 'Active',
+          effectiveFrom: { lte: period.endDate },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: period.endDate } }],
+        },
+        select: { glAccountId: true },
+      });
+      const eligibleLabourAccounts = new Set(labourMaps.map((map) => map.glAccountId));
+      const ineligible = sources.filter((source) => !eligibleLabourAccounts.has(source.glAccountId));
+      if (ineligible.length > 0) {
+        throw new AccountingRuleViolation(
+          'Approved workbook — timesheet eligible labour',
+          'The HOURS basis is only for expense accounts mapped as LABOUR_EXPENSE. Allocate overhead and depreciation separately using the approved animal-days basis.',
+          { ineligibleAccountIds: ineligible.map((source) => source.glAccountId) },
+        );
+      }
+    }
 
     // Never more than the account carries in the month — allocating cost that
     // is not there would put a credit balance on an expense account.
@@ -216,6 +240,9 @@ export class FarmCostAllocationService {
       this.prisma.costCentre.findFirst({ where: { companyId: params.companyId, active: true, postingAllowed: true }, orderBy: { code: 'asc' } }),
       this.prisma.farmCostAllocation.count({ where: { companyId: params.companyId, financialPeriodId: period.id } }),
     ]);
+    if (approvedChart && !costCentre) {
+      throw new AccountingRuleViolation('Approved workbook — farm allocation cost centre', 'Farm cost allocation needs an active posting-allowed cost centre for its biological-asset debit lines.', { periodId: period.id });
+    }
     const groupById = new Map(groups.map((g) => [g.id, g]));
     const branchId = groups[0]!.branchId;
     const reference = `ALLOC-${period.startDate.toISOString().slice(0, 7)}-${count + 1}`;
@@ -233,18 +260,19 @@ export class FarmCostAllocationService {
     for (const group of groups.filter((row) => row.speciesKey.trim().toLowerCase() === 'poultry')) {
       let number = targets.version === 'APPROVED' ? null : rearingNumberFor(targets.version, 'poultry', group.stage);
       if (targets.version === 'APPROVED') {
-        const stageRows = await this.prisma.speciesBreedStage.findMany({
-          where: { stageName: group.stage, speciesBreed: { companyId: params.companyId, speciesKey: group.speciesKey, active: true } },
-          select: { maturityClass: true },
-        });
-        const classes = [...new Set(stageRows.map((row) => row.maturityClass).filter((value): value is string => !!value))];
-        if (!stageRows.length || classes.length !== 1 || stageRows.some((row) => !row.maturityClass)) {
-          throw new BadRequestException(`Finance must assign one consistent maturity class to poultry stage "${group.stage}" before labour and overhead can be allocated.`);
-        }
-        number = classes[0] === 'IMMATURE' ? '16032' : classes[0] === 'MATURE' ? '16042' : null;
+        number = (await resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: group.speciesKey, stageName: group.stage, on: period.endDate })).accountNumber;
       }
       if (!number) throw new BadRequestException(`No approved rearing account is configured for poultry stage "${group.stage}".`);
       poultryAccountByGroup.set(group.id, number);
+    }
+    const snailAccountByGroup = new Map<string, string>();
+    if (targets.version === 'APPROVED') {
+      for (const group of groups.filter((row) => row.speciesKey.trim().toLowerCase() === 'snail')) {
+        const resolved = await resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: group.speciesKey, stageName: group.stage, on: period.endDate });
+        const account = await this.prisma.gLAccount.findFirst({ where: { companyId: params.companyId, accountNumber: resolved.accountNumber, active: true, isPostingAccount: true }, select: { id: true } });
+        if (!account) throw new BadRequestException(`No approved biological asset account is configured for snail stage "${group.stage}".`);
+        snailAccountByGroup.set(group.id, account.id);
+      }
     }
     const debitLines = shares.map((share) => {
       const group = groupById.get(share.groupId)!;
@@ -254,8 +282,7 @@ export class FarmCostAllocationService {
       const glAccountId =
         normalizedSpeciesKey === 'poultry'
           ? targets.poultryByNumber.get(poultryAccountByGroup.get(group.id)!)!
-          : targets.snail!;
-      // (A snail share is expensed on either chart, so no rearing cost is held for it.)
+          : targets.version === 'APPROVED' ? snailAccountByGroup.get(group.id)! : targets.snail!;
       return {
         share,
         line: {
@@ -274,10 +301,19 @@ export class FarmCostAllocationService {
     });
     const creditLines = sources.map((source) => ({
       glAccountId: source.glAccountId,
-      description: `PCR-028 — allocated to farm populations by animal-days (${reference})`,
+      description: `PCR-028 — allocated to farm populations by ${basis === 'HOURS' ? 'approved timesheet hours × payroll rate' : 'animal-days'} (${reference})`,
       credit: kobo(source.amountKobo),
       dimensions: { ...header, costCentreId: source.costCentreId ?? null },
     }));
+    const expectedAccountSideAmountsKobo: Record<string, string> = {};
+    const addExpected = (side: 'Debit' | 'Credit', glAccountId: string, amount: bigint) => {
+      const key = `${side}:${glAccountId}`;
+      expectedAccountSideAmountsKobo[key] = (BigInt(expectedAccountSideAmountsKobo[key] ?? '0') + amount).toString();
+    };
+    debitLines.forEach(({ share, line }) => addExpected('Debit', line.glAccountId, share.amountKobo));
+    sources.forEach((source) => addExpected('Credit', source.glAccountId, source.amountKobo));
+    const dynamicTargets = [...new Set(debitLines.map(({ line }) => line.glAccountId))];
+    const dynamicSources = [...new Set(sources.map((source) => source.glAccountId))];
 
     const allocationId = randomUUID();
     return this.prisma.$transaction(async (tx) => {
@@ -288,10 +324,20 @@ export class FarmCostAllocationService {
           sourceDocumentId: allocationId,
           journalNumber: reference,
           journalDate: period.endDate,
-          narration: `Farm labour and overhead by animal-days — ${period.name}`,
+          narration: `Farm labour and overhead by ${basis === 'HOURS' ? 'approved timesheet hours × payroll rate' : 'animal-days'} — ${period.name}`,
           ...header,
           idempotencyKey: `farm-cost-allocation:${params.companyId}:${reference}`,
           actor: params.actor,
+          ...(approvedChart ? { approvedControl: {
+            application: 'YifrehCore',
+            applicationRuleId: 'COR-APP-FARM-COST-ALLOC-001',
+            dynamicAccountIds: {
+              'COR-APP-FARM-COST-ALLOC-001:BA_SOURCE_STAGE_CONTROL': dynamicTargets,
+              'COR-APP-FARM-COST-ALLOC-001:SOURCE_COST_REVERSAL': dynamicSources,
+            },
+            dynamicMappingApplications: ['YifrehCore', 'YifrehSnail', 'YifrehPoultry'],
+            expectedAccountSideAmountsKobo,
+          } } : {}),
           lines: [...debitLines.map((d) => d.line), ...creditLines],
         },
         tx,
@@ -468,17 +514,17 @@ export class FarmCostAllocationService {
     // the approved chart one account per stage (16032 immature, 16042 mature).
     const version = await chartVersionOf(this.prisma, companyId);
     const poultryNumbers = rearingNumbersFor(version, 'poultry');
-    const snailNumber = snailLabourExpenseNumber(version);
+    const snailNumber = version === 'APPROVED' ? null : snailLabourExpenseNumber(version);
     const rows = await this.prisma.gLAccount.findMany({
-      where: { companyId, accountNumber: { in: [...poultryNumbers, snailNumber] }, active: true },
+      where: { companyId, accountNumber: { in: [...poultryNumbers, ...(snailNumber ? [snailNumber] : [])] }, active: true },
       select: { id: true, accountNumber: true },
     });
     const poultryByNumber = new Map(rows.filter((r) => poultryNumbers.includes(r.accountNumber)).map((r) => [r.accountNumber, r.id]));
-    const snail = rows.find((r) => r.accountNumber === snailNumber)?.id;
-    if (required && (poultryByNumber.size < poultryNumbers.length || !snail)) {
+    const snail = snailNumber ? rows.find((r) => r.accountNumber === snailNumber)?.id : undefined;
+    if (required && (poultryByNumber.size < poultryNumbers.length || (snailNumber && !snail))) {
       throw new AccountingRuleViolation(
         'PCR-043/064 — Posting keys',
-        `Allocating farm cost needs Work in Progress (${poultryNumbers.join(' / ')}) and Snailery Labour and Facility Expense (${snailNumber}). Load the posting rules on Controls first.`,
+        `Allocating farm cost needs the approved poultry and snail biological-asset accounts, or the legacy cost accounts. Load the posting rules on Controls first.`,
         {},
       );
     }

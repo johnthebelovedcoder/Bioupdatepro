@@ -76,10 +76,10 @@ export class WorkflowService {
    * rather than creating a second one — the history of a returned-and-fixed
    * document must stay in one place.
    */
-  async submit(request: SubmitRequest): Promise<WorkflowActionResult> {
+  async submit(request: SubmitRequest, externalTx?: Prisma.TransactionClient): Promise<WorkflowActionResult> {
     const now = new Date();
 
-    return this.prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
       const existing = await tx.workflowTransaction.findUnique({
         where: {
           module_documentType_documentId: {
@@ -173,7 +173,8 @@ export class WorkflowService {
       // submit, so it is also the one most likely to eventually hit Neon's
       // round-trip latency under real load. Same fix applied everywhere
       // else this session.
-    }, { timeout: 15000 });
+    };
+    return externalTx ? run(externalTx) : this.prisma.$transaction(run, { timeout: 15000 });
   }
 
   private async resubmitReturned(

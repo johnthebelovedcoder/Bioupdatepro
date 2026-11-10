@@ -127,6 +127,8 @@ export async function confirmConversion(_previous: FlowState, formData: FormData
   const standard = standardText === null ? null : parseNairaToKobo(String(standardText));
   const labour = parseNairaToKobo(String(formData.get('actualLabourCost') ?? '')) ?? 0n;
   const overhead = parseNairaToKobo(String(formData.get('actualOverheadCost') ?? '')) ?? 0n;
+  const feedMillInputWeightKg = String(formData.get('feedMillInputWeightKg') ?? '').trim();
+  const feedMillOutputWeightKg = String(formData.get('feedMillOutputWeightKg') ?? '').trim();
   // Actual hours per routing operation, where the order has a routing.
   const actualHours: Record<string, string> = {};
   for (const [key, value] of formData.entries()) {
@@ -141,6 +143,8 @@ export async function confirmConversion(_previous: FlowState, formData: FormData
       body: {
         ...(standard !== null ? { standardConversionCostKobo: standard.toString() } : {}),
         ...(Object.keys(actualHours).length > 0 ? { actualHours } : {}),
+        ...(feedMillInputWeightKg ? { feedMillInputWeightKg } : {}),
+        ...(feedMillOutputWeightKg ? { feedMillOutputWeightKg } : {}),
         actualLabourCostKobo: labour.toString(),
         actualOverheadCostKobo: overhead.toString(),
       },

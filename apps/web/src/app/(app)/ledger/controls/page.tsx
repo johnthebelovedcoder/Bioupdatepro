@@ -53,6 +53,7 @@ export default async function ControlsPage() {
         chart.unresolvedRoles.length > 0,
         chart.configurationsOutsideTarget.length > 0,
         chart.resolvedActivePostingMaps < chart.expectedActivePostingMaps,
+        chart.postingGroups < chart.expectedPostingGroups,
       ].filter(Boolean).length
     : 0;
 
@@ -164,6 +165,11 @@ export default async function ControlsPage() {
                     {provisioning.data.targetChart.resolvedActivePostingMaps < provisioning.data.targetChart.expectedActivePostingMaps ? (
                       <p className="faint">
                         Only {provisioning.data.targetChart.resolvedActivePostingMaps} of {provisioning.data.targetChart.expectedActivePostingMaps} active workbook posting maps are linked to accounts.
+                      </p>
+                    ) : null}
+                    {provisioning.data.targetChart.postingGroups < provisioning.data.targetChart.expectedPostingGroups ? (
+                      <p className="faint">
+                        Only {provisioning.data.targetChart.postingGroups} of {provisioning.data.targetChart.expectedPostingGroups} workbook posting groups are loaded. Load the approved rules before assigning groups to master records.
                       </p>
                     ) : null}
                   </div>

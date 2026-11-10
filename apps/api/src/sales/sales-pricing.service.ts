@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { Prisma } from '@bioassetpro/database';
-import { APPROVED_SALES_DEFAULTS, chartVersionOf } from '../chart/chart';
+import { chartVersionOf } from '../chart/chart';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 import { PrismaService } from '../prisma/prisma.service';
 import { TaxEngineService } from '../tax/tax-engine.service';
 import { AccountingRuleViolation } from '../common/errors';
@@ -182,7 +183,7 @@ export class SalesPricingService {
   }
 
   /** The company's sales policy on a date. */
-  async configuration(companyId: string, on: Date, tx?: Prisma.TransactionClient) {
+  async configuration(companyId: string, on: Date, tx?: Prisma.TransactionClient, customerId?: string) {
     const client = tx ?? this.prisma;
     const day = new Date(
       Date.UTC(on.getUTCFullYear(), on.getUTCMonth(), on.getUTCDate()),
@@ -197,9 +198,21 @@ export class SalesPricingService {
       orderBy: { effectiveFrom: 'desc' },
     });
 
-    if (config) return config;
+    if (config) {
+      if ((await chartVersionOf(client, companyId)) !== 'APPROVED') return config;
+      const mapped = await this.approvedSalesAccounts(companyId, day, client, customerId);
+      if (!mapped) throw new AccountingRuleViolation('Approved Account Map — sales defaults', 'The approved sales account maps are incomplete for this date.', { companyId, date: day.toISOString().slice(0, 10) });
+      return {
+        ...config,
+        receivableGlAccountId: mapped[0].glAccountId,
+        revenueGlAccountId: mapped[1].glAccountId,
+        costOfSalesGlAccountId: mapped[2].glAccountId,
+        inventoryGlAccountId: mapped[3].glAccountId,
+        whtReceivableGlAccountId: mapped[4].glAccountId,
+      };
+    }
 
-    const healed = await this.ensureDefaultConfiguration(companyId, client);
+    const healed = await this.ensureDefaultConfiguration(companyId, client, day, customerId);
     if (healed) return healed;
 
     throw new AccountingRuleViolation(
@@ -228,6 +241,8 @@ export class SalesPricingService {
   private async ensureDefaultConfiguration(
     companyId: string,
     client: Prisma.TransactionClient | PrismaService,
+    day: Date,
+    customerId?: string,
   ) {
     // The old chart's single revenue, cost-of-sales and finished-goods
     // accounts. A company on the client's chart has these per species and
@@ -235,23 +250,17 @@ export class SalesPricingService {
     // or signs up, so nothing is guessed for it here.
     const version = await chartVersionOf(client, companyId);
     if (version === 'APPROVED') {
-      // The workbook's own defaults (chart.ts APPROVED_SALES_DEFAULTS), when they are all on the chart.
-      const wanted = Object.values(APPROVED_SALES_DEFAULTS);
-      const found = await client.gLAccount.findMany({
-        where: { companyId, accountNumber: { in: wanted }, active: true },
-        select: { id: true, accountNumber: true },
-      });
-      const id = new Map(found.map((a) => [a.accountNumber, a.id]));
-      if (!wanted.every((n) => id.has(n))) return null;
+      const mapped = await this.approvedSalesAccounts(companyId, day, client, customerId).catch(() => null);
+      if (!mapped) return null;
       return client.salesConfiguration.create({
         data: {
           companyId,
-          receivableGlAccountId: id.get(APPROVED_SALES_DEFAULTS.receivable)!,
-          revenueGlAccountId: id.get(APPROVED_SALES_DEFAULTS.revenue)!,
-          costOfSalesGlAccountId: id.get(APPROVED_SALES_DEFAULTS.costOfSales)!,
-          inventoryGlAccountId: id.get(APPROVED_SALES_DEFAULTS.inventory)!,
-          whtReceivableGlAccountId: id.get(APPROVED_SALES_DEFAULTS.whtReceivable)!,
-          effectiveFrom: new Date('2026-01-01'),
+          receivableGlAccountId: mapped[0].glAccountId,
+          revenueGlAccountId: mapped[1].glAccountId,
+          costOfSalesGlAccountId: mapped[2].glAccountId,
+          inventoryGlAccountId: mapped[3].glAccountId,
+          whtReceivableGlAccountId: mapped[4].glAccountId,
+          effectiveFrom: day,
         },
       });
     }
@@ -280,5 +289,17 @@ export class SalesPricingService {
         effectiveFrom: new Date('2026-01-01'),
       },
     });
+  }
+
+  private approvedSalesAccounts(companyId: string, on: Date, client: Prisma.TransactionClient | PrismaService, customerId?: string) {
+    return Promise.all([
+      customerId
+        ? resolveApprovedMappedAccount(client, { companyId, application: 'YifrehCore', masterType: 'Customer', masterId: customerId, postingKey: 'AR_CONTROL', on })
+        : resolveApprovedMappedAccount(client, { companyId, application: 'YifrehCore', postingGroup: 'COR-CUST-LOCAL', postingKey: 'AR_CONTROL', on }),
+      resolveApprovedMappedAccount(client, { companyId, application: 'YifrehCore', postingGroup: 'COR-FIN-DEFAULT', postingKey: 'INCOME_ACCOUNT', on }),
+      resolveApprovedMappedAccount(client, { companyId, application: 'YifrehCore', postingGroup: 'COR-FG', postingKey: 'COGS', on }),
+      resolveApprovedMappedAccount(client, { companyId, application: 'YifrehCore', postingGroup: 'COR-FG', postingKey: 'FINISHED_GOODS_INVENTORY', on }),
+      resolveApprovedMappedAccount(client, { companyId, application: 'YifrehCore', postingGroup: 'COR-WHT-SUP-2', postingKey: 'WHT_RECEIVABLE', on }),
+    ]);
   }
 }

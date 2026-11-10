@@ -23,6 +23,7 @@ import { expiryFromShelfLife, registerLot } from '../inventory/lots';
 import { kobo } from '../common/money';
 import { assertPenRoom } from '../operations/pen-capacity';
 import { chartVersionOf, numberFor } from '../chart/chart';
+import { resolveApprovedMappedAccount, resolveApprovedItemInventoryAccount } from '../posting-control/approved-account-map';
 
 export interface GrnLineInput {
   purchaseOrderLineId: string;
@@ -379,6 +380,28 @@ export class GoodsReceiptService {
     const inventoryLines = grn.lines.filter(
       (line) => line.item.itemType === ItemType.INVENTORY && line.valueKobo > 0n && !line.item.livestockSpeciesKey && !line.item.fixedAssetClass,
     );
+    const serviceLines = grn.lines.filter(
+      (line) => line.item.itemType === ItemType.SERVICE && line.valueKobo > 0n,
+    );
+    const approvedChart = await chartVersionOf(params.tx, grn.companyId) === 'APPROVED';
+    const inventoryAccountByItem = new Map<string, string>();
+    if (approvedChart) {
+      for (const line of inventoryLines) {
+        const mapped = await resolveApprovedItemInventoryAccount(params.tx, { companyId: grn.companyId, application: 'YifrehCore', itemId: line.itemId, isBiologicalFeed: line.item.isBiologicalFeed, isManufactured: line.item.isManufactured, on: grn.receiptDate });
+        if (line.item.inventoryGlAccountId && line.item.inventoryGlAccountId !== mapped.glAccountId) throw new AccountingRuleViolation('Approved Posting Group — item inventory mismatch', `Item ${line.item.code} account conflicts with its assigned workbook item group.`, { itemId: line.itemId });
+        inventoryAccountByItem.set(line.itemId, mapped.glAccountId);
+      }
+    }
+    const inventoryAccount = (line: (typeof inventoryLines)[number]) => inventoryAccountByItem.get(line.itemId) ?? line.item.inventoryGlAccountId ?? null;
+    const serviceExpenseByItem = new Map<string, string>();
+    if (approvedChart) {
+      for (const line of serviceLines) {
+        if (!line.item.category?.trim()) throw new AccountingRuleViolation('Approved Posting Group — service category', `Service item ${line.item.code} needs a category before its receipt can post.`, { itemId: line.itemId });
+        const mapped = await resolveApprovedMappedAccount(params.tx, { companyId: grn.companyId, application: 'YifrehCore', masterType: 'Service category', masterId: line.item.category.trim(), postingKey: 'SERVICE_EXPENSE', on: grn.receiptDate });
+        if (line.item.expenseGlAccountId && line.item.expenseGlAccountId !== mapped.glAccountId) throw new AccountingRuleViolation('Approved Posting Group — service account mismatch', `Service item ${line.item.code} expense account conflicts with the workbook map for its assigned category.`, { itemId: line.itemId, category: line.item.category });
+        serviceExpenseByItem.set(line.itemId, mapped.glAccountId);
+      }
+    }
 
     // Live animals: each accepted line becomes a batch, carried at what it cost,
     // and its debit goes to the biological-asset account for its species and stage.
@@ -388,9 +411,10 @@ export class GoodsReceiptService {
 
     let journalEntryId: string | null = null;
 
-    if (inventoryLines.length > 0 || livestockDebits.length > 0 || capex.debits.length > 0) {
+    if (inventoryLines.length > 0 || serviceLines.length > 0 || livestockDebits.length > 0 || capex.debits.length > 0) {
       const total =
         inventoryLines.reduce((s, l) => s + l.valueKobo, 0n) +
+        serviceLines.reduce((s, l) => s + l.valueKobo, 0n) +
         livestockDebits.reduce((s, l) => s + l.debit, 0n) +
         capex.debits.reduce((s, l) => s + l.debit, 0n);
 
@@ -408,7 +432,7 @@ export class GoodsReceiptService {
        * about where the farm's money sits, and refusing by name is the only
        * honest answer.
        */
-      const unmapped = inventoryLines.filter((line) => !line.item.inventoryGlAccountId);
+      const unmapped = inventoryLines.filter((line) => !inventoryAccount(line));
       if (unmapped.length > 0) {
         const codes = [...new Set(unmapped.map((line) => line.item.code))];
         throw new AccountingRuleViolation(
@@ -417,6 +441,15 @@ export class GoodsReceiptService {
             `there is nowhere to debit the goods received on ${grn.grnNumber}. Set the ` +
             `stock account on ${codes.length === 1 ? 'the item' : 'those items'} under ` +
             `Setup → Items, then approve this receipt again.`,
+          { grnNumber: grn.grnNumber, itemCodes: codes },
+        );
+      }
+      const unmappedServices = serviceLines.filter((line) => !(serviceExpenseByItem.get(line.itemId) ?? line.item.expenseGlAccountId));
+      if (unmappedServices.length > 0) {
+        const codes = [...new Set(unmappedServices.map((line) => line.item.code))];
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §5 — Service receipt',
+          `${codes.join(', ')} ${codes.length === 1 ? 'has' : 'have'} no service expense account, so the accepted service cannot be recognised. Set the expense account under Setup → Items before approving this receipt.`,
           { grnNumber: grn.grnNumber, itemCodes: codes },
         );
       }
@@ -431,8 +464,14 @@ export class GoodsReceiptService {
         penHouseId?: string;
       }> = [
         ...inventoryLines.map((line) => ({
-          glAccountId: line.item.inventoryGlAccountId!,
+          glAccountId: inventoryAccount(line)!,
           description: `Goods received — ${line.item.code}`,
+          debit: line.valueKobo,
+          itemId: line.itemId,
+        })),
+        ...serviceLines.map((line) => ({
+          glAccountId: serviceExpenseByItem.get(line.itemId) ?? line.item.expenseGlAccountId!,
+          description: `Service received — ${line.item.code}`,
           debit: line.valueKobo,
           itemId: line.itemId,
         })),
@@ -445,6 +484,18 @@ export class GoodsReceiptService {
           itemId: null,
         },
       ];
+      const expectedGrnAccountSideAmounts = new Map<string, bigint>();
+      const expectGrnAmount = (side: 'Debit' | 'Credit', accountId: string, amount: bigint) => {
+        const key = `${side}:${accountId}`;
+        expectedGrnAccountSideAmounts.set(key, (expectedGrnAccountSideAmounts.get(key) ?? 0n) + amount);
+      };
+      for (const line of inventoryLines) expectGrnAmount('Debit', inventoryAccount(line)!, line.valueKobo);
+      for (const line of serviceLines) expectGrnAmount('Debit', serviceExpenseByItem.get(line.itemId) ?? line.item.expenseGlAccountId!, line.valueKobo);
+      const inventoryTotal = inventoryLines.reduce((sum, line) => sum + line.valueKobo, 0n);
+      const serviceTotal = serviceLines.reduce((sum, line) => sum + line.valueKobo, 0n);
+      if (livestockDebits.length === 0 && capex.debits.length === 0) {
+        expectGrnAmount('Credit', settings.grniGlAccountId, inventoryTotal + serviceTotal);
+      }
 
       const result = await this.posting.post(
         {
@@ -456,6 +507,22 @@ export class GoodsReceiptService {
           narration: `Goods receipt ${grn.grnNumber}`,
           ...dimensions,
           idempotencyKey: `grn:${grn.id}`,
+          ...((await chartVersionOf(params.tx, grn.companyId)) === 'APPROVED' &&
+            (inventoryLines.length > 0 || serviceLines.length > 0)
+            ? { approvedControl: {
+                application: 'YifrehCore',
+                applicationRuleId: inventoryLines.length > 0 ? 'COR-YFR-003' : 'COR-YFR-004',
+                ...(inventoryLines.length > 0 && serviceLines.length > 0 ? { additionalApplicationRuleIds: ['COR-YFR-004'] } : {}),
+                dynamicAccountIds: {
+                  ...(inventoryLines.length > 0 ? { 'COR-YFR-003:INVENTORY_CONTROL': [...new Set(inventoryLines.map((line) => inventoryAccount(line)!))] } : {}),
+                  ...(serviceLines.length > 0 ? { 'COR-YFR-004:SERVICE_EXPENSE': [...new Set(serviceLines.map((line) => serviceExpenseByItem.get(line.itemId) ?? line.item.expenseGlAccountId!))] } : {}),
+                },
+                ...(livestockDebits.length === 0 && capex.debits.length === 0 ? {
+                  expectedAccountSideAmountsKobo: Object.fromEntries([...expectedGrnAccountSideAmounts].map(([pair, amount]) => [pair, amount.toString()])),
+                } : {}),
+                additionalMappedAccountSidePairs: [...livestockDebits, ...capex.debits].map((line) => `${(line.debit ?? 0n) > 0n ? 'Debit' : 'Credit'}:${line.glAccountId}`),
+              } }
+            : {}),
           actor: params.actor,
           lines: lines.map((line) => ({
             glAccountId: line.glAccountId,
@@ -620,7 +687,13 @@ export class GoodsReceiptService {
     const { tx, grn } = params;
     const lines = grn.lines.filter((l) => l.item.fixedAssetClass && l.valueKobo > 0n);
     if (lines.length === 0) return { debits: [], assetIds: [] as string[] };
-    const ppeNumber = numberFor(await chartVersionOf(tx, grn.companyId), 'ppe');
+    const version = await chartVersionOf(tx, grn.companyId);
+    const ppeNumber = version === 'APPROVED'
+      ? (await resolveApprovedMappedAccount(tx, {
+          companyId: grn.companyId, application: 'YifrehCore', postingGroup: 'COR-FA-EQUIP',
+          postingKey: 'FA_COST', on: grn.receiptDate,
+        })).accountNumber
+      : numberFor(version, 'ppe');
     const ppe = await tx.gLAccount.findFirst({ where: { companyId: grn.companyId, accountNumber: ppeNumber, active: true } });
     if (!ppe) {
       throw new AccountingRuleViolation('Posting-control PCR-029 — Fixed asset capitalisation', `No active property, plant and equipment account (${ppeNumber}) to capitalise ${grn.grnNumber} into.`, {});

@@ -6,11 +6,7 @@ import { nextReference, siteOf } from '../numbering/numbering';
 import Decimal from 'decimal.js';
 import { AccountType, AuditAction, Prisma, ProductionOrderCycle, ProductionOrderStatus } from '@bioassetpro/database';
 import {
-  APPROVED_FEED_MILL_RECOVERY,
-  APPROVED_OVERHEAD_POOL,
-  accrualNumberFor,
   chartVersionOf,
-  numberFor,
   rearingNumbersFor,
   recoveryNumberFor,
   type ChartVersion,
@@ -23,6 +19,7 @@ import { WorkflowService } from '../workflow/workflow.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { RecipeService } from '../masters/recipe.service';
 import { PostingControlService, ResolvedRule } from '../posting-control/posting-control.service';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 import { StockMovementService } from '../inventory/stock-movement.service';
 import { CostAllocationService, AllocationOutput, AllocatedOutput, CostAllocationMethod } from './cost-allocation.service';
 import { AccountingRuleViolation } from '../common/errors';
@@ -689,6 +686,13 @@ export class ProductionOrderService {
           narration: `Issue materials to processing order ${order.orderNumber}`,
           ...dimensions,
           idempotencyKey: `production-order:${order.id}:issue`,
+          ...(version === 'APPROVED' ? {
+            approvedControl: {
+              application: order.processingCycle === ProductionOrderCycle.SNAILPRO ? 'YifrehSnail' : order.processingCycle === ProductionOrderCycle.POULTRYPRO ? 'YifrehPoultry' : 'YifrehCore',
+              applicationRuleId: `${order.processingCycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : order.processingCycle === ProductionOrderCycle.POULTRYPRO ? 'PLP' : 'COR'}-YFR-${order.processingCycle === ProductionOrderCycle.FEED_MILL ? '039C' : '039B'}`,
+              additionalMappedAccountSidePairs: [...lines, ...rearingLines, ...packagingLines].map((line) => `${'debit' in line && (line.debit ?? 0n) > 0n ? 'Debit' : 'Credit'}:${line.glAccountId}`),
+            },
+          } : {}),
           actor: params.actor,
           lines: [...lines, ...rearingLines, ...packagingLines],
         },
@@ -751,6 +755,8 @@ export class ProductionOrderService {
     standardConversionCostKobo?: bigint;
     /** Actual driver quantity per routing operation (keyed by operation name or line id); standard hours where omitted. */
     actualHours?: Record<string, number | string>;
+    feedMillInputWeightKg?: Decimal.Value;
+    feedMillOutputWeightKg?: Decimal.Value;
     actualLabourCostKobo: bigint;
     actualOverheadCostKobo: bigint;
     actor: WorkflowActor;
@@ -774,7 +780,7 @@ export class ProductionOrderService {
     await routing.snapshotRouting(order.id);
     const lines = await this.prisma.productionOrderRoutingLine.findMany({
       where: { productionOrderId: order.id },
-      include: { routingOperation: { select: { operationName: true, costCentreId: true, resourceType: true } } },
+      include: { routingOperation: { select: { operationName: true, costCentreId: true, resourceType: true, costCentre: { select: { code: true } } } } },
     });
     if (order.processingCycle === ProductionOrderCycle.FEED_MILL && (!order.speciesKey || lines.length === 0)) {
       throw new AccountingRuleViolation(
@@ -783,10 +789,38 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber, speciesKey: order.speciesKey },
       );
     }
+    let feedMillInputWeight: Decimal | undefined;
+    let feedMillOutputWeight: Decimal | undefined;
+    if (order.processingCycle === ProductionOrderCycle.FEED_MILL) {
+      const rule = 'COR-YFR-053 — Grinding operation confirmed';
+      // The approved workbook calls this work centre FM-GRN; the supplied
+      // centre master names the same milling function FDM-MIL.
+      const grinding = lines.filter((line) => ['FM-GRN', 'FDM-MIL'].includes(line.routingOperation.costCentre.code) && line.routingOperation.resourceType === 'MACHINE');
+      if (grinding.length === 0) {
+        throw new AccountingRuleViolation(rule, `${order.orderNumber} needs an approved machine routing operation assigned to FM-GRN (the workbook alias for FDM-MIL) before grinding can be confirmed.`, { orderNumber: order.orderNumber });
+      }
+      let input: Decimal;
+      let output: Decimal;
+      try {
+        input = params.feedMillInputWeightKg === undefined ? new Decimal(0) : new Decimal(params.feedMillInputWeightKg);
+        output = params.feedMillOutputWeightKg === undefined ? new Decimal(0) : new Decimal(params.feedMillOutputWeightKg);
+      } catch {
+        throw new AccountingRuleViolation(rule, `${order.orderNumber} needs valid numeric input and output weights in kg.`, { orderNumber: order.orderNumber });
+      }
+      if (!input.isFinite() || !output.isFinite() || input.lte(0) || output.lte(0)) {
+        throw new AccountingRuleViolation(rule, `${order.orderNumber} needs measured input and output weights in kg.`, { orderNumber: order.orderNumber });
+      }
+      if (grinding.some((line) => params.actualHours?.[line.id] === undefined && params.actualHours?.[line.routingOperation.operationName] === undefined)) {
+        throw new AccountingRuleViolation(rule, `${order.orderNumber} needs actual machine hours for each FM-GRN routing operation.`, { orderNumber: order.orderNumber });
+      }
+      feedMillInputWeight = input;
+      feedMillOutputWeight = output;
+    }
     let standardConversionCostKobo: bigint;
     let feedAbsorptionLines: Array<{ costCentreId: string; costKobo: bigint }> = [];
     /** What the routing absorbed, by resource — the approved chart credits each to its own recovery account. */
     const recoveryByResource = new Map<RecoveryResource, bigint>();
+    const recoveryByWorkCentre = new Map<string, { resource: RecoveryResource; costCentreId: string; amount: bigint }>();
     if (lines.length > 0) {
       const absorbed = lines.map((line) => {
         const given = params.actualHours?.[line.id] ?? params.actualHours?.[line.routingOperation.operationName];
@@ -797,7 +831,12 @@ export class ProductionOrderService {
         const cost = BigInt(hours.mul(line.ratePerHourKobo.toString()).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0));
         return { id: line.id, hours, cost, costCentreId: line.routingOperation.costCentreId, resource: line.routingOperation.resourceType as RecoveryResource };
       });
-      for (const a of absorbed) recoveryByResource.set(a.resource, (recoveryByResource.get(a.resource) ?? 0n) + a.cost);
+      for (const a of absorbed) {
+        recoveryByResource.set(a.resource, (recoveryByResource.get(a.resource) ?? 0n) + a.cost);
+        const key = `${a.resource}:${a.costCentreId}`;
+        const existing = recoveryByWorkCentre.get(key);
+        recoveryByWorkCentre.set(key, { resource: a.resource, costCentreId: a.costCentreId, amount: (existing?.amount ?? 0n) + a.cost });
+      }
       feedAbsorptionLines = absorbed.map((line) => ({ costCentreId: line.costCentreId, costKobo: line.cost }));
       standardConversionCostKobo = absorbed.reduce((sum, a) => sum + a.cost, 0n);
       if (params.standardConversionCostKobo !== undefined && params.standardConversionCostKobo !== standardConversionCostKobo) {
@@ -844,6 +883,12 @@ export class ProductionOrderService {
     // (labour 54000, machine 54100, utilities 54200), not one account per line.
     const version = await chartVersionOf(this.prisma, order.companyId);
     const perResource = version === 'APPROVED' && order.processingCycle !== ProductionOrderCycle.FEED_MILL;
+    const feedMillWipAccountId = version === 'APPROVED' && order.processingCycle === ProductionOrderCycle.FEED_MILL
+      ? await this.approvedFeedMillItemAccount(order.companyId, order.recipeVersionId, 'FEED_MILL_WIP', on)
+      : null;
+    const feedMillRecoveryAccountId = version === 'APPROVED' && order.processingCycle === ProductionOrderCycle.FEED_MILL
+      ? await this.approvedFeedMillItemAccount(order.companyId, order.recipeVersionId, 'FEED_MILL_OVERHEAD_RECOVERY', on)
+      : null;
     if (perResource && standardConversionCostKobo > 0n && recoveryByResource.size === 0) {
       throw new AccountingRuleViolation(
         'Approved chart — recovery by resource',
@@ -851,17 +896,46 @@ export class ProductionOrderService {
         { orderNumber: order.orderNumber },
       );
     }
-    const recoveryIds = perResource ? await this.recoveryAccountIds(order.companyId, [...recoveryByResource.keys()]) : new Map<RecoveryResource, string>();
-    const standardCredits = () =>
-      perResource
-        ? [...recoveryByResource]
-            .filter(([, amount]) => amount > 0n)
-            .map(([resource, amount]) => ({
-              glAccountId: recoveryIds.get(resource)!,
-              description: `${rules.standardRuleId} — standard ${resource.toLowerCase()} absorbed (${order.orderNumber})`,
-              credit: kobo(amount),
-              dimensions,
+    const standardDebitLines = version === 'APPROVED' && order.processingCycle === ProductionOrderCycle.FEED_MILL && recoveryByWorkCentre.size
+      ? [...new Map([...recoveryByWorkCentre.values()].map((entry) => [entry.costCentreId, entry.amount])).entries()].map(([costCentreId, amount]) => ({
+          glAccountId: feedMillWipAccountId!,
+          description: `${rules.standardRuleId} — feed-mill conversion absorbed (${order.orderNumber})`,
+          debit: kobo(amount),
+          dimensions: { ...dimensions, costCentreId },
+        }))
+      : perResource && recoveryByWorkCentre.size
+      ? await Promise.all([...new Map([...recoveryByWorkCentre.values()].map((entry) => [entry.costCentreId, entry.amount])).entries()].map(async ([costCentreId, amount]) => ({
+          glAccountId: await this.approvedWorkCentreAccount(order.companyId, order.processingCycle, costCentreId, 'WIP_CONTROL', order.createdAt),
+          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
+          debit: kobo(amount),
+          dimensions: { ...dimensions, costCentreId },
+        })))
+      : [{
+          glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
+          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
+          debit: kobo(standardConversionCostKobo),
+          dimensions,
+        }];
+    const standardCredits = async () =>
+      version === 'APPROVED' && order.processingCycle === ProductionOrderCycle.FEED_MILL && recoveryByWorkCentre.size
+        ? Promise.all([...recoveryByWorkCentre.values()].filter((entry) => entry.amount > 0n).map(async (entry) => ({
+            glAccountId: entry.resource === 'LABOUR'
+              ? await this.approvedWorkCentreAccount(order.companyId, order.processingCycle, entry.costCentreId, 'LABOUR_RECOVERY', order.createdAt)
+              : feedMillRecoveryAccountId!,
+            description: `${rules.standardRuleId} — standard ${entry.resource.toLowerCase()} absorbed (${order.orderNumber})`,
+            credit: kobo(entry.amount),
+            dimensions: { ...dimensions, costCentreId: entry.costCentreId },
+          })))
+        : perResource
+        ? [...recoveryByWorkCentre.values()]
+            .filter((entry) => entry.amount > 0n)
+            .map(async (entry) => ({
+              glAccountId: await this.approvedWorkCentreAccount(order.companyId, order.processingCycle, entry.costCentreId, entry.resource === 'LABOUR' ? 'LABOUR_RECOVERY' : entry.resource === 'MACHINE' ? 'MACHINE_RECOVERY' : 'OVERHEAD_RECOVERY', order.createdAt),
+              description: `${rules.standardRuleId} — standard ${entry.resource.toLowerCase()} absorbed (${order.orderNumber})`,
+              credit: kobo(entry.amount),
+              dimensions: { ...dimensions, costCentreId: entry.costCentreId },
             }))
+            .reduce(async (prior, row) => [...await prior, await row], Promise.resolve([] as Array<{ glAccountId: string; description: string; credit: Kobo; dimensions: ReturnType<ProductionOrderService['dimensions']> }>))
         : [
             {
               glAccountId: standardCreditAccountId,
@@ -879,10 +953,13 @@ export class ProductionOrderService {
       // — post the standard absorption line and nothing else. The caller's
       // actual cost figures are still stored on the order row below, unposted,
       // for settle()'s variance calculation to read later.
-      const standardDebitAccountId = this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId;
+      const standardDebitAccountId = feedMillWipAccountId ?? this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId;
+      const standardCreditAccountId = feedMillRecoveryAccountId ?? this.requireSide(standardRule.credit, rules.standardRuleId, 'credit').glAccountId;
       const byWorkCentre = new Map<string, bigint>();
       for (const line of feedAbsorptionLines) byWorkCentre.set(line.costCentreId, (byWorkCentre.get(line.costCentreId) ?? 0n) + line.costKobo);
-      postLines = byWorkCentre.size
+      postLines = version === 'APPROVED' && byWorkCentre.size
+        ? [...standardDebitLines, ...await standardCredits()]
+        : byWorkCentre.size
         ? [...byWorkCentre.entries()].flatMap(([costCentreId, amount]) => {
             const workCentreDimensions = { ...dimensions, costCentreId };
             return [
@@ -901,10 +978,10 @@ export class ProductionOrderService {
       // atomic) debit side could ever be used. The debit is looked up
       // directly; the credit is the accrual actualCostCreditAccount() explains.
       const combinedActual = params.actualLabourCostKobo + params.actualOverheadCostKobo;
-      const [actualDebitAccountId, actualCreditAccount] = await Promise.all([
-        this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`),
-        this.actualCostCreditAccount(order.companyId),
-      ]);
+      const actualDebitAccountId = version === 'APPROVED'
+        ? (await this.approvedProcessingLabourAccount(order.companyId, order.processingCycle, order.createdAt))
+        : await this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`);
+      const actualCreditAccount = await this.actualCostCreditAccount(order.companyId, order.processingCycle, order.createdAt);
       // The old charts post one combined line (PCR-077). The approved chart
       // has a labour expense and a utilities expense, so the same actuals are
       // charged to each: labour to processing labour against payroll payable,
@@ -913,67 +990,102 @@ export class ProductionOrderService {
         version === 'APPROVED'
           ? [
               { glAccountId: actualDebitAccountId, description: `${rules.actualConversionRuleId} — actual processing labour (${order.orderNumber})`, debit: kobo(params.actualLabourCostKobo), dimensions },
-              { glAccountId: await this.accountByNumber(order.companyId, numberFor('APPROVED', 'salaryPayable'), 'payroll payable'), description: `${rules.actualConversionRuleId} — actual processing labour (${order.orderNumber})`, credit: kobo(params.actualLabourCostKobo), dimensions },
-              { glAccountId: await this.accountByNumber(order.companyId, APPROVED_OVERHEAD_POOL, 'processing overhead'), description: `${rules.actualConversionRuleId} — actual processing overhead (${order.orderNumber})`, debit: kobo(params.actualOverheadCostKobo), dimensions },
-              { glAccountId: actualCreditAccount, description: `${rules.actualConversionRuleId} — actual processing overhead (${order.orderNumber})`, credit: kobo(params.actualOverheadCostKobo), dimensions },
+              { glAccountId: await this.approvedPayrollPayable(order.companyId, order.processingCycle, order.createdAt), description: `${rules.actualConversionRuleId} — actual processing labour (${order.orderNumber})`, credit: kobo(params.actualLabourCostKobo), dimensions },
+              ...(params.actualOverheadCostKobo > 0n ? [{ glAccountId: await this.approvedOverheadAccount(order.companyId, order.processingCycle, order.createdAt), description: `${rules.actualConversionRuleId} — actual processing overhead (${order.orderNumber})`, debit: kobo(params.actualOverheadCostKobo), dimensions }] : []),
+              ...(params.actualOverheadCostKobo > 0n ? [{ glAccountId: actualCreditAccount, description: `${rules.actualConversionRuleId} — actual processing overhead (${order.orderNumber})`, credit: kobo(params.actualOverheadCostKobo), dimensions }] : []),
             ]
           : [
               { glAccountId: actualDebitAccountId, description: `${rules.actualConversionRuleId} — actual processing conversion (${order.orderNumber})`, debit: kobo(combinedActual), dimensions },
               { glAccountId: actualCreditAccount, description: `${rules.actualConversionRuleId} — actual processing conversion (${order.orderNumber})`, credit: kobo(combinedActual), dimensions },
             ];
       postLines = [
-        {
-          glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
-          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          debit: kobo(standardConversionCostKobo),
-          dimensions,
-        },
-        ...standardCredits(),
+        ...standardDebitLines,
+        ...await standardCredits(),
         ...actualLines,
       ];
     } else {
       // Snail: two separate actual lines (PCR-054 labour, PCR-055
       // overhead), the latter's credit side non-atomic the same way.
-      const [labourRule, overheadDebitAccountId, actualCreditAccount] = await Promise.all([
-        this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.actualLabourRuleId!, on }),
-        this.resolvePostingKeyAccount(order.companyId, `${rules.actualOverheadRuleId}-DR`),
-        this.actualCostCreditAccount(order.companyId),
+      const [labourRule, labourAccountId, overheadDebitAccountId, actualCreditAccount] = await Promise.all([
+        version === 'APPROVED' ? Promise.resolve(null) : this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.actualLabourRuleId!, on }),
+        version === 'APPROVED'
+          ? this.approvedProcessingLabourAccount(order.companyId, order.processingCycle, order.createdAt)
+          : Promise.resolve(null),
+        version === 'APPROVED'
+          ? (params.actualOverheadCostKobo > 0n ? this.approvedOverheadAccount(order.companyId, order.processingCycle, order.createdAt) : Promise.resolve(null))
+          : this.resolvePostingKeyAccount(order.companyId, `${rules.actualOverheadRuleId}-DR`),
+        this.actualCostCreditAccount(order.companyId, order.processingCycle, order.createdAt),
       ]);
       postLines = [
+        ...standardDebitLines,
+        ...await standardCredits(),
         {
-          glAccountId: this.requireSide(standardRule.debit, rules.standardRuleId, 'debit').glAccountId,
-          description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
-          debit: kobo(standardConversionCostKobo),
-          dimensions,
-        },
-        ...standardCredits(),
-        {
-          glAccountId: this.requireSide(labourRule.debit, rules.actualLabourRuleId!, 'debit').glAccountId,
+          glAccountId: version === 'APPROVED' ? labourAccountId! : this.requireSide(labourRule!.debit, rules.actualLabourRuleId!, 'debit').glAccountId,
           description: `${rules.actualLabourRuleId} — actual processing labour (${order.orderNumber})`,
           debit: kobo(params.actualLabourCostKobo),
           dimensions,
         },
         {
-          glAccountId: this.requireSide(labourRule.credit, rules.actualLabourRuleId!, 'credit').glAccountId,
+          glAccountId: version === 'APPROVED' ? await this.approvedPayrollPayable(order.companyId, order.processingCycle, order.createdAt) : this.requireSide(labourRule!.credit, rules.actualLabourRuleId!, 'credit').glAccountId,
           description: `${rules.actualLabourRuleId} — actual processing labour (${order.orderNumber})`,
           credit: kobo(params.actualLabourCostKobo),
           dimensions,
         },
-        {
-          glAccountId: overheadDebitAccountId,
+        ...(version === 'APPROVED' && params.actualOverheadCostKobo === 0n ? [] : [{
+          glAccountId: overheadDebitAccountId ?? '',
           description: `${rules.actualOverheadRuleId} — actual processing overhead (${order.orderNumber})`,
           debit: kobo(params.actualOverheadCostKobo),
           dimensions,
-        },
-        {
+        }]),
+        ...(version === 'APPROVED' && params.actualOverheadCostKobo === 0n ? [] : [{
           glAccountId: actualCreditAccount,
           description: `${rules.actualOverheadRuleId} — actual processing overhead (${order.orderNumber})`,
           credit: kobo(params.actualOverheadCostKobo),
           dimensions,
-        },
+        }]),
       ];
     }
     postLines = postLines.filter((line) => (line.debit ?? line.credit ?? 0n) > 0n);
+    const approvedAbsorptionRuleIds = version === 'APPROVED'
+      ? order.processingCycle === ProductionOrderCycle.FEED_MILL
+        ? [...recoveryByResource.entries()].filter(([, amount]) => amount > 0n).map(([resource]) => resource === 'LABOUR' ? 'COR-YFR-054A' : resource === 'MACHINE' ? 'COR-YFR-053' : 'COR-YFR-054B')
+        : perResource ? [...recoveryByResource.entries()].filter(([, amount]) => amount > 0n).map(([resource]) => {
+          const suffix = resource === 'LABOUR' ? '046' : resource === 'MACHINE' ? '047A' : '047B';
+          return `${order.processingCycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : 'PLP'}-YFR-${suffix}`;
+        }) : []
+      : [];
+    const approvedAbsorptionAccounts: Record<string, string[]> = {};
+    const approvedAbsorptionAmounts: Record<string, string> = {};
+    if (approvedAbsorptionRuleIds.length && order.processingCycle === ProductionOrderCycle.FEED_MILL) {
+      const feedMillWip = feedMillWipAccountId!;
+      const feedMillRecovery = feedMillRecoveryAccountId!;
+      for (const entry of recoveryByWorkCentre.values()) {
+        if (entry.amount <= 0n) continue;
+        const ruleId = entry.resource === 'LABOUR' ? 'COR-YFR-054A' : entry.resource === 'MACHINE' ? 'COR-YFR-053' : 'COR-YFR-054B';
+        const recoveryKey = entry.resource === 'LABOUR' ? 'LABOUR_RECOVERY' : 'FEED_MILL_OVERHEAD_RECOVERY';
+        const recovery: string = entry.resource === 'LABOUR'
+          ? await this.approvedWorkCentreAccount(order.companyId, order.processingCycle, entry.costCentreId, recoveryKey, on)
+          : feedMillRecovery;
+        approvedAbsorptionAccounts[`${ruleId}:FEED_MILL_WIP`] = [feedMillWip];
+        approvedAbsorptionAccounts[`${ruleId}:${recoveryKey}`] = [...new Set([...(approvedAbsorptionAccounts[`${ruleId}:${recoveryKey}`] ?? []), recovery])];
+        const debitPair = `Debit:${feedMillWip}`;
+        const creditPair = `Credit:${recovery}`;
+        approvedAbsorptionAmounts[debitPair] = (BigInt(approvedAbsorptionAmounts[debitPair] ?? '0') + entry.amount).toString();
+        approvedAbsorptionAmounts[creditPair] = (BigInt(approvedAbsorptionAmounts[creditPair] ?? '0') + entry.amount).toString();
+      }
+    } else if (approvedAbsorptionRuleIds.length) {
+      for (const entry of recoveryByWorkCentre.values()) {
+        const suffix = entry.resource === 'LABOUR' ? '046' : entry.resource === 'MACHINE' ? '047A' : '047B';
+        const ruleId = `${order.processingCycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : 'PLP'}-YFR-${suffix}`;
+        const recoveryKey = entry.resource === 'LABOUR' ? 'LABOUR_RECOVERY' : entry.resource === 'MACHINE' ? 'MACHINE_RECOVERY' : 'OVERHEAD_RECOVERY';
+        const [wip, recovery] = await Promise.all([
+          this.approvedWorkCentreAccount(order.companyId, order.processingCycle, entry.costCentreId, 'WIP_CONTROL', on),
+          this.approvedWorkCentreAccount(order.companyId, order.processingCycle, entry.costCentreId, recoveryKey, on),
+        ]);
+        approvedAbsorptionAccounts[`${ruleId}:WIP_CONTROL`] = [...new Set([...(approvedAbsorptionAccounts[`${ruleId}:WIP_CONTROL`] ?? []), wip])];
+        approvedAbsorptionAccounts[`${ruleId}:${recoveryKey}`] = [...new Set([...(approvedAbsorptionAccounts[`${ruleId}:${recoveryKey}`] ?? []), recovery])];
+      }
+    }
 
     return this.prisma.$transaction(async (tx) => {
 
@@ -987,6 +1099,16 @@ export class ProductionOrderService {
           narration: `Confirm conversion cost for processing order ${order.orderNumber}`,
           ...dimensions,
           idempotencyKey: `production-order:${order.id}:conversion`,
+          ...(approvedAbsorptionRuleIds.length ? {
+            approvedControl: {
+              application: order.processingCycle === ProductionOrderCycle.SNAILPRO ? 'YifrehSnail' : order.processingCycle === ProductionOrderCycle.POULTRYPRO ? 'YifrehPoultry' : 'YifrehCore',
+              applicationRuleId: approvedAbsorptionRuleIds[0]!,
+              additionalApplicationRuleIds: approvedAbsorptionRuleIds.slice(1),
+              dynamicAccountIds: approvedAbsorptionAccounts,
+              ...(order.processingCycle === ProductionOrderCycle.FEED_MILL ? { expectedAccountSideAmountsKobo: approvedAbsorptionAmounts } : {}),
+              additionalMappedAccountSidePairs: postLines.map((line) => `${(line.debit ?? 0n) > 0n ? 'Debit' : 'Credit'}:${line.glAccountId}`),
+            },
+          } : {}),
           actor: params.actor,
           lines: postLines,
         },
@@ -1000,6 +1122,10 @@ export class ProductionOrderService {
           standardConversionCostKobo: standardConversionCostKobo,
           actualLabourCostKobo: params.actualLabourCostKobo,
           actualOverheadCostKobo: params.actualOverheadCostKobo,
+          ...(feedMillInputWeight && feedMillOutputWeight ? {
+            feedMillInputWeightKg: feedMillInputWeight,
+            feedMillOutputWeightKg: feedMillOutputWeight,
+          } : {}),
           conversionJournalEntryId: result.journalEntryId,
         },
       });
@@ -1216,6 +1342,13 @@ export class ProductionOrderService {
         narration: `Abnormal processing loss on ${order.orderNumber}: ${lossEvent.reason}`,
         ...dimensions,
         idempotencyKey: `production-order-loss-event:${lossEvent.id}`,
+        ...(order.processingCycle === ProductionOrderCycle.FEED_MILL && (await chartVersionOf(params.tx, order.companyId)) === 'APPROVED' ? {
+          approvedControl: {
+            application: 'YifrehCore',
+            applicationRuleId: 'COR-YFR-056',
+            expectedLineAmountsKobo: { 'COR-YFR-056:1': lossEvent.costKobo.toString(), 'COR-YFR-056:2': lossEvent.costKobo.toString() },
+          },
+        } : {}),
         actor: params.actor,
         lines: [
           {
@@ -1467,6 +1600,13 @@ export class ProductionOrderService {
      * someone other than the tester has released it (FeedQualityService).
      */
     if (order.processingCycle === ProductionOrderCycle.FEED_MILL) {
+      if (order.feedMillOutputWeightKg === null) {
+        throw new AccountingRuleViolation('COR-YFR-053 — Grinding operation confirmed', `${order.orderNumber} has no recorded grinding output weight. Confirm grinding with measured input/output weights before receiving feed stock.`, { orderNumber: order.orderNumber });
+      }
+      const recordedFeedOutput = params.outputs.reduce((sum, output) => sum.plus(new Decimal(output.weight ?? output.quantity)), new Decimal(0));
+      if (recordedFeedOutput.minus(order.feedMillOutputWeightKg.toString()).abs().gt('0.001')) {
+        throw new AccountingRuleViolation('COR-YFR-053 — Grinding output reconciliation', `Received feed output is ${recordedFeedOutput.toFixed(3)} kg, but grinding recorded ${order.feedMillOutputWeightKg.toFixed(3)} kg. Reconcile the weights before receiving stock.`, { recordedKg: order.feedMillOutputWeightKg.toString(), receivedKg: recordedFeedOutput.toFixed(3) });
+      }
       const itemIds = [...new Set(params.outputs.map((o) => o.itemId))];
       const specs = await this.prisma.feedQualitySpec.findMany({ where: { companyId: order.companyId, itemId: { in: itemIds } }, select: { itemId: true } });
       for (const spec of specs) {
@@ -1621,6 +1761,11 @@ export class ProductionOrderService {
     const rule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.completionRuleId, on: new Date() });
     const fgAccount = this.requireSide(rule.debit, rules.completionRuleId, 'debit').glAccountId;
     const wipAccount = this.requireSide(rule.credit, rules.completionRuleId, 'credit').glAccountId;
+    const approvedChart = await chartVersionOf(this.prisma, order.companyId) === 'APPROVED';
+    const controlApplication = order.processingCycle === ProductionOrderCycle.SNAILPRO || (order.processingCycle === ProductionOrderCycle.FEED_MILL && order.speciesKey === 'SNAIL')
+      ? 'YifrehSnail'
+      : 'YifrehPoultry';
+    const controlPrefix = controlApplication === 'YifrehSnail' ? 'SNP' : 'PLP';
 
     return this.prisma.$transaction(async (tx) => {
       await standardCosts.requirePolicy(tx, order.companyId, new Date());
@@ -1715,6 +1860,23 @@ export class ProductionOrderService {
           narration: `Receive finished goods from processing order ${order.orderNumber}`,
           ...dimensions,
           idempotencyKey: `production-order:${order.id}:complete`,
+          ...(approvedChart ? { approvedControl: {
+            application: controlApplication,
+            applicationRuleId: `${controlPrefix}-YFR-${order.processingCycle === ProductionOrderCycle.FEED_MILL ? '057' : '038B'}`,
+            ...(yieldVariance !== 0n ? {
+              additionalApplicationRuleIds: [`${controlPrefix}-YFR-${order.processingCycle === ProductionOrderCycle.FEED_MILL
+                ? (yieldVariance > 0n ? '061A' : '061B')
+                : (yieldVariance > 0n ? '049A' : '049B')}`],
+            } : {}),
+            expectedLineAmountsKobo: {
+              [`${controlPrefix}-YFR-${order.processingCycle === ProductionOrderCycle.FEED_MILL ? '057' : '038B'}:1`]: finishedGoods.toString(),
+              [`${controlPrefix}-YFR-${order.processingCycle === ProductionOrderCycle.FEED_MILL ? '057' : '038B'}:2`]: finishedGoods.toString(),
+              ...(yieldVariance !== 0n ? {
+                [`${controlPrefix}-YFR-${order.processingCycle === ProductionOrderCycle.FEED_MILL ? (yieldVariance > 0n ? '061A' : '061B') : (yieldVariance > 0n ? '049A' : '049B')}:1`]: (yieldVariance > 0n ? yieldVariance : -yieldVariance).toString(),
+                [`${controlPrefix}-YFR-${order.processingCycle === ProductionOrderCycle.FEED_MILL ? (yieldVariance > 0n ? '061A' : '061B') : (yieldVariance > 0n ? '049A' : '049B')}:2`]: (yieldVariance > 0n ? yieldVariance : -yieldVariance).toString(),
+              } : {}),
+            },
+          } } : {}),
           actor: params.actor,
           lines: [
             {
@@ -1735,12 +1897,16 @@ export class ProductionOrderService {
                   },
                 ]
               : []),
-            {
-              glAccountId: wipAccount,
-              description: `${rules.completionRuleId} — WIP cleared on completion (${order.orderNumber})`,
-              credit: kobo(totalToAllocate),
-              dimensions,
-            },
+            ...(approvedChart && order.processingCycle === ProductionOrderCycle.FEED_MILL
+              ? [
+                  ...(yieldVariance < 0n ? [{ glAccountId: wipAccount, description: `Favourable feed yield variance — ${order.orderNumber}`, debit: kobo(-yieldVariance), dimensions }] : []),
+                  { glAccountId: wipAccount, description: `${rules.completionRuleId} — WIP cleared at approved output cost (${order.orderNumber})`, credit: kobo(finishedGoods), dimensions },
+                  ...(yieldVariance > 0n ? [{ glAccountId: wipAccount, description: `Unfavourable feed yield variance — ${order.orderNumber}`, credit: kobo(yieldVariance), dimensions }] : []),
+                ]
+              : [
+                  { glAccountId: wipAccount, description: `${rules.completionRuleId} — WIP cleared on completion (${order.orderNumber})`, credit: kobo(yieldVariance < 0n ? finishedGoods : totalToAllocate), dimensions },
+                  ...(yieldVariance < 0n ? [{ glAccountId: wipAccount, description: `Favourable production variance — ${order.orderNumber}`, debit: kobo(-yieldVariance), dimensions }] : []),
+                ]),
           ],
         },
         tx,
@@ -1879,6 +2045,8 @@ export class ProductionOrderService {
       ? feedAllocations.reduce((sum, line) => sum + line.amountKobo, 0n)
       : order.actualLabourCostKobo + order.actualOverheadCostKobo;
     const variance = actualIncurred - order.standardConversionCostKobo;
+    const version: ChartVersion = await chartVersionOf(this.prisma, order.companyId);
+    const approvedFeedSettlement = feedPool && version === 'APPROVED';
     /*
      * PCR-058 / PCR-080: settlement clears the recovery account AND the
      * actual expense pools the order charged (621100/621200, 622100) —
@@ -1917,7 +2085,7 @@ export class ProductionOrderService {
     }
     const reasonData = reason ? { varianceReason: reason, varianceReasonById: params.actor.userId } : {};
 
-    if (clearsPools ? order.standardConversionCostKobo === 0n && actualIncurred === 0n : variance === 0n) {
+    if (approvedFeedSettlement ? variance === 0n : clearsPools ? order.standardConversionCostKobo === 0n && actualIncurred === 0n : variance === 0n) {
       await this.prisma.productionOrder.update({ where: { id: order.id }, data: { settledAt: new Date(), ...reasonData } });
       return { journalEntryId: null, variance: '0' };
     }
@@ -1940,19 +2108,29 @@ export class ProductionOrderService {
     // validates both sides eagerly. The debit is looked up directly; the
     // credit is the recovery account the standard-absorption step already
     // credited for this order.
-    const version: ChartVersion = await chartVersionOf(this.prisma, order.companyId);
     // Approved chart: the feed mill has its one recovery account (54300); a
     // snail or poultry order's recovery is debited per resource below.
     const perResource = version === 'APPROVED' && order.processingCycle !== ProductionOrderCycle.FEED_MILL;
-    const recoveryNumber =
+    const recoveryNumber = version === 'APPROVED' ? null : rules.recoveryAccountNumber;
+    const feedRoutingCentres = approvedFeedSettlement
+      ? await this.prisma.productionOrderRoutingLine.findMany({
+          where: { productionOrderId: order.id, routingOperation: { resourceType: 'MACHINE', costCentre: { code: { in: ['FM-GRN', 'FDM-MIL'] } } } },
+          select: { routingOperation: { select: { costCentreId: true } } },
+        })
+      : [];
+    const feedVarianceCostCentreId = feedRoutingCentres[0]?.routingOperation.costCentreId;
+    if (approvedFeedSettlement && !feedVarianceCostCentreId) {
+      throw new AccountingRuleViolation('COR-YFR-062A/B — FM-GRN work centre', `${order.orderNumber} has no FM-GRN/FDM-MIL machine work centre to classify its recovery variance.`, { orderNumber: order.orderNumber });
+    }
+    const [varianceAccount, recoveryAccount] = await Promise.all([
+      approvedFeedSettlement
+        ? this.approvedWorkCentreAccount(order.companyId, order.processingCycle, feedVarianceCostCentreId!, 'RECOVERY_VARIANCE', order.createdAt)
+        : this.resolvePostingKeyAccount(order.companyId, rules.settleDebitKey),
       version === 'APPROVED'
         ? order.processingCycle === ProductionOrderCycle.FEED_MILL
-          ? APPROVED_FEED_MILL_RECOVERY
-          : recoveryNumberFor('LABOUR')
-        : rules.recoveryAccountNumber;
-    const [varianceAccount, recoveryAccount] = await Promise.all([
-      this.resolvePostingKeyAccount(order.companyId, rules.settleDebitKey),
-      this.recoveryAccount(order.companyId, recoveryNumber),
+          ? this.approvedFeedMillItemAccount(order.companyId, order.recipeVersionId, 'FEED_MILL_OVERHEAD_RECOVERY', order.createdAt)
+          : this.approvedRecoveryAccount(order.companyId, order.processingCycle, 'LABOUR', order.createdAt)
+        : this.recoveryAccount(order.companyId, recoveryNumber!),
     ]);
     const resourceRecovery: Array<{ glAccountId: string; amount: bigint; resource: RecoveryResource }> = [];
     if (perResource && order.standardConversionCostKobo > 0n) {
@@ -1974,7 +2152,7 @@ export class ProductionOrderService {
           { orderNumber: order.orderNumber },
         );
       }
-      const ids = await this.recoveryAccountIds(order.companyId, [...byResource.keys()]);
+      const ids = await this.recoveryAccountIds(order.companyId, order.processingCycle, [...byResource.keys()], order.createdAt);
       for (const [resource, amount] of byResource) resourceRecovery.push({ glAccountId: ids.get(resource)!, amount, resource });
     }
     // The pools the order's own conversion step charged, and how much to each.
@@ -1985,14 +2163,19 @@ export class ProductionOrderService {
         : rules.actualConversionRuleId
         ? version === 'APPROVED'
           ? [
-              { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`), amount: order.actualLabourCostKobo },
-              { account: await this.accountByNumber(order.companyId, APPROVED_OVERHEAD_POOL, 'processing overhead'), amount: order.actualOverheadCostKobo },
+              { account: await this.approvedProcessingLabourAccount(order.companyId, order.processingCycle, order.createdAt), amount: order.actualLabourCostKobo },
+              ...(order.actualOverheadCostKobo > 0n ? [{ account: await this.approvedOverheadAccount(order.companyId, order.processingCycle, order.createdAt), amount: order.actualOverheadCostKobo }] : []),
             ]
           : [{ account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualConversionRuleId}-DR`), amount: actualIncurred }]
-        : [
-            { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualLabourRuleId}-DR`), amount: order.actualLabourCostKobo },
-            { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualOverheadRuleId}-DR`), amount: order.actualOverheadCostKobo },
-          ];
+        : version === 'APPROVED'
+          ? [
+              { account: await this.approvedProcessingLabourAccount(order.companyId, order.processingCycle, order.createdAt), amount: order.actualLabourCostKobo },
+              ...(order.actualOverheadCostKobo > 0n ? [{ account: await this.approvedOverheadAccount(order.companyId, order.processingCycle, order.createdAt), amount: order.actualOverheadCostKobo }] : []),
+            ]
+          : [
+              { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualLabourRuleId}-DR`), amount: order.actualLabourCostKobo },
+              { account: await this.resolvePostingKeyAccount(order.companyId, `${rules.actualOverheadRuleId}-DR`), amount: order.actualOverheadCostKobo },
+            ];
     const feedRecoveryLines = feedPool
       ? await this.prisma.productionOrderRoutingLine.findMany({
           where: { productionOrderId: order.id },
@@ -2011,6 +2194,8 @@ export class ProductionOrderService {
     }
 
     const rule = rules.settleDebitKey.replace('-DR', '');
+    const approvedFeedRuleId = variance > 0n ? 'COR-YFR-062A' : 'COR-YFR-062B';
+    const approvedFeedMagnitude = variance < 0n ? -variance : variance;
     return this.prisma.$transaction(async (tx) => {
       const favourable = variance < 0n;
       const magnitude = favourable ? -variance : variance;
@@ -2026,7 +2211,31 @@ export class ProductionOrderService {
           ...dimensions,
           idempotencyKey: `production-order:${order.id}:settle`,
           actor: params.actor,
-          lines: clearsPools
+          ...(approvedFeedSettlement ? {
+            approvedControl: {
+              application: 'YifrehCore',
+              applicationRuleId: approvedFeedRuleId,
+              dynamicAccountIds: {
+                [`${approvedFeedRuleId}:RECOVERY_VARIANCE`]: [varianceAccount],
+                [`${approvedFeedRuleId}:FEED_MILL_OVERHEAD_RECOVERY`]: [recoveryAccount],
+              },
+              expectedLineAmountsKobo: {
+                [`${approvedFeedRuleId}:1`]: approvedFeedMagnitude.toString(),
+                [`${approvedFeedRuleId}:2`]: approvedFeedMagnitude.toString(),
+              },
+            },
+          } : {}),
+          lines: approvedFeedSettlement
+            ? variance > 0n
+              ? [
+                  { glAccountId: varianceAccount, description: `${approvedFeedRuleId} — feed-mill under-recovery (${order.orderNumber})`, debit: kobo(approvedFeedMagnitude), dimensions: { ...dimensions, costCentreId: feedVarianceCostCentreId } },
+                  { glAccountId: recoveryAccount, description: `${approvedFeedRuleId} — feed-mill under-recovery (${order.orderNumber})`, credit: kobo(approvedFeedMagnitude), dimensions },
+                ]
+              : [
+                  { glAccountId: recoveryAccount, description: `${approvedFeedRuleId} — feed-mill over-recovery (${order.orderNumber})`, debit: kobo(approvedFeedMagnitude), dimensions },
+                  { glAccountId: varianceAccount, description: `${approvedFeedRuleId} — feed-mill over-recovery (${order.orderNumber})`, credit: kobo(approvedFeedMagnitude), dimensions: { ...dimensions, costCentreId: feedVarianceCostCentreId } },
+                ]
+            : clearsPools
             ? [
                 ...(order.standardConversionCostKobo > 0n
                   ? (perResource
@@ -2239,10 +2448,13 @@ export class ProductionOrderService {
    * the 40-step rehearsal, step 35). Trade Payables only where a chart has no
    * accrued-expenses account.
    */
-  private async actualCostCreditAccount(companyId: string): Promise<string> {
+  private async actualCostCreditAccount(companyId: string, cycle: ProductionOrderCycle, on: Date): Promise<string> {
     // Accrued expenses control (20200) on the approved chart.
-    const approvedAccrual = accrualNumberFor(await chartVersionOf(this.prisma, companyId));
-    if (approvedAccrual) return this.accountByNumber(companyId, approvedAccrual, 'accrued expenses');
+    if (await chartVersionOf(this.prisma, companyId) === 'APPROVED') {
+      const app = cycle === ProductionOrderCycle.SNAILPRO ? 'YifrehSnail' : cycle === ProductionOrderCycle.POULTRYPRO ? 'YifrehPoultry' : 'YifrehCore';
+      const prefix = cycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : cycle === ProductionOrderCycle.POULTRYPRO ? 'PLP' : 'COR';
+      return (await resolveApprovedMappedAccount(this.prisma, { companyId, application: app, postingGroup: `${prefix}-FIN-DEFAULT`, postingKey: 'ACCRUAL_CONTROL', on })).glAccountId;
+    }
     const accounts = await this.prisma.gLAccount.findMany({
       where: { companyId, accountNumber: { in: ['230100', '210100'] }, active: true },
       select: { id: true, accountNumber: true },
@@ -2271,12 +2483,80 @@ export class ProductionOrderService {
   }
 
   /** The recovery accounts (54000/54100/54200) for the resources an order absorbed. */
-  private async recoveryAccountIds(companyId: string, resources: RecoveryResource[]): Promise<Map<RecoveryResource, string>> {
+  private async recoveryAccountIds(companyId: string, cycle: ProductionOrderCycle, resources: RecoveryResource[], on: Date): Promise<Map<RecoveryResource, string>> {
     const ids = new Map<RecoveryResource, string>();
     for (const resource of resources) {
-      ids.set(resource, await this.accountByNumber(companyId, recoveryNumberFor(resource), `${resource.toLowerCase()} recovery`));
+      ids.set(resource, await this.approvedRecoveryAccount(companyId, cycle, resource, on));
     }
     return ids;
+  }
+
+  private async approvedRecoveryAccount(companyId: string, cycle: ProductionOrderCycle, resource: RecoveryResource, on: Date): Promise<string> {
+    const feedMill = cycle === ProductionOrderCycle.FEED_MILL;
+    const app = cycle === ProductionOrderCycle.SNAILPRO ? 'YifrehSnail' : cycle === ProductionOrderCycle.POULTRYPRO ? 'YifrehPoultry' : 'YifrehCore';
+    const prefix = cycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : cycle === ProductionOrderCycle.POULTRYPRO ? 'PLP' : 'COR';
+    const postingGroup = feedMill ? `${prefix}-RM` : `${prefix}-WC-MAIN`;
+    const postingKey = feedMill ? 'FEED_MILL_OVERHEAD_RECOVERY' : resource === 'LABOUR' ? 'LABOUR_RECOVERY' : resource === 'OVERHEAD' ? 'OVERHEAD_RECOVERY' : 'MACHINE_RECOVERY';
+    return (await resolveApprovedMappedAccount(this.prisma, { companyId, application: app, postingGroup, postingKey, on })).glAccountId;
+  }
+
+  private async approvedWorkCentreAccount(companyId: string, cycle: ProductionOrderCycle, costCentreId: string, postingKey: string, on: Date): Promise<string> {
+    const app = cycle === ProductionOrderCycle.SNAILPRO ? 'YifrehSnail' : cycle === ProductionOrderCycle.POULTRYPRO ? 'YifrehPoultry' : 'YifrehCore';
+    const prefix = cycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : cycle === ProductionOrderCycle.POULTRYPRO ? 'PLP' : 'COR';
+    return (await resolveApprovedMappedAccount(this.prisma, {
+      companyId,
+      application: app,
+      masterType: 'Work centre',
+      masterId: costCentreId,
+      postingGroup: `${prefix}-WC-MAIN`,
+      postingKey,
+      on,
+    })).glAccountId;
+  }
+
+  /** Feed-mill WIP/recovery keys are explicitly sourced from Item groups (COR-RM). */
+  private async approvedFeedMillItemAccount(companyId: string, recipeVersionId: string, postingKey: 'FEED_MILL_WIP' | 'FEED_MILL_OVERHEAD_RECOVERY', on: Date): Promise<string> {
+    const components = await this.prisma.productRecipeComponent.findMany({
+      where: { recipeVersionId, recipeVersion: { recipe: { companyId } } },
+      select: { componentItemId: true },
+    });
+    const itemIds = [...new Set(components.map((component) => component.componentItemId))];
+    if (!itemIds.length) throw new AccountingRuleViolation('YifrehCore Feed Mill item posting group', 'Feed-mill routing requires at least one approved recipe ingredient with the COR-RM item posting group.', { recipeVersionId, postingKey });
+    const accounts = await Promise.all(itemIds.map((masterId) => resolveApprovedMappedAccount(this.prisma, {
+      companyId, application: 'YifrehCore', masterType: 'Item', masterId,
+      postingGroup: 'COR-RM', postingKey, on,
+    })));
+    const accountIds = [...new Set(accounts.map((account) => account.glAccountId))];
+    if (accountIds.length !== 1) throw new AccountingRuleViolation('YifrehCore Feed Mill consistent item map', 'All ingredients in this recipe must resolve this Feed Mill posting key to the same workbook account.', { recipeVersionId, postingKey, accountIds });
+    return accountIds[0]!;
+  }
+
+  private async approvedPayrollPayable(companyId: string, cycle: ProductionOrderCycle, on: Date): Promise<string> {
+    const app = cycle === ProductionOrderCycle.SNAILPRO ? 'YifrehSnail' : cycle === ProductionOrderCycle.POULTRYPRO ? 'YifrehPoultry' : 'YifrehCore';
+    const prefix = cycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : cycle === ProductionOrderCycle.POULTRYPRO ? 'PLP' : 'COR';
+    return (await resolveApprovedMappedAccount(this.prisma, { companyId, application: app, postingGroup: `${prefix}-PAYROLL`, postingKey: 'PAYROLL_PAYABLE', on })).glAccountId;
+  }
+
+  private async approvedProcessingLabourAccount(companyId: string, cycle: ProductionOrderCycle, on: Date): Promise<string> {
+    const app = cycle === ProductionOrderCycle.SNAILPRO ? 'YifrehSnail' : cycle === ProductionOrderCycle.POULTRYPRO ? 'YifrehPoultry' : 'YifrehCore';
+    const prefix = cycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : cycle === ProductionOrderCycle.POULTRYPRO ? 'PLP' : 'COR';
+    return (await resolveApprovedMappedAccount(this.prisma, { companyId, application: app, postingGroup: `${prefix}-PAYROLL`, postingKey: 'OUTSOURCED_LABOUR_EXPENSE', on })).glAccountId;
+  }
+
+  private async approvedOverheadAccount(companyId: string, cycle: ProductionOrderCycle, on: Date): Promise<string> {
+    const app = cycle === ProductionOrderCycle.SNAILPRO ? 'YifrehSnail' : cycle === ProductionOrderCycle.POULTRYPRO ? 'YifrehPoultry' : 'YifrehCore';
+    const prefix = cycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : cycle === ProductionOrderCycle.POULTRYPRO ? 'PLP' : 'COR';
+    const map = await this.prisma.approvedPostingMap.findMany({
+      where: {
+        companyId, application: app, postingGroup: `${prefix}-WC-MAIN`, postingKey: 'UTILITIES_EXPENSE', status: 'Active',
+        effectiveFrom: { lte: on }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: on } }],
+      },
+      orderBy: { effectiveFrom: 'desc' }, include: { glAccount: true }, take: 2,
+    });
+    if (map.length !== 1 || !map[0]?.glAccount || !map[0].glAccount.active || (!map[0].glAccount.isPostingAccount && !map[0].glAccount.isControlAccount)) {
+      throw new AccountingRuleViolation('Approved Account Map — processing overhead expense', 'The workbook does not provide an active approved utilities/overhead expense mapping for this processing cycle. Finance must approve a map before actual overhead can post.', { companyId, application: app, postingGroup: `${prefix}-WC-MAIN`, postingKey: 'UTILITIES_EXPENSE' });
+    }
+    return map[0].glAccount.id;
   }
 
   private async recoveryAccount(companyId: string, accountNumber: string): Promise<string> {

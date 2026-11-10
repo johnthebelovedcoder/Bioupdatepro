@@ -287,6 +287,7 @@ export class TaxRegisterService {
               companyId,
               status: 'POSTED',
               journalDate: { gte: period.startDate, lte: period.endDate },
+              NOT: { sourceDocumentType: 'VatSettlementClearing', sourceDocumentId: period.id },
             },
           },
           _sum: { debitKobo: true, creditKobo: true },

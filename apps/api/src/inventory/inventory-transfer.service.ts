@@ -9,6 +9,7 @@ import { PostingService } from '../posting/posting.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { PostingControlService, ResolvedRule } from '../posting-control/posting-control.service';
 import { chartVersionOf } from '../chart/chart';
+import { resolveApprovedMappedAccount, resolveApprovedItemInventoryAccount } from '../posting-control/approved-account-map';
 import { StockMovementService } from './stock-movement.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { allocateFefo } from './lots';
@@ -100,6 +101,11 @@ export class InventoryTransferService {
         movementDate: new Date(),
         perStore: true,
       });
+      const approvedChart = await chartVersionOf(tx, params.companyId) === 'APPROVED';
+      const transitAccountId = approvedChart
+        ? (await resolveApprovedMappedAccount(tx, { companyId: params.companyId, application: 'YifrehCore', postingGroup: 'COR-RM', postingKey: 'IN_TRANSIT_INVENTORY', on: new Date() })).glAccountId
+        : null;
+      const sourceInventoryAccountId = await this.stockAccount(params.companyId, params.itemId, this.requireSide(rule.credit, 'PCR-012', 'credit').glAccountId, new Date());
 
       const result = await this.posting.post(
         {
@@ -111,16 +117,23 @@ export class InventoryTransferService {
           narration: `Transfer issue ${transferNumber}`,
           ...dimensions,
           idempotencyKey: `inventory-transfer:${transferNumber}:issue`,
+          ...(approvedChart ? { approvedControl: {
+            application: 'YifrehCore', applicationRuleId: 'COR-YFR-040A',
+            dynamicAccountIds: { SOURCE_INVENTORY: [sourceInventoryAccountId] },
+            expectedLineAmountsKobo: { 'COR-YFR-040A:1': issued.valueKobo.toString(), 'COR-YFR-040A:2': issued.valueKobo.toString() },
+          } } : {}),
           actor: params.actor,
           lines: [
             {
-              glAccountId: this.requireSide(rule.debit, 'PCR-012', 'debit').glAccountId,
+              glAccountId: approvedChart
+                ? transitAccountId!
+                : this.requireSide(rule.debit, 'PCR-012', 'debit').glAccountId,
               description: `PCR-012 — transfer issue (${transferNumber})`,
               debit: kobo(issued.valueKobo),
               dimensions,
             },
             {
-              glAccountId: await this.stockAccount(params.companyId, params.itemId, this.requireSide(rule.credit, 'PCR-012', 'credit').glAccountId),
+              glAccountId: sourceInventoryAccountId,
               description: `PCR-012 — transfer issue (${transferNumber})`,
               credit: kobo(issued.valueKobo),
               dimensions,
@@ -230,6 +243,11 @@ export class InventoryTransferService {
           movementDate: new Date(),
         });
       }
+      const approvedChart = await chartVersionOf(tx, transfer.companyId) === 'APPROVED';
+      const destinationInventoryAccountId = await this.stockAccount(transfer.companyId, transfer.itemId, this.requireSide(rule.debit, 'PCR-013', 'debit').glAccountId, new Date());
+      const transitAccountId = approvedChart
+        ? (await resolveApprovedMappedAccount(tx, { companyId: transfer.companyId, application: 'YifrehCore', postingGroup: 'COR-RM', postingKey: 'IN_TRANSIT_INVENTORY', on: new Date() })).glAccountId
+        : null;
 
       const result = await this.posting.post(
         {
@@ -241,16 +259,23 @@ export class InventoryTransferService {
           narration: `Transfer receipt ${transfer.transferNumber}`,
           ...dimensions,
           idempotencyKey: `inventory-transfer:${transfer.transferNumber}:receipt`,
+          ...(approvedChart ? { approvedControl: {
+            application: 'YifrehCore', applicationRuleId: 'COR-YFR-040B',
+            dynamicAccountIds: { DESTINATION_INVENTORY: [destinationInventoryAccountId] },
+            expectedLineAmountsKobo: { 'COR-YFR-040B:1': transfer.valueKobo.toString(), 'COR-YFR-040B:2': transfer.valueKobo.toString() },
+          } } : {}),
           actor: params.actor,
           lines: [
             {
-              glAccountId: await this.stockAccount(transfer.companyId, transfer.itemId, this.requireSide(rule.debit, 'PCR-013', 'debit').glAccountId),
+              glAccountId: destinationInventoryAccountId,
               description: `PCR-013 — transfer receipt (${transfer.transferNumber})`,
               debit: kobo(transfer.valueKobo),
               dimensions,
             },
             {
-              glAccountId: this.requireSide(rule.credit, 'PCR-013', 'credit').glAccountId,
+              glAccountId: approvedChart
+                ? transitAccountId!
+                : this.requireSide(rule.credit, 'PCR-013', 'credit').glAccountId,
               description: `PCR-013 — transfer receipt (${transfer.transferNumber})`,
               credit: kobo(transfer.valueKobo),
               dimensions,
@@ -420,6 +445,9 @@ export class InventoryTransferService {
         movementDate: new Date(),
         perStore: true,
       });
+      const approvedChart = await chartVersionOf(tx, params.companyId) === 'APPROVED';
+      const writeOffAccountId = this.requireSide(rule.debit, 'PCR-014', 'debit').glAccountId;
+      const inventoryAccountId = await this.stockAccount(params.companyId, writeOff.itemId, this.requireSide(rule.credit, 'PCR-014', 'credit').glAccountId, new Date());
 
       const result = await this.posting.post(
         {
@@ -431,16 +459,21 @@ export class InventoryTransferService {
           narration: `Inventory write-off: ${writeOff.reason}`,
           ...dimensions,
           idempotencyKey: `inventory-write-off:${issued.stockMovementId}`,
+          ...(approvedChart ? { approvedControl: {
+            application: 'YifrehCore', applicationRuleId: 'COR-YFR-042',
+            dynamicAccountIds: { INVENTORY_CONTROL: [inventoryAccountId] },
+            expectedLineAmountsKobo: { 'COR-YFR-042:1': issued.valueKobo.toString(), 'COR-YFR-042:2': issued.valueKobo.toString() },
+          } } : {}),
           actor: params.actor,
           lines: [
             {
-              glAccountId: this.requireSide(rule.debit, 'PCR-014', 'debit').glAccountId,
+              glAccountId: writeOffAccountId,
               description: `PCR-014 — inventory write-off (${writeOff.reason})`,
               debit: kobo(issued.valueKobo),
               dimensions,
             },
             {
-              glAccountId: await this.stockAccount(params.companyId, writeOff.itemId, this.requireSide(rule.credit, 'PCR-014', 'credit').glAccountId),
+              glAccountId: inventoryAccountId,
               description: `PCR-014 — inventory write-off (${writeOff.reason})`,
               credit: kobo(issued.valueKobo),
               dimensions,
@@ -479,10 +512,13 @@ export class InventoryTransferService {
    * the fallback for an item that names none. The older charts post every
    * transfer and write-off through the rule's one account, as they always did.
    */
-  private async stockAccount(companyId: string, itemId: string, fallback: string): Promise<string> {
+  private async stockAccount(companyId: string, itemId: string, fallback: string, on: Date): Promise<string> {
     if ((await chartVersionOf(this.prisma, companyId)) !== 'APPROVED') return fallback;
-    const item = await this.prisma.item.findFirst({ where: { id: itemId, companyId }, select: { inventoryGlAccountId: true } });
-    return item?.inventoryGlAccountId ?? fallback;
+    const item = await this.prisma.item.findFirst({ where: { id: itemId, companyId }, select: { inventoryGlAccountId: true, isBiologicalFeed: true, isManufactured: true } });
+    if (!item) throw new AccountingRuleViolation('Approved Posting Group — item inventory', 'The stock item does not exist in this company.', { itemId });
+    const mapped = await resolveApprovedItemInventoryAccount(this.prisma, { companyId, application: 'YifrehCore', itemId, isBiologicalFeed: item.isBiologicalFeed, isManufactured: item.isManufactured, on });
+    if (item.inventoryGlAccountId && item.inventoryGlAccountId !== mapped.glAccountId) throw new AccountingRuleViolation('Approved Posting Group — item inventory mismatch', 'The item inventory account conflicts with the workbook map for its assigned item group.', { itemId, configuredAccountId: item.inventoryGlAccountId, mappedAccountId: mapped.glAccountId });
+    return mapped.glAccountId;
   }
 
   private requireSide(side: ResolvedRule['debit'], ruleId: string, name: string) {

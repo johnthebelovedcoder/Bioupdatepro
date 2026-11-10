@@ -8,6 +8,7 @@ import { WorkflowActor } from '../workflow/workflow.types';
 import { chartVersionOf, numberFor } from '../chart/chart';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 
 /** Who prorates a year's variance. */
 const PRORATION_ROLES = ['FINANCE_CONTROLLER', 'CFO'];
@@ -113,8 +114,11 @@ export class VarianceProrationService {
     const last = year.periods[year.periods.length - 1]!;
     if (last.status !== 'OPEN') throw new AccountingRuleViolation(RULE, `${last.name} is ${last.status.toLowerCase()}; proration posts in the year's last period.`, {});
 
-    const accounts = await this.capitalisedAccounts(params.companyId);
+    const accounts = await this.capitalisedAccounts(params.companyId, year.endDate);
     const lines = splits.flatMap((s) => this.journalLines(s, accounts, 1n, year.code));
+    const approvedChart = await chartVersionOf(this.prisma, params.companyId) === 'APPROVED';
+    const capitalisedSplits = splits.filter((s) => s.toFg !== 0n || s.toWip !== 0n);
+    const approvedRuleIds = capitalisedSplits.map((s) => `COR-APP-VAR-PRORATE-${s.cycle}`);
     const toFg = splits.reduce((a, s) => a + s.toFg, 0n);
     const toWip = splits.reduce((a, s) => a + s.toWip, 0n);
     const toCogs = splits.reduce((a, s) => a + s.toCogs, 0n);
@@ -148,6 +152,18 @@ export class VarianceProrationService {
             ...dims,
             idempotencyKey: `variance-proration:${record.id}`,
             actor: params.actor,
+            ...(approvedChart ? { approvedControl: {
+              application: 'YifrehCore',
+              applicationRuleId: approvedRuleIds[0]!,
+              additionalApplicationRuleIds: approvedRuleIds.slice(1),
+              reversedApplicationRuleIds: capitalisedSplits.filter((s) => s.varianceKobo < 0n).map((s) => `COR-APP-VAR-PRORATE-${s.cycle}`),
+              dynamicAccountIds: Object.fromEntries(capitalisedSplits.map((s) => [`COR-APP-VAR-PRORATE-${s.cycle}:PRODUCTION_VARIANCE`, [s.varianceAccountId]])),
+              expectedLineAmountsKobo: Object.fromEntries(capitalisedSplits.flatMap((s) => {
+                const id = `COR-APP-VAR-PRORATE-${s.cycle}`;
+                const magnitude = (value: bigint) => (value < 0n ? -value : value).toString();
+                return [[`${id}:1`, magnitude(s.toFg + s.toWip)], [`${id}:2`, magnitude(s.toFg)], [`${id}:3`, magnitude(s.toWip)]];
+              })),
+            } } : {}),
             lines: lines.map((l) => ({ ...l, dimensions: dims })),
           },
           tx,
@@ -191,6 +207,16 @@ export class VarianceProrationService {
     });
     const dims = await this.dimensions(params.companyId, next.financialYearId, next.id);
     return this.prisma.$transaction(async (tx) => {
+      const approvedChart = await chartVersionOf(tx, params.companyId) === 'APPROVED';
+      const reversalDebitAccounts = [...new Set(original.filter((line) => line.creditKobo > 0n).map((line) => line.glAccountId))];
+      const reversalCreditAccounts = [...new Set(original.filter((line) => line.debitKobo > 0n).map((line) => line.glAccountId))];
+      const expectedAccountSideAmountsKobo: Record<string, string> = {};
+      for (const line of original) {
+        const side = line.creditKobo > 0n ? 'Debit' : 'Credit';
+        const amount = line.creditKobo > 0n ? line.creditKobo : line.debitKobo;
+        const key = `${side}:${line.glAccountId}`;
+        expectedAccountSideAmountsKobo[key] = (BigInt(expectedAccountSideAmountsKobo[key] ?? '0') + amount).toString();
+      }
       const result = await this.posting.post(
         {
           sourceModule: 'production',
@@ -202,6 +228,16 @@ export class VarianceProrationService {
           ...dims,
           idempotencyKey: `variance-proration:${record.id}:reverse`,
           actor: params.actor,
+          ...(approvedChart ? { approvedControl: {
+            application: 'YifrehCore',
+            applicationRuleId: 'COR-APP-VAR-PRORATE-REV-001',
+            dynamicMappingApplications: ['YifrehCore', 'YifrehSnail', 'YifrehPoultry'],
+            dynamicAccountIds: {
+              'COR-APP-VAR-PRORATE-REV-001:VARIANCE_PRORATION_REVERSAL_DEBIT_SOURCE': reversalDebitAccounts,
+              'COR-APP-VAR-PRORATE-REV-001:VARIANCE_PRORATION_REVERSAL_CREDIT_SOURCE': reversalCreditAccounts,
+            },
+            expectedAccountSideAmountsKobo,
+          } } : {}),
           lines: original.map((l) => ({
             glAccountId: l.glAccountId,
             description: `Reversal — ${l.description ?? ''}`,
@@ -315,8 +351,15 @@ export class VarianceProrationService {
     return out;
   }
 
-  private async capitalisedAccounts(companyId: string) {
+  private async capitalisedAccounts(companyId: string, on: Date) {
     const version = await chartVersionOf(this.prisma, companyId);
+    if (version === 'APPROVED') {
+      const [fg, wip] = await Promise.all([
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-WC-MAIN', postingKey: 'FG_CAPITALISED_VARIANCE', on }),
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-WC-MAIN', postingKey: 'WIP_CAPITALISED_VARIANCE', on }),
+      ]);
+      return { fg: fg.glAccountId, wip: wip.glAccountId };
+    }
     const [fgNumber, wipNumber] = [numberFor(version, 'fgCapitalisedVariance'), numberFor(version, 'wipCapitalisedVariance')];
     const accounts = await this.prisma.gLAccount.findMany({
       where: { companyId, accountNumber: { in: [fgNumber, wipNumber] }, active: true, isPostingAccount: true },

@@ -88,6 +88,52 @@ export async function fileTaxPeriod(
   return { error: null, message: `Recorded as filed, reference ${filingReference}.` };
 }
 
+export async function settleVat(taxPeriodId: string): Promise<FlowState> {
+  try {
+    const result = await api<{ status: string; replayed: boolean }>(`/tax/periods/${taxPeriodId}/settle-vat`, { method: 'POST', body: {} });
+    revalidatePath('/approvals');
+    revalidatePath(`/ledger/tax/${taxPeriodId}`);
+    return { error: null, message: result.replayed ? `VAT settlement is already ${result.status.toLowerCase()}.` : 'VAT settlement submitted for independent approval.' };
+  } catch (caught) {
+    return fail(caught, 'Could not clear VAT to the settlement account.');
+  }
+}
+
+export async function payVat(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const taxPeriodId = String(formData.get('taxPeriodId') ?? '');
+  const bankAccountId = String(formData.get('bankAccountId') ?? '');
+  const authorityReference = String(formData.get('authorityReference') ?? '').trim();
+  if (!bankAccountId || !authorityReference) return { error: 'Choose a bank and enter the authority payment reference.', message: null };
+  try {
+    await api(`/tax/periods/${taxPeriodId}/pay-vat`, { method: 'POST', body: { bankAccountId, authorityReference } });
+  } catch (caught) {
+    return fail(caught, 'Could not record the VAT payment.');
+  }
+  revalidatePath(`/ledger/tax/${taxPeriodId}`);
+  return { error: null, message: `VAT payment recorded against ${authorityReference}.` };
+}
+
+export async function requestVatRefund(_previous: FlowState, formData: FormData): Promise<FlowState> {
+  const taxPeriodId = String(formData.get('taxPeriodId') ?? '');
+  const bankAccountId = String(formData.get('bankAccountId') ?? '');
+  const authorityAdviceReference = String(formData.get('authorityAdviceReference') ?? '').trim();
+  const amountKobo = parseNairaToKobo(String(formData.get('amount') ?? ''));
+  if (!bankAccountId || !authorityAdviceReference || amountKobo === null || amountKobo <= 0n) {
+    return { error: 'Choose a bank, enter the authority advice reference, and enter a positive claim amount.', message: null };
+  }
+  try {
+    const result = await api<{ status: string; replayed: boolean }>(`/tax/periods/${taxPeriodId}/request-vat-refund`, {
+      method: 'POST',
+      body: { bankAccountId, authorityAdviceReference, amountKobo: amountKobo.toString() },
+    });
+    revalidatePath('/approvals');
+    revalidatePath(`/ledger/tax/${taxPeriodId}`);
+    return { error: null, message: result.replayed ? `Refund claim is already ${result.status.toLowerCase()}.` : 'VAT refund claim submitted for independent approval.' };
+  } catch (caught) {
+    return fail(caught, 'Could not submit the VAT refund claim.');
+  }
+}
+
 export interface CalculationState {
   error: string | null;
   result: {

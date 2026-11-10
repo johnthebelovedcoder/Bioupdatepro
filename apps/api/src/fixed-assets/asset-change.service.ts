@@ -228,6 +228,10 @@ export class AssetChangeService {
           ...dimensions,
           idempotencyKey: `fixed-asset-impairment:${row.id}`,
           actor: params.actor,
+          ...(version === 'APPROVED' ? { approvedControl: {
+            application: 'YifrehCore', applicationRuleId: 'COR-APP-FA-IMPAIR-001',
+            expectedLineAmountsKobo: { 'COR-APP-FA-IMPAIR-001:1': amount.toString(), 'COR-APP-FA-IMPAIR-001:2': amount.toString() },
+          } } : {}),
           lines: [
             { glAccountId: loss.id, description: `Impairment — ${asset.assetNumber} (${row.reason})`, debit: kobo(amount), dimensions },
             { glAccountId: accumulated.id, description: `Impairment — ${asset.assetNumber}`, credit: kobo(amount), dimensions },

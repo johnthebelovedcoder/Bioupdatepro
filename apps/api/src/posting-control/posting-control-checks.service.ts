@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { LedgerFlag, PostingRuleStatus } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { PostingControlService } from './posting-control.service';
+import { loadApprovedWorkbook } from '../chart/approved-workbook';
 
 /**
  * The §66.5 release gate, run against the database rather than a spreadsheet.
@@ -184,6 +185,52 @@ export class PostingControlChecksService {
               `${blocked.slice(0, 8).join(', ')}` +
               `${blocked.length > 8 ? `, and ${blocked.length - 8} more` : ''}.`,
           }),
+    });
+
+    // The approved workbook is more granular than the legacy 86-rule / 172-key
+    // table: it contains application-specific, multi-line event contracts.
+    // Count coverage by the actual app/group/key tuple and ensure every posting
+    // line has exactly one effective map to a usable account. Loading 669 rows
+    // alone is not evidence that those lines can resolve at runtime.
+    const [controlLines, accountMaps] = await Promise.all([
+      this.prisma.approvedPostingControlLine.findMany({
+        where: { companyId },
+        select: { application: true, applicationRuleId: true, side: true, postingKey: true, postingGroup: true, mapKey: true, resolvedGl: true },
+      }),
+      this.prisma.approvedPostingMap.findMany({
+        where: { companyId, status: 'Active', effectiveFrom: { lte: new Date() }, OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }] },
+        include: { glAccount: { select: { active: true, isPostingAccount: true, isControlAccount: true } } },
+      }),
+    ]);
+    const mapCounts = new Map<string, number>();
+    const usableMapKeys = new Set<string>();
+    for (const map of accountMaps) {
+      mapCounts.set(map.mapKey, (mapCounts.get(map.mapKey) ?? 0) + 1);
+      if (map.glAccount?.active && (map.glAccount.isPostingAccount || map.glAccount.isControlAccount)) usableMapKeys.add(map.mapKey);
+    }
+    const postingControlLines = controlLines.filter((line) => line.side === 'Debit' || line.side === 'Credit');
+    // This workbook key is intentionally resolved from the original document,
+    // not from Finance's account map. PostingService accepts it only when the
+    // source posting supplies an active account that is mapped for the same
+    // application and effective date.
+    const dynamicSourceLines = postingControlLines.filter((line) => line.resolvedGl === 'ORIGINAL DOC' || line.postingKey === 'SOURCE_COST_REVERSAL');
+    const unresolvedControlLines = postingControlLines.filter((line) =>
+      (line.resolvedGl !== 'ORIGINAL DOC' && line.postingKey !== 'SOURCE_COST_REVERSAL' && line.postingKey === 'NO_GL') || line.postingGroup === 'NONE' ||
+      (line.resolvedGl !== 'ORIGINAL DOC' && line.postingKey !== 'SOURCE_COST_REVERSAL' &&
+        (mapCounts.get(line.mapKey) !== 1 || !usableMapKeys.has(line.mapKey)))
+    );
+    const expectedControlLines = loadApprovedWorkbook().sheets.postingControls.length;
+    rows.push({
+      id: 'PCC-10',
+      what: 'Approved workbook event lines resolve to one active posting account',
+      expected: `${controlLines.length} event lines; every posting line mapped or source-document-resolved`,
+      found: `${controlLines.length} loaded; ${dynamicSourceLines.length} source-document-resolved lines; ${unresolvedControlLines.length} posting lines unresolved or ambiguous`,
+      state: controlLines.length === expectedControlLines && unresolvedControlLines.length === 0 ? 'PASS' : 'BLOCKED',
+      ...(controlLines.length === expectedControlLines && unresolvedControlLines.length === 0 ? {} : {
+        next: controlLines.length !== expectedControlLines
+          ? 'Load the complete approved posting-control workbook before release.'
+          : `Resolve the approved account mappings for ${unresolvedControlLines.slice(0, 8).map((line) => `${line.applicationRuleId} ${line.side} ${line.mapKey}`).join('; ')}${unresolvedControlLines.length > 8 ? `; and ${unresolvedControlLines.length - 8} more` : ''}.`,
+      }),
     });
 
     return {

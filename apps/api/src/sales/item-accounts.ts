@@ -1,4 +1,7 @@
 import type { Prisma } from '@bioassetpro/database';
+import { chartVersionOf } from '../chart/chart';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
+import { AccountingRuleViolation } from '../common/errors';
 
 /**
  * Which accounts a sale of each item posts to.
@@ -25,19 +28,40 @@ export async function saleAccountsByItem(
   companyId: string,
   itemIds: Array<string | null | undefined>,
   config: { revenueGlAccountId: string; costOfSalesGlAccountId: string; inventoryGlAccountId: string },
+  on: Date,
 ): Promise<(itemId: string | null | undefined) => SaleAccounts> {
+  const approved = (await chartVersionOf(client, companyId)) === 'APPROVED';
   const ids = [...new Set(itemIds.filter((id): id is string => !!id))];
   const items = ids.length
     ? await client.item.findMany({
         where: { companyId, id: { in: ids } },
-        select: { id: true, revenueGlAccountId: true, costOfSalesGlAccountId: true, inventoryGlAccountId: true },
+        select: { id: true, category: true, isBiologicalFeed: true, revenueGlAccountId: true, costOfSalesGlAccountId: true, inventoryGlAccountId: true },
       })
     : [];
+  const revenueById = new Map<string, string>();
+  for (const item of items) {
+    let revenue = item.revenueGlAccountId ?? config.revenueGlAccountId;
+    if (approved && item.category?.trim()) {
+      const mapped = await resolveApprovedMappedAccount(client, {
+        companyId,
+        application: 'YifrehCore',
+        masterType: 'Sales class',
+        masterId: item.category.trim(),
+        postingKey: item.isBiologicalFeed ? 'FEED_REVENUE' : 'SALES_REVENUE',
+        on,
+      });
+      if (item.revenueGlAccountId && item.revenueGlAccountId !== mapped.glAccountId) {
+        throw new AccountingRuleViolation('Approved Posting Group — sales class', `Item ${item.id} revenue account conflicts with the workbook map for its assigned sales class.`, { itemId: item.id, category: item.category });
+      }
+      revenue = mapped.glAccountId;
+    }
+    revenueById.set(item.id, revenue);
+  }
   const byId = new Map(items.map((i) => [i.id, i]));
   return (itemId) => {
     const item = itemId ? byId.get(itemId) : undefined;
     return {
-      revenue: item?.revenueGlAccountId ?? config.revenueGlAccountId,
+      revenue: item ? revenueById.get(item.id)! : config.revenueGlAccountId,
       costOfSales: item?.costOfSalesGlAccountId ?? config.costOfSalesGlAccountId,
       inventory: item?.inventoryGlAccountId ?? config.inventoryGlAccountId,
     };

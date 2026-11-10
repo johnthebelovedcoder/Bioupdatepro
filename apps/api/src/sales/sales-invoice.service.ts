@@ -19,6 +19,7 @@ import { TaxRegisterService } from '../tax/tax-register.service';
 import { SalesPricingService } from './sales-pricing.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
+import { chartVersionOf } from '../chart/chart';
 
 /**
  * Sales Invoice (§6).
@@ -232,6 +233,7 @@ export class SalesInvoiceService {
       invoice.companyId,
       invoice.invoiceDate,
       params.tx,
+      invoice.customerId,
     );
 
     const dimensions = {
@@ -273,6 +275,7 @@ export class SalesInvoiceService {
       invoice.companyId,
       [...invoice.lines.map((l) => l.itemId), ...costLines.lines.map((l) => l.itemId)],
       config,
+      invoice.invoiceDate,
     );
     for (const line of invoice.lines) {
       lines.push({
@@ -323,6 +326,61 @@ export class SalesInvoiceService {
       }
     }
 
+    const approvedChart = await chartVersionOf(params.tx, invoice.companyId) === 'APPROVED';
+    const recognizeCostAtInvoice = config.cogsRecognitionPoint === CogsRecognitionPoint.INVOICE && costLines.totalKobo > 0n;
+    const approvedControl = approvedChart ? (() => {
+      const additionalApplicationRuleIds = [
+        ...(invoice.vatAmountKobo > 0n ? ['COR-YFR-025B'] : []),
+        ...(recognizeCostAtInvoice ? ['COR-YFR-020A'] : []),
+      ];
+      const revenueByAccount = new Map<string, bigint>();
+      for (const invoiceLine of invoice.lines) {
+        const accountId = accountsFor(invoiceLine.itemId).revenue;
+        revenueByAccount.set(accountId, (revenueByAccount.get(accountId) ?? 0n) + invoiceLine.netAmountKobo);
+      }
+      const expectedAccountSideAmountsKobo: Record<string, string> = {};
+      const addExpected = (side: 'Debit' | 'Credit', accountId: string, amount: bigint) => {
+        if (amount <= 0n) return;
+        const key = `${side}:${accountId}`;
+        expectedAccountSideAmountsKobo[key] = (BigInt(expectedAccountSideAmountsKobo[key] ?? '0') + amount).toString();
+      };
+      // The workbook's AR base and VAT lines share one receivable account.
+      addExpected('Debit', config.receivableGlAccountId, invoice.netAmountKobo + invoice.vatAmountKobo);
+      for (const [accountId, amount] of revenueByAccount) addExpected('Credit', accountId, amount);
+      if (invoice.vatAmountKobo > 0n) {
+        const vatLine = lines.find((line) => line.description.startsWith('Output VAT —'));
+        if (vatLine) addExpected('Credit', vatLine.glAccountId, invoice.vatAmountKobo);
+      }
+      const dynamicAccountIds: Record<string, string[]> = {
+        'COR-YFR-021:AR_CONTROL': [config.receivableGlAccountId],
+        ...(invoice.vatAmountKobo > 0n ? { 'COR-YFR-025A:AR_CONTROL': [config.receivableGlAccountId] } : {}),
+        'COR-YFR-021:SALES_REVENUE': [...revenueByAccount.keys()],
+        'COR-YFR-025A:SALES_REVENUE': [...revenueByAccount.keys()],
+      };
+      if (recognizeCostAtInvoice) {
+        const costAccounts = new Map<string, { debitAccount: string; creditAccount: string; amountKobo: bigint }>();
+        for (const costLine of costLines.lines.filter((line) => line.costKobo > 0n)) {
+          const accounts = accountsFor(costLine.itemId);
+          const key = `${accounts.costOfSales}:${accounts.inventory}`;
+          const bucket = costAccounts.get(key) ?? { debitAccount: accounts.costOfSales, creditAccount: accounts.inventory, amountKobo: 0n };
+          bucket.amountKobo += costLine.costKobo;
+          costAccounts.set(key, bucket);
+        }
+        for (const bucket of costAccounts.values()) {
+          addExpected('Debit', bucket.debitAccount, bucket.amountKobo);
+          addExpected('Credit', bucket.creditAccount, bucket.amountKobo);
+        }
+        dynamicAccountIds['COR-YFR-020A:COGS'] = [...new Set([...costAccounts.values()].map((bucket) => bucket.debitAccount))];
+        dynamicAccountIds['COR-YFR-020A:FINISHED_GOODS_INVENTORY'] = [...new Set([...costAccounts.values()].map((bucket) => bucket.creditAccount))];
+      }
+      return {
+        application: 'YifrehCore',
+        applicationRuleId: invoice.vatAmountKobo > 0n ? 'COR-YFR-025A' : 'COR-YFR-021',
+        ...(additionalApplicationRuleIds.length ? { additionalApplicationRuleIds } : {}),
+        dynamicAccountIds,
+        expectedAccountSideAmountsKobo,
+      };
+    })() : undefined;
     const result = await this.posting.post(
       {
         sourceModule: 'sales',
@@ -333,6 +391,7 @@ export class SalesInvoiceService {
         narration: `Sales invoice ${invoice.invoiceNumber} — ${invoice.customer.name}`,
         ...dimensions,
         idempotencyKey: `sales-invoice:${invoice.id}`,
+        ...(approvedControl ? { approvedControl } : {}),
         actor: params.actor,
         lines: lines.map((line) => ({
           glAccountId: line.glAccountId,

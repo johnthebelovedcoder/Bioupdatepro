@@ -13,6 +13,8 @@ import {
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
 import { Card, PageHeader, Stat } from '@/components/ui';
 import { CloseTaxPeriodButton, FileTaxPeriodForm } from '@/components/tax-actions';
+import { PayVatForm, SettleVatButton, VatRefundClaimForm } from '@/components/tax-actions';
+import { getBankAccounts } from '@/lib/banking';
 
 export const metadata = { title: 'Tax period — BioAssetPro' };
 
@@ -45,6 +47,7 @@ export default async function TaxPeriodPage({ params }: { params: Promise<{ id: 
     period.taxType === 'VAT' ? getVatRegister(id) : getWhtRegister(id),
     getTaxReconciliation(id),
   ]);
+  const bankResult = period.taxType === 'VAT' && period.status === 'FILED' ? await getBankAccounts() : null;
 
   return (
     <>
@@ -105,6 +108,29 @@ export default async function TaxPeriodPage({ params }: { params: Promise<{ id: 
             subtitle="Once submitted to the tax authority, record its reference here"
           >
             <FileTaxPeriodForm taxPeriodId={id} />
+          </Card>
+        ) : null}
+
+        {period.taxType === 'VAT' && period.status !== 'OPEN' ? (
+          <Card title="VAT settlement" subtitle="Submit the reconciled return for independent approval before clearing its VAT controls">
+            <SettleVatButton taxPeriodId={id} />
+          </Card>
+        ) : null}
+
+        {period.taxType === 'VAT' && period.status === 'FILED' ? (
+          <Card title="Pay VAT" subtitle="Record the filed return payment using a registered, assigned bank account">
+            {!bankResult?.ok ? <div className="notice notice-error">{bankResult?.error ?? 'Could not load bank accounts.'}</div> : (
+              <PayVatForm taxPeriodId={id} bankAccounts={bankResult.data.filter((bank) => bank.active).map(({ id: bankId, name, bankName, accountNumberMasked }) => ({ id: bankId, name, bankName, accountNumberMasked }))} />
+            )}
+          </Card>
+        ) : null}
+
+        {period.taxType === 'VAT' && period.status === 'FILED' && register.ok &&
+        toKobo((register.data as VatRegister).summary.netPayableKobo) < 0n ? (
+          <Card title="VAT refund claim" subtitle="A filed recoverable balance can support a claim; the receipt requires independent approval">
+            {!bankResult?.ok ? <div className="notice notice-error">{bankResult?.error ?? 'Could not load bank accounts.'}</div> : (
+              <VatRefundClaimForm taxPeriodId={id} bankAccounts={bankResult.data.filter((bank) => bank.active).map(({ id: bankId, name, bankName, accountNumberMasked }) => ({ id: bankId, name, bankName, accountNumberMasked }))} />
+            )}
           </Card>
         ) : null}
       </div>

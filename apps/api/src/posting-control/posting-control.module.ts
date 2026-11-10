@@ -5,11 +5,12 @@ import { PostingControlProvisioningService } from './posting-control-provisionin
 import { ChartUnificationService } from '../chart/chart-unification.service';
 import { ApprovedCutoverService } from '../chart/approved-cutover.service';
 import { RearingCostService } from '../biological-assets/rearing-cost.service';
+import { PostingGroupAssignmentService } from './posting-group-assignment.service';
 
 /** Consolidated Reference §66 — table-driven posting. */
 @Module({
-  providers: [PostingControlService, PostingControlChecksService, PostingControlProvisioningService, ChartUnificationService, ApprovedCutoverService, RearingCostService],
+  providers: [PostingControlService, PostingControlChecksService, PostingControlProvisioningService, PostingGroupAssignmentService, ChartUnificationService, ApprovedCutoverService, RearingCostService],
   // All three exported: the controller that uses them is declared in AppModule.
-  exports: [PostingControlService, PostingControlChecksService, PostingControlProvisioningService, ChartUnificationService, ApprovedCutoverService],
+  exports: [PostingControlService, PostingControlChecksService, PostingControlProvisioningService, PostingGroupAssignmentService, ChartUnificationService, ApprovedCutoverService],
 })
 export class PostingControlModule {}

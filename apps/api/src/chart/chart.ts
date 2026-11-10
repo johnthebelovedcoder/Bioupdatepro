@@ -338,7 +338,7 @@ export interface EggAccounts {
 
 export function eggAccountsFor(version: ChartVersion): EggAccounts {
   if (version === 'APPROVED') {
-    return { inventory: '12420', gain: '42000', incubation: '13020', revenue: '40330', costOfSales: '50330' };
+    return { inventory: '12420', gain: '42000', incubation: '13200', revenue: '40330', costOfSales: '50330' };
   }
   return { inventory: '130215', gain: '420210', incubation: '130216', revenue: null, costOfSales: null };
 }

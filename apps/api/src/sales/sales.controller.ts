@@ -162,7 +162,7 @@ export class SalesController {
       method: 'BANK_TRANSFER' | 'CASH' | 'CHEQUE';
       bankGlAccountId: string;
       reference?: string | null;
-      allocations: Array<{ invoiceId: string; amountKobo: string }>;
+      allocations: Array<{ invoiceId?: string; journalLineId?: string; amountKobo: string }>;
     },
   ) {
     return this.flow.recordReceipt({

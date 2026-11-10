@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { AuditAction, Prisma, ProductionOrderCycle, WorkflowStatus } from '@bioassetpro/database';
 import { chartVersionOf, numberFor, processingOverheadNumber } from '../chart/chart';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
@@ -9,6 +10,7 @@ import { WorkflowService } from '../workflow/workflow.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
+import { assertBankGlAccount } from '../chart/bank-account';
 
 /**
  * Fixed assets (US-897-025), mirroring the payroll module's shape exactly:
@@ -68,6 +70,17 @@ export class FixedAssetService {
       fullyDepreciated: asset.accumulatedDepreciationKobo >= asset.costKobo,
       pendingTransactionId: pending.get(asset.id) ?? null,
     }));
+  }
+
+  async disposalOptions(companyId: string) {
+    const [bankAccounts, customers] = await Promise.all([
+      this.prisma.bankAccount.findMany({ where: { companyId, active: true }, orderBy: { name: 'asc' }, select: { id: true, name: true, bankName: true, accountNumber: true } }),
+      this.prisma.customer.findMany({ where: { companyId, status: 'ACTIVE' }, orderBy: { name: 'asc' }, select: { id: true, code: true, name: true } }),
+    ]);
+    return {
+      bankAccounts: bankAccounts.map((account) => ({ id: account.id, name: account.name, bankName: account.bankName, accountNumber: `••••${account.accountNumber.slice(-4)}` })),
+      customers,
+    };
   }
 
   /**
@@ -183,7 +196,7 @@ export class FixedAssetService {
     // engine does before it, and three round trips in series is the
     // difference between comfortably inside that budget and not.
     const [accounts, context, period] = await Promise.all([
-      this.resolveAccounts(asset.companyId, params.tx, ['ppe', 'payables']),
+      this.resolveAccounts(asset.companyId, params.tx, ['ppe', 'payables'], asset.acquisitionDate),
       params.tx.company.findUniqueOrThrow({
         where: { id: asset.companyId },
         select: {
@@ -215,6 +228,11 @@ export class FixedAssetService {
         narration: `Capitalise ${asset.assetNumber} — ${asset.name}`,
         ...dimensions,
         idempotencyKey: `fixed-asset-capitalisation:${asset.id}`,
+        ...(await chartVersionOf(params.tx, asset.companyId)) === 'APPROVED' ? { approvedControl: {
+          application: 'YifrehCore',
+          applicationRuleId: 'COR-YFR-016A',
+          expectedLineAmountsKobo: { 'COR-YFR-016A:1': asset.costKobo.toString(), 'COR-YFR-016A:2': asset.costKobo.toString() },
+        } } : {},
         actor: params.actor,
         lines: [
           {
@@ -381,7 +399,7 @@ export class FixedAssetService {
     }
 
     const [accounts, context] = await Promise.all([
-      this.resolveAccounts(run.companyId, params.tx, ['depreciationExpense', 'accumulatedDepreciation']),
+      this.resolveAccounts(run.companyId, params.tx, ['depreciationExpense', 'accumulatedDepreciation'], run.financialPeriod.endDate),
       params.tx.company.findUniqueOrThrow({
         where: { id: run.companyId },
         select: {
@@ -454,6 +472,14 @@ export class FixedAssetService {
         narration: `Depreciation — ${run.financialPeriod.name}`,
         ...dimensions,
         idempotencyKey: `depreciation-run:${run.id}`,
+        ...(await chartVersionOf(params.tx, run.companyId)) === 'APPROVED' ? { approvedControl: {
+          application: 'YifrehCore',
+          applicationRuleId: 'COR-YFR-067',
+          dynamicAccountIds: {
+            DEPRECIATION_EXPENSE: [...new Set(lines.filter((line) => 'debit' in line).map((line) => line.glAccountId))],
+            ACCUMULATED_DEPRECIATION: [...new Set(lines.filter((line) => 'credit' in line).map((line) => line.glAccountId))],
+          },
+        } } : {},
         actor: params.actor,
         lines,
       },
@@ -477,29 +503,25 @@ export class FixedAssetService {
   }
 
   /**
-   * Dispose an asset — PCR-029's own reversal column names "Asset reversal/
-   * disposal workflow" as the mechanism, but there is no dedicated posting
-   * rule anywhere in the client's approved table for a disposal gain/loss
-   * account, unlike capitalisation (PCR-029) and depreciation (PCR-030). A
-   * clean reversal of the original capitalisation would also undo the
-   * Payables side, which is wrong — that liability was real and settled
-   * separately, not something disposal un-happens.
-   *
-   * Rather than invent a "Gain/Loss on Disposal" account nobody has approved,
-   * this treats disposal as bringing the asset's own accumulated depreciation
-   * to exactly its cost — Dr Accumulated Depreciation (what's posted so far)
-   * / Dr Depreciation Expense (whatever net book value remains, as a final
-   * catch-up charge) / Cr PPE (the full original cost) — three lines that
-   * always balance, using only the two governed accounts (1701, 1702, 5501)
-   * this cycle already has. A fully depreciated asset posts with a zero-value
-   * (omitted) Depreciation Expense line; nothing here is invented for that
-   * case either.
+   * Submit an asset retirement. On the approved chart the posting follows the
+   * workbook's clearing sequence (068C/068D/068E) and uses its mapped disposal
+   * loss and clearing accounts. The current form records a retirement without
+   * proceeds; cash and credit proceeds still need their own evidence and event
+   * details before the 068A/068B paths can be used.
    */
   async dispose(params: {
     assetId: string;
     actor: WorkflowActor;
     disposedOn: Date;
+    proceedsKobo?: bigint;
+    proceedsMode?: 'CASH' | 'CREDIT' | null;
+    bankAccountId?: string | null;
+    customerId?: string | null;
   }) {
+    const proceedsKobo = params.proceedsKobo ?? 0n;
+    const proceedsMode = params.proceedsMode ?? null;
+    const bankAccountId = params.bankAccountId ?? null;
+    const customerId = params.customerId ?? null;
     const asset = await this.prisma.fixedAsset.findUniqueOrThrow({ where: { id: params.assetId } });
 
     if (asset.status !== WorkflowStatus.POSTED) {
@@ -515,6 +537,19 @@ export class FixedAssetService {
         `${asset.assetNumber} was already disposed on ${asset.disposedOn.toISOString().slice(0, 10)}.`,
         { assetNumber: asset.assetNumber },
       );
+    }
+    if (proceedsKobo < 0n) throw new AccountingRuleViolation('Fixed asset disposal proceeds', 'Proceeds cannot be negative.', {});
+    if (proceedsKobo > 0n && !proceedsMode) throw new AccountingRuleViolation('Fixed asset disposal proceeds', 'Choose whether proceeds were received in cash or are due from a customer.', {});
+    if (proceedsMode === 'CASH' && proceedsKobo > 0n && !bankAccountId) throw new AccountingRuleViolation('Fixed asset disposal proceeds', 'Choose the bank account that received the cash proceeds.', {});
+    if (proceedsMode === 'CREDIT' && proceedsKobo > 0n && !customerId) throw new AccountingRuleViolation('Fixed asset disposal proceeds', 'Choose the customer who owes the credit proceeds.', {});
+    if (proceedsMode === 'CASH' && bankAccountId) {
+      const bank = await this.prisma.bankAccount.findFirst({ where: { id: bankAccountId, companyId: asset.companyId, active: true }, select: { glAccountId: true } });
+      if (!bank) throw new AccountingRuleViolation('Fixed asset disposal bank', 'Choose an active bank account belonging to this company.', {});
+      await assertBankGlAccount(this.prisma, asset.companyId, bank.glAccountId, 'Fixed asset disposal proceeds');
+    }
+    if (proceedsMode === 'CREDIT' && customerId) {
+      const customer = await this.prisma.customer.findFirst({ where: { id: customerId, companyId: asset.companyId, status: 'ACTIVE' }, select: { id: true } });
+      if (!customer) throw new AccountingRuleViolation('Fixed asset disposal customer', 'Choose an active customer belonging to this company.', {});
     }
 
     const context = await this.prisma.company.findUniqueOrThrow({
@@ -547,7 +582,13 @@ export class FixedAssetService {
       branchId: branch.id,
       costCentreId: asset.costCentreId ?? undefined,
       actor: params.actor,
-      postingPayload: { disposedOn: params.disposedOn.toISOString() },
+      postingPayload: {
+        disposedOn: params.disposedOn.toISOString(),
+        proceedsKobo: proceedsKobo.toString(),
+        proceedsMode: proceedsKobo > 0n ? proceedsMode : null,
+        bankAccountId: proceedsKobo > 0n && proceedsMode === 'CASH' ? bankAccountId : null,
+        customerId: proceedsKobo > 0n && proceedsMode === 'CREDIT' ? customerId : null,
+      },
     });
 
     await this.prisma.fixedAsset.update({
@@ -563,7 +604,7 @@ export class FixedAssetService {
       status: WorkflowStatus.SUBMITTED,
       action: AuditAction.UPDATE,
       userId: params.actor.userId,
-      comments: `Raised disposal of ${asset.assetNumber}, net book value ${netBookValueKobo.toString()} kobo.`,
+      comments: `Raised disposal of ${asset.assetNumber}, net book value ${netBookValueKobo.toString()} kobo, proceeds ${proceedsKobo.toString()} kobo${proceedsMode ? ` (${proceedsMode.toLowerCase()})` : ''}.`,
     });
 
     return {
@@ -577,6 +618,10 @@ export class FixedAssetService {
   async postApprovedDisposal(params: {
     assetId: string;
     disposedOn: Date;
+    proceedsKobo: bigint;
+    proceedsMode: 'CASH' | 'CREDIT' | null;
+    bankAccountId: string | null;
+    customerId: string | null;
     actor: WorkflowActor;
     tx: Prisma.TransactionClient;
   }): Promise<{ journalEntryId: string }> {
@@ -590,17 +635,25 @@ export class FixedAssetService {
       );
     }
 
-    const [accounts, context, period] = await Promise.all([
+    const approvedChart = await chartVersionOf(params.tx, asset.companyId) === 'APPROVED';
+    if (params.proceedsKobo > 0n && !approvedChart) {
+      throw new AccountingRuleViolation('Fixed asset disposal proceeds', 'Proceeds posting requires the approved disposal controls. Complete chart cutover before recording sale proceeds.', {});
+    }
+    if (params.proceedsKobo < 0n) throw new AccountingRuleViolation('Fixed asset disposal proceeds', 'Proceeds cannot be negative.', {});
+    const [accounts, context, period, disposalLoss, disposalClearing] = await Promise.all([
       this.resolveAccounts(asset.companyId, params.tx, [
         'ppe',
         'accumulatedDepreciation',
         'depreciationExpense',
-      ]),
+        'receivables',
+      ], params.disposedOn),
       params.tx.company.findUniqueOrThrow({
         where: { id: asset.companyId },
         select: { baseCurrencyId: true, branches: { where: { active: true }, take: 1, select: { id: true } } },
       }),
       this.currentPeriod(asset.companyId, params.disposedOn, params.tx),
+      approvedChart ? resolveApprovedMappedAccount(params.tx, { companyId: asset.companyId, application: 'YifrehCore', masterType: 'Asset class', masterId: asset.assetClass, postingKey: 'DISPOSAL_LOSS', on: params.disposedOn }) : Promise.resolve(null),
+      approvedChart ? resolveApprovedMappedAccount(params.tx, { companyId: asset.companyId, application: 'YifrehCore', masterType: 'Asset class', masterId: asset.assetClass, postingKey: 'DISPOSAL_CLEARING', on: params.disposedOn }) : Promise.resolve(null),
     ]);
     const branch = context.branches[0]!;
 
@@ -615,38 +668,49 @@ export class FixedAssetService {
     };
 
     const netBookValueKobo = asset.costKobo - asset.accumulatedDepreciationKobo;
+    const gainKobo = params.proceedsKobo > netBookValueKobo ? params.proceedsKobo - netBookValueKobo : 0n;
+    const lossKobo = netBookValueKobo > params.proceedsKobo ? netBookValueKobo - params.proceedsKobo : 0n;
+    let proceedsAccountId: string | null = null;
+    if (params.proceedsKobo > 0n && params.proceedsMode === 'CASH' && params.bankAccountId) {
+      const bank = await params.tx.bankAccount.findFirst({ where: { id: params.bankAccountId, companyId: asset.companyId, active: true }, select: { glAccountId: true } });
+      if (!bank) throw new AccountingRuleViolation('Fixed asset disposal bank', 'The selected bank account is no longer active for this company.', {});
+      await assertBankGlAccount(params.tx, asset.companyId, bank.glAccountId, 'Fixed asset disposal proceeds');
+      const assignedBank = await resolveApprovedMappedAccount(params.tx, { companyId: asset.companyId, application: 'YifrehCore', masterType: 'Bank', masterId: params.bankAccountId, postingKey: 'BANK', on: params.disposedOn });
+      if (assignedBank.glAccountId !== bank.glAccountId) throw new AccountingRuleViolation('Approved Posting Group — bank account', 'The selected bank account GL does not match its assigned workbook bank posting group.', { bankAccountId: params.bankAccountId, bankAccountGlId: bank.glAccountId, assignedGlId: assignedBank.glAccountId });
+      proceedsAccountId = bank.glAccountId;
+    } else if (params.proceedsKobo > 0n && params.proceedsMode === 'CREDIT' && params.customerId) {
+      const customer = await params.tx.customer.findFirst({ where: { id: params.customerId, companyId: asset.companyId, status: 'ACTIVE' }, select: { id: true } });
+      if (!customer) throw new AccountingRuleViolation('Fixed asset disposal customer', 'The selected customer is no longer active for this company.', {});
+      proceedsAccountId = (await resolveApprovedMappedAccount(params.tx, { companyId: asset.companyId, application: 'YifrehCore', masterType: 'Customer', masterId: customer.id, postingKey: 'AR_CONTROL', on: params.disposedOn })).glAccountId;
+    }
+    if (params.proceedsKobo > 0n && !proceedsAccountId) throw new AccountingRuleViolation('Fixed asset disposal proceeds', 'Choose a valid bank account or customer for the recorded proceeds.', {});
+    const disposalGain = gainKobo > 0n && approvedChart
+      ? await resolveApprovedMappedAccount(params.tx, { companyId: asset.companyId, application: 'YifrehCore', masterType: 'Asset class', masterId: asset.assetClass, postingKey: 'DISPOSAL_GAIN', on: params.disposedOn })
+      : null;
 
-    const lines = [
-      // Only when there is accumulated depreciation to reverse: an asset
-      // disposed before any depreciation run has none, and a zero line has
-      // neither a debit nor a credit, which the balanced-journal guard
-      // rejects — leaving the disposal stuck with no way to post.
-      ...(asset.accumulatedDepreciationKobo > 0n
-        ? [
-            {
-              glAccountId: accounts.accumulatedDepreciation,
-              description: `Disposal — ${asset.assetNumber} (accumulated depreciation)`,
-              debit: kobo(asset.accumulatedDepreciationKobo),
-              dimensions,
-            },
-          ]
-        : []),
-      ...(netBookValueKobo > 0n
-        ? [
-            {
-              glAccountId: accounts.depreciationExpense,
-              description: `Disposal — ${asset.assetNumber} (remaining net book value written off)`,
-              debit: kobo(netBookValueKobo),
-              dimensions,
-            },
-          ]
-        : []),
-      {
-        glAccountId: accounts.ppe,
-        description: `Disposal — ${asset.assetNumber}`,
-        credit: kobo(asset.costKobo),
-        dimensions,
-      },
+    const lines = approvedChart ? [
+      ...(asset.accumulatedDepreciationKobo > 0n ? [
+        { glAccountId: accounts.accumulatedDepreciation, description: `Disposal — ${asset.assetNumber} (accumulated depreciation)`, debit: kobo(asset.accumulatedDepreciationKobo), dimensions },
+        { glAccountId: disposalClearing!.glAccountId, description: `Disposal — ${asset.assetNumber} (accumulated depreciation cleared)`, credit: kobo(asset.accumulatedDepreciationKobo), dimensions },
+      ] : []),
+      { glAccountId: disposalClearing!.glAccountId, description: `Disposal — ${asset.assetNumber} (asset cost cleared)`, debit: kobo(asset.costKobo), dimensions },
+      { glAccountId: accounts.ppe, description: `Disposal — ${asset.assetNumber}`, credit: kobo(asset.costKobo), dimensions },
+      ...(params.proceedsKobo > 0n ? [
+        { glAccountId: proceedsAccountId!, description: `Disposal proceeds — ${asset.assetNumber}`, debit: kobo(params.proceedsKobo), dimensions: { ...dimensions, ...(params.proceedsMode === 'CREDIT' && params.customerId ? { customerId: params.customerId } : {}) } },
+        { glAccountId: disposalClearing!.glAccountId, description: `Disposal proceeds cleared — ${asset.assetNumber}`, credit: kobo(params.proceedsKobo), dimensions },
+      ] : []),
+      ...(lossKobo > 0n ? [
+        { glAccountId: disposalLoss!.glAccountId, description: `Disposal — ${asset.assetNumber} (net book value loss)`, debit: kobo(lossKobo), dimensions },
+        { glAccountId: disposalClearing!.glAccountId, description: `Disposal — ${asset.assetNumber} (loss cleared)`, credit: kobo(lossKobo), dimensions },
+      ] : []),
+      ...(gainKobo > 0n && disposalGain ? [
+        { glAccountId: disposalClearing!.glAccountId, description: `Disposal — ${asset.assetNumber} (gain cleared)`, debit: kobo(gainKobo), dimensions },
+        { glAccountId: disposalGain.glAccountId, description: `Disposal — ${asset.assetNumber} (gain)`, credit: kobo(gainKobo), dimensions },
+      ] : []),
+    ] : [
+      ...(asset.accumulatedDepreciationKobo > 0n ? [{ glAccountId: accounts.accumulatedDepreciation, description: `Disposal — ${asset.assetNumber} (accumulated depreciation)`, debit: kobo(asset.accumulatedDepreciationKobo), dimensions }] : []),
+      ...(netBookValueKobo > 0n ? [{ glAccountId: accounts.depreciationExpense, description: `Disposal — ${asset.assetNumber} (remaining net book value written off)`, debit: kobo(netBookValueKobo), dimensions }] : []),
+      { glAccountId: accounts.ppe, description: `Disposal — ${asset.assetNumber}`, credit: kobo(asset.costKobo), dimensions },
     ];
 
     const result = await this.posting.post(
@@ -659,6 +723,25 @@ export class FixedAssetService {
         narration: `Disposal of ${asset.assetNumber} — ${asset.name}`,
         ...dimensions,
         idempotencyKey: `fixed-asset-disposal:${asset.id}`,
+        ...(approvedChart ? { approvedControl: {
+          application: 'YifrehCore', applicationRuleId: 'COR-YFR-068D',
+          additionalApplicationRuleIds: [
+            ...(asset.accumulatedDepreciationKobo > 0n ? ['COR-YFR-068C'] : []),
+            ...(params.proceedsKobo > 0n ? [params.proceedsMode === 'CASH' ? 'COR-YFR-068A' : 'COR-YFR-068B'] : []),
+            ...(lossKobo > 0n ? ['COR-YFR-068E'] : []),
+            ...(gainKobo > 0n ? ['COR-YFR-068F'] : []),
+          ],
+          expectedLineAmountsKobo: {
+            'COR-YFR-068D:1': asset.costKobo.toString(), 'COR-YFR-068D:2': asset.costKobo.toString(),
+            ...(asset.accumulatedDepreciationKobo > 0n ? { 'COR-YFR-068C:1': asset.accumulatedDepreciationKobo.toString(), 'COR-YFR-068C:2': asset.accumulatedDepreciationKobo.toString() } : {}),
+            ...(params.proceedsKobo > 0n ? {
+              [`${params.proceedsMode === 'CASH' ? 'COR-YFR-068A' : 'COR-YFR-068B'}:1`]: params.proceedsKobo.toString(),
+              [`${params.proceedsMode === 'CASH' ? 'COR-YFR-068A' : 'COR-YFR-068B'}:2`]: params.proceedsKobo.toString(),
+            } : {}),
+            ...(lossKobo > 0n ? { 'COR-YFR-068E:1': lossKobo.toString(), 'COR-YFR-068E:2': lossKobo.toString() } : {}),
+            ...(gainKobo > 0n ? { 'COR-YFR-068F:1': gainKobo.toString(), 'COR-YFR-068F:2': gainKobo.toString() } : {}),
+          },
+        } } : {}),
         actor: params.actor,
         lines,
       },
@@ -816,6 +899,20 @@ export class FixedAssetService {
     // feed-milling conversion cost 52700) with the line kept on the asset.
     const version = await chartVersionOf(client, companyId);
     const numberOf = (cycle: ProductionOrderCycle) => processingOverheadNumber(version, cycle);
+    if (version === 'APPROVED') {
+      const mapped: Partial<Record<ProductionOrderCycle, string>> = {};
+      for (const cycle of wanted) {
+        if (cycle === ProductionOrderCycle.FEED_MILL) {
+          throw new AccountingRuleViolation('Approved Account Map — feed-mill depreciation', 'The workbook does not map feed-mill depreciation to a conversion-cost account. Finance must approve the proposed account before this flow can post.', { companyId, cycle });
+        }
+        const prefix = cycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : 'PLP';
+        const application = cycle === ProductionOrderCycle.SNAILPRO ? 'YifrehSnail' : 'YifrehPoultry';
+        mapped[cycle] = (await resolveApprovedMappedAccount(client, {
+          companyId, application, postingGroup: `${prefix}-FA-EQUIP`, postingKey: 'DEPRECIATION_EXPENSE', on: new Date(),
+        })).glAccountId;
+      }
+      return mapped;
+    }
     const numbers = wanted.map(numberOf);
     const accounts = await client.gLAccount.findMany({
       where: { companyId, accountNumber: { in: numbers }, active: true },
@@ -842,15 +939,28 @@ export class FixedAssetService {
     companyId: string,
     tx: Prisma.TransactionClient,
     keys: K[],
+    on = new Date(),
   ): Promise<Record<K, string>> {
     // On the company's own chart (chart.ts).
     const version = await chartVersionOf(tx, companyId);
-    const numbers: Record<string, string> = {
-      ppe: numberFor(version, 'ppe'),
-      accumulatedDepreciation: numberFor(version, 'accumulatedDepreciation'),
-      depreciationExpense: numberFor(version, 'depreciationExpense'),
-      payables: numberFor(version, 'tradePayables'),
-    };
+    const numbers: Record<string, string> = version === 'APPROVED'
+      ? Object.fromEntries(await Promise.all(keys.map(async (key) => {
+          const map = key === 'ppe' ? ['COR-FA-EQUIP', 'FA_COST']
+            : key === 'accumulatedDepreciation' ? ['COR-FA-EQUIP', 'ACCUMULATED_DEPRECIATION']
+              : key === 'depreciationExpense' ? ['COR-FA-EQUIP', 'DEPRECIATION_EXPENSE']
+                : key === 'receivables' ? ['COR-CUST-LOCAL', 'AR_CONTROL']
+                : key === 'payables' ? ['COR-VEND-LOCAL', 'AP_CONTROL'] : null;
+          if (!map) throw new AccountingRuleViolation('Approved Account Map — fixed assets', `No approved map selector is configured for ${key}.`, { key });
+          const resolved = await resolveApprovedMappedAccount(tx, { companyId, application: 'YifrehCore', postingGroup: map[0]!, postingKey: map[1]!, on });
+          return [key, resolved.accountNumber];
+        })))
+      : {
+          ppe: numberFor(version, 'ppe'),
+          accumulatedDepreciation: numberFor(version, 'accumulatedDepreciation'),
+          depreciationExpense: numberFor(version, 'depreciationExpense'),
+          receivables: numberFor(version, 'receivables'),
+          payables: numberFor(version, 'tradePayables'),
+        };
 
     const wanted = keys.map((key) => numbers[key]!);
     const accounts = await tx.gLAccount.findMany({

@@ -132,11 +132,11 @@ export async function recordCustomerReceipt(
 
   const method = String(formData.get('method') ?? 'BANK_TRANSFER');
 
-  const invoiceIds = formData.getAll('invoiceId').map(String);
-  const allocations = invoiceIds
-    .map((invoiceId) => ({
-      invoiceId,
-      amountKobo: String(formData.get(`amount:${invoiceId}`) ?? '').trim(),
+  const targetIds = formData.getAll('allocationTargetId').map(String);
+  const allocations = targetIds
+    .map((targetId) => ({
+      ...(String(formData.get(`targetType:${targetId}`)) === 'JOURNAL_LINE' ? { journalLineId: targetId } : { invoiceId: targetId }),
+      amountKobo: String(formData.get(`amount:${targetId}`) ?? '').trim(),
     }))
     .filter((line) => line.amountKobo !== '' && Number(line.amountKobo) > 0);
 

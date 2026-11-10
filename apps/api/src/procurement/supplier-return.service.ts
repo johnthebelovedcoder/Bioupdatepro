@@ -20,6 +20,7 @@ import { nextReference, siteOf } from '../numbering/numbering';
 import { ProcurementConfigService } from './procurement-config.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
+import { chartVersionOf } from '../chart/chart';
 
 /** Who approves a return to a supplier. */
 export const RETURN_APPROVERS = ['FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO'];
@@ -230,7 +231,7 @@ export class SupplierReturnService {
         if (!period || period.status !== 'OPEN') {
           throw new AccountingRuleViolation(RULE, `No open period covers ${ret.returnDate.toISOString().slice(0, 10)}.`, {});
         }
-        const settings = await this.config.resolve(ret.companyId, ret.returnDate, tx);
+        const settings = await this.config.resolve(ret.companyId, ret.returnDate, tx, ret.supplierId);
         const dimensions = {
           companyId: ret.companyId,
           branchId: grn.branchId,
@@ -251,6 +252,9 @@ export class SupplierReturnService {
         const settle = new Map<string, bigint>();
         let stockValue = 0n;
         let debitNote = 0n;
+        let uninvoicedReturn = 0n;
+        let inputVatReversed = 0n;
+        const inputVatAccounts = new Set<string>();
 
         for (const line of ret.lines) {
           const grnLine = line.grnLine;
@@ -274,6 +278,7 @@ export class SupplierReturnService {
           if (fromUninvoiced.gt(0)) {
             const value = round(fromUninvoiced.mul(grnLine.unitPriceKobo.toString()));
             lineValue += value;
+            uninvoicedReturn += value;
             journal.push({ glAccountId: settings.grniGlAccountId, description: `Returned before invoicing — ${item.code} (${ret.returnNumber})`, debit: value });
           }
           if (fromInvoiced.gt(0)) {
@@ -308,6 +313,8 @@ export class SupplierReturnService {
             journal.push({ glAccountId: settings.payablesGlAccountId, description: `Debit note — ${item.code}, ${invoiceLine.invoice.invoiceNumber} (${ret.returnNumber})`, debit: gross });
             if (vat > 0n) {
               const inputVat = await this.tax.glAccountFor(ret.companyId, invoiceLine.taxCodeId!, VatDirection.INPUT, ret.returnDate, tx);
+              inputVatAccounts.add(inputVat);
+              inputVatReversed += vat;
               journal.push({ glAccountId: inputVat, description: `Input VAT reversed — ${invoiceLine.invoice.invoiceNumber} (${ret.returnNumber})`, credit: vat });
             }
           }
@@ -339,6 +346,38 @@ export class SupplierReturnService {
           });
         }
 
+        const approvedChart = await chartVersionOf(tx, ret.companyId) === 'APPROVED';
+        const approvedControl = approvedChart ? (() => {
+          const additionalApplicationRuleIds = [
+            ...(uninvoicedReturn > 0n && debitNote > 0n ? ['COR-YFR-003'] : []),
+            ...(inputVatReversed > 0n ? ['COR-YFR-011B'] : []),
+          ];
+          const inventoryAccountIds = [...new Set(journal.filter((line) => line.itemId && (line.credit ?? 0n) > 0n).map((line) => line.glAccountId))];
+          const expectedAccountSideAmountsKobo: Record<string, string> = {};
+          for (const line of journal) {
+            const side = (line.debit ?? 0n) > 0n ? 'Debit' : 'Credit';
+            const amount = side === 'Debit' ? line.debit ?? 0n : line.credit ?? 0n;
+            if (amount <= 0n) continue;
+            const key = `${side}:${line.glAccountId}`;
+            expectedAccountSideAmountsKobo[key] = (BigInt(expectedAccountSideAmountsKobo[key] ?? '0') + amount).toString();
+          }
+          return {
+            application: 'YifrehCore',
+            applicationRuleId: debitNote > 0n ? 'COR-YFR-008' : 'COR-YFR-003',
+            ...(additionalApplicationRuleIds.length ? { additionalApplicationRuleIds } : {}),
+            reversedApplicationRuleIds: [
+              ...(uninvoicedReturn > 0n ? ['COR-YFR-003'] : []),
+              ...(inputVatReversed > 0n ? ['COR-YFR-011B'] : []),
+            ],
+            dynamicAccountIds: {
+              ...(debitNote > 0n ? { 'COR-YFR-008:AP_CONTROL': [settings.payablesGlAccountId] } : {}),
+              ...(debitNote > 0n ? { 'COR-YFR-008:SOURCE_COST_REVERSAL': inventoryAccountIds } : {}),
+              ...(uninvoicedReturn > 0n ? { 'COR-YFR-003:INVENTORY_CONTROL': inventoryAccountIds } : {}),
+              ...(inputVatReversed > 0n ? { 'COR-YFR-011B:INPUT_VAT': [...inputVatAccounts] } : {}),
+            },
+            expectedAccountSideAmountsKobo,
+          };
+        })() : undefined;
         const result = await this.posting.post(
           {
             sourceModule: 'procurement',
@@ -349,6 +388,7 @@ export class SupplierReturnService {
             narration: `Return to ${grn.supplier.name} — ${ret.returnNumber} against ${grn.grnNumber}`,
             ...dimensions,
             idempotencyKey: `supplier-return:${ret.id}`,
+            ...(approvedControl ? { approvedControl } : {}),
             actor,
             lines: journal
               .filter((l) => (l.debit ?? 0n) > 0n || (l.credit ?? 0n) > 0n)

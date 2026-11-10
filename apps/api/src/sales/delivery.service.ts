@@ -22,6 +22,7 @@ import { RecipeService } from '../masters/recipe.service';
 import { SalesPricingService } from './sales-pricing.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
+import { chartVersionOf } from '../chart/chart';
 
 export interface DeliveryLineInput {
   salesOrderLineId: string;
@@ -354,7 +355,22 @@ export class DeliveryService {
     let journalEntryId: string | null;
 
     if (recogniseHere && delivery.totalCostKobo > 0n) {
-      const accountsFor = await saleAccountsByItem(params.tx, delivery.companyId, delivery.lines.map((l) => l.itemId), config);
+      const accountsFor = await saleAccountsByItem(params.tx, delivery.companyId, delivery.lines.map((l) => l.itemId), config, delivery.deliveryDate);
+      const groupedCost = groupByAccounts(
+        delivery.lines.filter((line) => line.costKobo > 0n).map((line) => {
+          const accounts = accountsFor(line.itemId);
+          return { debitAccount: accounts.costOfSales, creditAccount: accounts.inventory, amountKobo: line.costKobo };
+        }),
+      );
+      const expectedAccountSideAmountsKobo: Record<string, string> = {};
+      const addExpected = (side: 'Debit' | 'Credit', accountId: string, amount: bigint) => {
+        const key = `${side}:${accountId}`;
+        expectedAccountSideAmountsKobo[key] = (BigInt(expectedAccountSideAmountsKobo[key] ?? '0') + amount).toString();
+      };
+      for (const pair of groupedCost) {
+        addExpected('Debit', pair.debitAccount, pair.amountKobo);
+        addExpected('Credit', pair.creditAccount, pair.amountKobo);
+      }
       const result = await this.posting.post(
         {
           sourceModule: 'sales',
@@ -365,15 +381,19 @@ export class DeliveryService {
           narration: `Cost of sales on delivery ${delivery.deliveryNumber}`,
           ...dimensions,
           idempotencyKey: `delivery:${delivery.id}`,
+          ...(await chartVersionOf(params.tx, delivery.companyId)) === 'APPROVED' ? { approvedControl: {
+            application: 'YifrehCore',
+            applicationRuleId: 'COR-YFR-020A',
+            dynamicAccountIds: {
+              COGS: [...new Set(groupedCost.map((pair) => pair.debitAccount))],
+              FINISHED_GOODS_INVENTORY: [...new Set(groupedCost.map((pair) => pair.creditAccount))],
+            },
+            expectedAccountSideAmountsKobo,
+          } } : {},
           actor: params.actor,
           // Per item: its own cost-of-sales account, and the store account
           // its stock is actually held in (item-accounts.ts).
-          lines: groupByAccounts(
-            delivery.lines.filter((line) => line.costKobo > 0n).map((line) => {
-              const accounts = accountsFor(line.itemId);
-              return { debitAccount: accounts.costOfSales, creditAccount: accounts.inventory, amountKobo: line.costKobo };
-            }),
-          ).flatMap((pair) => [
+          lines: groupedCost.flatMap((pair) => [
             {
               glAccountId: pair.debitAccount,
               description: `Cost of sales — ${delivery.deliveryNumber}`,

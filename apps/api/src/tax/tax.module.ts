@@ -1,8 +1,11 @@
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, OnModuleInit } from '@nestjs/common';
 import { TaxEngineService } from './tax-engine.service';
 import { TaxSetupService } from './tax-setup.service';
 import { TaxRegisterService } from './tax-register.service';
 import { TaxPeriodService } from './tax-period.service';
+import { VatSettlementPostingHandler } from './vat-settlement.handler';
+import { WorkflowService } from '../workflow/workflow.service';
+import { VatRefundPostingHandler } from './vat-refund.handler';
 
 /**
  * Rule 5: ONE tax engine, available everywhere.
@@ -14,7 +17,14 @@ import { TaxPeriodService } from './tax-period.service';
  */
 @Global()
 @Module({
-  providers: [TaxEngineService, TaxRegisterService, TaxPeriodService, TaxSetupService],
+  providers: [TaxEngineService, TaxRegisterService, TaxPeriodService, TaxSetupService, VatSettlementPostingHandler, VatRefundPostingHandler],
   exports: [TaxEngineService, TaxRegisterService, TaxPeriodService, TaxSetupService],
 })
-export class TaxModule {}
+export class TaxModule implements OnModuleInit {
+  constructor(private readonly workflow: WorkflowService, private readonly settlementHandler: VatSettlementPostingHandler, private readonly refundHandler: VatRefundPostingHandler) {}
+
+  onModuleInit(): void {
+    this.workflow.register(this.settlementHandler);
+    this.workflow.register(this.refundHandler);
+  }
+}

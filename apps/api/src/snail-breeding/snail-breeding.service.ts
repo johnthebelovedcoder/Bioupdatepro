@@ -1,13 +1,16 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { AccountType, AuditAction } from '@bioassetpro/database';
+import { AccountType, AuditAction, Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { PostingService } from '../posting/posting.service';
 import { PostingControlService } from '../posting-control/posting-control.service';
+import { resolveApprovedLifecycleStageAccount } from '../posting-control/approved-account-map';
 import { kobo } from '../common/money';
 import { nextReference } from '../numbering/numbering';
 import type { WorkflowActor } from '../workflow/workflow.types';
+import { WorkflowService } from '../workflow/workflow.service';
+import { chartVersionOf } from '../chart/chart';
 
 const RULE = 'Snail breeding — every egg accounted for';
 
@@ -23,6 +26,7 @@ export class SnailBreedingService {
     private readonly audit: AuditService,
     private readonly posting: PostingService,
     private readonly postingControl: PostingControlService,
+    private readonly workflow: WorkflowService,
   ) {}
 
   async list(companyId: string) {
@@ -39,6 +43,11 @@ export class SnailBreedingService {
       select: { id: true, code: true },
     });
     const codeOf = new Map(groups.map((g) => [g.id, g.code]));
+    const pendingWorkflowIds = cycles.map((cycle) => cycle.workflowTransactionId).filter((id): id is string => id !== null);
+    const workflowStatuses = pendingWorkflowIds.length
+      ? await this.prisma.workflowTransaction.findMany({ where: { id: { in: pendingWorkflowIds } }, select: { id: true, status: true } })
+      : [];
+    const workflowStatusOf = new Map(workflowStatuses.map((row) => [row.id, row.status]));
 
     return cycles.map((cycle) => ({
       id: cycle.id,
@@ -52,7 +61,9 @@ export class SnailBreedingService {
       eggValuePerUnitKobo: cycle.eggValuePerUnitKobo.toString(),
       eggValueEvidence: cycle.eggValueEvidence,
       eggFairValueUnreliableReason: cycle.eggFairValueUnreliableReason,
-      status: cycle.status,
+      status: cycle.workflowTransactionId && !cycle.eggGroupId && workflowStatusOf.get(cycle.workflowTransactionId) !== 'POSTED'
+        ? 'APPROVAL_PENDING'
+        : cycle.status,
       hatchedOn: cycle.hatchedOn?.toISOString().slice(0, 10) ?? null,
       hatchedCount: cycle.hatchedCount,
       unhatchedCount: cycle.unhatchedCount,
@@ -131,10 +142,10 @@ export class SnailBreedingService {
     }
     const context = await this.postingContext(params.companyId, day(params.setOn));
     if (!context) throw new AccountingRuleViolation('Snail egg recognition', 'An open period, posting cost centre and NGN company setup are required to recognize viable eggs.', {});
-    const asset = await this.postingControl.resolveApprovedAccount({ companyId: params.companyId, application: 'YifrehSnail', postingGroup: 'SNP-BA-IMM', postingKey: 'BA_CONTROL', on: day(params.setOn) });
+    const asset = await resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Egg', postingKey: 'BA_SOURCE_STAGE_CONTROL', on: day(params.setOn) });
     let creditAccountId: string;
     if (params.valueBasis === 'FVLCTS') {
-      creditAccountId = (await this.postingControl.resolveApprovedAccount({ companyId: params.companyId, application: 'YifrehSnail', postingGroup: 'SNP-BA-IMM', postingKey: 'BA_FAIR_VALUE_GAIN', on: day(params.setOn) })).glAccountId;
+      creditAccountId = (await resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Egg', postingKey: 'BA_FAIR_VALUE_GAIN', on: day(params.setOn) })).glAccountId;
     } else {
       if (!params.costSourceAccountId) throw new BadRequestException('Choose the expense account carrying the attributable egg cost.');
       const source = await this.prisma.gLAccount.findFirst({ where: { id: params.costSourceAccountId, companyId: params.companyId, accountType: AccountType.EXPENSE, isPostingAccount: true, active: true } });
@@ -148,8 +159,9 @@ export class SnailBreedingService {
     const clashEgg = await this.prisma.livestockGroup.findFirst({ where: { companyId: params.companyId, code: eggGroupCode } });
     if (clashEgg) throw new BadRequestException(`A population called ${eggGroupCode} already exists.`);
     const totalValue = BigInt(eggsLaid) * params.valuePerEggKobo;
+    const approvedChart = await chartVersionOf(this.prisma, params.companyId) === 'APPROVED';
     return this.prisma.$transaction(async (tx) => {
-      const eggGroup = await tx.livestockGroup.create({ data: {
+      const eggGroup = approvedChart ? null : await tx.livestockGroup.create({ data: {
         companyId: params.companyId, branchId: group.branchId, farmId: group.farmId, penHouseId: group.penHouseId,
         code: eggGroupCode, speciesKey: 'snail', breed: group.breed, purpose: 'Breeding eggs', stage: 'Egg',
         openingPopulation: eggsLaid, population: eggsLaid, startedOn: day(params.setOn), source: `Laid by ${group.code} / ${code}`,
@@ -162,11 +174,32 @@ export class SnailBreedingService {
         fairValueReliabilityEvidence: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.valueEvidence.trim() : null,
       } });
       const cycle = await tx.snailBreedingCycle.create({ data: {
-        companyId: params.companyId, code, breederGroupId: group.id, eggGroupId: eggGroup.id, setOn: day(params.setOn),
+        companyId: params.companyId, code, breederGroupId: group.id, eggGroupId: eggGroup?.id ?? null, setOn: day(params.setOn),
         breeders, eggsLaid, eggValueBasis: params.valueBasis, eggValuePerUnitKobo: params.valuePerEggKobo,
         eggValueEvidence: params.valueEvidence.trim(), notes: params.notes?.trim() || null, recordedById: params.actor.userId,
         eggFairValueUnreliableReason: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.fairValueUnreliableReason!.trim() : null,
+        costSourceAccountId: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.costSourceAccountId! : null,
       } });
+      if (approvedChart) {
+        const submitted = await this.workflow.submit({
+          companyId: params.companyId,
+          transactionType: 'SNAIL_EGG_RECOGNITION',
+          module: 'snail-breeding',
+          documentType: 'SnailBreedingCycle',
+          documentId: cycle.id,
+          documentReference: code,
+          amount: kobo(totalValue),
+          currencyId: context.company.baseCurrencyId,
+          branchId: group.branchId,
+          farmId: group.farmId,
+          costCentreId: context.costCentre.id,
+          postingPayload: { cycleId: cycle.id },
+          actor: params.actor,
+        }, tx);
+        await tx.snailBreedingCycle.update({ where: { id: cycle.id }, data: { workflowTransactionId: submitted.transactionId } });
+        await this.audit.write({ transactionId: cycle.id, module: 'BIOLOGICAL_ASSETS', entityType: 'SnailBreedingCycle', entityId: cycle.id, status: 'SUBMITTED', action: AuditAction.SUBMIT, userId: params.actor.userId, comments: `${code}: ${eggsLaid} viable eggs await approval before recognition.`, metadata: { workflowTransactionId: submitted.transactionId, valueBasis: params.valueBasis, valuePerEggKobo: params.valuePerEggKobo.toString(), valueEvidence: params.valueEvidence } }, tx);
+        return { id: cycle.id, code, eggGroupId: null, workflowTransactionId: submitted.transactionId, journalEntryId: null };
+      }
       const dimensions = this.dimensions(group, context);
       const journalNumber = await nextReference(tx, { companyId: params.companyId, type: 'JV', site: 'GL', date: day(params.setOn) });
       const result = await this.posting.post({
@@ -174,6 +207,7 @@ export class SnailBreedingService {
         journalNumber,
         journalDate: day(params.setOn), narration: `Recognize ${eggsLaid} viable snail eggs — ${code} at ${params.valueBasis}`,
         ...dimensions,
+        ...(params.valueBasis === 'FVLCTS' ? { approvedControl: { application: 'YifrehSnail', applicationRuleId: 'SNP-YFR-031', dynamicAccountIds: { 'SNP-YFR-031:BA_SOURCE_STAGE_CONTROL': [asset.glAccountId], 'SNP-YFR-031:BA_FAIR_VALUE_GAIN': [creditAccountId] }, expectedLineAmountsKobo: { 'SNP-YFR-031:1': totalValue.toString(), 'SNP-YFR-031:2': totalValue.toString() } } } : {}),
         idempotencyKey: `snail-egg-recognition:${cycle.id}`,
         actor: params.actor,
         lines: [
@@ -181,9 +215,67 @@ export class SnailBreedingService {
           { glAccountId: creditAccountId, description: `${eggGroupCode} — ${params.valueBasis} recognition`, credit: kobo(totalValue), dimensions },
         ],
       }, tx);
-      await this.audit.write({ transactionId: cycle.id, module: 'BIOLOGICAL_ASSETS', entityType: 'SnailBreedingCycle', entityId: cycle.id, status: 'SET', action: AuditAction.POST, userId: params.actor.userId, comments: `${code}: ${eggsLaid} valued eggs from ${breeders} breeders of ${group.code}.`, metadata: { eggGroupId: eggGroup.id, valueBasis: params.valueBasis, valuePerEggKobo: params.valuePerEggKobo.toString(), valueEvidence: params.valueEvidence, fairValueUnreliableReason: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.fairValueUnreliableReason!.trim() : null, journalEntryId: result.journalEntryId } }, tx);
-      return { id: cycle.id, code, eggGroupId: eggGroup.id, journalEntryId: result.journalEntryId };
+      await this.audit.write({ transactionId: cycle.id, module: 'BIOLOGICAL_ASSETS', entityType: 'SnailBreedingCycle', entityId: cycle.id, status: 'SET', action: AuditAction.POST, userId: params.actor.userId, comments: `${code}: ${eggsLaid} valued eggs from ${breeders} breeders of ${group.code}.`, metadata: { eggGroupId: eggGroup!.id, valueBasis: params.valueBasis, valuePerEggKobo: params.valuePerEggKobo.toString(), valueEvidence: params.valueEvidence, fairValueUnreliableReason: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.fairValueUnreliableReason!.trim() : null, journalEntryId: result.journalEntryId } }, tx);
+      return { id: cycle.id, code, eggGroupId: eggGroup!.id, journalEntryId: result.journalEntryId };
     }, { timeout: 20_000 });
+  }
+
+  /** Called only by the maker-checker handler after initial egg recognition is approved. */
+  async postApprovedEggRecognition(params: { cycleId: string; workflowTransactionId: string; actor: WorkflowActor; tx: Prisma.TransactionClient }) {
+    const cycle = await params.tx.snailBreedingCycle.findUniqueOrThrow({ where: { id: params.cycleId } });
+    if (cycle.workflowTransactionId !== params.workflowTransactionId || cycle.eggGroupId || cycle.status !== 'SET') {
+      throw new AccountingRuleViolation('Approved workbook SNP-YFR-031 — source status', 'This egg cycle is not the pending source document for the approval being completed.', { cycleId: cycle.id, workflowTransactionId: params.workflowTransactionId });
+    }
+    const breeder = await params.tx.livestockGroup.findFirstOrThrow({ where: { id: cycle.breederGroupId, companyId: cycle.companyId } });
+    const context = await this.postingContext(cycle.companyId, cycle.setOn);
+    if (!context) throw new AccountingRuleViolation('Snail egg recognition', 'The recognition date must remain in an open period with an active posting cost centre until approval is completed.', { cycleId: cycle.id });
+    const asset = await resolveApprovedLifecycleStageAccount(params.tx, { companyId: cycle.companyId, speciesKey: 'snail', stageName: 'Egg', postingKey: 'BA_SOURCE_STAGE_CONTROL', on: cycle.setOn });
+    let creditAccountId: string;
+    if (cycle.eggValueBasis === 'FVLCTS') {
+      creditAccountId = (await resolveApprovedLifecycleStageAccount(params.tx, { companyId: cycle.companyId, speciesKey: 'snail', stageName: 'Egg', postingKey: 'BA_FAIR_VALUE_GAIN', on: cycle.setOn })).glAccountId;
+    } else {
+      const source = cycle.costSourceAccountId
+        ? await params.tx.gLAccount.findFirst({ where: { id: cycle.costSourceAccountId, companyId: cycle.companyId, active: true, isPostingAccount: true }, select: { id: true } })
+        : null;
+      if (!source) throw new AccountingRuleViolation('SNP-APP-EGG-COST-001 — attributable-cost source', 'The approved attributable-cost event is missing its active source expense account.', { cycleId: cycle.id });
+      creditAccountId = source.id;
+    }
+    const eggGroupCode = `${cycle.code}-EGG`;
+    const existing = await params.tx.livestockGroup.findFirst({ where: { companyId: cycle.companyId, code: eggGroupCode } });
+    if (existing) throw new AccountingRuleViolation('Snail egg recognition — duplicate cohort', `${eggGroupCode} already exists; reconcile it before completing approval.`, { eggGroupId: existing.id });
+    const totalValue = BigInt(cycle.eggsLaid) * cycle.eggValuePerUnitKobo;
+    const eggGroup = await params.tx.livestockGroup.create({ data: {
+      companyId: cycle.companyId, branchId: breeder.branchId, farmId: breeder.farmId, penHouseId: breeder.penHouseId,
+      code: eggGroupCode, speciesKey: 'snail', breed: breeder.breed, purpose: 'Breeding eggs', stage: 'Egg',
+      openingPopulation: cycle.eggsLaid, population: cycle.eggsLaid, startedOn: cycle.setOn, source: `Laid by ${breeder.code} / ${cycle.code}`,
+      originType: 'PRODUCED', originEvidence: `BREEDING_CYCLE:${cycle.code};PARENT_GROUP:${breeder.id}`, originParentGroupId: breeder.id,
+      acquisitionCostKobo: cycle.eggValueBasis === 'ATTRIBUTABLE_COST' ? totalValue : 0n, currentFvlctsPerUnitKobo: cycle.eggValuePerUnitKobo,
+      measurementBasis: cycle.eggValueBasis,
+    } });
+    const dimensions = this.dimensions(breeder, context);
+    const journalNumber = await nextReference(params.tx, { companyId: cycle.companyId, type: 'JV', site: 'GL', date: cycle.setOn });
+    const result = await this.posting.post({
+      sourceModule: 'BIOLOGICAL_ASSETS', sourceDocumentType: 'SNAIL_EGG_CYCLE', sourceDocumentId: cycle.id,
+      journalNumber, journalDate: cycle.setOn, narration: `Recognize ${cycle.eggsLaid} viable snail eggs — ${cycle.code} at ${cycle.eggValueBasis}`,
+      ...dimensions,
+      approvedControl: {
+        application: 'YifrehSnail', applicationRuleId: cycle.eggValueBasis === 'FVLCTS' ? 'SNP-YFR-031' : 'SNP-APP-EGG-COST-001',
+        dynamicAccountIds: cycle.eggValueBasis === 'FVLCTS'
+          ? { 'SNP-YFR-031:BA_SOURCE_STAGE_CONTROL': [asset.glAccountId], 'SNP-YFR-031:BA_FAIR_VALUE_GAIN': [creditAccountId] }
+          : { 'SNP-APP-EGG-COST-001:BA_SOURCE_STAGE_CONTROL': [asset.glAccountId], 'SNP-APP-EGG-COST-001:SOURCE_COST_REVERSAL': [creditAccountId] },
+        expectedLineAmountsKobo: cycle.eggValueBasis === 'FVLCTS'
+          ? { 'SNP-YFR-031:1': totalValue.toString(), 'SNP-YFR-031:2': totalValue.toString() }
+          : { 'SNP-APP-EGG-COST-001:1': totalValue.toString(), 'SNP-APP-EGG-COST-001:2': totalValue.toString() },
+      },
+      idempotencyKey: `snail-egg-recognition:${cycle.id}`, actor: params.actor,
+      lines: [
+        { glAccountId: asset.glAccountId, description: `${eggGroupCode} — viable egg biological asset`, debit: kobo(totalValue), dimensions },
+        { glAccountId: creditAccountId, description: `${eggGroupCode} — ${cycle.eggValueBasis} recognition`, credit: kobo(totalValue), dimensions },
+      ],
+    }, params.tx);
+    await params.tx.snailBreedingCycle.update({ where: { id: cycle.id }, data: { eggGroupId: eggGroup.id } });
+    await this.audit.write({ transactionId: cycle.id, module: 'BIOLOGICAL_ASSETS', entityType: 'SnailBreedingCycle', entityId: cycle.id, status: 'SET', action: AuditAction.POST, userId: params.actor.userId, comments: `${cycle.code}: ${cycle.eggsLaid} viable eggs recognized after approval.`, metadata: { workflowTransactionId: params.workflowTransactionId, eggGroupId: eggGroup.id, valueBasis: cycle.eggValueBasis, valuePerEggKobo: cycle.eggValuePerUnitKobo.toString(), valueEvidence: cycle.eggValueEvidence, journalEntryId: result.journalEntryId } }, params.tx);
+    return { journalEntryId: result.journalEntryId };
   }
 
   /**
@@ -227,9 +319,9 @@ export class SnailBreedingService {
     if (abnormal && !params.actor.roles.some((role) => ['FINANCE_CONTROLLER', 'CFO'].includes(role))) {
       throw new AccountingRuleViolation('IAS 41 — Abnormal egg mortality', `${unhatched} of ${cycle.eggsLaid} eggs failed (${((unhatched / cycle.eggsLaid) * 100).toFixed(1)}%), above the ${threshold}% threshold. A Finance Controller or CFO must record this abnormal loss.`, { thresholdPercent: threshold });
     }
-    const asset = await this.postingControl.resolveApprovedAccount({ companyId: params.companyId, application: 'YifrehSnail', postingGroup: 'SNP-BA-IMM', postingKey: 'BA_CONTROL', on: hatchDate });
+    const asset = await resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Egg', postingKey: 'BA_SOURCE_STAGE_CONTROL', on: hatchDate });
     const loss = unhatched > 0
-      ? await this.postingControl.resolveApprovedAccount({ companyId: params.companyId, application: 'YifrehSnail', postingGroup: 'SNP-BA-IMM', postingKey: abnormal ? 'ABNORMAL_MORTALITY_LOSS' : 'NORMAL_MORTALITY_LOSS', on: hatchDate })
+      ? await resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Egg', postingKey: abnormal ? 'ABNORMAL_MORTALITY_LOSS' : 'NORMAL_MORTALITY_LOSS', on: hatchDate })
       : null;
     const eggGroup = await this.prisma.livestockGroup.findFirst({ where: { id: cycle.eggGroupId, companyId: params.companyId } });
     if (!eggGroup || eggGroup.stage !== 'Egg' || eggGroup.population !== cycle.eggsLaid) throw new AccountingRuleViolation('Snail egg biological asset', `${cycle.code}'s egg cohort does not reconcile to the recorded viable-egg count.`, {});
@@ -276,18 +368,34 @@ export class SnailBreedingService {
 
       await tx.livestockGroup.update({ where: { id: eggGroup.id }, data: { population: 0, status: 'CLOSED', closedOn: hatchDate } });
       let journalEntryId: string | null = null;
-      if (unhatched > 0 && loss) {
+      if (hatched > 0 || (unhatched > 0 && loss)) {
         const dimensions = this.dimensions(eggGroup, context);
         const journalNumber = await nextReference(tx, { companyId: params.companyId, type: 'JV', site: 'GL', date: hatchDate });
+        const destination = hatchedValue > 0n
+          ? await resolveApprovedLifecycleStageAccount(tx, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Hatchling', postingKey: 'BA_DESTINATION_STAGE_CONTROL', on: hatchDate })
+          : null;
         const lines = [
-          ...(hatchedValue > 0n ? [{ glAccountId: asset.glAccountId, description: `${cycle.code} — eggs transferred to hatchling stage`, debit: kobo(hatchedValue), dimensions }] : []),
-          { glAccountId: loss.glAccountId, description: `${cycle.code} — ${abnormal ? 'abnormal' : 'normal'} unhatched-egg loss`, debit: kobo(unhatchedValue), dimensions },
+          ...(hatchedValue > 0n && destination ? [{ glAccountId: destination.glAccountId, description: `${cycle.code} — eggs transferred to hatchling stage`, debit: kobo(hatchedValue), dimensions }] : []),
+          ...(unhatchedValue > 0n && loss ? [{ glAccountId: loss.glAccountId, description: `${cycle.code} — ${abnormal ? 'abnormal' : 'normal'} unhatched-egg loss`, debit: kobo(unhatchedValue), dimensions }] : []),
           { glAccountId: asset.glAccountId, description: `${cycle.code} — egg-stage carrying value relieved`, credit: kobo(totalValue), dimensions },
         ];
         const posted = await this.posting.post({
           sourceModule: 'BIOLOGICAL_ASSETS', sourceDocumentType: 'SNAIL_EGG_HATCH', sourceDocumentId: cycle.id,
           journalNumber,
           journalDate: hatchDate, narration: `${cycle.code}: ${hatched} hatched, ${unhatched} eggs lost`, ...dimensions,
+          approvedControl: {
+            application: 'YifrehSnail',
+            applicationRuleId: hatchedValue > 0n ? 'SNP-YFR-032' : abnormal ? 'SNP-YFR-036' : 'SNP-YFR-035',
+            additionalApplicationRuleIds: hatchedValue > 0n && unhatchedValue > 0n ? [abnormal ? 'SNP-YFR-036' : 'SNP-YFR-035'] : [],
+            dynamicAccountIds: {
+              ...(hatchedValue > 0n && destination ? { 'SNP-YFR-032:BA_DESTINATION_STAGE_CONTROL': [destination.glAccountId], 'SNP-YFR-032:BA_SOURCE_STAGE_CONTROL': [asset.glAccountId] } : {}),
+              ...(unhatchedValue > 0n && loss ? { [`SNP-YFR-${abnormal ? '036' : '035'}:${abnormal ? 'ABNORMAL_MORTALITY_LOSS' : 'NORMAL_MORTALITY_LOSS'}`]: [loss.glAccountId], [`SNP-YFR-${abnormal ? '036' : '035'}:BA_CONTROL`]: [asset.glAccountId] } : {}),
+            },
+            expectedLineAmountsKobo: {
+              ...(hatchedValue > 0n ? { 'SNP-YFR-032:1': hatchedValue.toString(), 'SNP-YFR-032:2': hatchedValue.toString() } : {}),
+              ...(unhatchedValue > 0n ? { [`SNP-YFR-${abnormal ? '036' : '035'}:1`]: unhatchedValue.toString(), [`SNP-YFR-${abnormal ? '036' : '035'}:2`]: unhatchedValue.toString() } : {}),
+            },
+          },
           idempotencyKey: `snail-egg-hatch:${cycle.id}`, actor: params.actor, lines,
         }, tx);
         journalEntryId = posted.journalEntryId;
@@ -340,15 +448,19 @@ export class SnailBreedingService {
     const cycle = await this.prisma.snailBreedingCycle.findFirst({ where: { id: params.cycleId, companyId: params.companyId } });
     if (!cycle || cycle.status !== 'SET') throw new BadRequestException('Only an open legacy egg cycle can be valued.');
     if (cycle.eggGroupId || cycle.eggValuePerUnitKobo > 0n) throw new BadRequestException('This egg cycle already has a valuation or cohort.');
+    const approvedChart = await chartVersionOf(this.prisma, params.companyId) === 'APPROVED';
+    if (approvedChart && params.valueBasis !== 'FVLCTS') {
+      throw new AccountingRuleViolation('Approved workbook SNP-YFR-031 — egg recognition basis', 'The approved workbook event maps initial egg recognition to the fair-value gain account. Attributable-cost capitalization has no approved event mapping.', { valueBasis: params.valueBasis });
+    }
     const on = new Date();
     const context = await this.postingContext(params.companyId, on);
     if (!context) throw new AccountingRuleViolation('Snail egg valuation', 'An open period, posting cost centre and NGN company setup are required.', {});
     const breeder = await this.prisma.livestockGroup.findFirst({ where: { id: cycle.breederGroupId, companyId: params.companyId } });
     if (!breeder) throw new BadRequestException('The original breeder cohort is missing.');
-    const asset = await this.postingControl.resolveApprovedAccount({ companyId: params.companyId, application: 'YifrehSnail', postingGroup: 'SNP-BA-IMM', postingKey: 'BA_CONTROL', on });
+    const asset = await resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Egg', postingKey: 'BA_SOURCE_STAGE_CONTROL', on });
     let creditAccountId: string;
     if (params.valueBasis === 'FVLCTS') {
-      creditAccountId = (await this.postingControl.resolveApprovedAccount({ companyId: params.companyId, application: 'YifrehSnail', postingGroup: 'SNP-BA-IMM', postingKey: 'BA_FAIR_VALUE_GAIN', on })).glAccountId;
+      creditAccountId = (await resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Egg', postingKey: 'BA_FAIR_VALUE_GAIN', on })).glAccountId;
     } else {
       if (!params.costSourceAccountId) throw new BadRequestException('Choose the expense account supporting attributable cost.');
       const source = await this.prisma.gLAccount.findFirst({ where: { id: params.costSourceAccountId, companyId: params.companyId, accountType: AccountType.EXPENSE, isPostingAccount: true, active: true } });
@@ -362,7 +474,7 @@ export class SnailBreedingService {
       const code = `${cycle.code}-EGG`;
       const duplicate = await tx.livestockGroup.findFirst({ where: { companyId: params.companyId, code } });
       if (duplicate) throw new BadRequestException(`Cohort ${code} already exists; reconcile it before valuing this cycle.`);
-      const egg = await tx.livestockGroup.create({ data: {
+      const egg = approvedChart ? null : await tx.livestockGroup.create({ data: {
         companyId: params.companyId, branchId: breeder.branchId, farmId: breeder.farmId, penHouseId: breeder.penHouseId,
         code, speciesKey: 'snail', breed: breeder.breed, purpose: 'Legacy viable eggs', stage: 'Egg',
         openingPopulation: cycle.eggsLaid, population: cycle.eggsLaid, startedOn: on, source: `Legacy cycle ${cycle.code}; valued ${on.toISOString().slice(0, 10)}`,
@@ -374,20 +486,27 @@ export class SnailBreedingService {
         fairValueReliabilityReviewedOn: params.valueBasis === 'ATTRIBUTABLE_COST' ? on : null,
         fairValueReliabilityEvidence: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.valueEvidence.trim() : null,
       } });
-      await tx.snailBreedingCycle.update({ where: { id: cycle.id }, data: { eggGroupId: egg.id, eggValueBasis: params.valueBasis, eggValuePerUnitKobo: params.valuePerEggKobo, eggValueEvidence: params.valueEvidence.trim(), eggFairValueUnreliableReason: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.fairValueUnreliableReason!.trim() : null } });
-      const dimensions = this.dimensions(egg, context);
+      await tx.snailBreedingCycle.update({ where: { id: cycle.id }, data: { eggGroupId: egg?.id ?? null, eggValueBasis: params.valueBasis, eggValuePerUnitKobo: params.valuePerEggKobo, eggValueEvidence: params.valueEvidence.trim(), eggFairValueUnreliableReason: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.fairValueUnreliableReason!.trim() : null } });
+      if (approvedChart) {
+        const submitted = await this.workflow.submit({ companyId: params.companyId, transactionType: 'SNAIL_EGG_RECOGNITION', module: 'snail-breeding', documentType: 'SnailBreedingCycle', documentId: cycle.id, documentReference: cycle.code, amount: kobo(total), currencyId: context.company.baseCurrencyId, branchId: breeder.branchId, farmId: breeder.farmId, costCentreId: context.costCentre.id, postingPayload: { cycleId: cycle.id }, actor: params.actor }, tx);
+        await tx.snailBreedingCycle.update({ where: { id: cycle.id }, data: { workflowTransactionId: submitted.transactionId } });
+        await this.audit.write({ transactionId: cycle.id, module: 'BIOLOGICAL_ASSETS', entityType: 'SnailBreedingCycle', entityId: cycle.id, status: 'SUBMITTED', action: AuditAction.SUBMIT, userId: params.actor.userId, comments: `${cycle.code}: legacy egg valuation submitted for approval.`, metadata: { workflowTransactionId: submitted.transactionId, valueBasis: params.valueBasis, valueEvidence: params.valueEvidence } }, tx);
+        return { eggGroupId: null, workflowTransactionId: submitted.transactionId, journalEntryId: null };
+      }
+      const dimensions = this.dimensions(egg!, context);
       const journalNumber = await nextReference(tx, { companyId: params.companyId, type: 'JV', site: 'GL', date: on });
       const posted = await this.posting.post({
         sourceModule: 'BIOLOGICAL_ASSETS', sourceDocumentType: 'SNAIL_EGG_LEGACY_VALUATION', sourceDocumentId: cycle.id,
         journalNumber, journalDate: on, narration: `Recognize legacy viable snail eggs — ${cycle.code} at ${params.valueBasis}`,
+        ...(params.valueBasis === 'FVLCTS' ? { approvedControl: { application: 'YifrehSnail', applicationRuleId: 'SNP-YFR-031', dynamicAccountIds: { 'SNP-YFR-031:BA_SOURCE_STAGE_CONTROL': [asset.glAccountId], 'SNP-YFR-031:BA_FAIR_VALUE_GAIN': [creditAccountId] }, expectedLineAmountsKobo: { 'SNP-YFR-031:1': total.toString(), 'SNP-YFR-031:2': total.toString() } } } : {}),
         ...dimensions, idempotencyKey: `snail-egg-legacy-valuation:${cycle.id}`, actor: params.actor,
         lines: [
           { glAccountId: asset.glAccountId, description: `${code} — legacy viable egg biological asset`, debit: kobo(total), dimensions },
           { glAccountId: creditAccountId, description: `${code} — ${params.valueBasis} recognition`, credit: kobo(total), dimensions },
         ],
       }, tx);
-      await this.audit.write({ transactionId: cycle.id, module: 'BIOLOGICAL_ASSETS', entityType: 'SnailBreedingCycle', entityId: cycle.id, status: 'VALUED', action: AuditAction.POST, userId: params.actor.userId, comments: `${cycle.code}: legacy egg cohort valued at ${total} kobo using ${params.valueBasis}.`, metadata: { eggGroupId: egg.id, valueEvidence: params.valueEvidence, fairValueUnreliableReason: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.fairValueUnreliableReason!.trim() : null, journalEntryId: posted.journalEntryId } }, tx);
-      return { eggGroupId: egg.id, journalEntryId: posted.journalEntryId };
+      await this.audit.write({ transactionId: cycle.id, module: 'BIOLOGICAL_ASSETS', entityType: 'SnailBreedingCycle', entityId: cycle.id, status: 'VALUED', action: AuditAction.POST, userId: params.actor.userId, comments: `${cycle.code}: legacy egg cohort valued at ${total} kobo using ${params.valueBasis}.`, metadata: { eggGroupId: egg!.id, valueEvidence: params.valueEvidence, fairValueUnreliableReason: params.valueBasis === 'ATTRIBUTABLE_COST' ? params.fairValueUnreliableReason!.trim() : null, journalEntryId: posted.journalEntryId } }, tx);
+      return { eggGroupId: egg!.id, journalEntryId: posted.journalEntryId };
     }, { timeout: 20_000 });
   }
 
@@ -408,8 +527,8 @@ export class SnailBreedingService {
     const context = await this.postingContext(params.companyId, failedOn);
     if (!context) throw new AccountingRuleViolation('IAS 41 — Abnormal egg mortality', 'An open period is required to post this loss.', {});
     const [asset, loss, eggGroup] = await Promise.all([
-      this.postingControl.resolveApprovedAccount({ companyId: params.companyId, application: 'YifrehSnail', postingGroup: 'SNP-BA-IMM', postingKey: 'BA_CONTROL', on: failedOn }),
-      this.postingControl.resolveApprovedAccount({ companyId: params.companyId, application: 'YifrehSnail', postingGroup: 'SNP-BA-IMM', postingKey: 'ABNORMAL_MORTALITY_LOSS', on: failedOn }),
+      resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Egg', on: failedOn }),
+      resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Egg', postingKey: 'ABNORMAL_MORTALITY_LOSS', on: failedOn }),
       this.prisma.livestockGroup.findFirst({ where: { id: cycle.eggGroupId, companyId: params.companyId } }),
     ]);
     if (!eggGroup || eggGroup.population !== cycle.eggsLaid) throw new AccountingRuleViolation('Snail egg biological asset', `${cycle.code}'s egg cohort does not reconcile before write-off.`, {});
@@ -421,6 +540,7 @@ export class SnailBreedingService {
         sourceModule: 'BIOLOGICAL_ASSETS', sourceDocumentType: 'SNAIL_EGG_FAILURE', sourceDocumentId: cycle.id,
         journalNumber,
         journalDate: failedOn, narration: `${cycle.code}: abnormal loss of ${cycle.eggsLaid} viable snail eggs — ${reason}`,
+        approvedControl: { application: 'YifrehSnail', applicationRuleId: 'SNP-YFR-036', dynamicAccountIds: { 'SNP-YFR-036:ABNORMAL_MORTALITY_LOSS': [loss.glAccountId], 'SNP-YFR-036:BA_CONTROL': [asset.glAccountId] }, expectedLineAmountsKobo: { 'SNP-YFR-036:1': totalValue.toString(), 'SNP-YFR-036:2': totalValue.toString() } },
         ...dimensions, idempotencyKey: `snail-egg-failure:${cycle.id}`, actor: params.actor,
         lines: [
           { glAccountId: loss.glAccountId, description: `${cycle.code} — abnormal egg mortality`, debit: kobo(totalValue), dimensions },

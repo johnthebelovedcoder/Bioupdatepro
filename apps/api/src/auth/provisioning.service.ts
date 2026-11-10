@@ -269,6 +269,7 @@ export const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boole
   { type: 'MATERIAL_ISSUE', name: 'Material Issue', autoPost: false },
 
   { type: 'BA_VALUATION', name: 'Biological Asset Valuation', autoPost: true },
+  { type: 'SNAIL_EGG_RECOGNITION', name: 'Snail egg recognition', autoPost: true },
   { type: 'BIOLOGICAL_ASSET_ABNORMAL_MORTALITY', name: 'Biological Asset — abnormal mortality claim', autoPost: true },
 
   { type: 'FIXED_ASSET_CAPITALISATION', name: 'Fixed Asset Capitalisation', autoPost: true },

@@ -39,6 +39,9 @@ export interface PostingRequest {
   /** Rule 6. Required. */
   idempotencyKey: string;
 
+  /** Optional binding to the approved workbook's app-specific event contract. */
+  approvedControl?: { application: string; applicationRuleId: string; additionalApplicationRuleIds?: string[]; reversedApplicationRuleIds?: string[]; additionalMappedAccountSidePairs?: string[]; dynamicAccountIds?: Record<string, string[]>; dynamicMappingApplications?: string[]; expectedLineAmountsKobo?: Record<string, string>; expectedAccountSideAmountsKobo?: Record<string, string> };
+
   actor: {
     userId: string;
     roles: string[];

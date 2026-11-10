@@ -24,6 +24,7 @@ import { RecipeService } from '../masters/recipe.service';
 import { SalesPricingService, PricedLineInput } from './sales-pricing.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
+import { chartVersionOf } from '../chart/chart';
 
 export interface ReturnLineInput {
   itemId: string;
@@ -314,6 +315,7 @@ export class CreditNoteService {
       creditNote.companyId,
       creditNote.creditNoteDate,
       params.tx,
+      creditNote.customerId,
     );
 
     const dimensions = {
@@ -324,7 +326,11 @@ export class CreditNoteService {
       currencyId: creditNote.currencyId,
       exchangeRate: '1.00000000',
     };
-    const lineDimensions = { ...dimensions, customerId: creditNote.customerId };
+    const lineDimensions = {
+      ...dimensions,
+      customerId: creditNote.customerId,
+      costCentreId: creditNote.invoice?.costCentreId ?? creditNote.customer.defaultCostCentreId,
+    };
 
     // §6: Dr Revenue, Dr Output VAT, Cr Trade Receivable — the mirror of the
     // invoice that created the receivable.
@@ -342,6 +348,7 @@ export class CreditNoteService {
       creditNote.companyId,
       [...creditNote.lines.map((l) => l.itemId), ...(creditNote.salesReturn?.lines ?? []).map((l) => l.itemId)],
       config,
+      creditNote.creditNoteDate,
     );
     for (const line of creditNote.lines) {
       lines.push({
@@ -352,6 +359,7 @@ export class CreditNoteService {
       });
     }
 
+    let outputVatAccountId: string | null = null;
     if (creditNote.vatAmountKobo > 0n) {
       const outputAccount = await this.tax.glAccountFor(
         creditNote.companyId,
@@ -365,6 +373,7 @@ export class CreditNoteService {
         description: `Output VAT credited — ${creditNote.creditNoteNumber}`,
         debit: creditNote.vatAmountKobo,
       });
+      outputVatAccountId = outputAccount;
     }
 
     lines.push({
@@ -376,16 +385,18 @@ export class CreditNoteService {
     // §6 Sales Return: Dr Inventory, Cr Cost of Sales — only for goods that
     // are actually resaleable.
     const resaleableCost = creditNote.salesReturn?.totalCostKobo ?? 0n;
+    const resaleableCostGroups = resaleableCost > 0n
+      ? groupByAccounts(
+          creditNote.salesReturn!.lines.filter((line) => line.condition === ReturnCondition.RESALEABLE).map((line) => {
+            const accounts = accountsFor(line.itemId);
+            return { debitAccount: accounts.inventory, creditAccount: accounts.costOfSales, amountKobo: line.costKobo };
+          }),
+        )
+      : [];
     if (resaleableCost > 0n) {
       // Back into the store account each item is held in, out of its own
       // cost of sales. Only resaleable lines carry value (as totalCostKobo).
-      const resaleable = creditNote.salesReturn!.lines.filter((l) => l.condition === ReturnCondition.RESALEABLE);
-      for (const pair of groupByAccounts(
-        resaleable.map((line) => {
-          const accounts = accountsFor(line.itemId);
-          return { debitAccount: accounts.inventory, creditAccount: accounts.costOfSales, amountKobo: line.costKobo };
-        }),
-      )) {
+      for (const pair of resaleableCostGroups) {
         lines.push({
           glAccountId: pair.debitAccount,
           description: `Goods returned to stock — ${creditNote.salesReturn!.returnNumber}`,
@@ -399,6 +410,47 @@ export class CreditNoteService {
       }
     }
 
+    const approvedControl = await chartVersionOf(params.tx, creditNote.companyId) === 'APPROVED' ? (() => {
+      const additionalApplicationRuleIds = [
+        ...(creditNote.vatAmountKobo > 0n ? ['COR-YFR-025B'] : []),
+        ...(resaleableCostGroups.length > 0 ? ['COR-YFR-020A'] : []),
+      ];
+      const revenueByAccount = new Map<string, bigint>();
+      for (const line of creditNote.lines) {
+        const accountId = accountsFor(line.itemId).revenue;
+        revenueByAccount.set(accountId, (revenueByAccount.get(accountId) ?? 0n) + line.netAmountKobo);
+      }
+      const expectedAccountSideAmountsKobo: Record<string, string> = {};
+      const addExpected = (side: 'Debit' | 'Credit', accountId: string, amount: bigint) => {
+        if (amount <= 0n) return;
+        const key = `${side}:${accountId}`;
+        expectedAccountSideAmountsKobo[key] = (BigInt(expectedAccountSideAmountsKobo[key] ?? '0') + amount).toString();
+      };
+      for (const [accountId, amount] of revenueByAccount) addExpected('Debit', accountId, amount);
+      addExpected('Credit', config.receivableGlAccountId, creditNote.grossAmountKobo);
+      if (outputVatAccountId) addExpected('Debit', outputVatAccountId, creditNote.vatAmountKobo);
+      for (const pair of resaleableCostGroups) {
+        addExpected('Debit', pair.debitAccount, pair.amountKobo);
+        addExpected('Credit', pair.creditAccount, pair.amountKobo);
+      }
+      return {
+        application: 'YifrehCore',
+        applicationRuleId: 'COR-YFR-022',
+        ...(additionalApplicationRuleIds.length ? { additionalApplicationRuleIds } : {}),
+        ...(resaleableCostGroups.length ? { reversedApplicationRuleIds: ['COR-YFR-020A'] } : {}),
+        dynamicAccountIds: {
+          'COR-YFR-022:AR_CONTROL': [config.receivableGlAccountId],
+          'COR-YFR-022:SALES_REVENUE': [...revenueByAccount.keys()],
+          ...(outputVatAccountId ? { 'COR-YFR-025B:OUTPUT_VAT': [outputVatAccountId] } : {}),
+          ...(resaleableCostGroups.length ? {
+            'COR-YFR-020A:COGS': [...new Set(resaleableCostGroups.map((pair) => pair.creditAccount))],
+            'COR-YFR-020A:FINISHED_GOODS_INVENTORY': [...new Set(resaleableCostGroups.map((pair) => pair.debitAccount))],
+          } : {}),
+        },
+        expectedAccountSideAmountsKobo,
+      };
+    })() : undefined;
+
     const result = await this.posting.post(
       {
         sourceModule: 'sales',
@@ -409,6 +461,7 @@ export class CreditNoteService {
         narration: `Credit note ${creditNote.creditNoteNumber} — ${creditNote.customer.name}`,
         ...dimensions,
         idempotencyKey: `credit-note:${creditNote.id}`,
+        ...(approvedControl ? { approvedControl } : {}),
         actor: params.actor,
         lines: lines.map((line) => ({
           glAccountId: line.glAccountId,

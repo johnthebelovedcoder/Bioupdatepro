@@ -11,6 +11,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { Kobo } from '../common/money';
+import { chartVersionOf } from '../chart/chart';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 import {
   DocumentTaxRequest,
   DocumentTaxResult,
@@ -333,6 +335,21 @@ export class TaxEngineService {
     client: Prisma.TransactionClient | PrismaService,
   ): Promise<string> {
     const day = new Date(Date.UTC(on.getUTCFullYear(), on.getUTCMonth(), on.getUTCDate()));
+
+    if ((await chartVersionOf(client, companyId)) === 'APPROVED') {
+      const code = await client.taxCode.findFirst({ where: { id: taxCodeId, companyId, active: true }, select: { id: true, taxType: true } });
+      if (!code) throw new AccountingRuleViolation('Approved Posting Group — tax code', 'The tax code is missing or inactive in this company.', { companyId, taxCodeId });
+      const postingKey = direction === 'INPUT' ? 'INPUT_VAT' : direction === 'OUTPUT' ? 'OUTPUT_VAT' : null;
+      if (!postingKey) throw new AccountingRuleViolation('Approved Posting Group — tax code', 'The workbook does not define a tax account key for direction ' + direction + '.', { direction, taxCodeId });
+      return (await resolveApprovedMappedAccount(client, {
+        companyId,
+        application: 'YifrehCore',
+        masterType: 'Tax code',
+        masterId: code.id,
+        postingKey,
+        on: day,
+      })).glAccountId;
+    }
 
     const mapping = await client.taxGLMapping.findFirst({
       where: {

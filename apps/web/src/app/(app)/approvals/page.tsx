@@ -86,6 +86,12 @@ export default async function ApprovalsPage() {
                         <Link href={`/approvals/history/${item.transactionId}`} title="Approval trail">
                           {item.documentReference}
                         </Link>
+                        {item.transactionType === 'VAT_SETTLEMENT_RUN' && item.documentId ? (
+                          <div><Link href={`/ledger/tax/${item.documentId}`} className="faint">Review VAT return and reconciliation</Link></div>
+                        ) : null}
+                        {item.transactionType === 'VAT_REFUND_CLAIM' && item.documentId ? (
+                          <div><Link href={`/ledger/tax/${item.documentId.split(':')[0]}`} className="faint">Review VAT return and refund balance</Link></div>
+                        ) : null}
                         {item.escalated ? (
                           <div>
                             <span className="badge badge-danger">escalated</span>

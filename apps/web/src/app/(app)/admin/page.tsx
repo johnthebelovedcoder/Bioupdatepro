@@ -36,9 +36,10 @@ export default async function AdminPage() {
     safeCount('/masters/items'),
     safeCount('/masters/employees'),
     safeCount('/auth/role-sections'),
+    safeCount('/posting-control/group-assignments'),
   ]);
 
-  const [farms, pens, stores, centres, vendors, customers, items, employees, roleOverrides] =
+  const [farms, pens, stores, centres, vendors, customers, items, employees, roleOverrides, postingGroupAssignments] =
     counts;
 
   const ready = [
@@ -98,6 +99,13 @@ export default async function AdminPage() {
       count: roleOverrides,
       unit: 'overrides',
       why: 'Which sidebar sections each role can reach — defaults apply until one is changed here.',
+    },
+    {
+      href: '/admin/posting-groups',
+      name: 'Posting groups',
+      count: postingGroupAssignments,
+      unit: 'assignments',
+      why: 'Which approved workbook posting group each master record uses.',
     },
   ];
 

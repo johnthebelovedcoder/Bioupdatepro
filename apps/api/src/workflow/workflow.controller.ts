@@ -243,6 +243,7 @@ export class WorkflowController {
     const rows = await this.workflow.pendingFor(actor.userId, companyId);
     return rows.map((t) => ({
       transactionId: t.id,
+      documentId: t.documentId,
       documentReference: t.documentReference,
       transactionType: t.transactionType,
       module: t.module,

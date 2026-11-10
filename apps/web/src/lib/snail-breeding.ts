@@ -13,7 +13,7 @@ export interface SnailBreedingCycle {
   eggValuePerUnitKobo: string;
   eggValueEvidence: string | null;
   eggFairValueUnreliableReason: string | null;
-  status: 'SET' | 'HATCHED' | 'FAILED';
+  status: 'SET' | 'HATCHED' | 'FAILED' | 'APPROVAL_PENDING';
   hatchedOn: string | null;
   hatchedCount: number | null;
   unhatchedCount: number | null;

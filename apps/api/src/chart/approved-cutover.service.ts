@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { PostingService } from '../posting/posting.service';
 import { PostingControlProvisioningService } from '../posting-control/posting-control-provisioning.service';
 import { RearingCostService } from '../biological-assets/rearing-cost.service';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { AccountingRuleViolation } from '../common/errors';
 import { kobo } from '../common/money';
@@ -566,7 +567,7 @@ export class ApprovedCutoverService {
     const poultry = populations.filter((p) => speciesName(p.speciesKey) === 'poultry' && p.status === 'ACTIVE');
     const cohortAccount = new Map<string, string>();
     for (const cohort of poultry) {
-      const target = await this.biologicalStageTarget(client, companyId, cohort.speciesKey, cohort.stage);
+      const target = await this.biologicalStageTarget(client, companyId, cohort.speciesKey, cohort.stage, cutoverDate);
       if (target) cohortAccount.set(cohort.id, target);
       else blockers.push(`Poultry cohort ${cohort.code} is at stage "${cohort.stage}", which lacks one consistent Finance-approved maturity class on its breed-stage master.`);
     }
@@ -610,7 +611,7 @@ export class ApprovedCutoverService {
       const stages = stageRows.filter((r) => r.glAccountId === accountId).map((r) => r.stage);
       const targets = new Set<string>();
       for (const stage of stages) {
-        const target = await this.biologicalStageTarget(client, companyId, 'snail', stage);
+        const target = await this.biologicalStageTarget(client, companyId, 'snail', stage, cutoverDate);
         if (target) targets.add(target);
         else blockers.push(`Snail stage "${stage}" (held in ${number}) lacks one consistent Finance-approved maturity class on its breed-stage master.`);
       }
@@ -876,7 +877,7 @@ export class ApprovedCutoverService {
     // --- Biological asset stage accounts: by stage, not by account ----------
     const stageRows = await tx.biologicalAssetStageAccount.findMany({ where: { companyId, glAccountId: { in: pairs.map((p) => p.from) } } });
     for (const row of stageRows) {
-      const to = await this.biologicalStageTarget(tx, companyId, row.speciesKey, row.stage);
+      const to = await this.biologicalStageTarget(tx, companyId, row.speciesKey, row.stage, new Date(plan.preview.cutoverDate));
       if (!to) continue;
       await tx.biologicalAssetStageAccount.update({ where: { id: row.id }, data: { glAccountId: id(to) } });
       count++;
@@ -889,7 +890,7 @@ export class ApprovedCutoverService {
     return new Map(all.map((a) => [a.accountNumber, a.id]));
   }
 
-  private async biologicalStageTarget(client: Prisma.TransactionClient, companyId: string, speciesKey: string, stage: string): Promise<string | null> {
+  private async biologicalStageTarget(client: Prisma.TransactionClient, companyId: string, speciesKey: string, stage: string, on: Date): Promise<string | null> {
     const rows = await client.speciesBreedStage.findMany({
       where: { stageName: stage, speciesBreed: { companyId, speciesKey, active: true } },
       select: { maturityClass: true },
@@ -897,8 +898,19 @@ export class ApprovedCutoverService {
     const values = [...new Set(rows.map((row) => row.maturityClass).filter((value): value is string => !!value))];
     if (!rows.length || values.length !== 1 || rows.some((row) => !row.maturityClass)) return null;
     if (values[0] !== 'IMMATURE' && values[0] !== 'MATURE') return null;
-    if (speciesKey.trim().toLowerCase() === 'snail') return values[0] === 'IMMATURE' ? '16031' : '16041';
-    return values[0] === 'IMMATURE' ? '16032' : '16042';
+    const snail = speciesKey.trim().toLowerCase() === 'snail';
+    const prefix = snail ? 'SNP' : 'PLP';
+    const application = snail ? 'YifrehSnail' : 'YifrehPoultry';
+    try {
+      const mapped = await resolveApprovedMappedAccount(client, {
+        companyId, application, postingGroup: `${prefix}-BA-${values[0] === 'IMMATURE' ? 'IMM' : 'MAT'}`,
+        postingKey: 'BA_CONTROL', on,
+      });
+      return mapped.accountNumber;
+    } catch (error) {
+      if (error instanceof AccountingRuleViolation) return null;
+      throw error;
+    }
   }
 }
 

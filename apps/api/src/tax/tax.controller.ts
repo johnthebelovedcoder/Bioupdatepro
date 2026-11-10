@@ -290,6 +290,25 @@ export class TaxController {
   }
 
   @OwnedRecord('taxPeriod', 'id')
+  @Post('periods/:id/settle-vat')
+  async settleVat(@Param('id') id: string, @CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor) {
+    return this.periods.settleVat({ companyId, taxPeriodId: id, actor });
+  }
+
+  @OwnedRecord('taxPeriod', 'id')
+  @Post('periods/:id/pay-vat')
+  async payVat(@Param('id') id: string, @CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Body() body: { bankAccountId: string; authorityReference: string }) {
+    return this.periods.payVat({ companyId, taxPeriodId: id, bankAccountId: String(body.bankAccountId ?? ''), authorityReference: String(body.authorityReference ?? ''), actor });
+  }
+
+  @OwnedRecord('taxPeriod', 'id')
+  @Post('periods/:id/request-vat-refund')
+  async requestVatRefund(@Param('id') id: string, @CurrentCompany() companyId: string, @CurrentUser() actor: WorkflowActor, @Body() body: { bankAccountId: string; authorityAdviceReference: string; amountKobo: string }) {
+    const amount = /^\d+$/.test(String(body.amountKobo ?? '')) ? BigInt(body.amountKobo) : 0n;
+    return this.periods.requestVatRefund({ companyId, taxPeriodId: id, bankAccountId: String(body.bankAccountId ?? ''), authorityAdviceReference: String(body.authorityAdviceReference ?? ''), amountKobo: amount, actor });
+  }
+
+  @OwnedRecord('taxPeriod', 'id')
   @Post('periods/:id/close')
   async closePeriod(@Param('id') id: string, @CurrentUser() actor: WorkflowActor) {
     return this.periods.close({ taxPeriodId: id, actorId: actor.userId });

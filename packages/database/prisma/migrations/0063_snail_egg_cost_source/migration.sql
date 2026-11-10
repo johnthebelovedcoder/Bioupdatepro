@@ -1,0 +1,1 @@
+ALTER TABLE "snail_breeding_cycles" ADD COLUMN "cost_source_account_id" UUID;

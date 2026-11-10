@@ -5,6 +5,7 @@ import { PostingControlChecksService } from './posting-control-checks.service';
 import { PostingControlProvisioningService } from './posting-control-provisioning.service';
 import { ChartUnificationService, PRODUCT_CLASSES, ProductClass, UnificationOptions } from '../chart/chart-unification.service';
 import { ApprovedCutoverService, ApprovedCutoverOptions } from '../chart/approved-cutover.service';
+import { PostingGroupAssignmentService } from './posting-group-assignment.service';
 import { APPROVED_PRODUCT_CLASSES, StockClass } from '../chart/approved-crosswalk';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
@@ -38,6 +39,7 @@ export class PostingControlController {
     private readonly provisioning: PostingControlProvisioningService,
     private readonly unification: ChartUnificationService,
     private readonly cutover: ApprovedCutoverService,
+    private readonly groupAssignments: PostingGroupAssignmentService,
   ) {}
 
   /**
@@ -137,6 +139,53 @@ export class PostingControlController {
       companyId, application: application.trim(), postingGroup: postingGroup.trim(), postingKey: postingKey.trim(),
       ...(on ? { on: parseDay(on) } : {}),
     });
+  }
+
+  @AnyRole('Approved posting groups are part of the accounting setup.')
+  @Get('posting-groups')
+  postingGroups(@CurrentCompany() companyId: string, @Query('application') application?: string, @Query('masterType') masterType?: string) {
+    return this.groupAssignments.listGroups({ companyId, application: application?.trim(), masterType: masterType?.trim() });
+  }
+
+  @AnyRole('Effective-dated master posting-group assignments are audit data.')
+  @Get('group-assignments')
+  groupAssignmentsForMaster(@CurrentCompany() companyId: string, @Query('masterType') masterType?: string, @Query('masterId') masterId?: string) {
+    if (Boolean(masterType?.trim()) !== Boolean(masterId?.trim())) throw new BadRequestException('Provide both masterType and masterId, or neither to list assignments.');
+    return this.groupAssignments.listAssignments({ companyId, ...(masterType?.trim() ? { masterType: masterType.trim(), masterId: masterId!.trim() } : {}) });
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('group-assignments')
+  assignPostingGroup(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: PostingGroupAssignmentBody,
+  ) {
+    if (!body?.application?.trim() || !body?.postingGroup?.trim() || !body?.masterType?.trim() || !body?.masterId?.trim() || !body?.effectiveFrom) {
+      throw new BadRequestException('application, postingGroup, masterType, masterId and effectiveFrom are required.');
+    }
+    return this.groupAssignments.assign({
+      companyId,
+      actor,
+      application: body.application.trim(),
+      postingGroup: body.postingGroup.trim(),
+      masterType: body.masterType.trim(),
+      masterId: body.masterId.trim(),
+      effectiveFrom: parseDay(body.effectiveFrom),
+      ...(body.effectiveTo ? { effectiveTo: parseDay(body.effectiveTo) } : {}),
+    });
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('group-assignments/:id/end')
+  endPostingGroupAssignment(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('id') assignmentId: string,
+    @Body() body: { effectiveTo?: string },
+  ) {
+    if (!body?.effectiveTo) throw new BadRequestException('effectiveTo is required.');
+    return this.groupAssignments.end({ companyId, assignmentId, effectiveTo: parseDay(body.effectiveTo), actor });
   }
 
   /**
@@ -315,6 +364,15 @@ interface CutoverBody {
   overrides?: Record<string, string>;
   approvedBy?: string;
   approvalReference?: string;
+}
+
+interface PostingGroupAssignmentBody {
+  application?: string;
+  postingGroup?: string;
+  masterType?: string;
+  masterId?: string;
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
 }
 
 function parseCutoverOptions(body: CutoverBody): ApprovedCutoverOptions {

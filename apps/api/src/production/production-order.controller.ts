@@ -348,6 +348,9 @@ export class ProductionOrderController {
       standardConversionCostKobo?: string;
       /** Actual hours per routing operation, by operation name or line id. */
       actualHours?: Record<string, string | number>;
+      /** COR-YFR-053 measured milling weights in kg. */
+      feedMillInputWeightKg?: string;
+      feedMillOutputWeightKg?: string;
       actualLabourCostKobo?: string;
       actualOverheadCostKobo?: string;
     },
@@ -356,6 +359,8 @@ export class ProductionOrderController {
       productionOrderId: id,
       ...(body.standardConversionCostKobo ? { standardConversionCostKobo: BigInt(body.standardConversionCostKobo) } : {}),
       ...(body.actualHours ? { actualHours: body.actualHours } : {}),
+      ...(body.feedMillInputWeightKg !== undefined ? { feedMillInputWeightKg: body.feedMillInputWeightKg } : {}),
+      ...(body.feedMillOutputWeightKg !== undefined ? { feedMillOutputWeightKg: body.feedMillOutputWeightKg } : {}),
       actualLabourCostKobo: BigInt(body.actualLabourCostKobo ?? '0'),
       actualOverheadCostKobo: BigInt(body.actualOverheadCostKobo ?? '0'),
       actor,

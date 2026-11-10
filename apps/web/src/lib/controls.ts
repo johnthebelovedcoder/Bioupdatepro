@@ -162,6 +162,8 @@ export interface PostingControlStatus {
     presentAccounts: number;
     resolvedActivePostingMaps: number;
     expectedActivePostingMaps: number;
+    postingGroups: number;
+    expectedPostingGroups: number;
     missingAccountNumbers: string[];
     metadataMismatches: Array<{ accountNumber: string; fields: string[] }>;
     activeAccountsOutsideTarget: Array<{ accountNumber: string; name: string; isPostingAccount: boolean }>;

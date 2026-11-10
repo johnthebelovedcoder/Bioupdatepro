@@ -10,6 +10,9 @@ import {
   fileTaxPeriod,
   generateTaxPeriods,
   setUpTax,
+  settleVat,
+  payVat,
+  requestVatRefund,
   updateTaxIdentifiers,
   type CalculationState,
   type FlowState,
@@ -259,6 +262,52 @@ export function FileTaxPeriodForm({ taxPeriodId }: { taxPeriodId: string }) {
       </Sheet>
     </>
   );
+}
+
+export function SettleVatButton({ taxPeriodId }: { taxPeriodId: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const router = useRouter();
+  return <div className="stack" style={{ gap: 'var(--sp-2)' }}>
+    <button type="button" className="btn btn-primary" disabled={pending} onClick={() => startTransition(async () => {
+      const result = await settleVat(taxPeriodId);
+      setError(result.error); setMessage(result.message);
+      if (!result.error) router.refresh();
+    })}>{pending ? 'Submitting…' : 'Submit VAT settlement for approval'}</button>
+    {error ? <div className="notice notice-error">{error}</div> : null}
+    {message ? <div className="notice notice-success">{message}</div> : null}
+  </div>;
+}
+
+export function PayVatForm({ taxPeriodId, bankAccounts }: { taxPeriodId: string; bankAccounts: Array<{ id: string; name: string; bankName: string; accountNumberMasked: string }> }) {
+  const [state, formAction] = useActionState<FlowState, FormData>(payVat, EMPTY);
+  const router = useRouter();
+  useEffect(() => { if (state.message) router.refresh(); }, [state.message, router]);
+  return <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+    <input type="hidden" name="taxPeriodId" value={taxPeriodId} />
+    {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+    {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+    <label className="field">Bank account<select name="bankAccountId" defaultValue="" required><option value="" disabled>Choose the payment bank</option>{bankAccounts.map((bank) => <option key={bank.id} value={bank.id}>{bank.name} · {bank.bankName} {bank.accountNumberMasked}</option>)}</select></label>
+    <label className="field">Tax authority payment reference<input name="authorityReference" maxLength={48} required /></label>
+    <Submit label="Record VAT payment" pending="Recording…" />
+  </form>;
+}
+
+export function VatRefundClaimForm({ taxPeriodId, bankAccounts }: { taxPeriodId: string; bankAccounts: Array<{ id: string; name: string; bankName: string; accountNumberMasked: string }> }) {
+  const [state, formAction] = useActionState<FlowState, FormData>(requestVatRefund, EMPTY);
+  const router = useRouter();
+  useEffect(() => { if (state.message) router.refresh(); }, [state.message, router]);
+  return <form action={formAction} className="stack" style={{ gap: 'var(--sp-4)' }}>
+    <input type="hidden" name="taxPeriodId" value={taxPeriodId} />
+    {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+    {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+    <label className="field">Bank account receiving the refund<select name="bankAccountId" defaultValue="" required><option value="" disabled>Choose the receiving bank</option>{bankAccounts.map((bank) => <option key={bank.id} value={bank.id}>{bank.name} · {bank.bankName} {bank.accountNumberMasked}</option>)}</select></label>
+    <label className="field">Refund claim amount (₦)<input name="amount" inputMode="decimal" placeholder="0.00" required /></label>
+    <label className="field">Tax authority advice reference<input name="authorityAdviceReference" maxLength={48} required /></label>
+    <p className="faint">The claim is submitted for independent approval. The receipt posts only after approval and is limited by the filed recoverable balance and VAT settlement debit balance.</p>
+    <Submit label="Submit refund claim" pending="Submitting…" />
+  </form>;
 }
 
 function Submit({ label, pending: pendingLabel }: { label: string; pending: string }) {

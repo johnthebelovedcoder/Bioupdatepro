@@ -98,6 +98,12 @@ export class FixedAssetsController {
     return this.assets.listAssets(companyId);
   }
 
+  @AnyRole('Disposal proceeds must use an active company bank account or customer.')
+  @Get('assets/disposal-options')
+  async disposalOptions(@CurrentCompany() companyId: string) {
+    return this.assets.disposalOptions(companyId);
+  }
+
   /** FARM_ACCOUNTANT (ROL-012) is PCR-029's maker; Controller/CFO approve. */
   @Roles('FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
   @Post('assets')
@@ -148,12 +154,18 @@ export class FixedAssetsController {
   async dispose(
     @Param('id') id: string,
     @CurrentUser() actor: WorkflowActor,
-    @Body() body: { disposedOn: string },
+    @Body() body: { disposedOn: string; proceedsKobo?: string; proceedsMode?: 'CASH' | 'CREDIT' | null; bankAccountId?: string | null; customerId?: string | null },
   ) {
+    if (body?.proceedsKobo !== undefined && !/^[0-9]+$/.test(body.proceedsKobo)) throw new BadRequestException('proceedsKobo must be a whole number of kobo.');
+    if (body?.proceedsMode && !['CASH', 'CREDIT'].includes(body.proceedsMode)) throw new BadRequestException('proceedsMode is CASH or CREDIT.');
     return this.assets.dispose({
       assetId: id,
       actor,
       disposedOn: new Date(body.disposedOn),
+      proceedsKobo: BigInt(body.proceedsKobo ?? '0'),
+      proceedsMode: body.proceedsMode ?? null,
+      bankAccountId: body.bankAccountId ?? null,
+      customerId: body.customerId ?? null,
     });
   }
 

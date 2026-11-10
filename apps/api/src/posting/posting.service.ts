@@ -13,6 +13,8 @@ import {
 } from '../common/errors';
 import { PostingRequest, PostingResult } from './posting.types';
 import { kobo } from '../common/money';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
+import { chartVersionOf } from '../chart/chart';
 
 const IDEMPOTENCY_SCOPE = 'gl.posting';
 
@@ -79,6 +81,22 @@ export class PostingService {
       select: { baseCurrencyId: true, baseCurrency: { select: { code: true } } },
     });
     this.assertStructure(request);
+    if (!request.approvedControl && await chartVersionOf(externalTx ?? this.prisma, request.companyId) === 'APPROVED') {
+      const unboundApprovedChartEvents: Record<string, string> = {
+        PayrollRun: 'Statutory payroll accrual needs Finance-approved liability mappings and a dedicated event contract.',
+        PayrollPayment: 'Payroll settlement needs a Finance-approved payable and bank settlement contract.',
+        REARING_COST_RELIEF: 'Cohort rearing-cost relief needs an approved mortality/disposal/harvest expense treatment and event contract.',
+      };
+      const reason = unboundApprovedChartEvents[request.sourceDocumentType];
+      if (reason) {
+        throw new AccountingRuleViolation(
+          'Approved Posting Control — event contract required',
+          reason,
+          { sourceDocumentType: request.sourceDocumentType, sourceDocumentId: request.sourceDocumentId ?? null },
+        );
+      }
+    }
+    if (request.approvedControl) await this.assertApprovedControlContract(request, externalTx ?? this.prisma);
     if (company.baseCurrency.code !== 'NGN' || request.currencyId !== company.baseCurrencyId || !new Prisma.Decimal(request.exchangeRate).equals(1)) {
       throw new AccountingRuleViolation(
         'Pilot currency policy — NGN only',
@@ -270,6 +288,176 @@ export class PostingService {
     };
 
     return externalTx ? run(externalTx) : this.prisma.$transaction(run);
+  }
+
+  /** Enforce the workbook account/side and required cost-centre contract for a bound event. */
+  private async assertApprovedControlContract(
+    request: PostingRequest,
+    client: Pick<Prisma.TransactionClient, 'approvedPostingControlLine' | 'approvedPostingMap' | 'postingGroupAssignment' | 'gLAccount'>,
+  ): Promise<void> {
+    const contract = request.approvedControl!;
+    if (!request.sourceDocumentType.trim() || !request.sourceDocumentId?.trim()) {
+      throw new AccountingRuleViolation('Approved Posting Control — source document', 'A workbook-controlled posting must identify its originating source document.', contract);
+    }
+    const applicationRuleIds = [contract.applicationRuleId, ...(contract.additionalApplicationRuleIds ?? [])];
+    const controls = await client.approvedPostingControlLine.findMany({
+      where: { companyId: request.companyId, application: contract.application, applicationRuleId: { in: applicationRuleIds } },
+      orderBy: { lineNumber: 'asc' },
+    });
+    if (controls.length === 0) {
+      throw new AccountingRuleViolation(
+        'Approved Posting Control — event contract',
+        `No workbook control lines exist for ${contract.application} / ${applicationRuleIds.join(', ')}; this event cannot post under an unverified contract.`,
+        contract,
+      );
+    }
+    const postingControls = controls.filter((line) => line.side === 'Debit' || line.side === 'Credit');
+    if (postingControls.length === 0) {
+      throw new AccountingRuleViolation('Approved Posting Control — no-journal event', `${applicationRuleIds.join(', ')} contains only no-journal events and must not create a GL journal.`, contract);
+    }
+    const expected = new Set<string>();
+    const requiredCostCentrePairs = new Set<string>();
+    const expectedAmounts = new Map<string, bigint>();
+    const actualAmounts = new Map<string, bigint>();
+    const missingExpectedAmounts: string[] = [];
+    for (const line of postingControls) {
+      const side = contract.reversedApplicationRuleIds?.includes(line.applicationRuleId)
+        ? line.side === 'Debit' ? 'Credit' : 'Debit'
+        : line.side;
+      const dynamicAccountIds = contract.dynamicAccountIds?.[`${line.applicationRuleId}:${line.postingKey}`]
+        ?? contract.dynamicAccountIds?.[line.postingKey];
+      if (line.resolvedGl === 'ORIGINAL DOC' || line.postingKey === 'SOURCE_COST_REVERSAL' || dynamicAccountIds) {
+        const sourceAccountIds = dynamicAccountIds ?? [];
+        if (sourceAccountIds.length === 0) {
+          throw new AccountingRuleViolation('Approved Posting Control — source-document account', `${line.applicationRuleId} requires the original document's account; no source accounts were supplied.`, { postingKey: line.postingKey });
+        }
+        const sourceAccounts = await client.gLAccount.findMany({ where: { companyId: request.companyId, id: { in: sourceAccountIds }, active: true, OR: [{ isPostingAccount: true }, { isControlAccount: true }] }, select: { id: true } });
+        const activeMaps = await client.approvedPostingMap.findMany({
+          where: {
+            companyId: request.companyId,
+            application: contract.dynamicMappingApplications?.length
+              ? { in: contract.dynamicMappingApplications }
+              : contract.application,
+            status: 'Active',
+            effectiveFrom: { lte: request.journalDate },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: request.journalDate } }],
+            glAccountId: { in: sourceAccounts.map((account) => account.id) },
+          },
+          select: { glAccountId: true },
+        });
+        const allowedSourceIds = new Set(activeMaps.map((map) => map.glAccountId));
+        if (allowedSourceIds.size !== new Set(sourceAccountIds).size) {
+          throw new AccountingRuleViolation('Approved Posting Control — source-document account', `${line.applicationRuleId} includes an inactive or unmapped original account.`, { postingKey: line.postingKey, sourceAccountIds });
+        }
+        const dynamicAmount = contract.expectedLineAmountsKobo?.[`${line.applicationRuleId}:${line.lineNumber}`];
+        if (contract.expectedLineAmountsKobo && dynamicAmount === undefined) {
+          missingExpectedAmounts.push(`${line.applicationRuleId}:${line.lineNumber}`);
+        } else if (dynamicAmount !== undefined) {
+          if (allowedSourceIds.size !== 1) {
+            throw new AccountingRuleViolation('Approved Posting Control — dynamic amount basis', `${line.applicationRuleId}:${line.lineNumber} has multiple source accounts, so its amount must be split by account before validation.`, { postingKey: line.postingKey });
+          }
+          const amountKobo = BigInt(dynamicAmount);
+          if (amountKobo < 0n) throw new AccountingRuleViolation('Approved Posting Control — amount basis', 'Expected workbook amounts cannot be negative.', { line: `${line.applicationRuleId}:${line.lineNumber}` });
+          if (amountKobo > 0n) {
+            const pair = `${side}:${[...allowedSourceIds][0]}`;
+            expected.add(pair);
+            if (line.costCentreRequirement.toLowerCase() === 'required') requiredCostCentrePairs.add(pair);
+            expectedAmounts.set(pair, (expectedAmounts.get(pair) ?? 0n) + amountKobo);
+          }
+        } else {
+          for (const accountId of allowedSourceIds) {
+            const pair = `${side}:${accountId}`;
+            expected.add(pair);
+            if (line.costCentreRequirement.toLowerCase() === 'required') requiredCostCentrePairs.add(pair);
+          }
+        }
+        continue;
+      }
+      const account = await resolveApprovedMappedAccount(client, {
+        companyId: request.companyId,
+        application: line.application,
+        postingGroup: line.postingGroup,
+        postingKey: line.postingKey,
+        on: request.journalDate,
+      });
+      const amount = contract.expectedLineAmountsKobo?.[`${line.applicationRuleId}:${line.lineNumber}`];
+      if (contract.expectedLineAmountsKobo && amount === undefined) {
+        missingExpectedAmounts.push(`${line.applicationRuleId}:${line.lineNumber}`);
+      } else if (amount !== undefined) {
+        const amountKobo = BigInt(amount);
+        if (amountKobo < 0n) throw new AccountingRuleViolation('Approved Posting Control — amount basis', 'Expected workbook amounts cannot be negative.', { line: `${line.applicationRuleId}:${line.lineNumber}` });
+        if (amountKobo > 0n) {
+          const pair = `${side}:${account.glAccountId}`;
+          expected.add(pair);
+          if (line.costCentreRequirement.toLowerCase() === 'required') requiredCostCentrePairs.add(pair);
+          expectedAmounts.set(pair, (expectedAmounts.get(pair) ?? 0n) + amountKobo);
+        }
+      } else {
+        const pair = `${side}:${account.glAccountId}`;
+        expected.add(pair);
+        if (line.costCentreRequirement.toLowerCase() === 'required') requiredCostCentrePairs.add(pair);
+      }
+    }
+    const actual = new Set<string>();
+    for (const line of request.lines) {
+      const side = (line.debit ?? 0n) > 0n ? 'Debit' : 'Credit';
+      const pair = `${side}:${line.glAccountId}`;
+      actual.add(pair);
+      actualAmounts.set(pair, (actualAmounts.get(pair) ?? 0n) + (side === 'Debit' ? line.debit ?? 0n : line.credit ?? 0n));
+    }
+    for (const [pair, amount] of Object.entries(contract.expectedAccountSideAmountsKobo ?? {})) {
+      const separator = pair.indexOf(':');
+      if (separator < 0 || !['Debit', 'Credit'].includes(pair.slice(0, separator))) {
+        throw new AccountingRuleViolation('Approved Posting Control — amount basis', `Invalid expected account-side key "${pair}".`, contract);
+      }
+      const amountKobo = BigInt(amount);
+      if (amountKobo < 0n) throw new AccountingRuleViolation('Approved Posting Control — amount basis', 'Expected workbook amounts cannot be negative.', { pair });
+      expected.add(pair);
+      expectedAmounts.set(pair, (expectedAmounts.get(pair) ?? 0n) + amountKobo);
+    }
+    const missing = [...expected].filter((entry) => !actual.has(entry));
+    let unexpected = [...actual].filter((entry) => !expected.has(entry));
+    if (unexpected.length && contract.additionalMappedAccountSidePairs?.length) {
+      const allowedPairs = new Set(contract.additionalMappedAccountSidePairs);
+      const candidates = unexpected.filter((pair) => allowedPairs.has(pair));
+      const unexpectedAccountIds = [...new Set(candidates.map((entry) => entry.slice(entry.indexOf(':') + 1)))];
+      const mapped = await client.approvedPostingMap.findMany({
+        where: {
+          companyId: request.companyId,
+          application: contract.application,
+          status: 'Active',
+          effectiveFrom: { lte: request.journalDate },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: request.journalDate } }],
+          glAccountId: { in: unexpectedAccountIds },
+        },
+        select: { glAccountId: true, glAccount: { select: { active: true, isPostingAccount: true, isControlAccount: true } } },
+      });
+      const validMappedAccounts = new Set(mapped.filter((row) => row.glAccount?.active && (row.glAccount.isPostingAccount || row.glAccount.isControlAccount)).map((row) => row.glAccountId));
+      const approvedPairs = new Set(candidates.filter((entry) => validMappedAccounts.has(entry.slice(entry.indexOf(':') + 1))));
+      unexpected = unexpected.filter((entry) => !approvedPairs.has(entry));
+    }
+    const amountMismatches = [...expectedAmounts].flatMap(([pair, expectedKobo]) => {
+      const actualKobo = actualAmounts.get(pair) ?? 0n;
+      return expectedKobo === actualKobo ? [] : [{ pair, expectedKobo: expectedKobo.toString(), actualKobo: actualKobo.toString() }];
+    });
+    if (missing.length || unexpected.length || amountMismatches.length || missingExpectedAmounts.length) {
+      throw new AccountingRuleViolation(
+        'Approved Posting Control — journal lines',
+        `${applicationRuleIds.join(', ')} journal accounts, sides or amounts do not match its approved workbook event contract.`,
+        { ...contract, missing, unexpected, amountMismatches, missingExpectedAmounts },
+      );
+    }
+    const missingCostCentre = request.lines.filter((line) => {
+      const side = (line.debit ?? 0n) > 0n ? 'Debit' : 'Credit';
+      return requiredCostCentrePairs.has(`${side}:${line.glAccountId}`) && !line.dimensions.costCentreId;
+    });
+    if (missingCostCentre.length > 0) {
+      throw new AccountingRuleViolation(
+        'Approved Posting Control — cost centre',
+        `${applicationRuleIds.join(', ')} requires a cost centre on each line covered by a Required workbook control.`,
+        { ...contract, missingCostCentre: missingCostCentre.map((line) => ({ glAccountId: line.glAccountId, description: line.description })) },
+      );
+    }
   }
 
   /**
@@ -484,6 +672,7 @@ export class PostingService {
       companyId: request.companyId,
       financialPeriodId: request.financialPeriodId,
       reversalOfId: request.reversalOfId ?? null,
+      approvedControl: request.approvedControl ?? null,
       lines: request.lines.map((l) => ({
         glAccountId: l.glAccountId,
         debit: (l.debit ?? 0n).toString(),

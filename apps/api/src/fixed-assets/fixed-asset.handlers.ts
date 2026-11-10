@@ -85,12 +85,16 @@ export class FixedAssetDisposalPostingHandler implements WorkflowPostingHandler 
       select: { documentId: true },
     });
 
-    const payload = input.payload as { disposedOn?: string } | null;
+    const payload = input.payload as { disposedOn?: string; proceedsKobo?: string; proceedsMode?: 'CASH' | 'CREDIT' | null; bankAccountId?: string | null; customerId?: string | null } | null;
     const disposedOn = payload?.disposedOn ? new Date(payload.disposedOn) : new Date();
 
     return this.assets.postApprovedDisposal({
       assetId: transaction.documentId,
       disposedOn,
+      proceedsKobo: BigInt(payload?.proceedsKobo ?? '0'),
+      proceedsMode: payload?.proceedsMode ?? null,
+      bankAccountId: payload?.bankAccountId ?? null,
+      customerId: payload?.customerId ?? null,
       actor: input.actor,
       tx: input.tx,
     });

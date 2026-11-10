@@ -10,11 +10,10 @@ import {
   PostingRuleStatus,
 } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveApprovedMappedAccount } from './approved-account-map';
 import { AuditService } from '../audit/audit.service';
 import {
   APPROVED_POSTING_KEYS,
-  APPROVED_PROCUREMENT_DEFAULTS,
-  APPROVED_SALES_DEFAULTS,
   approvedRoleReadiness,
   chartVersionOf,
 } from '../chart/chart';
@@ -127,12 +126,13 @@ export class PostingControlProvisioningService {
 
   async status(companyId: string) {
     const data = load();
-    const [rules, keys, company, approvedMaps, approvedLines, approvedAccounts, approvedCentres, accounts, resolvedActiveMaps, unresolvedActiveMaps] = await Promise.all([
+    const [rules, keys, company, approvedMaps, approvedLines, approvedGroups, approvedAccounts, approvedCentres, accounts, resolvedActiveMaps, unresolvedActiveMaps] = await Promise.all([
       this.prisma.postingRule.count({ where: { companyId } }),
       this.prisma.postingKey.count({ where: { companyId } }),
       this.prisma.company.findUnique({ where: { id: companyId }, select: { chartVersion: true } }),
       this.prisma.approvedPostingMap.count({ where: { companyId } }),
       this.prisma.approvedPostingControlLine.count({ where: { companyId } }),
+      this.prisma.approvedPostingGroup.count({ where: { companyId } }),
       this.prisma.gLAccount.count({ where: { companyId, approvedStatement: { not: null } } }),
       this.prisma.costCentre.count({ where: { companyId, approvedApplication: { not: null } } }),
       this.prisma.gLAccount.findMany({
@@ -233,10 +233,13 @@ export class PostingControlProvisioningService {
         unresolvedActiveAccountMaps: unresolvedActiveMaps.length,
         postingControlLines: approvedLines,
         expectedPostingControlLines: data.approved.sheets.postingControls.length,
+        postingGroups: approvedGroups,
+        expectedPostingGroups: data.approved.sheets.postingGroups.length,
         costCentres: approvedCentres,
         expectedCostCentres: data.approved.sheets.costCentres.length,
         loaded: approvedMaps >= data.approved.sheets.accountMaps.length &&
           approvedLines >= data.approved.sheets.postingControls.length &&
+          approvedGroups >= data.approved.sheets.postingGroups.length &&
           approvedCentres >= data.approved.sheets.costCentres.length &&
           approvedAccounts >= targetRows.length && missingTargetCodes.length === 0 && metadataMismatches.length === 0 &&
           resolvedActiveMaps >= expectedActiveMaps && unresolvedActiveMaps.length === 0,
@@ -247,6 +250,8 @@ export class PostingControlProvisioningService {
         presentAccounts: targetRows.length - missingTargetCodes.length,
         resolvedActivePostingMaps: resolvedActiveMaps,
         expectedActivePostingMaps: expectedActiveMaps,
+        postingGroups: approvedGroups,
+        expectedPostingGroups: data.approved.sheets.postingGroups.length,
         missingAccountNumbers: missingTargetCodes,
         metadataMismatches,
         activeAccountsOutsideTarget: activeOutsideTarget,
@@ -255,7 +260,7 @@ export class PostingControlProvisioningService {
         unresolvedRoles,
         configurationsOutsideTarget,
         ready: unresolvedRoles.length === 0 && configurationsOutsideTarget.length === 0 && missingTargetCodes.length === 0 && metadataMismatches.length === 0 && activeOutsideTarget.length === 0 &&
-          unresolvedActiveMaps.length === 0 && resolvedActiveMaps >= expectedActiveMaps,
+          unresolvedActiveMaps.length === 0 && resolvedActiveMaps >= expectedActiveMaps && approvedGroups >= data.approved.sheets.postingGroups.length,
       },
       /** LEGACY until the company is moved to the selected approved workbook chart. */
       chartVersion: company?.chartVersion ?? 'LEGACY',
@@ -290,8 +295,8 @@ export class PostingControlProvisioningService {
 
   /**
    * Sales and procurement post through their company configuration. For a
-   * company on the approved chart, give it the workbook's defaults
-   * (chart.ts APPROVED_SALES_DEFAULTS / APPROVED_PROCUREMENT_DEFAULTS) if it
+   * company on the approved chart, resolve defaults from the effective-dated
+   * workbook account maps if it
    * has none. One that already has a configuration is left alone — repointing
    * it is part of the balance cutover — and shows in status() if it still
    * names accounts outside the approved chart.
@@ -299,41 +304,56 @@ export class PostingControlProvisioningService {
   private async ensureApprovedConfigurations(companyId: string): Promise<{ sales: 'created' | 'kept' | 'skipped'; procurement: 'created' | 'kept' | 'skipped' }> {
     const result = { sales: 'skipped', procurement: 'skipped' } as { sales: 'created' | 'kept' | 'skipped'; procurement: 'created' | 'kept' | 'skipped' };
     if ((await chartVersionOf(this.prisma, companyId)) !== 'APPROVED') return result;
-    const wanted = [...Object.values(APPROVED_SALES_DEFAULTS), ...Object.values(APPROVED_PROCUREMENT_DEFAULTS)];
-    const rows = await this.prisma.gLAccount.findMany({
-      where: { companyId, accountNumber: { in: wanted }, active: true },
-      select: { id: true, accountNumber: true },
-    });
-    const id = new Map(rows.map((r) => [r.accountNumber, r.id]));
     const effectiveFrom = new Date('2026-01-01');
+    let mapped: Record<'receivable' | 'revenue' | 'costOfSales' | 'inventory' | 'whtReceivable' | 'grni' | 'payables' | 'whtPayable', string>;
+    try {
+      const rows = await Promise.all([
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-CUST-LOCAL', postingKey: 'AR_CONTROL', on: effectiveFrom }),
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-FIN-DEFAULT', postingKey: 'INCOME_ACCOUNT', on: effectiveFrom }),
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-FG', postingKey: 'COGS', on: effectiveFrom }),
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-FG', postingKey: 'FINISHED_GOODS_INVENTORY', on: effectiveFrom }),
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-WHT-SUP-2', postingKey: 'WHT_RECEIVABLE', on: effectiveFrom }),
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-RM', postingKey: 'GRNI', on: effectiveFrom }),
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-VEND-LOCAL', postingKey: 'AP_CONTROL', on: effectiveFrom }),
+        resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-WHT-SUP-2', postingKey: 'WHT_PAYABLE', on: effectiveFrom }),
+      ]);
+      mapped = {
+        receivable: rows[0]!.glAccountId, revenue: rows[1]!.glAccountId,
+        costOfSales: rows[2]!.glAccountId, inventory: rows[3]!.glAccountId,
+        whtReceivable: rows[4]!.glAccountId, grni: rows[5]!.glAccountId,
+        payables: rows[6]!.glAccountId, whtPayable: rows[7]!.glAccountId,
+      };
+    } catch {
+      return result;
+    }
 
     const [sales, procurement] = await Promise.all([
       this.prisma.salesConfiguration.count({ where: { companyId } }),
       this.prisma.procurementConfiguration.count({ where: { companyId } }),
     ]);
     if (sales > 0) result.sales = 'kept';
-    else if (Object.values(APPROVED_SALES_DEFAULTS).every((n) => id.has(n))) {
+    else {
       await this.prisma.salesConfiguration.create({
         data: {
           companyId,
-          receivableGlAccountId: id.get(APPROVED_SALES_DEFAULTS.receivable)!,
-          revenueGlAccountId: id.get(APPROVED_SALES_DEFAULTS.revenue)!,
-          costOfSalesGlAccountId: id.get(APPROVED_SALES_DEFAULTS.costOfSales)!,
-          inventoryGlAccountId: id.get(APPROVED_SALES_DEFAULTS.inventory)!,
-          whtReceivableGlAccountId: id.get(APPROVED_SALES_DEFAULTS.whtReceivable)!,
+          receivableGlAccountId: mapped.receivable,
+          revenueGlAccountId: mapped.revenue,
+          costOfSalesGlAccountId: mapped.costOfSales,
+          inventoryGlAccountId: mapped.inventory,
+          whtReceivableGlAccountId: mapped.whtReceivable,
           effectiveFrom,
         },
       });
       result.sales = 'created';
     }
     if (procurement > 0) result.procurement = 'kept';
-    else if (Object.values(APPROVED_PROCUREMENT_DEFAULTS).every((n) => id.has(n))) {
+    else {
       await this.prisma.procurementConfiguration.create({
         data: {
           companyId,
-          grniGlAccountId: id.get(APPROVED_PROCUREMENT_DEFAULTS.grni)!,
-          payablesGlAccountId: id.get(APPROVED_PROCUREMENT_DEFAULTS.payables)!,
-          whtPayableGlAccountId: id.get(APPROVED_PROCUREMENT_DEFAULTS.whtPayable)!,
+          grniGlAccountId: mapped.grni,
+          payablesGlAccountId: mapped.payables,
+          whtPayableGlAccountId: mapped.whtPayable,
           effectiveFrom,
         },
       });
@@ -391,6 +411,40 @@ export class PostingControlProvisioningService {
       });
     }
 
+    const groups = workbook.sheets.postingGroups;
+    for (const row of groups) {
+      const application = text(row.Application);
+      const postingGroup = text(row['Posting Group']);
+      const effectiveFrom = dateValue(row['Effective Date']);
+      if (!application || !postingGroup || !effectiveFrom) continue;
+      await this.prisma.approvedPostingGroup.upsert({
+        where: { companyId_application_postingGroup: { companyId, application, postingGroup } },
+        create: {
+          companyId,
+          application,
+          postingGroup,
+          module: text(row.Module),
+          masterType: text(row['Master Type']),
+          description: text(row.Description),
+          taxClass: text(row['Tax Class']) || null,
+          legalEntity: text(row['Legal Entity']) || null,
+          effectiveFrom,
+          status: text(row.Status),
+          developerUse: text(row['Developer Use']) || null,
+        },
+        update: {
+          module: text(row.Module),
+          masterType: text(row['Master Type']),
+          description: text(row.Description),
+          taxClass: text(row['Tax Class']) || null,
+          legalEntity: text(row['Legal Entity']) || null,
+          effectiveFrom,
+          status: text(row.Status),
+          developerUse: text(row['Developer Use']) || null,
+        },
+      });
+    }
+
     const controls = workbook.sheets.postingControls;
     for (const row of controls) {
       const application = text(row.Application), applicationRuleId = text(row['Application Rule ID']);
@@ -434,7 +488,7 @@ export class PostingControlProvisioningService {
     }
 
     return {
-      source: workbook.source, accounts: accounts.length, accountMaps: maps.length,
+      source: workbook.source, accounts: accounts.length, accountMaps: maps.length, postingGroups: groups.length,
       postingControlLines: controls.length, costCentres: centres.length,
       mappedAccounts: maps.filter((row) => accountIds.has(text(row['GL Code']))).length,
     };

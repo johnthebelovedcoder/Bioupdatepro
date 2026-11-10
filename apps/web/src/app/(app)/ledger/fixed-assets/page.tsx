@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { getFixedAssets } from '@/lib/fixed-assets';
+import { getFixedAssets, getFixedAssetDisposalOptions } from '@/lib/fixed-assets';
 import { api } from '@/lib/api';
 import { defaultYear, getContext } from '@/lib/org';
 import { formatDate, formatNaira } from '@/lib/money';
@@ -40,7 +40,7 @@ export const metadata = { title: 'Fixed assets — BioAssetPro' };
  * keys and the approval-ladder thresholds.
  */
 export default async function FixedAssetsPage() {
-  const [assets, context, dimensions, pendingImpairments, me] = await Promise.all([
+  const [assets, context, dimensions, pendingImpairments, me, disposalOptions] = await Promise.all([
     getFixedAssets(),
     getContext(),
     api<{ costCentres: Array<{ id: string; code: string; name: string }> }>(
@@ -48,6 +48,7 @@ export default async function FixedAssetsPage() {
     ),
     api<PendingImpairment[]>('/fixed-assets/impairments/pending').catch(() => [] as PendingImpairment[]),
     api<SessionUser>('/auth/me'),
+    getFixedAssetDisposalOptions(),
   ]);
   const canDecideImpairment = me.roles.some((r) => r === 'FINANCE_CONTROLLER' || r === 'CFO');
 
@@ -205,6 +206,8 @@ export default async function FixedAssetsPage() {
                             name={asset.name}
                             netBookValueKobo={asset.netBookValueKobo}
                             today={today}
+                            bankAccounts={disposalOptions.bankAccounts}
+                            customers={disposalOptions.customers}
                           />
                         ) : null}
                       </td>

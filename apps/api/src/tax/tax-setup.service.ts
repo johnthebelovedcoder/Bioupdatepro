@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { AuditAction, WhtBasis } from '@bioassetpro/database';
-import { chartVersionOf, numberFor, type ChartVersion } from '../chart/chart';
+import { chartVersionOf, numberFor } from '../chart/chart';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 
 /**
  * Turning tax on for a company.
@@ -28,12 +29,6 @@ import { AccountingRuleViolation } from '../common/errors';
  * `payroll-setup.service.ts` explains. If either changes, change both.
  */
 const TAX_EFFECTIVE_FROM = new Date('2026-01-01');
-
-/** The four tax control accounts, on the company's own chart (chart.ts). */
-const TAX_ROLES = ['inputVat', 'whtReceivable', 'outputVat', 'whtPayable'] as const;
-function taxAccounts(version: ChartVersion) {
-  return Object.fromEntries(TAX_ROLES.map((role) => [role, numberFor(version, role)])) as Record<(typeof TAX_ROLES)[number], string>;
-}
 
 const VAT_CODES = [
   {
@@ -94,6 +89,30 @@ export class TaxSetupService {
     private readonly audit: AuditService,
   ) {}
 
+  private async taxAccounts(companyId: string, on: Date) {
+    const version = await chartVersionOf(this.prisma, companyId);
+    if (version !== 'APPROVED') {
+      return {
+        inputVat: numberFor(version, 'inputVat'),
+        whtReceivable: numberFor(version, 'whtReceivable'),
+        outputVat: numberFor(version, 'outputVat'),
+        whtPayable: numberFor(version, 'whtPayable'),
+      };
+    }
+    const [inputVat, whtReceivable, outputVat, whtPayable] = await Promise.all([
+      resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-VAT-IN', postingKey: 'INPUT_VAT', on }),
+      resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-WHT-SUP-2', postingKey: 'WHT_RECEIVABLE', on }),
+      resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-VAT-OUT', postingKey: 'OUTPUT_VAT', on }),
+      resolveApprovedMappedAccount(this.prisma, { companyId, application: 'YifrehCore', postingGroup: 'COR-WHT-SUP-2', postingKey: 'WHT_PAYABLE', on }),
+    ]);
+    return {
+      inputVat: inputVat.accountNumber,
+      whtReceivable: whtReceivable.accountNumber,
+      outputVat: outputVat.accountNumber,
+      whtPayable: whtPayable.accountNumber,
+    };
+  }
+
   async status(companyId: string, on: Date = new Date()) {
     const [config, vatCodes, whtCodes, unratedWht] = await Promise.all([
       this.prisma.taxConfiguration.findFirst({
@@ -147,7 +166,7 @@ export class TaxSetupService {
       );
     }
 
-    const ACCOUNTS = taxAccounts(await chartVersionOf(this.prisma, companyId));
+    const ACCOUNTS = await this.taxAccounts(companyId, new Date());
     const accounts = await this.prisma.gLAccount.findMany({
       where: { companyId, accountNumber: { in: Object.values(ACCOUNTS) }, active: true },
       select: { id: true, accountNumber: true },
@@ -422,7 +441,7 @@ export class TaxSetupService {
       throw new AccountingRuleViolation('Consolidated Reference §4 — Tax codes', `${code} already exists.`, { code });
     }
 
-    const ACCOUNTS = taxAccounts(await chartVersionOf(this.prisma, params.companyId));
+    const ACCOUNTS = await this.taxAccounts(params.companyId, from);
     const pair =
       params.taxType === 'VAT'
         ? [

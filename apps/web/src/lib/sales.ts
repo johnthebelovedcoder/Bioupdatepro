@@ -52,6 +52,7 @@ export interface Delivery {
 
 export interface SalesInvoiceRow {
   id: string;
+  targetType?: 'INVOICE' | 'JOURNAL_LINE';
   invoiceNumber: string;
   orderNumber: string | null;
   /** Set when the sale was recorded as paid on the spot: how the buyer paid. */
@@ -66,6 +67,8 @@ export interface SalesInvoiceRow {
   grossAmountKobo: string;
   settledAmountKobo: string;
   outstandingKobo: string;
+  /** Open balance after pending receipts have reserved their allocations. */
+  availableToReceiveKobo?: string;
 }
 
 export async function getSalesOrders(): Promise<SalesOrder[]> {

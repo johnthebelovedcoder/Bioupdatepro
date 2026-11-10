@@ -9,7 +9,8 @@ import { PostingControlService } from '../posting-control/posting-control.servic
 import { WorkflowActor } from '../workflow/workflow.types';
 import { StockMovementService } from './stock-movement.service';
 import { AccountingRuleViolation } from '../common/errors';
-import { APPROVED_INVENTORY_GAIN, chartVersionOf } from '../chart/chart';
+import { chartVersionOf } from '../chart/chart';
+import { resolveApprovedMappedAccount, resolveApprovedItemInventoryAccount } from '../posting-control/approved-account-map';
 import { kobo } from '../common/money';
 
 /** Who may approve, hold or cancel a count (INT-009: counter ≠ approver). */
@@ -286,6 +287,8 @@ export class StockCountService {
     }
 
     const differences = count.lines.filter((l) => l.varianceQuantity !== null && !new Decimal(l.varianceQuantity.toString()).isZero());
+    const positiveDifferences = differences.filter((line) => new Decimal(line.varianceQuantity!.toString()).gt(0) && line.varianceValueKobo !== 0n);
+    const negativeDifferences = differences.filter((line) => new Decimal(line.varianceQuantity!.toString()).lt(0) && line.varianceValueKobo !== 0n);
     const unpriced = differences.filter((l) => new Decimal(l.varianceQuantity!.toString()).gt(0) && l.unitCostKobo === 0n);
     if (unpriced.length > 0) {
       throw new AccountingRuleViolation(
@@ -298,15 +301,48 @@ export class StockCountService {
     const context = await this.requireOpenPeriod(params.companyId);
     const rule = await this.postingControl.resolve({ companyId: params.companyId, ruleId: 'PCR-014', on: new Date() });
     if (!rule.debit || !rule.credit) throw new AccountingRuleViolation('Consolidated Reference §66 — Posting rule', 'PCR-014 has no account on one side.', {});
-    const lossAccount = rule.debit.glAccountId;
+    const approvedChart = (await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED';
+    const inventoryAccountByItem = new Map<string, string>();
+    if (approvedChart) {
+      for (const line of differences) {
+        const mapped = await resolveApprovedItemInventoryAccount(this.prisma, { companyId: params.companyId, application: 'YifrehCore', itemId: line.itemId, isBiologicalFeed: line.item.isBiologicalFeed, isManufactured: line.item.isManufactured, on: new Date() });
+        if (line.item.inventoryGlAccountId && line.item.inventoryGlAccountId !== mapped.glAccountId) throw new AccountingRuleViolation('Approved Posting Group — item inventory mismatch', `Item ${line.item.code} account conflicts with its assigned workbook item group.`, { itemId: line.itemId });
+        inventoryAccountByItem.set(line.itemId, mapped.glAccountId);
+      }
+    }
+    const inventoryAccount = (line: (typeof differences)[number]) => inventoryAccountByItem.get(line.itemId) ?? line.item.inventoryGlAccountId ?? rule.credit!.glAccountId;
+    const lossAccount = approvedChart
+      ? (await resolveApprovedMappedAccount(this.prisma, { companyId: params.companyId, application: 'YifrehCore', postingGroup: 'COR-RM', postingKey: 'INVENTORY_LOSS_VARIANCE', on: new Date() })).glAccountId
+      : rule.debit.glAccountId;
     // On the approved chart a surplus is its own gain (other operating income),
     // not a credit against the write-down expense a shortage is charged to.
     const gainAccount =
       (await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED'
-        ? (await this.prisma.gLAccount.findFirst({ where: { companyId: params.companyId, accountNumber: APPROVED_INVENTORY_GAIN, active: true }, select: { id: true } }))?.id
+        ? (await resolveApprovedMappedAccount(this.prisma, { companyId: params.companyId, application: 'YifrehCore', postingGroup: 'COR-RM', postingKey: 'INVENTORY_GAIN_VARIANCE', on: new Date() })).glAccountId
         : undefined;
     if ((await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED' && !gainAccount) {
-      throw new AccountingRuleViolation('INT-009 — Count surplus', `A stock count surplus is credited to ${APPROVED_INVENTORY_GAIN} (inventory gain), which this chart does not have.`, {});
+      throw new AccountingRuleViolation('INT-009 — Count surplus', 'The approved chart has no effective inventory gain map for this count date.', {});
+    }
+    const positiveInventoryAccounts = [...new Set(differences
+      .filter((line) => positiveDifferences.includes(line))
+      .map(inventoryAccount))];
+    const negativeInventoryAccounts = [...new Set(differences
+      .filter((line) => negativeDifferences.includes(line))
+      .map(inventoryAccount))];
+    const expectedAccountSideAmountsKobo = new Map<string, bigint>();
+    const expect = (side: 'Debit' | 'Credit', accountId: string, amount: bigint) => {
+      const key = `${side}:${accountId}`;
+      expectedAccountSideAmountsKobo.set(key, (expectedAccountSideAmountsKobo.get(key) ?? 0n) + amount);
+    };
+    for (const line of positiveDifferences) {
+      const amount = line.varianceValueKobo!;
+      expect('Debit', inventoryAccount(line), amount);
+      expect('Credit', gainAccount ?? lossAccount, amount);
+    }
+    for (const line of negativeDifferences) {
+      const amount = -line.varianceValueKobo!;
+      expect('Debit', lossAccount, amount);
+      expect('Credit', inventoryAccount(line), amount);
     }
     const dimensions = {
       companyId: params.companyId,
@@ -324,7 +360,7 @@ export class StockCountService {
         const variance = new Decimal(line.varianceQuantity!.toString());
         const value = line.varianceValueKobo!;
         const magnitude = value < 0n ? -value : value;
-        const stockAccount = line.item.inventoryGlAccountId ?? rule.credit!.glAccountId;
+        const stockAccount = inventoryAccount(line);
         const movement = {
           tx,
           companyId: params.companyId,
@@ -367,6 +403,18 @@ export class StockCountService {
                 narration: `Stock count ${count.reference}: approved adjustment`,
                 ...dimensions,
                 idempotencyKey: `stock-count:${count.id}`,
+                ...(approvedChart ? {
+                  approvedControl: {
+                    application: 'YifrehCore',
+                    applicationRuleId: positiveDifferences.length > 0 ? 'COR-YFR-041' : 'COR-YFR-042',
+                    additionalApplicationRuleIds: negativeDifferences.length > 0 && positiveDifferences.length > 0 ? ['COR-YFR-042'] : [],
+                    dynamicAccountIds: {
+                      ...(positiveInventoryAccounts.length ? { 'COR-YFR-041:INVENTORY_CONTROL': positiveInventoryAccounts } : {}),
+                      ...(negativeInventoryAccounts.length ? { 'COR-YFR-042:INVENTORY_CONTROL': negativeInventoryAccounts } : {}),
+                    },
+                    expectedAccountSideAmountsKobo: Object.fromEntries([...expectedAccountSideAmountsKobo].map(([pair, amount]) => [pair, amount.toString()])),
+                  },
+                } : {}),
                 actor: params.actor,
                 lines,
               },
@@ -470,11 +518,11 @@ export class StockCountService {
     if (!count) throw new NotFoundException('No such stock count.');
     const items = await this.prisma.item.findMany({
       where: { companyId, id: { in: count.lines.map((l) => l.itemId) } },
-      select: { id: true, code: true, inventoryGlAccountId: true },
+      select: { id: true, code: true, inventoryGlAccountId: true, isBiologicalFeed: true, isManufactured: true },
     });
     return {
       ...count,
-      lines: count.lines.map((l) => ({ ...l, item: items.find((i) => i.id === l.itemId) ?? { id: l.itemId, code: l.itemId, inventoryGlAccountId: null } })),
+      lines: count.lines.map((l) => ({ ...l, item: items.find((i) => i.id === l.itemId) ?? { id: l.itemId, code: l.itemId, inventoryGlAccountId: null, isBiologicalFeed: false, isManufactured: false } })),
     };
   }
 

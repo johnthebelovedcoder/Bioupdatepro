@@ -77,8 +77,25 @@ export class ControlAccountReconciliationService {
       where: { companyId, status: { in: [SalesInvoiceStatus.POSTED, SalesInvoiceStatus.PART_PAID] } },
       select: { grossAmountKobo: true, settledAmountKobo: true },
     });
-    const subledgerKobo = invoices.reduce((s, i) => s + (i.grossAmountKobo - i.settledAmountKobo), 0n);
-    return this.row(account, 'Trade Receivables', balanceOf(account), subledgerKobo, `${invoices.length} open sales invoices`);
+    const assetDisposals = await this.prisma.workflowTransaction.findMany({
+      where: { companyId, module: 'fixed-assets', documentType: 'FixedAssetDisposal', transactionType: 'FIXED_ASSET_DISPOSAL', status: 'POSTED' },
+      select: { postingPayload: true, journalEntry: { select: { lines: { where: { customerId: { not: null }, debitKobo: { gt: 0n } }, select: { id: true, debitKobo: true } } } } },
+    });
+    const creditDisposals = assetDisposals.filter((transaction) => {
+      const payload = transaction.postingPayload && typeof transaction.postingPayload === 'object' && !Array.isArray(transaction.postingPayload)
+        ? transaction.postingPayload as Record<string, unknown>
+        : null;
+      return payload?.proceedsMode === 'CREDIT' && typeof payload.customerId === 'string';
+    });
+    let disposalReceivables = 0n;
+    for (const transaction of creditDisposals) {
+      for (const line of transaction.journalEntry?.lines ?? []) {
+        const allocations = await this.prisma.receiptAllocation.findMany({ where: { journalLineId: line.id, receipt: { status: 'POSTED' } }, select: { amountKobo: true } });
+        disposalReceivables += line.debitKobo - allocations.reduce((sum, allocation) => sum + allocation.amountKobo, 0n);
+      }
+    }
+    const subledgerKobo = invoices.reduce((s, i) => s + (i.grossAmountKobo - i.settledAmountKobo), disposalReceivables);
+    return this.row(account, 'Trade Receivables', balanceOf(account), subledgerKobo, `${invoices.length} open sales invoices and ${creditDisposals.length} asset-disposal receivables`);
   }
 
   private async payables(companyId: string, balanceOf: (accountNumber: string) => bigint, account: string): Promise<ControlReconciliationRow> {

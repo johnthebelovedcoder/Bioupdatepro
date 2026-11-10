@@ -32,12 +32,12 @@ export async function recordBreedingCycle(_previous: FlowState, formData: FormDa
     notes: String(formData.get('notes') ?? '').trim() || null,
   };
   try {
-    await api('/snail-breeding/cycles', { method: 'POST', body });
+    const result = await api<{ workflowTransactionId?: string }>('/snail-breeding/cycles', { method: 'POST', body });
+    revalidatePath(PATH);
+    return { error: null, message: result.workflowTransactionId ? `${body.code.toUpperCase()} submitted for approval. The eggs can be hatched after approval.` : `${body.code.toUpperCase()} recorded.` };
   } catch (caught) {
     return fail(caught, 'Could not record that cycle.');
   }
-  revalidatePath(PATH);
-  return { error: null, message: `${body.code.toUpperCase()} recorded.` };
 }
 
 export async function recordSnailHatch(_previous: FlowState, formData: FormData): Promise<FlowState> {
@@ -72,12 +72,12 @@ export async function valueLegacySnailEggCycle(_previous: FlowState, formData: F
     costSourceAccountId: String(formData.get('costSourceAccountId') ?? '') || null,
   };
   try {
-    await api(`/snail-breeding/cycles/${cycleId}/value`, { method: 'POST', body });
+    const result = await api<{ workflowTransactionId?: string }>(`/snail-breeding/cycles/${cycleId}/value`, { method: 'POST', body });
+    revalidatePath(PATH);
+    return { error: null, message: result.workflowTransactionId ? 'Legacy egg valuation submitted for approval. The eggs can be hatched after approval.' : 'Legacy egg cohort valued and posted.' };
   } catch (caught) {
     return fail(caught, 'Could not value that legacy egg cycle.');
   }
-  revalidatePath(PATH);
-  return { error: null, message: 'Legacy egg cohort valued and posted.' };
 }
 
 export async function failBreedingCycle(_previous: FlowState, formData: FormData): Promise<FlowState> {

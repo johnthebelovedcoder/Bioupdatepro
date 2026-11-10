@@ -8,6 +8,7 @@ import {
   Prisma,
 } from '@bioassetpro/database';
 import { chartVersionOf, numberFor } from '../chart/chart';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 import { PrismaService } from '../prisma/prisma.service';
 import { recordClosePack } from './close-pack';
 import { AuditService } from '../audit/audit.service';
@@ -361,6 +362,7 @@ export class YearEndService {
           };
 
           const required = await this.requiredDimensions(tx, year.companyId, dimensions, closingLines.map((l) => l.glAccountId));
+          const approvedChart = await chartVersionOf(tx, year.companyId) === 'APPROVED';
           const posted = await this.posting.post(
             {
               sourceModule: 'closing',
@@ -373,6 +375,7 @@ export class YearEndService {
               idempotencyKey: `year-end-close:${year.id}`,
               isClosingEntry: true,
               actor: params.actor,
+              ...(approvedChart ? { approvedControl: yearEndPostingControl('COR-APP-YE-CLOSE-001', closingLines) } : {}),
               lines: closingLines.map((line) => ({
                 glAccountId: line.glAccountId,
                 description: line.description,
@@ -446,6 +449,7 @@ export class YearEndService {
             };
 
             const openingRequired = await this.requiredDimensions(tx, year.companyId, dimensions, openingLines.map((l) => l.glAccountId));
+            const approvedChart = await chartVersionOf(tx, year.companyId) === 'APPROVED';
             const posted = await this.posting.post(
               {
                 sourceModule: 'closing',
@@ -458,6 +462,7 @@ export class YearEndService {
                 idempotencyKey: `year-end-open:${nextYear.year.id}`,
                 isClosingEntry: true,
                 actor: params.actor,
+                ...(approvedChart ? { approvedControl: yearEndPostingControl('COR-APP-YE-OPEN-001', openingLines) } : {}),
                 lines: openingLines.map((line) => ({
                   glAccountId: line.glAccountId,
                   description: line.description,
@@ -606,10 +611,15 @@ export class YearEndService {
    * refusing to close.
    */
   private async findRetainedEarnings(companyId: string) {
-    const number = numberFor(await chartVersionOf(this.prisma, companyId), 'retainedEarnings');
-    const byNumber = await this.prisma.gLAccount.findFirst({
-      where: { companyId, accountNumber: number, active: true, OR: [{ isPostingAccount: true }, { isControlAccount: true }] },
-    });
+    const version = await chartVersionOf(this.prisma, companyId);
+    const byNumber = version === 'APPROVED'
+      ? await resolveApprovedMappedAccount(this.prisma, {
+          companyId, application: 'YifrehCore', postingGroup: 'COR-FIN-DEFAULT',
+          postingKey: 'RETAINED_EARNINGS', on: new Date(),
+        }).then((mapped) => this.prisma.gLAccount.findFirst({ where: { id: mapped.glAccountId, companyId, active: true } }))
+      : await this.prisma.gLAccount.findFirst({
+          where: { companyId, accountNumber: numberFor(version, 'retainedEarnings'), active: true, OR: [{ isPostingAccount: true }, { isControlAccount: true }] },
+        });
     if (byNumber) return byNumber;
 
     return this.prisma.gLAccount.findFirst({
@@ -761,4 +771,29 @@ export class YearEndService {
 
     return { year: created, firstPeriod };
   }
+}
+
+function yearEndPostingControl(
+  applicationRuleId: string,
+  lines: Array<{ glAccountId: string; debit?: bigint; credit?: bigint }>,
+) {
+  const debitIds = [...new Set(lines.filter((line) => (line.debit ?? 0n) > 0n).map((line) => line.glAccountId))];
+  const creditIds = [...new Set(lines.filter((line) => (line.credit ?? 0n) > 0n).map((line) => line.glAccountId))];
+  const expectedAccountSideAmountsKobo: Record<string, string> = {};
+  for (const line of lines) {
+    const side = (line.debit ?? 0n) > 0n ? 'Debit' : 'Credit';
+    const amount = side === 'Debit' ? line.debit ?? 0n : line.credit ?? 0n;
+    const key = `${side}:${line.glAccountId}`;
+    expectedAccountSideAmountsKobo[key] = (BigInt(expectedAccountSideAmountsKobo[key] ?? '0') + amount).toString();
+  }
+  return {
+    application: 'YifrehCore',
+    applicationRuleId,
+    dynamicAccountIds: {
+      [`${applicationRuleId}:YEAR_END_DEBIT`]: debitIds,
+      [`${applicationRuleId}:YEAR_END_CREDIT`]: creditIds,
+    },
+    dynamicMappingApplications: ['YifrehCore', 'YifrehSnail', 'YifrehPoultry'],
+    expectedAccountSideAmountsKobo,
+  };
 }

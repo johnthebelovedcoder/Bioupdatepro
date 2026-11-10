@@ -93,11 +93,25 @@ export async function disposeAsset(
   const disposedOn = String(formData.get('disposedOn') ?? '').trim();
   if (!assetId) return { error: 'No asset was named.', message: null };
   if (!disposedOn) return { error: 'Say when it left service.', message: null };
+  const proceedsKobo = parseNairaToKobo(String(formData.get('proceedsNaira') ?? '0'));
+  if (proceedsKobo === null || proceedsKobo < 0n) return { error: 'Enter valid non-negative disposal proceeds.', message: null };
+  const proceedsMode = String(formData.get('proceedsMode') ?? '') as 'CASH' | 'CREDIT' | '';
+  const bankAccountId = String(formData.get('bankAccountId') ?? '').trim();
+  const customerId = String(formData.get('customerId') ?? '').trim();
+  if (proceedsKobo > 0n && proceedsMode === 'CASH' && !bankAccountId) return { error: 'Choose the bank account that received the proceeds.', message: null };
+  if (proceedsKobo > 0n && proceedsMode === 'CREDIT' && !customerId) return { error: 'Choose the customer who owes the proceeds.', message: null };
+  if (proceedsKobo > 0n && !proceedsMode) return { error: 'Choose whether proceeds were received or are due from a customer.', message: null };
 
   try {
     await api(`/fixed-assets/assets/${assetId}/dispose`, {
       method: 'POST',
-      body: { disposedOn: new Date(disposedOn).toISOString() },
+      body: {
+        disposedOn: new Date(disposedOn).toISOString(),
+        proceedsKobo: proceedsKobo.toString(),
+        proceedsMode: proceedsKobo > 0n ? proceedsMode : null,
+        bankAccountId: proceedsKobo > 0n && proceedsMode === 'CASH' ? bankAccountId : null,
+        customerId: proceedsKobo > 0n && proceedsMode === 'CREDIT' ? customerId : null,
+      },
     });
   } catch (caught) {
     return fail(caught, 'Could not dispose of that asset.');

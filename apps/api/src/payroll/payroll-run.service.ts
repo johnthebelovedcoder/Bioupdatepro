@@ -20,6 +20,7 @@ import { PayeEngineService } from './paye-engine.service';
 import { StatutoryEngineService } from './statutory-engine.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { chartVersionOf, numberFor } from '../chart/chart';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 import { kobo } from '../common/money';
 
 export interface PayrollValidationResult {
@@ -529,7 +530,7 @@ export class PayrollRunService {
       );
     }
 
-    const accounts = await this.resolveAccounts(run.companyId, params.tx);
+    const accounts = await this.resolveAccounts(run.companyId, params.tx, [...new Set(run.lines.map((line) => line.employeeId))], run.payrollDate);
 
     const dimensions = {
       companyId: run.companyId,
@@ -761,7 +762,7 @@ export class PayrollRunService {
    * rather than posting to a suspense account nobody watches.
    */
   /** Not private: PayrollPaymentService needs the same payable accounts to know what it is clearing. */
-  async resolveAccounts(companyId: string, tx: Prisma.TransactionClient) {
+  async resolveAccounts(companyId: string, tx: Prisma.TransactionClient, employeeIds: string[] = [], on: Date = new Date()) {
     // On the company's own chart (chart.ts): four-digit on LEGACY, the
     // client's six-digit accounts on SPEC.
     const version = await chartVersionOf(tx, companyId);
@@ -777,7 +778,37 @@ export class PayrollRunService {
       'itfPayable',
       'payePayable',
     ] as const;
-    const required = Object.fromEntries(roles.map((role) => [role, numberFor(version, role)])) as Record<(typeof roles)[number], string>;
+    let required: Record<(typeof roles)[number], string>;
+    if (version === 'APPROVED') {
+      const payrollAssignments = employeeIds.length
+        ? await Promise.all(employeeIds.map(async (employeeId) => Promise.all([
+            resolveApprovedMappedAccount(tx, { companyId, application: 'YifrehCore', masterType: 'Payroll group', masterId: employeeId, postingKey: 'LABOUR_EXPENSE', on }),
+            resolveApprovedMappedAccount(tx, { companyId, application: 'YifrehCore', masterType: 'Payroll group', masterId: employeeId, postingKey: 'PAYROLL_PAYABLE', on }),
+          ])))
+        : [];
+      const assignedNumbers = (index: 0 | 1) => [...new Set(payrollAssignments.map((row) => row[index].accountNumber))];
+      if (assignedNumbers(0).length > 1 || assignedNumbers(1).length > 1) throw new AccountingRuleViolation('Approved Posting Group — payroll group accounts', 'This payroll run spans groups whose workbook maps to different accounts. Payroll posting must split the expense and payable lines by assigned employee group.', { employeeIds });
+      const [labour, payrollControl, accrualControl] = await Promise.all([
+        payrollAssignments[0]?.[0] ?? resolveApprovedMappedAccount(tx, { companyId, application: 'YifrehCore', postingGroup: 'COR-PAYROLL', postingKey: 'LABOUR_EXPENSE', on }),
+        payrollAssignments[0]?.[1] ?? resolveApprovedMappedAccount(tx, { companyId, application: 'YifrehCore', postingGroup: 'COR-PAYROLL', postingKey: 'PAYROLL_PAYABLE', on }),
+        resolveApprovedMappedAccount(tx, { companyId, application: 'YifrehCore', postingGroup: 'COR-FIN-DEFAULT', postingKey: 'ACCRUAL_CONTROL', on }),
+      ]);
+      const payePayable = numberFor(version, 'payePayable'); // workbook account master; no distinct map key is supplied
+      required = {
+        salaryExpense: labour.accountNumber,
+        employerPensionExpense: labour.accountNumber,
+        nsitfExpense: labour.accountNumber,
+        itfExpense: labour.accountNumber,
+        salaryPayable: payrollControl.accountNumber,
+        pensionPayable: payrollControl.accountNumber,
+        nhfPayable: payrollControl.accountNumber,
+        nsitfPayable: accrualControl.accountNumber,
+        itfPayable: accrualControl.accountNumber,
+        payePayable,
+      };
+    } else {
+      required = Object.fromEntries(roles.map((role) => [role, numberFor(version, role)])) as Record<(typeof roles)[number], string>;
+    }
 
     let accounts = await tx.gLAccount.findMany({
       where: { companyId, accountNumber: { in: Object.values(required) } },

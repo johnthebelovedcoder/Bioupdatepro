@@ -24,6 +24,15 @@ export async function getFixedAssets(): Promise<FixedAssetRow[]> {
   return api<FixedAssetRow[]>('/fixed-assets/assets');
 }
 
+export interface FixedAssetDisposalOptions {
+  bankAccounts: Array<{ id: string; name: string; bankName: string; accountNumber: string }>;
+  customers: Array<{ id: string; code: string; name: string }>;
+}
+
+export async function getFixedAssetDisposalOptions(): Promise<FixedAssetDisposalOptions> {
+  return api<FixedAssetDisposalOptions>('/fixed-assets/assets/disposal-options');
+}
+
 export interface MachineHoursRow {
   assetId: string;
   processingCycle: 'SNAILPRO' | 'POULTRYPRO' | 'FEED_MILL';

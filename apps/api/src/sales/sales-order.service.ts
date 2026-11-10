@@ -396,7 +396,7 @@ export class SalesOrderService {
       );
     }
 
-    const config = await this.pricing.configuration(order.companyId, order.orderDate);
+    const config = await this.pricing.configuration(order.companyId, order.orderDate, undefined, order.customerId);
 
     const creditCheck = await this.parties.creditCheck({
       customerId: order.customerId,

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { LedgerFlag, PostingRuleStatus, Prisma } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { resolveApprovedMappedAccount } from './approved-account-map';
 
 /**
  * Consolidated Reference §66 — posting rules, resolved rather than written.
@@ -63,36 +64,7 @@ export class PostingControlService {
 
   /** Resolve the approved effective-dated Account Map's unique app/group/purpose triplet. */
   async resolveApprovedAccount(params: { companyId: string; application: string; postingGroup: string; postingKey: string; on?: Date }) {
-    const on = params.on ?? new Date();
-    const rows = await this.prisma.approvedPostingMap.findMany({
-      where: {
-        companyId: params.companyId, application: params.application, postingGroup: params.postingGroup,
-        postingKey: params.postingKey, status: 'Active', effectiveFrom: { lte: on },
-        OR: [{ effectiveTo: null }, { effectiveTo: { gte: on } }],
-      },
-      include: { glAccount: true }, orderBy: { effectiveFrom: 'desc' }, take: 2,
-    });
-    if (rows.length !== 1 || !rows[0]?.glAccount) {
-      throw new AccountingRuleViolation(
-        'Approved Account Map — unique effective resolution',
-        `${params.application} / ${params.postingGroup} / ${params.postingKey} must resolve to exactly one active posting account on ${on.toISOString().slice(0, 10)}.`,
-        { application: params.application, postingGroup: params.postingGroup, postingKey: params.postingKey, matches: rows.length },
-      );
-    }
-    const row = rows[0];
-    const account = row.glAccount;
-    if (!account) {
-      throw new AccountingRuleViolation('Approved Account Map — account missing', `${row.accountCode} is not present in the approved chart for this company.`, { accountCode: row.accountCode });
-    }
-    // An explicitly approved Account Map is the system/subledger route into a
-    // control account. The COA's "Posting Account: No" flag blocks direct GL
-    // and manual-journal posting; it must not block the approved business
-    // event that owns and reconciles the control subledger. Manual journals
-    // are independently rejected by assertManualJournalAllowed below.
-    if (!account.active || (!account.isPostingAccount && !account.isControlAccount)) {
-      throw new AccountingRuleViolation('Approved Account Map — posting account', `${row.accountCode} is inactive or is not an approved posting/control account in the COA.`, { accountCode: row.accountCode });
-    }
-    return { glAccountId: account.id, accountNumber: row.accountCode, accountName: account.name, mapKey: row.mapKey };
+    return resolveApprovedMappedAccount(this.prisma, { ...params, on: params.on ?? new Date() });
   }
 
   /**

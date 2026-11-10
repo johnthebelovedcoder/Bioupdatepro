@@ -7,6 +7,7 @@ import { PostingService } from '../posting/posting.service';
 import { AuditService } from '../audit/audit.service';
 import { StockMovementService } from '../inventory/stock-movement.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { resolveApprovedItemInventoryAccount, resolveApprovedLifecycleStageAccount } from '../posting-control/approved-account-map';
 import { kobo } from '../common/money';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
@@ -190,7 +191,7 @@ export class EggPostingService {
           this.account(batch.companyId, accounts.gain, tx),
           this.warehouse(tx, batch.companyId, item.defaultWarehouseId),
         ]);
-        const inventory = item.inventoryGlAccountId ?? (await this.account(batch.companyId, accounts.inventory, tx));
+        const inventory = await this.inventoryAccount(tx, batch.companyId, item.id, item.inventoryGlAccountId, accounts.inventory, batch.collectedOn);
         const dims = { ...context, branchId: batch.branchId, farmId: batch.farmId, penHouseId: batch.penHouseId };
 
         const journal = await this.posting.post(
@@ -204,6 +205,11 @@ export class EggPostingService {
             ...dims,
             idempotencyKey: `egg-collection:${batch.id}`,
             actor,
+            ...(await chartVersionOf(tx, batch.companyId)) === 'APPROVED' ? { approvedControl: {
+              application: 'YifrehPoultry', applicationRuleId: 'PLP-APP-EGG-COLL-001',
+              dynamicAccountIds: { 'PLP-APP-EGG-COLL-001:FINISHED_GOODS_INVENTORY': [inventory], 'PLP-APP-EGG-COLL-001:BA_FAIR_VALUE_GAIN': [gain] },
+              expectedLineAmountsKobo: { 'PLP-APP-EGG-COLL-001:1': valueKobo.toString(), 'PLP-APP-EGG-COLL-001:2': valueKobo.toString() },
+            } } : {},
             lines: [
               { glAccountId: inventory, description: `PCR-067 — ${eggs} eggs into stock`, debit: kobo(valueKobo), dimensions: dims },
               { glAccountId: gain, description: `PCR-067 — eggs at ${naira(policy.valuePerUnitKobo)} per ${policy.eggsPerUnit}`, credit: kobo(valueKobo), dimensions: dims },
@@ -258,7 +264,7 @@ export class EggPostingService {
           this.account(incubation.companyId, accounts.incubation, tx),
           this.warehouse(tx, incubation.companyId, item.defaultWarehouseId),
         ]);
-        const inventory = item.inventoryGlAccountId ?? (await this.account(incubation.companyId, accounts.inventory, tx));
+        const inventory = await this.inventoryAccount(tx, incubation.companyId, item.id, item.inventoryGlAccountId, accounts.inventory, incubation.setOn);
         const dims = { ...context, branchId: source.branchId, farmId: source.farmId, penHouseId: source.penHouseId };
 
         const movement = {
@@ -298,6 +304,11 @@ export class EggPostingService {
             ...dims,
             idempotencyKey: `egg-incubation:${incubation.id}`,
             actor,
+            ...(await chartVersionOf(tx, incubation.companyId)) === 'APPROVED' ? { approvedControl: {
+              application: 'YifrehPoultry', applicationRuleId: 'PLP-APP-EGG-INC-001',
+              dynamicAccountIds: { 'PLP-APP-EGG-INC-001:INCUBATION_INVENTORY': [incubationAccount], 'PLP-APP-EGG-INC-001:FINISHED_GOODS_INVENTORY': [inventory] },
+              expectedLineAmountsKobo: { 'PLP-APP-EGG-INC-001:1': issued.valueKobo.toString(), 'PLP-APP-EGG-INC-001:2': issued.valueKobo.toString() },
+            } } : {},
             lines: [
               { glAccountId: incubationAccount, description: `PCR-068 — ${incubation.setQuantity} eggs set`, debit: kobo(issued.valueKobo), dimensions: dims },
               { glAccountId: inventory, description: `PCR-068 — eggs out of stock (${source.code})`, credit: kobo(issued.valueKobo), dimensions: dims },
@@ -363,16 +374,7 @@ export class EggPostingService {
         const group = chicks ? await tx.livestockGroup.findUniqueOrThrow({ where: { id: hatch.chickGroupId! } }) : null;
         let chickAccountNumber = speciesNumberFor(version, 'productionLoss', 'poultry')!;
         if (group && version === 'APPROVED') {
-          const stageRows = await tx.speciesBreedStage.findMany({
-            where: { stageName: group.stage, speciesBreed: { companyId: hatch.companyId, speciesKey: group.speciesKey, active: true } },
-            select: { maturityClass: true },
-          });
-          const classes = [...new Set(stageRows.map((row) => row.maturityClass).filter((value): value is string => !!value))];
-          if (!stageRows.length || classes.length !== 1 || stageRows.some((row) => !row.maturityClass)) {
-            throw new BadRequestException(`Finance must assign one consistent maturity class to chick stage "${group.stage}" before hatch accounting can post.`);
-          }
-          if (classes[0] !== 'IMMATURE' && classes[0] !== 'MATURE') throw new BadRequestException(`Chick stage "${group.stage}" has an invalid Finance maturity class.`);
-          chickAccountNumber = classes[0] === 'IMMATURE' ? '16032' : '16042';
+          chickAccountNumber = (await resolveApprovedLifecycleStageAccount(tx, { companyId: hatch.companyId, speciesKey: group.speciesKey, stageName: group.stage, on: hatch.hatchedOn })).accountNumber;
         } else if (group) {
           chickAccountNumber = hatchedChickAccountNumber(version, group.stage);
         }
@@ -406,6 +408,14 @@ export class EggPostingService {
             ...dims,
             idempotencyKey: `egg-hatch:${hatch.id}`,
             actor,
+            ...(version === 'APPROVED' ? { approvedControl: {
+              application: 'YifrehPoultry', applicationRuleId: group ? 'PLP-APP-EGG-HATCH-001' : 'PLP-APP-EGG-LOSS-001',
+              dynamicAccountIds: {
+                [`${group ? 'PLP-APP-EGG-HATCH-001' : 'PLP-APP-EGG-LOSS-001'}:${group ? 'BA_SOURCE_STAGE_CONTROL' : 'PRODUCTION_LOSS'}`]: [target],
+                [`${group ? 'PLP-APP-EGG-HATCH-001' : 'PLP-APP-EGG-LOSS-001'}:INCUBATION_INVENTORY`]: [incubationAccount],
+              },
+              expectedLineAmountsKobo: { [`${group ? 'PLP-APP-EGG-HATCH-001' : 'PLP-APP-EGG-LOSS-001'}:1`]: incubation.valueKobo.toString(), [`${group ? 'PLP-APP-EGG-HATCH-001' : 'PLP-APP-EGG-LOSS-001'}:2`]: incubation.valueKobo.toString() },
+            } } : {}),
             lines: [
               {
                 glAccountId: target,
@@ -524,6 +534,23 @@ export class EggPostingService {
       );
     }
     return account.id;
+  }
+
+  private async inventoryAccount(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    itemId: string,
+    configuredAccountId: string | null,
+    fallbackNumber: string,
+    on: Date,
+  ): Promise<string> {
+    if (await chartVersionOf(tx, companyId) === 'APPROVED') {
+      return (await resolveApprovedItemInventoryAccount(tx, {
+        companyId, application: 'YifrehPoultry', itemId,
+        isBiologicalFeed: false, isManufactured: true, on,
+      })).glAccountId;
+    }
+    return configuredAccountId ?? this.account(companyId, fallbackNumber, tx);
   }
 
   private async warehouse(tx: Prisma.TransactionClient, companyId: string, preferred: string | null): Promise<string> {

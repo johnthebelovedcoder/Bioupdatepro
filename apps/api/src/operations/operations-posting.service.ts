@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { kobo } from '../common/money';
 import { AccountingRuleViolation } from '../common/errors';
+import { resolveApprovedMappedAccount, resolveApprovedItemInventoryAccount } from '../posting-control/approved-account-map';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { RearingCostService } from '../biological-assets/rearing-cost.service';
 import { StockMovementService } from '../inventory/stock-movement.service';
@@ -81,7 +82,7 @@ export class OperationsPostingService {
         dailyRecord: {
           include: { group: { include: { penHouse: true } } },
         },
-        item: { select: { defaultWarehouseId: true, inventoryGlAccountId: true } },
+        item: { select: { defaultWarehouseId: true, inventoryGlAccountId: true, isBiologicalFeed: true, isManufactured: true } },
       },
     });
 
@@ -98,23 +99,19 @@ export class OperationsPostingService {
       }
 
       const group = issue.dailyRecord.group;
-      const accounts = await this.accounts(params.companyId, group.speciesKey, 'feed', group.stage);
-      if (!accounts) {
-        skipped.push('The chart of accounts has no Work in Progress or Raw Material Inventory.');
-        break;
-      }
-
       const period = await this.periodFor(params.companyId, issue.dailyRecord.recordedOn);
       if (!period) {
-        skipped.push(
-          `No open accounting period covers ${issue.dailyRecord.recordedOn.toISOString().slice(0, 10)}.`,
-        );
+        skipped.push(`No open accounting period covers ${issue.dailyRecord.recordedOn.toISOString().slice(0, 10)}.`);
         continue;
       }
-
       const costCentre = await this.costCentreFor(params.companyId);
       if (!costCentre) {
         skipped.push('Work in Progress requires a cost centre and none is configured.');
+        break;
+      }
+      const accounts = await this.accounts(params.companyId, group.speciesKey, 'feed', group.stage, costCentre.id, issue.dailyRecord.recordedOn);
+      if (!accounts) {
+        skipped.push('The chart of accounts has no Work in Progress or Raw Material Inventory.');
         break;
       }
 
@@ -156,7 +153,15 @@ export class OperationsPostingService {
         skipped.push('No store is set up to issue feed from.');
         break;
       }
-      const creditAccount = issue.item?.inventoryGlAccountId ?? accounts.rawMaterials;
+      const approvedChart = await chartVersionOf(this.prisma, params.companyId) === 'APPROVED';
+      const application = group.speciesKey?.toLowerCase().includes('snail') ? 'YifrehSnail' : group.speciesKey?.toLowerCase().includes('poultry') ? 'YifrehPoultry' : 'YifrehCore';
+      const assignedItemAccount = approvedChart && issue.itemId && issue.item
+        ? await resolveApprovedItemInventoryAccount(this.prisma, { companyId: params.companyId, application, itemId: issue.itemId, isBiologicalFeed: issue.item.isBiologicalFeed, isManufactured: issue.item.isManufactured, on: issue.dailyRecord.recordedOn })
+        : null;
+      if (assignedItemAccount && issue.item?.inventoryGlAccountId && assignedItemAccount.glAccountId !== issue.item.inventoryGlAccountId) {
+        throw new AccountingRuleViolation('Approved Posting Group — item inventory mismatch', 'Feed item account conflicts with the workbook map for its assigned item group.', { itemId: issue.itemId });
+      }
+      const creditAccount = assignedItemAccount?.glAccountId ?? issue.item?.inventoryGlAccountId ?? accounts.rawMaterials;
 
       try {
         const result = await this.prisma.$transaction(async (tx) => {
@@ -187,6 +192,17 @@ export class OperationsPostingService {
               journalDate: issue.dailyRecord.recordedOn,
               narration: `${issue.feedName} issued to ${group.code}`,
               ...dimensions,
+              ...(approvedChart ? {
+                approvedControl: {
+                  application,
+                  applicationRuleId: `${group.speciesKey?.toLowerCase().includes('snail') ? 'SNP' : group.speciesKey?.toLowerCase().includes('poultry') ? 'PLP' : 'COR'}-YFR-039A`,
+                  dynamicAccountIds: { INVENTORY_CONTROL: [creditAccount] },
+                  expectedLineAmountsKobo: {
+                    [`${group.speciesKey?.toLowerCase().includes('snail') ? 'SNP' : group.speciesKey?.toLowerCase().includes('poultry') ? 'PLP' : 'COR'}-YFR-039A:1`]: valueKobo.toString(),
+                    [`${group.speciesKey?.toLowerCase().includes('snail') ? 'SNP' : group.speciesKey?.toLowerCase().includes('poultry') ? 'PLP' : 'COR'}-YFR-039A:2`]: valueKobo.toString(),
+                  },
+                },
+              } : {}),
               lines: [
                 {
                   glAccountId: accounts.workInProgress,
@@ -252,9 +268,11 @@ export class OperationsPostingService {
       return { posted: false };
     }
 
-    const accounts = await this.accounts(params.companyId, treatment.group.speciesKey, 'treatment', treatment.group.stage);
     const period = await this.periodFor(params.companyId, treatment.givenOn);
     const costCentre = await this.costCentreFor(params.companyId);
+    const accounts = period && costCentre
+      ? await this.accounts(params.companyId, treatment.group.speciesKey, 'treatment', treatment.group.stage, costCentre.id, treatment.givenOn)
+      : null;
     if (!accounts || !period || !costCentre) {
       return { posted: false, reason: 'No period, cost centre or accounts configured.' };
     }
@@ -276,6 +294,10 @@ export class OperationsPostingService {
     };
 
     try {
+      const approvedChart = await chartVersionOf(this.prisma, params.companyId) === 'APPROVED';
+      const appPrefix = treatment.group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : treatment.group.speciesKey.trim().toLowerCase() === 'poultry' ? 'PLP' : 'COR';
+      const application = appPrefix === 'SNP' ? 'YifrehSnail' : appPrefix === 'PLP' ? 'YifrehPoultry' : 'YifrehCore';
+      const ruleId = `${appPrefix}-YFR-045A`;
       const result = await this.posting.post({
         sourceModule: 'OPERATIONS',
         sourceDocumentType: 'TREATMENT',
@@ -284,6 +306,15 @@ export class OperationsPostingService {
         journalDate: treatment.givenOn,
         narration: `${treatment.name} given to ${treatment.group.code}`,
         ...dimensions,
+        ...(approvedChart ? { approvedControl: {
+          application,
+          applicationRuleId: ruleId,
+          dynamicAccountIds: {
+            [`${ruleId}:FARM_WIP`]: [accounts.workInProgress],
+            [`${ruleId}:INVENTORY_CONTROL`]: [accounts.rawMaterials],
+          },
+          expectedLineAmountsKobo: { [`${ruleId}:1`]: treatment.costKobo.toString(), [`${ruleId}:2`]: treatment.costKobo.toString() },
+        } } : {}),
         lines: [
           {
             glAccountId: accounts.workInProgress,
@@ -411,33 +442,37 @@ export class OperationsPostingService {
    * feed-and-medication expense (611000) — the workbook expenses snail inputs
    * as used. `rawMaterials` is the store it leaves when the item names none.
    */
-  private async accounts(companyId: string, speciesKey: string, purpose: 'feed' | 'treatment', stage: string) {
+  private async accounts(companyId: string, speciesKey: string, purpose: 'feed' | 'treatment', stage: string, workCentreId: string, on: Date) {
     const version = await chartVersionOf(this.prisma, companyId);
     // On the approved chart poultry cost goes to the account of the flock's
     // stage today (immature or mature); the account is kept on the row so a
     // later death or sale relieves the accounts that actually hold the cost.
-    let debitNumber = version === 'APPROVED' && speciesKey.trim().toLowerCase() === 'poultry'
-      ? null
-      : rearingNumberFor(version, speciesKey, stage);
-    if (version === 'APPROVED' && speciesKey.trim().toLowerCase() === 'poultry') {
-      const rows = await this.prisma.speciesBreedStage.findMany({
-        where: { stageName: stage, speciesBreed: { companyId, speciesKey, active: true } },
-        select: { maturityClass: true },
-      });
-      const classes = [...new Set(rows.map((row) => row.maturityClass).filter((value): value is string => !!value))];
-      if (!rows.length || classes.length !== 1 || rows.some((row) => !row.maturityClass)) {
-        throw new AccountingRuleViolation('Consolidated Reference §66 — biological stage classification', `Finance must assign one consistent maturity class to poultry stage "${stage}" before rearing cost can post.`, { companyId, speciesKey, stage });
+    let debitNumber = rearingNumberFor(version, speciesKey, stage);
+    let debitAccountId: string | null = null;
+    const application = speciesKey.trim().toLowerCase() === 'snail' ? 'YifrehSnail' : 'YifrehPoultry';
+    if (version === 'APPROVED') debitAccountId = (await resolveApprovedMappedAccount(this.prisma, {
+      companyId, application, masterType: 'Work centre', masterId: workCentreId, postingKey: 'FARM_WIP', on,
+    })).glAccountId;
+    if (!debitAccountId && !debitNumber && version === 'APPROVED' && speciesKey.trim().toLowerCase() === 'snail') {
+      if (purpose !== 'feed') {
+        throw new AccountingRuleViolation('Approved Account Map — snail treatment expense', 'The workbook does not map a snail treatment expense account; add an approved mapping before posting this cost.', { companyId, speciesKey, stage });
       }
-      debitNumber = classes[0] === 'IMMATURE' ? '16032' : classes[0] === 'MATURE' ? '16042' : null;
-      if (!debitNumber) throw new AccountingRuleViolation('Consolidated Reference §66 — biological stage classification', `Poultry stage "${stage}" has an invalid maturity class.`, { speciesKey, stage, maturityClass: classes[0] });
+      debitNumber = (await resolveApprovedMappedAccount(this.prisma, {
+      companyId, application: 'YifrehSnail', postingGroup: 'SNP-RM', postingKey: 'FEED_EXPENSE', on,
+      })).accountNumber;
     }
     debitNumber ??= snailInputExpenseNumber(version, purpose);
-    const creditNumber = numberFor(version, purpose === 'feed' ? 'feedInventory' : 'rawMaterials');
+    const creditNumber = version === 'APPROVED'
+      ? (await resolveApprovedMappedAccount(this.prisma, {
+          companyId, application, postingGroup: `${speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-RM`,
+          postingKey: purpose === 'feed' ? 'FARM_FEED_INVENTORY' : 'INVENTORY_CONTROL', on,
+        })).accountNumber
+      : numberFor(version, purpose === 'feed' ? 'feedInventory' : 'rawMaterials');
     const rows = await this.prisma.gLAccount.findMany({
-      where: { companyId, accountNumber: { in: [debitNumber, creditNumber] }, active: true },
+      where: { companyId, accountNumber: { in: [...new Set([debitNumber, creditNumber].filter((value): value is string => !!value))] }, active: true },
       select: { id: true, accountNumber: true },
     });
-    const workInProgress = rows.find((r) => r.accountNumber === debitNumber)?.id;
+    const workInProgress = debitAccountId ?? rows.find((r) => r.accountNumber === debitNumber)?.id;
     const rawMaterials = rows.find((r) => r.accountNumber === creditNumber)?.id;
     if (!workInProgress || !rawMaterials) return null;
     // Recorded only where the chart holds rearing cost in more than one account.

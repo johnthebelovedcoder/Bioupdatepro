@@ -116,6 +116,7 @@ export interface Requisition {
 
 export interface PendingApproval {
   transactionId: string;
+  documentId?: string;
   documentReference: string;
   transactionType: string;
   module: string;

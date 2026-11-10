@@ -8,7 +8,6 @@ import {
   WorkflowStatus,
 } from '@bioassetpro/database';
 import {
-  biologicalResultAccountsFor,
   chartVersionOf,
   holdsRearingInAsset as holdsRearingInAssetOn,
   numberFor,
@@ -18,6 +17,8 @@ import { PostingService } from '../posting/posting.service';
 import { WorkflowService } from '../workflow/workflow.service';
 import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
+import { resolveApprovedLifecycleStageAccount } from '../posting-control/approved-account-map';
 import { kobo } from '../common/money';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { RearingCostService, allocateAcross } from './rearing-cost.service';
@@ -199,46 +200,15 @@ export class BiologicalAssetService {
     companyId: string;
     speciesKey: string;
     stage: string;
+    postingKey?: string;
   }): Promise<{ glAccountId: string; accountNumber: string; accountName: string }> {
     // On the approved chart a stage is carried in the immature or mature
     // livestock account for that species and stage (chart.ts) — for poultry
     // the same accounts its rearing cost is held in, so fair value and cost
     // always meet.
     if ((await chartVersionOf(this.prisma, params.companyId)) === 'APPROVED') {
-      const stages = await this.prisma.speciesBreedStage.findMany({
-        where: {
-          stageName: params.stage,
-          speciesBreed: { companyId: params.companyId, speciesKey: params.speciesKey, active: true },
-        },
-        select: { maturityClass: true },
-      });
-      const classes = [...new Set(stages.map((row) => row.maturityClass).filter((value): value is string => !!value))];
-      if (stages.length === 0 || classes.length !== 1 || stages.some((row) => !row.maturityClass)) {
-        throw new AccountingRuleViolation('Consolidated Reference §67 — Biological asset stage account', `Finance must assign one consistent immature or mature classification to ${params.speciesKey} stage "${params.stage}" before approved-chart posting.`, {
-          speciesKey: params.speciesKey,
-          stage: params.stage,
-          reason: stages.length === 0 ? 'stage_not_in_master' : 'missing_or_conflicting_finance_classification',
-        });
-      }
-      const maturityClass = classes[0];
-      if (maturityClass !== 'IMMATURE' && maturityClass !== 'MATURE') {
-        throw new AccountingRuleViolation('Consolidated Reference §67 — Biological asset stage account', `The Finance classification for ${params.speciesKey} stage "${params.stage}" is invalid.`, { speciesKey: params.speciesKey, stage: params.stage });
-      }
-      const number = params.speciesKey.trim().toLowerCase() === 'snail'
-        ? maturityClass === 'IMMATURE' ? '16031' : '16041'
-        : maturityClass === 'IMMATURE' ? '16032' : '16042';
-      const account = await this.prisma.gLAccount.findFirst({
-        where: { companyId: params.companyId, accountNumber: number, active: true },
-        select: { id: true, accountNumber: true, name: true },
-      });
-      if (!account) {
-        throw new AccountingRuleViolation(
-          'Consolidated Reference §67 — Biological asset stage account',
-          `Account ${number} for ${params.speciesKey} at stage "${params.stage}" is missing or inactive in this company's chart.`,
-          { speciesKey: params.speciesKey, stage: params.stage },
-        );
-      }
-      return { glAccountId: account.id, accountNumber: account.accountNumber, accountName: account.name };
+      const account = await resolveApprovedLifecycleStageAccount(this.prisma, { companyId: params.companyId, speciesKey: params.speciesKey, stageName: params.stage, postingKey: params.postingKey, on: new Date() });
+      return { glAccountId: account.glAccountId, accountNumber: account.accountNumber, accountName: account.accountName };
     }
 
     const row = await this.prisma.biologicalAssetStageAccount.findUnique({
@@ -419,18 +389,9 @@ export class BiologicalAssetService {
     speciesKey: string,
     kind: 'gain' | 'loss' | 'normalMortality',
   ): Promise<{ glAccountId: string }> {
-    const approved = biologicalResultAccountsFor(await chartVersionOf(this.prisma, companyId), speciesKey);
-    if (!approved) return this.fairValueAccount(companyId, speciesKey);
-    const accountNumber = approved[kind];
-    const account = await this.ensureAccount(companyId, accountNumber);
-    if (!account) {
-      throw new AccountingRuleViolation(
-        'Consolidated Reference §66 — Posting chart',
-        `No active account ${accountNumber} exists for ${speciesKey} ${kind === 'normalMortality' ? 'normal mortality' : `fair-value ${kind}`}.`,
-        { accountNumber },
-      );
-    }
-    return { glAccountId: account.id };
+    if ((await chartVersionOf(this.prisma, companyId)) !== 'APPROVED') return this.fairValueAccount(companyId, speciesKey);
+    const postingKey = kind === 'gain' ? 'BA_FAIR_VALUE_GAIN' : kind === 'loss' ? 'BA_FAIR_VALUE_LOSS' : 'NORMAL_MORTALITY_LOSS';
+    return { glAccountId: (await this.resolveApprovedBiologicalResult(companyId, speciesKey, postingKey)).glAccountId };
   }
 
   private async abnormalLossAccount(
@@ -438,8 +399,10 @@ export class BiologicalAssetService {
     speciesKey: string,
   ): Promise<{ glAccountId: string }> {
     const normalizedSpeciesKey = speciesKey.trim().toLowerCase();
-    const approved = biologicalResultAccountsFor(await chartVersionOf(this.prisma, companyId), speciesKey);
-    const accountNumber = approved ? approved.abnormalMortality : normalizedSpeciesKey === 'snail' ? '640300' : '640500';
+    if ((await chartVersionOf(this.prisma, companyId)) === 'APPROVED') {
+      return { glAccountId: (await this.resolveApprovedBiologicalResult(companyId, speciesKey, 'ABNORMAL_MORTALITY_LOSS')).glAccountId };
+    }
+    const accountNumber = normalizedSpeciesKey === 'snail' ? '640300' : '640500';
     const account = await this.ensureAccount(companyId, accountNumber);
     if (!account) {
       throw new AccountingRuleViolation(
@@ -449,6 +412,17 @@ export class BiologicalAssetService {
       );
     }
     return { glAccountId: account.id };
+  }
+
+  private async resolveApprovedBiologicalResult(companyId: string, speciesKey: string, postingKey: string, on = new Date()) {
+    const snail = speciesKey.trim().toLowerCase() === 'snail';
+    return resolveApprovedMappedAccount(this.prisma, {
+      companyId,
+      application: snail ? 'YifrehSnail' : 'YifrehPoultry',
+      postingGroup: snail ? 'SNP-BA-IMM' : 'PLP-BA-IMM',
+      postingKey,
+      on,
+    });
   }
 
   /** The open period and cost centre a posting needs. Null when either is missing. */
@@ -531,6 +505,18 @@ export class BiologicalAssetService {
         journalDate: group.startedOn,
         narration: `${group.code} acquired — ${group.openingPopulation} ${group.breed}`,
         ...dimensions,
+        ...(await chartVersionOf(this.prisma, group.companyId)) === 'APPROVED' ? { approvedControl: {
+          application: group.speciesKey.trim().toLowerCase() === 'snail' ? 'YifrehSnail' : 'YifrehPoultry',
+          applicationRuleId: group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP-APP-BA-ACQ-001' : 'PLP-APP-BA-ACQ-001',
+          dynamicAccountIds: {
+            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-YFR-030A:BA_SOURCE_STAGE_CONTROL`]: [stage.glAccountId],
+            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-YFR-030A:GRNI`]: [grni.glAccountId],
+          },
+          expectedLineAmountsKobo: {
+            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-YFR-030A:1`]: group.acquisitionCostKobo.toString(),
+            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-YFR-030A:2`]: group.acquisitionCostKobo.toString(),
+          },
+        } } : {},
         lines: [
           {
             glAccountId: stage.glAccountId,
@@ -703,6 +689,20 @@ export class BiologicalAssetService {
         journalDate: mortality.dailyRecord.recordedOn,
         narration: `${mortality.quantity} normal deaths — ${group.code}`,
         ...dimensions,
+        ...(await chartVersionOf(this.prisma, group.companyId)) === 'APPROVED' ? {
+          approvedControl: {
+            application: group.speciesKey.toLowerCase().includes('snail') ? 'YifrehSnail' : 'YifrehPoultry',
+            applicationRuleId: `${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-035`,
+            dynamicAccountIds: {
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-035:NORMAL_MORTALITY_LOSS`]: [fairValue.glAccountId],
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-035:BA_CONTROL`]: [stage.glAccountId],
+            },
+            expectedLineAmountsKobo: {
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-035:1`]: valueKobo.toString(),
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-035:2`]: valueKobo.toString(),
+            },
+          },
+        } : {},
         lines: [
           {
             glAccountId: fairValue.glAccountId,
@@ -790,6 +790,20 @@ export class BiologicalAssetService {
         journalDate: mortality.dailyRecord.recordedOn,
         narration: `${mortality.quantity} abnormal deaths — ${group.code}`,
         ...dimensions,
+        ...(await chartVersionOf(params.tx, group.companyId)) === 'APPROVED' ? {
+          approvedControl: {
+            application: group.speciesKey.toLowerCase().includes('snail') ? 'YifrehSnail' : 'YifrehPoultry',
+            applicationRuleId: `${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-036`,
+            dynamicAccountIds: {
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-036:ABNORMAL_MORTALITY_LOSS`]: [abnormalLoss.glAccountId],
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-036:BA_CONTROL`]: [stage.glAccountId],
+            },
+            expectedLineAmountsKobo: {
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-036:1`]: valueKobo.toString(),
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-036:2`]: valueKobo.toString(),
+            },
+          },
+        } : {},
         lines: [
           {
             glAccountId: abnormalLoss.glAccountId,
@@ -849,11 +863,13 @@ export class BiologicalAssetService {
         companyId: group.companyId,
         speciesKey: group.speciesKey,
         stage: change.fromStage,
+        postingKey: 'BA_SOURCE_STAGE_CONTROL',
       });
       const to = await this.stageAccount({
         companyId: group.companyId,
         speciesKey: group.speciesKey,
         stage: change.toStage,
+        postingKey: 'BA_DESTINATION_STAGE_CONTROL',
       });
       const context = await this.postingContext(group.companyId, change.changedOn);
       if (!context) {
@@ -883,6 +899,20 @@ export class BiologicalAssetService {
         journalDate: change.changedOn,
         narration: `${group.code}: ${change.fromStage} → ${change.toStage}`,
         ...dimensions,
+        ...(await chartVersionOf(this.prisma, group.companyId)) === 'APPROVED' ? {
+          approvedControl: {
+            application: group.speciesKey.toLowerCase().includes('snail') ? 'YifrehSnail' : 'YifrehPoultry',
+            applicationRuleId: `${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-032`,
+            dynamicAccountIds: {
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-032:BA_DESTINATION_STAGE_CONTROL`]: [to.glAccountId],
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-032:BA_SOURCE_STAGE_CONTROL`]: [from.glAccountId],
+            },
+            expectedLineAmountsKobo: {
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-032:1`]: valueKobo.toString(),
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-032:2`]: valueKobo.toString(),
+            },
+          },
+        } : {},
         lines: [
           {
             glAccountId: to.glAccountId,
@@ -1020,6 +1050,17 @@ export class BiologicalAssetService {
         journalDate: params.occurredOn,
         narration: `${params.quantity} sold live — ${group.code}`,
         ...dimensions,
+        ...(await chartVersionOf(this.prisma, group.companyId)) === 'APPROVED' ? {
+          approvedControl: {
+            application: group.speciesKey.toLowerCase().includes('snail') ? 'YifrehSnail' : 'YifrehPoultry',
+            applicationRuleId: `${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-020B`,
+            dynamicAccountIds: { COGS: [expense.glAccountId], BA_CONTROL: [stage.glAccountId] },
+            expectedLineAmountsKobo: {
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-020B:1`]: valueKobo.toString(),
+              [`${group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-020B:2`]: valueKobo.toString(),
+            },
+          },
+        } : {},
         lines: [
           {
             glAccountId: expense.glAccountId,
@@ -1488,6 +1529,13 @@ export class BiologicalAssetService {
           ? `Rearing cost into fair value — ${valuation.group.code}`
           : `FVLCTS ${isGain ? 'gain' : 'loss'} — ${valuation.group.code}`,
         ...dimensions,
+        ...(valuation.gainLossKobo !== 0n && (await chartVersionOf(params.tx, valuation.companyId)) === 'APPROVED' ? {
+          approvedControl: {
+            application: valuation.group.speciesKey.toLowerCase().includes('snail') ? 'YifrehSnail' : 'YifrehPoultry',
+            applicationRuleId: `${valuation.group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-${isGain ? '033' : '034'}`,
+            additionalMappedAccountSidePairs: reclassLines.map((line) => `${(line.debit ?? 0n) > 0n ? 'Debit' : 'Credit'}:${line.glAccountId}`),
+          },
+        } : {}),
         lines,
         idempotencyKey: `ba-valuation:${valuation.id}`,
         actor: params.actor,

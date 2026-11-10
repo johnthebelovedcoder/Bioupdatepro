@@ -355,15 +355,17 @@ export class SalesFlowService {
     const waiting = await this.prisma.receiptAllocation.findMany({
       where: {
         invoiceId: { in: rows.map((row) => row.id) },
-        receipt: { companyId, status: { in: ['DRAFT', 'SUBMITTED'] } },
+        receipt: { companyId, status: { in: ['DRAFT', 'SUBMITTED', 'APPROVED'] } },
       },
-      select: { invoiceId: true },
+      select: { invoiceId: true, amountKobo: true },
     });
-    const receiptPending = new Set(waiting.map((allocation) => allocation.invoiceId));
+    const reservedByInvoice = new Map<string, bigint>();
+    for (const allocation of waiting) if (allocation.invoiceId) reservedByInvoice.set(allocation.invoiceId, (reservedByInvoice.get(allocation.invoiceId) ?? 0n) + allocation.amountKobo);
 
     return rows.map((row) => ({
       id: row.id,
-      receiptPending: receiptPending.has(row.id),
+      targetType: 'INVOICE' as const,
+      receiptPending: (reservedByInvoice.get(row.id) ?? 0n) > 0n,
       invoiceNumber: row.invoiceNumber,
       orderNumber: row.salesOrder?.orderNumber ?? null,
       receivedAtSaleMethod: row.salesOrder?.receivedAtSaleMethod ?? null,
@@ -375,17 +377,87 @@ export class SalesFlowService {
       grossAmountKobo: row.grossAmountKobo.toString(),
       settledAmountKobo: row.settledAmountKobo.toString(),
       outstandingKobo: (row.grossAmountKobo - row.settledAmountKobo).toString(),
+      availableToReceiveKobo: (row.grossAmountKobo - row.settledAmountKobo - (reservedByInvoice.get(row.id) ?? 0n)).toString(),
     }));
   }
 
   /** Invoices with an outstanding balance, for the receive-payment screen. */
   async receivableInvoices(companyId: string) {
     const invoices = await this.listInvoices(companyId);
-    return invoices.filter(
+    const openInvoices = invoices.filter(
       (invoice) =>
         (invoice.status === 'POSTED' || invoice.status === 'PART_PAID') &&
-        BigInt(invoice.outstandingKobo) > 0n,
+        BigInt(invoice.availableToReceiveKobo) > 0n,
     );
+    const disposals = await this.prisma.workflowTransaction.findMany({
+      where: {
+        companyId,
+        module: 'fixed-assets',
+        documentType: 'FixedAssetDisposal',
+        transactionType: 'FIXED_ASSET_DISPOSAL',
+        status: 'POSTED',
+        journalEntry: { isNot: null },
+      },
+      include: {
+        journalEntry: {
+          include: {
+            lines: {
+              where: { customerId: { not: null }, debitKobo: { gt: 0n } },
+              include: { customer: { select: { id: true, name: true } } },
+            },
+          },
+        },
+      },
+    });
+    const disposalLines = disposals.flatMap((disposal) => {
+      const payload = disposal.postingPayload && typeof disposal.postingPayload === 'object' && !Array.isArray(disposal.postingPayload)
+        ? disposal.postingPayload as Record<string, unknown>
+        : null;
+      if (payload?.proceedsMode !== 'CREDIT' || typeof payload.customerId !== 'string' || !disposal.journalEntry) return [];
+      return disposal.journalEntry.lines
+        .filter((line) => line.customer?.id === payload.customerId)
+        .map((line) => ({ disposal, line, customer: line.customer!, journalDate: disposal.journalEntry!.journalDate }));
+    });
+    const allocations = disposalLines.length
+      ? await this.prisma.receiptAllocation.findMany({
+          where: {
+            journalLineId: { in: disposalLines.map(({ line }) => line.id) },
+            receipt: { status: { in: ['DRAFT', 'SUBMITTED', 'APPROVED', 'POSTED'] } },
+          },
+          select: { journalLineId: true, amountKobo: true, receipt: { select: { status: true } } },
+        })
+      : [];
+    const allocationsByLine = new Map<string, typeof allocations>();
+    for (const allocation of allocations) {
+      if (!allocation.journalLineId) continue;
+      const rows = allocationsByLine.get(allocation.journalLineId) ?? [];
+      rows.push(allocation);
+      allocationsByLine.set(allocation.journalLineId, rows);
+    }
+    const openDisposals = [];
+    for (const { disposal, line, customer, journalDate } of disposalLines) {
+      const lineAllocations = allocationsByLine.get(line.id) ?? [];
+      const open = line.debitKobo - lineAllocations.reduce((sum, allocation) => sum + allocation.amountKobo, 0n);
+      if (open <= 0n) continue;
+      openDisposals.push({
+        id: line.id,
+        targetType: 'JOURNAL_LINE' as const,
+        invoiceNumber: `FA-DISPOSAL-${disposal.documentReference}`,
+        orderNumber: null,
+        receivedAtSaleMethod: null,
+        receiptPending: lineAllocations.some((allocation) => allocation.receipt.status !== 'POSTED'),
+        customerId: customer.id,
+        customer: customer.name,
+        invoiceDate: journalDate,
+        dueDate: journalDate,
+        status: 'POSTED',
+        grossAmountKobo: line.debitKobo.toString(),
+        settledAmountKobo: (line.debitKobo - open).toString(),
+        outstandingKobo: open.toString(),
+        availableToReceiveKobo: open.toString(),
+      });
+    }
+    return [...openInvoices, ...openDisposals];
   }
 
   /**
@@ -461,7 +533,7 @@ export class SalesFlowService {
     method: 'BANK_TRANSFER' | 'CASH' | 'CHEQUE';
     bankGlAccountId: string;
     reference?: string | null;
-    allocations: Array<{ invoiceId: string; amountKobo: string }>;
+    allocations: Array<{ invoiceId?: string; journalLineId?: string; amountKobo: string }>;
   }) {
     const funded = params.allocations.filter((line) => Number(line.amountKobo) > 0);
     if (funded.length === 0) {
@@ -517,7 +589,8 @@ export class SalesFlowService {
       financialPeriodId: period.id,
       amountKobo: funded.reduce((sum, line) => sum + BigInt(line.amountKobo), 0n),
       allocations: funded.map((line) => ({
-        invoiceId: line.invoiceId,
+        ...(line.invoiceId ? { invoiceId: line.invoiceId } : {}),
+        ...(line.journalLineId ? { journalLineId: line.journalLineId } : {}),
         amountKobo: BigInt(line.amountKobo),
       })),
       actor: params.actor,

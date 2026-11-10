@@ -207,6 +207,7 @@ model User {
   depreciationRunsCreated   DepreciationRun[]          @relation("DepreciationRunCreator")
   marketPricesCreated       MarketPriceList[]
   payrollPaymentsCreated    PayrollPayment[]           @relation("PayrollPaymentCreator")
+  postingGroupAssignmentsMade PostingGroupAssignment[] @relation("PostingGroupAssignmentActor")
   roleSectionAccessChanges  RoleSectionAccess[]
   productionOrdersCreated   ProductionOrder[]          @relation("ProductionOrderCreator")
   inventoryTransfersCreated InventoryTransfer[]
@@ -332,6 +333,8 @@ model Company {
   postingRules                  PostingRule[]
   approvedPostingMaps           ApprovedPostingMap[]
   approvedPostingControlLines   ApprovedPostingControlLine[]
+  approvedPostingGroups         ApprovedPostingGroup[]
+  postingGroupAssignments       PostingGroupAssignment[]
   biologicalAssetStageAccounts  BiologicalAssetStageAccount[]
   biologicalAssetConfigurations BiologicalAssetConfiguration[]
   biologicalAssetValuations     BiologicalAssetValuation[]
@@ -981,6 +984,7 @@ model JournalLine {
   supplier Supplier? @relation(fields: [supplierId], references: [id])
   employee Employee? @relation(fields: [employeeId], references: [id])
   item     Item?     @relation(fields: [itemId], references: [id])
+  receiptAllocations ReceiptAllocation[]
 
   @@unique([journalEntryId, lineNumber])
   // The trial balance index: flat scan, no join to the header.
@@ -3130,6 +3134,10 @@ model ProductionOrder {
   actualLabourCostKobo    BigInt @default(0) @map("actual_labour_cost_kobo")
   actualOverheadCostKobo  BigInt @default(0) @map("actual_overhead_cost_kobo")
 
+  /// COR-YFR-053: measured milling weights, in kg, entered when grinding is confirmed.
+  feedMillInputWeightKg  Decimal? @map("feed_mill_input_weight_kg") @db.Decimal(18, 6)
+  feedMillOutputWeightKg Decimal? @map("feed_mill_output_weight_kg") @db.Decimal(18, 6)
+
   /// MONEY. PCR-057/079 — the sum of every ProductionOrderOutput's allocated
   /// cost. Kept denormalised so Rule 7 can be asserted from the order row
   /// alone rather than re-summing its children every time.
@@ -4839,7 +4847,8 @@ model CustomerReceipt {
 model ReceiptAllocation {
   id        String @id @default(uuid()) @db.Uuid
   receiptId String @map("receipt_id") @db.Uuid
-  invoiceId String @map("invoice_id") @db.Uuid
+  invoiceId String? @map("invoice_id") @db.Uuid
+  journalLineId String? @map("journal_line_id") @db.Uuid
 
   /// MONEY. How much of this receipt settles this invoice.
   amountKobo BigInt @map("amount_kobo")
@@ -4847,10 +4856,13 @@ model ReceiptAllocation {
   createdAt DateTime @default(now()) @map("created_at")
 
   receipt CustomerReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
-  invoice SalesInvoice    @relation(fields: [invoiceId], references: [id])
+  invoice SalesInvoice? @relation(fields: [invoiceId], references: [id])
+  journalLine JournalLine? @relation(fields: [journalLineId], references: [id])
 
   @@unique([receiptId, invoiceId])
+  @@unique([receiptId, journalLineId], map: "receipt_allocations_receipt_journal_line_key")
   @@index([invoiceId])
+  @@index([journalLineId])
   @@map("receipt_allocations")
 }
 
@@ -7196,6 +7208,57 @@ model ApprovedPostingMap {
   @@map("approved_posting_maps")
 }
 
+/// Governed list of posting groups from the approved workbook. Assignments
+/// point here so a master cannot be given a group outside its application and
+/// declared master type.
+model ApprovedPostingGroup {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  application   String
+  postingGroup  String   @map("posting_group")
+  module        String
+  masterType    String   @map("master_type")
+  description   String
+  taxClass      String?  @map("tax_class")
+  legalEntity   String?  @map("legal_entity")
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  status        String
+  developerUse  String?  @map("developer_use")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  company     Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignments PostingGroupAssignment[]
+
+  @@unique([companyId, application, postingGroup])
+  @@index([companyId, application, masterType, status])
+  @@map("approved_posting_groups")
+}
+
+/// Effective-dated assignment of a workbook posting group to a master record.
+/// `masterId` is polymorphic because the workbook assigns groups to several
+/// different master tables; the API validates the selected type against the
+/// approved group register and keeps a company-scoped audit trail.
+model PostingGroupAssignment {
+  id                     String   @id @default(uuid()) @db.Uuid
+  companyId              String   @map("company_id") @db.Uuid
+  approvedPostingGroupId String   @map("approved_posting_group_id") @db.Uuid
+  masterType             String   @map("master_type")
+  masterId               String   @map("master_id")
+  effectiveFrom          DateTime @map("effective_from") @db.Date
+  effectiveTo            DateTime? @map("effective_to") @db.Date
+  status                 String   @default("Active")
+  assignedById           String   @map("assigned_by_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  company              Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  approvedPostingGroup ApprovedPostingGroup @relation(fields: [approvedPostingGroupId], references: [id], onDelete: Restrict)
+  assignedBy           User                 @relation("PostingGroupAssignmentActor", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, approvedPostingGroupId, masterType, masterId, effectiveFrom])
+  @@index([companyId, masterType, masterId, status, effectiveFrom, effectiveTo])
+  @@map("posting_group_assignments")
+}
+
 /// One workbook rule line. Retained separately from PostingRule because the
 /// approved workbook contains multi-line events and application-specific groups.
 model ApprovedPostingControlLine {
@@ -7830,10 +7893,12 @@ model SnailBreedingCycle {
   breeders Int
   eggsLaid Int      @map("eggs_laid")
   eggGroupId String? @map("egg_group_id") @db.Uuid
+  workflowTransactionId String? @map("workflow_transaction_id") @db.Uuid
   eggValueBasis String @default("ATTRIBUTABLE_COST") @map("egg_value_basis")
   eggValuePerUnitKobo BigInt @default(0) @map("egg_value_per_unit_kobo")
   eggValueEvidence String? @map("egg_value_evidence")
   eggFairValueUnreliableReason String? @map("egg_fair_value_unreliable_reason")
+  costSourceAccountId String? @map("cost_source_account_id") @db.Uuid
 
   /// SET → HATCHED, or FAILED with a reason.
   status String @default("SET")

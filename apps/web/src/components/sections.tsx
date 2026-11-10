@@ -569,7 +569,9 @@ export async function BreedingSection({ module }: { module: SpeciesModule }) {
                       </td>
                       <td className="num">{cycle.hatchRate !== null ? `${cycle.hatchRate}%` : '—'}</td>
                       <td>
-                        {cycle.status === 'SET' ? (
+                        {cycle.status === 'APPROVAL_PENDING' ? (
+                          <span className="badge badge-warning">awaiting approval</span>
+                        ) : cycle.status === 'SET' ? (
                           <div className="stack" style={{ gap: 'var(--sp-2)' }}>
                             {cycle.eggValuePerUnitKobo === '0' ? <ValueLegacySnailEggCycleForm cycleId={cycle.id} code={cycle.code} costSources={eggCostSources} /> : null}
                             <SnailHatchForm cycleId={cycle.id} code={cycle.code} eggsLaid={cycle.eggsLaid} today={today} />

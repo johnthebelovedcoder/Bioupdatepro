@@ -19,6 +19,8 @@ import { ProcurementConfigService } from './procurement-config.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { assertBankGlAccount } from '../chart/bank-account';
 import { kobo } from '../common/money';
+import { chartVersionOf } from '../chart/chart';
+import { resolveApprovedMappedAccount } from '../posting-control/approved-account-map';
 
 export interface PaymentAllocationInput {
   invoiceId: string;
@@ -334,6 +336,7 @@ export class SupplierPaymentService {
       payment.companyId,
       payment.paymentDate,
       params.tx,
+      payment.supplierId,
     );
 
     if (payment.whtAmountKobo > 0n && !settings.whtPayableGlAccountId) {
@@ -390,6 +393,13 @@ export class SupplierPaymentService {
         : []),
     ];
 
+    const approvedChart = await chartVersionOf(params.tx, payment.companyId) === 'APPROVED';
+    if (approvedChart) {
+      const bankAccounts = await params.tx.bankAccount.findMany({ where: { companyId: payment.companyId, glAccountId: payment.bankGlAccountId }, select: { id: true } });
+      if (bankAccounts.length !== 1) throw new AccountingRuleViolation('Approved Posting Group — bank assignment', 'Select a GL account linked to exactly one registered bank account before posting this payment.', { bankGlAccountId: payment.bankGlAccountId, matches: bankAccounts.length });
+      const mappedBank = await resolveApprovedMappedAccount(params.tx, { companyId: payment.companyId, application: 'YifrehCore', masterType: 'Bank', masterId: bankAccounts[0]!.id, postingKey: 'BANK', on: payment.paymentDate });
+      if (mappedBank.glAccountId !== payment.bankGlAccountId) throw new AccountingRuleViolation('Approved Posting Group — bank account mismatch', 'The selected cash account does not match the account mapped by the bank’s assigned posting group.', { selectedGlAccountId: payment.bankGlAccountId, mappedGlAccountId: mappedBank.glAccountId });
+    }
     const result = await this.posting.post(
       {
         sourceModule: 'procurement',
@@ -401,6 +411,9 @@ export class SupplierPaymentService {
           payment.narration ?? `Supplier payment ${payment.paymentNumber}`,
         ...dimensions,
         idempotencyKey: `supplier-payment:${payment.id}`,
+        ...(approvedChart && payment.discountKobo === 0n ? { approvedControl: payment.whtAmountKobo > 0n
+          ? { application: 'YifrehCore', applicationRuleId: 'COR-YFR-012A', additionalApplicationRuleIds: ['COR-YFR-012B'], dynamicAccountIds: { 'COR-YFR-012A:AP_CONTROL': [settings.payablesGlAccountId], 'COR-YFR-012A:BANK': [payment.bankGlAccountId], 'COR-YFR-012B:AP_CONTROL': [settings.payablesGlAccountId] } }
+          : { application: 'YifrehCore', applicationRuleId: 'COR-YFR-012A', dynamicAccountIds: { 'COR-YFR-012A:AP_CONTROL': [settings.payablesGlAccountId], 'COR-YFR-012A:BANK': [payment.bankGlAccountId] } } } : {}),
         actor: params.actor,
         lines: lines.map((line) => ({
           glAccountId: line.glAccountId,

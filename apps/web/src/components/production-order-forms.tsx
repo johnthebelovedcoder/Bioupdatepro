@@ -12,7 +12,7 @@ import {
   recordQualityTest,
   decideQualityTest,
   type FlowState,
-} from '@/app/(app)/production/actions';
+} from '@/app/(app)/production/actions';
 import type { Warehouse } from '@/lib/masters';
 
 function Submit({ label, pendingLabel }: { label: string; pendingLabel: string }) {
@@ -111,7 +111,7 @@ export function ConfirmConversionForm({
         <>
           <p className="faint" style={{ fontSize: 13 }}>
             The standard is worked out from the routing: the hours each operation actually took, at its cost pool&rsquo;s
-            approved rate. Leave an operation blank to use its standard hours.
+            approved rate. Enter actual hours for every FM-GRN grinding operation.
           </p>
           {operations.map((op) => (
             <label key={op.name} className="field">
@@ -129,9 +129,13 @@ export function ConfirmConversionForm({
         </label>
       )}
       {feedMill ? (
-        <p className="faint" style={{ fontSize: 13 }}>
-          Actual labour, machine and overhead costs are drawn from the period ledger and allocated across completed feed orders after soft close.
-        </p>
+        <>
+          <label className="field">Measured grinding input weight (kg)<input name="feedMillInputWeightKg" type="number" step="0.001" min="0.001" required /></label>
+          <label className="field">Measured grinding output weight (kg)<input name="feedMillOutputWeightKg" type="number" step="0.001" min="0.001" required /></label>
+          <p className="faint" style={{ fontSize: 13 }}>
+            The signed-in operator is recorded as the confirmer. Actual labour, machine and overhead costs are drawn from the period ledger and allocated across completed feed orders after soft close.
+          </p>
+        </>
       ) : (
         <>
           <label className="field">
