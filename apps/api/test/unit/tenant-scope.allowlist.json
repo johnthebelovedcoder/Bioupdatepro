@@ -270,5 +270,37 @@
   {
     "key": "sales/sales-invoice.service.ts salesInvoice.findMany { customerId, status: { in: [SalesInvoiceStatus.POSTED, SalesInvoiceStatus.PART_PAID], }, }",
     "reason": "openInvoices has no callers; if one is added it must scope customerId to the company first."
+  },
+  {
+    "key": "operations/batch-profile.service.ts dailyRecord.findFirst { groupId: group.id }",
+    "reason": "The group is loaded by companyId and code in the same method; its immutable lifecycle rows are queried by that company-owned group id."
+  },
+  {
+    "key": "operations/batch-profile.service.ts stageChange.findFirst { groupId: group.id }",
+    "reason": "The group is loaded by companyId and code in the same method; its immutable lifecycle rows are queried by that company-owned group id."
+  },
+  {
+    "key": "operations/batch-profile.service.ts livestockWeighing.findFirst { groupId: group.id }",
+    "reason": "The group is loaded by companyId and code in the same method; its immutable lifecycle rows are queried by that company-owned group id."
+  },
+  {
+    "key": "operations/batch-profile.service.ts harvestRecord.findFirst { groupId: group.id }",
+    "reason": "The group is loaded by companyId and code in the same method; its immutable lifecycle rows are queried by that company-owned group id."
+  },
+  {
+    "key": "operations/batch-profile.service.ts healthEvent.findFirst { groupId: group.id }",
+    "reason": "The group is loaded by companyId and code in the same method; its immutable lifecycle rows are queried by that company-owned group id."
+  },
+  {
+    "key": "operations/batch-profile.service.ts treatmentRecord.findFirst { groupId: group.id }",
+    "reason": "The group is loaded by companyId and code in the same method; its immutable lifecycle rows are queried by that company-owned group id."
+  },
+  {
+    "key": "operations/batch-profile.service.ts livestockGroup.updateMany { id: group.id, hatchDateApprovalStatus: 'PENDING', pendingHatchRequestedById: { not: params.actor.userId } }",
+    "reason": "The group is loaded by companyId and code in the same method; the conditional update matches only that verified group and pending request."
+  },
+  {
+    "key": "snail-breeding/snail-breeding.service.ts workflowTransaction.findMany { where: { id: { in: pendingWorkflowIds } }, select: { id: true, status: true } }",
+    "reason": "The workflow transaction ids come only from snail breeding cycles loaded with companyId in the same method; the lookup only decorates those cycles with approval status."
   }
 ]

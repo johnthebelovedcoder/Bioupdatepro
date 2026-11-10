@@ -169,7 +169,7 @@ describe('approved five-digit chart roles', () => {
       expect(numberFor('APPROVED', role), role).toBe(number);
       const row = accounts.get(number)!;
       expect(row['Posting Account'], number).toBe('Yes');
-      expect(String(row['Developer Note']), `${number} says it is a proposal`).toMatch(/pending Finance confirmation/);
+      expect(String(row['Developer Note']), `${number} records the approved engineering basis`).toMatch(/user-approved proposed account/i);
     }
   });
 
@@ -223,10 +223,10 @@ describe('approved five-digit chart roles', () => {
   });
 
   it('holds poultry rearing cost by the flock stage at posting, and snail inputs in expense', () => {
-    for (const stage of ['Chick', 'Grower', 'Pullet', 'Cockerel']) expect(poultryStageAccountNumber(stage), stage).toBe('16032');
-    for (const stage of ['Market-ready', 'Point-of-lay', 'Layer', 'Broiler', 'Breeder']) expect(poultryStageAccountNumber(stage), stage).toBe('16042');
-    expect(() => poultryStageAccountNumber('Egg')).toThrow(UnresolvedApprovedAccount);
-    expect(rearingNumberFor('APPROVED', 'poultry', 'Chick')).toBe('16032');
+    for (const stage of ['Chick', 'Grower', 'Pullet', 'Cockerel', 'Market-ready', 'Point-of-lay', 'Layer', 'Broiler', 'Breeder', 'Egg']) {
+      expect(() => poultryStageAccountNumber(stage), stage).toThrow(UnresolvedApprovedAccount);
+    }
+    expect(() => rearingNumberFor('APPROVED', 'poultry', 'Chick')).toThrow(UnresolvedApprovedAccount);
     expect(rearingNumberFor('APPROVED', 'snail', 'Grower')).toBeNull();
     expect(rearingNumberFor('SPEC', 'poultry', 'Chick')).toBe('130210');
     expect(rearingNumberFor('LEGACY', 'poultry', 'Layer')).toBe('1501');
@@ -255,7 +255,7 @@ describe('approved five-digit chart roles', () => {
     expect(egg.revenue).toBe(poultry.get('PLP-SALES-EGG/SALES_REVENUE'));
     expect(egg.gain).toBe(poultry.get('PLP-BA-IMM/BA_FAIR_VALUE_GAIN'));
     // Day-old chicks come in at the immature poultry account the workbook names for recognition/birth/hatch.
-    expect(hatchedChickAccountNumber('APPROVED', 'Chick')).toBe(poultry.get('PLP-BA-IMM/BA_SOURCE_STAGE_CONTROL'));
+    expect(() => hatchedChickAccountNumber('APPROVED', 'Chick')).toThrow(UnresolvedApprovedAccount);
     // Eggs in incubation: no workbook map, so a proposal — it must at least exist as a control account.
     expect(accounts.get(egg.incubation)).toMatchObject({ 'Control Account': 'Yes' });
     for (const number of [egg.inventory, egg.gain, egg.revenue!, egg.costOfSales!]) expect(accounts.has(number), number).toBe(true);
@@ -284,8 +284,8 @@ describe('approved five-digit chart roles', () => {
         abnormalMortality: maps.get(`${group}-BA-IMM/ABNORMAL_MORTALITY_LOSS`),
       });
       // Immature and mature stage accounts are the workbook's two livestock controls.
-      expect(biologicalStageAccountNumber(species, species === 'poultry' ? 'Grower' : 'Egg')).toBe(maps.get(`${group}-BA-IMM/BA_CONTROL`));
-      expect(biologicalStageAccountNumber(species, species === 'poultry' ? 'Layer' : 'Market-ready')).toBe(maps.get(`${group}-BA-MAT/BA_DESTINATION_STAGE_CONTROL`));
+      expect(() => biologicalStageAccountNumber(species, species === 'poultry' ? 'Grower' : 'Egg')).toThrow(UnresolvedApprovedAccount);
+      expect(() => biologicalStageAccountNumber(species, species === 'poultry' ? 'Layer' : 'Market-ready')).toThrow(UnresolvedApprovedAccount);
     }
     // Gain and loss are separate accounts: income and expense.
     expect(accounts.get('42000')).toMatchObject({ 'Posting Account': 'Yes' });

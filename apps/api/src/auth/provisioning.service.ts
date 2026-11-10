@@ -234,6 +234,8 @@ const APPROVAL_LADDER = [
 ];
 
 export const WORKFLOW_TYPES: Array<{ type: string; name: string; autoPost: boolean }> = [
+  { type: 'VAT_REFUND_CLAIM', name: 'VAT refund claim', autoPost: true },
+  { type: 'VAT_SETTLEMENT_RUN', name: 'VAT settlement run', autoPost: true },
   { type: 'MANUAL_JOURNAL', name: 'Manual Journal', autoPost: true },
   { type: 'GL_JOURNAL', name: 'General Ledger Journal', autoPost: true },
   { type: 'CUSTOMER_ADJUSTMENT', name: 'Customer Adjustment Journal', autoPost: true },

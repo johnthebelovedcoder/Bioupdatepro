@@ -23,6 +23,8 @@ function service({
     productionOrder: { findMany: vi.fn().mockResolvedValue([]) },
     payrollRun: { findMany: vi.fn().mockResolvedValue(runs) },
     fixedAsset: { findMany: vi.fn().mockResolvedValue(assets) },
+    workflowTransaction: { findMany: vi.fn().mockResolvedValue([]) },
+    receiptAllocation: { findMany: vi.fn().mockResolvedValue([]) },
   } as unknown as PrismaService;
   const trialBalance = {
     build: vi.fn().mockResolvedValue({
