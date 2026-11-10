@@ -300,7 +300,7 @@
     "reason": "The group is loaded by companyId and code in the same method; the conditional update matches only that verified group and pending request."
   },
   {
-    "key": "snail-breeding/snail-breeding.service.ts workflowTransaction.findMany { where: { id: { in: pendingWorkflowIds } }, select: { id: true, status: true } }",
+    "key": "snail-breeding/snail-breeding.service.ts workflowTransaction.findMany { id: { in: pendingWorkflowIds } }",
     "reason": "The workflow transaction ids come only from snail breeding cycles loaded with companyId in the same method; the lookup only decorates those cycles with approval status."
   }
 ]

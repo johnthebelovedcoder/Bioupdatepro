@@ -169,7 +169,7 @@ describe('approved five-digit chart roles', () => {
       expect(numberFor('APPROVED', role), role).toBe(number);
       const row = accounts.get(number)!;
       expect(row['Posting Account'], number).toBe('Yes');
-      expect(String(row['Developer Note']), `${number} records the approved engineering basis`).toMatch(/user-approved proposed account/i);
+      expect(String(row['Developer Note']), `${number} records the Finance sign-off requirement`).toMatch(/obtain client Finance sign-off before production release/i);
     }
   });
 
