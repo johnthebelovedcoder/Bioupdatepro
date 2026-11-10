@@ -9,6 +9,10 @@ import { PeriodService } from '../../src/periods/period.service';
 import { DimensionValidatorService } from '../../src/enterprise-dimensions/dimension-validator.service';
 import { PostingControlService } from '../../src/posting-control/posting-control.service';
 import { PostingControlProvisioningService } from '../../src/posting-control/posting-control-provisioning.service';
+import { WorkflowService } from '../../src/workflow/workflow.service';
+import { WorkflowRoutingService } from '../../src/workflow/workflow-routing.service';
+import { DelegationService } from '../../src/workflow/delegation.service';
+import { NotificationService } from '../../src/workflow/notification.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 let prisma: PrismaService;
@@ -29,7 +33,8 @@ beforeEach(async () => {
   const posting = new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma));
   const postingControl = new PostingControlService(prisma);
   await new PostingControlProvisioningService(prisma, audit).provision(fixture.companyId, null);
-  breeding = new SnailBreedingService(prisma, audit, posting, postingControl);
+  const workflow = new WorkflowService(prisma, new WorkflowRoutingService(prisma), new DelegationService(prisma, audit), new NotificationService(prisma), audit);
+  breeding = new SnailBreedingService(prisma, audit, posting, postingControl, workflow);
   const pen = await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: 'SN-P1', name: 'Snail pen 1' } });
   const breeder = await prisma.livestockGroup.create({
     data: {

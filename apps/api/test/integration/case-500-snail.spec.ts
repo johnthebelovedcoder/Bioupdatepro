@@ -162,7 +162,7 @@ beforeAll(async () => {
     operations: new OperationsService(
       prisma, new IdempotencyService(prisma), audit, new OperationsPostingService(prisma, posting, rearing, stock), assets, new BatchProfileService(prisma, audit),
     ),
-    breeding: new SnailBreedingService(prisma, audit, posting, postingControl),
+    breeding: new SnailBreedingService(prisma, audit, posting, postingControl, workflow),
     orders: new ProductionOrderService(prisma, audit, posting, workflow, new RecipeService(prisma, audit), postingControl, stock, new CostAllocationService()),
     tb,
     pl,

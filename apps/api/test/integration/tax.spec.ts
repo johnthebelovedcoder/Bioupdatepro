@@ -15,6 +15,10 @@ import { PostingService } from '../../src/posting/posting.service';
 import { TaxEngineService } from '../../src/tax/tax-engine.service';
 import { TaxRegisterService } from '../../src/tax/tax-register.service';
 import { TaxPeriodService } from '../../src/tax/tax-period.service';
+import { WorkflowService } from '../../src/workflow/workflow.service';
+import { WorkflowRoutingService } from '../../src/workflow/workflow-routing.service';
+import { DelegationService } from '../../src/workflow/delegation.service';
+import { NotificationService } from '../../src/workflow/notification.service';
 import { kobo } from '../../src/common/money';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
@@ -56,7 +60,8 @@ describe('Tax Engine (§4)', () => {
 
     engine = new TaxEngineService(prisma);
     registers = new TaxRegisterService(prisma, engine);
-    periods = new TaxPeriodService(prisma, engine, registers, audit);
+    const workflow = new WorkflowService(prisma, new WorkflowRoutingService(prisma), new DelegationService(prisma, audit), new NotificationService(prisma), audit);
+    periods = new TaxPeriodService(prisma, engine, registers, audit, posting, workflow);
   });
 
   afterAll(async () => {
