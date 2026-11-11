@@ -23,6 +23,7 @@ import { JointCostService } from '../../src/production/joint-cost.service';
 import { RoutingService } from '../../src/routing/routing.service';
 import { kobo } from '../../src/common/money';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { assignApprovedLifecycleGroups, assignApprovedPostingGroup } from '../helpers/approved-posting';
 
 /**
  * Snail processing on the approved five-digit chart: snails and packaging into
@@ -62,6 +63,15 @@ beforeEach(async () => {
   approver = { userId: fixture.checkerId, roles: ['FARM_MANAGER'] };
   await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
   await new PostingControlProvisioningService(prisma, new AuditService(prisma)).provision(fixture.companyId, null);
+  await prisma.speciesBreed.create({ data: { companyId: fixture.companyId, speciesKey: 'snail', code: 'TEST-PROCESS', name: 'Archachatina', openingStage: 'Hatchling', stages: { create: [
+    { stageName: 'Hatchling', minDay: 0, sortOrder: 1, maturityClass: 'IMMATURE' },
+    { stageName: 'Market-ready', minDay: 180, sortOrder: 2, maturityClass: 'MATURE' },
+  ] } } });
+  await assignApprovedLifecycleGroups(prisma as unknown as PrismaClient, fixture.companyId, fixture.financeUserId);
+  const centres = await prisma.costCentre.findMany({ where: { companyId: fixture.companyId, active: true, postingAllowed: true } });
+  for (const centre of centres) await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Work centre', masterId: centre.id, application: 'YifrehSnail', postingGroup: 'SNP-WC-MAIN', assignedById: fixture.financeUserId });
+  const overhead = await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '52200' } });
+  await prisma.approvedPostingMap.create({ data: { companyId: fixture.companyId, application: 'YifrehSnail', postingGroup: 'SNP-WC-MAIN', postingKey: 'UTILITIES_EXPENSE', mapKey: 'YifrehSnail|SNP-WC-MAIN|UTILITIES_EXPENSE', glAccountId: overhead.id, accountCode: '52200', status: 'Active', effectiveFrom: new Date('2026-01-01'), resolutionNote: 'Finance-approved processing overhead expense for this integration fixture' } });
   await prisma.workflowDefinition.create({
     data: {
       companyId: fixture.companyId, transactionType: 'PRODUCTION_ORDER', name: 'Production order', effectiveFrom: new Date('2026-01-01'),

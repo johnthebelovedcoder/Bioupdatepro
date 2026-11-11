@@ -16,6 +16,7 @@ import { ControlAccountReconciliationService } from '../../src/reporting/control
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { assignApprovedPostingGroup } from '../helpers/approved-posting';
 
 /**
  * Inventory movements on the approved five-digit chart. A transfer passes
@@ -67,10 +68,11 @@ beforeEach(async () => {
   // Maize is a feed ingredient (12100) and bags are packaging (12200): different controls.
   for (const [code, account, qty, value] of [
     ['MAIZE', '12100', 1000, 200_000_00n], // ₦200 a kg
-    ['BAG', '12200', 100, 15_000_00n], // ₦150 each
+    ['BAG', '12000', 100, 15_000_00n], // ₦150 each; generic COR-RM inventory
   ] as const) {
     const inventory = await acct(account);
-    item[code] = (await prisma.item.create({ data: { companyId: fixture.companyId, code, description: code, unitOfMeasureId: uom.id, inventoryGlAccountId: inventory } })).id;
+    item[code] = (await prisma.item.create({ data: { companyId: fixture.companyId, code, description: code, unitOfMeasureId: uom.id, inventoryGlAccountId: inventory, ...(code === 'MAIZE' ? { isBiologicalFeed: true } : {}) } })).id;
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Item', masterId: item[code]!, application: 'YifrehCore', postingGroup: 'COR-RM', assignedById: fixture.financeUserId });
     const d = dims(fixture, 0, { costCentreId: fixture.costCentreId });
     const received = await posting.post({
       sourceModule: 'test', sourceDocumentType: 'Receipt', journalNumber: `RCV-${code}`, journalDate: new Date('2026-01-05'), narration: `${code} received`,
@@ -105,12 +107,12 @@ describe('inventory movements on the approved chart', () => {
     });
     expect(await balance('12500')).toBe(80_000_00n); // 400 kg × ₦200 in transit
     expect(await balance('12100')).toBe(200_000_00n - 80_000_00n); // out of feed ingredients, not raw materials
-    expect(await balance('12000')).toBe(0n);
+    expect(await balance('12000')).toBe(15_000_00n); // the transfer does not move the unrelated bag inventory
 
     await transfers.receiveTransfer({ transferId: sent.id, actor: approver });
     expect(await balance('12500')).toBe(0n); // in transit clears
     expect(await balance('12100')).toBe(200_000_00n); // and the control is whole again
-    expect(await balance('12000')).toBe(0n);
+    expect(await balance('12000')).toBe(15_000_00n); // the bag inventory remains in its own control
   });
 
   it('writes off stock to inventory write-down expense out of the account the item is held in', async () => {
@@ -119,8 +121,7 @@ describe('inventory movements on the approved chart', () => {
     });
     await transfers.decideWriteOff({ companyId: fixture.companyId, writeOffId: requested.id, approve: true, actor: approver });
     expect(await balance('51200')).toBe(5n * 150_00n);
-    expect(await balance('12200')).toBe(15_000_00n - 5n * 150_00n); // packaging control, not raw materials
-    expect(await balance('12000')).toBe(0n);
+    expect(await balance('12000')).toBe(15_000_00n - 5n * 150_00n);
   });
 
   it('charges a count shortage to write-down expense and credits a surplus to the inventory gain', async () => {
@@ -137,7 +138,7 @@ describe('inventory movements on the approved chart', () => {
     expect(await balance('51200')).toBe(3n * 200_00n); // the shortage
     expect(await balance('41000')).toBe(-(4n * 150_00n)); // the surplus, a gain
     expect(await balance('12100')).toBe(200_000_00n - 3n * 200_00n);
-    expect(await balance('12200')).toBe(15_000_00n + 4n * 150_00n);
+    expect(await balance('12000')).toBe(15_000_00n + 4n * 150_00n);
   });
 
   it('keeps each inventory control equal to the stock ledger throughout', async () => {
@@ -150,7 +151,7 @@ describe('inventory movements on the approved chart', () => {
     });
     await transfers.decideWriteOff({ companyId: fixture.companyId, writeOffId: requested.id, approve: true, actor: approver });
     const rows = await reconciliation.reconcile(fixture.companyId);
-    for (const account of ['12100', '12200']) {
+    for (const account of ['12000', '12100']) {
       const row = rows.find((r) => r.accountNumber === account);
       expect(row, `${account} in ${JSON.stringify(rows)}`).toBeDefined();
       expect(row!.reconciled, account).toBe(true);

@@ -38,6 +38,10 @@ beforeAll(() => {
 beforeEach(async () => {
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId }, data: { fsCategory: 'CURRENT_ASSET' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'REVENUE' }, data: { fsCategory: 'REVENUE' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EXPENSE' }, data: { fsCategory: 'OPERATING_EXPENSE' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'LIABILITY' }, data: { fsCategory: 'CURRENT_LIABILITY' } });
   for (const [number, name, type, normal] of [
     ['410100', 'Revenue — Live Snails', 'REVENUE', 'CREDIT'],
     ['410300', 'Revenue — Live Birds/Eggs', 'REVENUE', 'CREDIT'],
@@ -52,6 +56,8 @@ beforeEach(async () => {
       await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType: type, normalBalance: normal } })
     ).id;
   }
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'REVENUE', fsCategory: null }, data: { fsCategory: 'REVENUE' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EXPENSE', fsCategory: null }, data: { fsCategory: 'OPERATING_EXPENSE' } });
   for (const [code, speciesKey] of [['L-1', 'poultry'], ['S-1', 'snail']] as const) {
     const house = await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: `PEN-${code}`, name: code } });
     pen[speciesKey] = house.id;

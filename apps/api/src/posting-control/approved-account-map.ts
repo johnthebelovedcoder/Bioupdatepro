@@ -107,7 +107,7 @@ export async function resolveApprovedLifecycleStageAccount(
     masterType: 'Lifecycle stage',
     masterId: stage.id,
     postingGroup,
-    postingKey: params.postingKey ?? 'BA_CONTROL',
+    postingKey: params.postingKey ?? (classes[0] === 'MATURE' ? 'BA_DESTINATION_STAGE_CONTROL' : 'BA_CONTROL'),
     on: params.on,
   })));
   const accounts = new Set(resolved.map((row) => row.glAccountId));

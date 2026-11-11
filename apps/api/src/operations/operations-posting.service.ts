@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PostingService } from '../posting/posting.service';
 import { kobo } from '../common/money';
 import { AccountingRuleViolation } from '../common/errors';
-import { resolveApprovedMappedAccount, resolveApprovedItemInventoryAccount } from '../posting-control/approved-account-map';
+import { resolveApprovedLifecycleStageAccount, resolveApprovedMappedAccount, resolveApprovedItemInventoryAccount } from '../posting-control/approved-account-map';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { RearingCostService } from '../biological-assets/rearing-cost.service';
 import { StockMovementService } from '../inventory/stock-movement.service';
@@ -196,7 +196,7 @@ export class OperationsPostingService {
                 approvedControl: {
                   application,
                   applicationRuleId: `${group.speciesKey?.toLowerCase().includes('snail') ? 'SNP' : group.speciesKey?.toLowerCase().includes('poultry') ? 'PLP' : 'COR'}-YFR-039A`,
-                  dynamicAccountIds: { INVENTORY_CONTROL: [creditAccount] },
+                  dynamicAccountIds: { FARM_WIP: [accounts.workInProgress], INVENTORY_CONTROL: [creditAccount] },
                   expectedLineAmountsKobo: {
                     [`${group.speciesKey?.toLowerCase().includes('snail') ? 'SNP' : group.speciesKey?.toLowerCase().includes('poultry') ? 'PLP' : 'COR'}-YFR-039A:1`]: valueKobo.toString(),
                     [`${group.speciesKey?.toLowerCase().includes('snail') ? 'SNP' : group.speciesKey?.toLowerCase().includes('poultry') ? 'PLP' : 'COR'}-YFR-039A:2`]: valueKobo.toString(),
@@ -447,12 +447,23 @@ export class OperationsPostingService {
     // On the approved chart poultry cost goes to the account of the flock's
     // stage today (immature or mature); the account is kept on the row so a
     // later death or sale relieves the accounts that actually hold the cost.
-    let debitNumber = rearingNumberFor(version, speciesKey, stage);
+    // The approved chart resolves the debit from the assigned work centre;
+    // the legacy number helper deliberately refuses to guess a stage account.
+    let debitNumber = version === 'APPROVED' ? null : rearingNumberFor(version, speciesKey, stage);
     let debitAccountId: string | null = null;
     const application = speciesKey.trim().toLowerCase() === 'snail' ? 'YifrehSnail' : 'YifrehPoultry';
-    if (version === 'APPROVED') debitAccountId = (await resolveApprovedMappedAccount(this.prisma, {
-      companyId, application, masterType: 'Work centre', masterId: workCentreId, postingKey: 'FARM_WIP', on,
-    })).glAccountId;
+    if (version === 'APPROVED') {
+      // Validate the work-centre's Finance assignment, then route poultry to
+      // the biological asset account selected by Finance's stage class.
+      await resolveApprovedMappedAccount(this.prisma, {
+        companyId, application, masterType: 'Work centre', masterId: workCentreId, postingKey: 'FARM_WIP', on,
+      });
+      if (speciesKey.trim().toLowerCase() !== 'snail') {
+        const stageAccount = await resolveApprovedLifecycleStageAccount(this.prisma, { companyId, speciesKey, stageName: stage, on });
+        debitAccountId = stageAccount.glAccountId;
+        debitNumber = stageAccount.accountNumber;
+      }
+    }
     if (!debitAccountId && !debitNumber && version === 'APPROVED' && speciesKey.trim().toLowerCase() === 'snail') {
       if (purpose !== 'feed') {
         throw new AccountingRuleViolation('Approved Account Map — snail treatment expense', 'The workbook does not map a snail treatment expense account; add an approved mapping before posting this cost.', { companyId, speciesKey, stage });

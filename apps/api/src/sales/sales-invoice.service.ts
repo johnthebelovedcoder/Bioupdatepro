@@ -377,6 +377,7 @@ export class SalesInvoiceService {
         application: 'YifrehCore',
         applicationRuleId: invoice.vatAmountKobo > 0n ? 'COR-YFR-025A' : 'COR-YFR-021',
         ...(additionalApplicationRuleIds.length ? { additionalApplicationRuleIds } : {}),
+        dynamicMappingApplications: ['YifrehCore', 'YifrehPoultry', 'YifrehSnail'],
         dynamicAccountIds,
         expectedAccountSideAmountsKobo,
       };

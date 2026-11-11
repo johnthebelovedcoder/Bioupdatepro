@@ -403,6 +403,20 @@ export class RearingCostService {
         journalDate: relief.occurredOn,
         narration: `${what} — ${group.code} (weighted average)`,
         ...dimensions,
+        ...(version === 'APPROVED' && (relief.eventType === 'MORTALITY' || relief.eventType === 'DISPOSAL') ? {
+          approvedControl: {
+            application: group.speciesKey.trim().toLowerCase() === 'snail' ? 'YifrehSnail' : 'YifrehPoultry',
+            applicationRuleId: `${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-YFR-${relief.eventType === 'MORTALITY' ? '035' : '020B'}`,
+            dynamicAccountIds: {
+              [relief.eventType === 'MORTALITY' ? 'NORMAL_MORTALITY_LOSS' : 'COGS']: [debit],
+              BA_CONTROL: wipLines.map((line) => line.id!),
+            },
+            expectedAccountSideAmountsKobo: {
+              [`Debit:${debit}`]: relief.amountKobo.toString(),
+              ...Object.fromEntries(wipLines.map((line) => [`Credit:${line.id}`, line.amountKobo.toString()])),
+            },
+          },
+        } : {}),
         lines: [
           { glAccountId: debit, description: `${what} — ${group.code}`, debit: kobo(relief.amountKobo), dimensions },
           ...wipLines.map((l) => ({

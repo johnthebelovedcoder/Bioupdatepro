@@ -319,9 +319,13 @@ export class CashFlowService {
 
     // IAS 41 and produce gains are shown as other income on the P&L, then
     // removed from operating cash because they are non-cash.
-    const fairValueAdjustmentKobo = -netIncome.otherIncomeLines
+    const fairValueGainsKobo = netIncome.otherIncomeLines
       .filter((line) => FAIR_VALUE_ACCOUNTS.includes(line.accountNumber))
       .reduce((sum, line) => sum + BigInt(line.amountKobo), 0n);
+    const fairValueLossesKobo = netIncome.otherExpenseLines
+      .filter((line) => FAIR_VALUE_ACCOUNTS.includes(line.accountNumber))
+      .reduce((sum, line) => sum + BigInt(line.amountKobo), 0n);
+    const fairValueAdjustmentKobo = -fairValueGainsKobo + fairValueLossesKobo;
 
     // Receivables/inventory UP consumes cash (a use); payables UP releases
     // cash (a source) — the standard indirect-method sign convention.

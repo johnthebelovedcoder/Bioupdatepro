@@ -11,6 +11,7 @@ import { ProfitLossService } from '../../src/reporting/profit-loss.service';
 import { CashFlowService } from '../../src/reporting/cash-flow.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { classifyFixtureFinancialStatements } from '../helpers/approved-posting';
 
 /**
  * The cash-flow statement on a livestock farm (IAS 7 with IAS 41): a
@@ -35,6 +36,7 @@ beforeAll(() => {
 beforeEach(async () => {
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
+  await classifyFixtureFinancialStatements(prisma as unknown as PrismaClient, fixture.companyId);
   for (const [number, name, type, normal] of [
     ['130210', 'BA — Poultry', 'ASSET', 'DEBIT'],
     ['130215', 'BA/Inventory — Eggs', 'ASSET', 'DEBIT'],
@@ -42,9 +44,16 @@ beforeEach(async () => {
     ['420210', 'Agricultural Produce Gain — Eggs', 'REVENUE', 'CREDIT'],
   ] as const) {
     account[number] = (
-      await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType: type, normalBalance: normal } })
+      await prisma.gLAccount.create({
+        data: {
+          companyId: fixture.companyId, accountNumber: number, name, accountType: type, normalBalance: normal,
+          fsCategory: type === 'ASSET' ? 'CURRENT_ASSET' : 'OTHER_INCOME',
+        },
+      })
     ).id;
   }
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountNumber: { in: ['130210', '130215'] } }, data: { fsCategory: 'CURRENT_ASSET' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountNumber: { in: ['420200', '420210'] } }, data: { fsCategory: 'OTHER_INCOME' } });
   await prisma.biologicalAssetStageAccount.create({
     data: { companyId: fixture.companyId, speciesKey: 'poultry', stage: 'Layer', glAccountId: account['130210']! },
   });
@@ -71,7 +80,18 @@ describe('CashFlowService — direct method (AC-ENT-001, 500_Cash_Flow)', () => 
       ['3100', 'Share Capital', 'EQUITY', 'CREDIT'],
       ['5401', 'Operating Expenses', 'EXPENSE', 'DEBIT'],
     ] as const) {
-      extra[number] = (await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType: type, normalBalance: normal } })).id;
+      extra[number] = (await prisma.gLAccount.create({
+        data: {
+          companyId: fixture.companyId, accountNumber: number, name, accountType: type, normalBalance: normal,
+          fsCategory: ({
+            ASSET: 'CURRENT_ASSET',
+            LIABILITY: 'CURRENT_LIABILITY',
+            EQUITY: 'EQUITY',
+            REVENUE: 'OTHER_INCOME',
+            EXPENSE: 'OPERATING_EXPENSE',
+          } as const)[type],
+        },
+      })).id;
     }
     const a = { ...fixture.accounts, ...extra };
     // March.

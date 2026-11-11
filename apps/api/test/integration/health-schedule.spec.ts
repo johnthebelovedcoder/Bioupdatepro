@@ -48,10 +48,16 @@ beforeAll(() => {
 beforeEach(async () => {
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
+  await prisma.speciesBreed.create({
+    data: {
+      companyId: fixture.companyId, speciesKey: 'poultry', code: 'BR-LAYER-01', name: 'ISA Brown', openingStage: 'Chick',
+      stages: { create: [{ stageName: 'Chick', minDay: 0, sortOrder: 1 }] },
+    },
+  });
   await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: 'H1', name: 'House 1' } });
   await operations.placeGroup({
     companyId: fixture.companyId, actor: actor(), idempotencyKey: 'place',
-    payload: { module: 'poultry', code: 'LAY-1', breed: 'ISA Brown', purpose: 'Layer', stage: 'Chick', house: 'H1', openingPopulation: 500, startedOn: '2026-01-01' },
+    payload: { module: 'poultry', code: 'LAY-1', breed: 'ISA Brown', purpose: 'Layer', stage: 'Chick', house: 'H1', openingPopulation: 500, startedOn: '2026-01-01', originType: 'OPENING_BALANCE', originEvidence: 'TEST-OPENING' },
   });
 });
 
@@ -96,7 +102,7 @@ describe('Vaccination and health compliance (PLY-008)', () => {
   it('reports culls apart from deaths, with each as a share of what was placed (PLY-004)', async () => {
     await operations.recordRound({
       companyId: fixture.companyId, actor: actor(), idempotencyKey: 'round-1',
-      payload: { module: 'poultry', date: '2026-01-10', entries: [{ groupCode: 'LAY-1', deaths: 5, causes: ['Heat stress', 'Crowding'] }] },
+      payload: { module: 'poultry', date: '2026-01-10', entries: [{ groupCode: 'LAY-1', deaths: 5, causes: ['Heat stress', 'Disease'] }] },
     });
     const group = await prisma.livestockGroup.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'LAY-1' } });
     await prisma.livestockGroupDisposal.create({
@@ -105,6 +111,6 @@ describe('Vaccination and health compliance (PLY-008)', () => {
     const report = await new MortalityReportService(prisma).report({ companyId: fixture.companyId, speciesKey: 'poultry' });
     expect(report.totals).toMatchObject({ placed: 500, deaths: 5, culls: 10, mortalityPercent: '1.00', cullPercent: '2.00' });
     // One death with two causes is counted once.
-    expect(report.byCause).toEqual([{ key: 'Heat stress + Crowding', deaths: 5 }]);
+    expect(report.byCause).toEqual([{ key: 'Disease + Heat stress', deaths: 5 }]);
   });
 });

@@ -440,7 +440,7 @@ export class KpiService {
    * a farm chooses them — so while any asset or liability account holding a
    * balance is unclassified, this says how many rather than guessing.
    */
-  private async currentRatio(companyId: string): Promise<Kpi> {
+  async currentRatio(companyId: string): Promise<Kpi> {
     const label = 'Current ratio';
     const accounts = await this.prisma.gLAccount.findMany({
       where: { companyId, accountType: { in: ['ASSET', 'LIABILITY'] } },

@@ -1545,6 +1545,12 @@ describe('Procure-to-Pay (§5)', () => {
         data: { companyId: fixture.companyId, accountNumber: '130200', name: 'BA — Breeders', accountType: 'ASSET', normalBalance: 'DEBIT' },
       });
       await prisma.biologicalAssetStageAccount.create({ data: { companyId: fixture.companyId, speciesKey: 'snail', stage: 'Breeder', glAccountId: baAccount.id } });
+      await prisma.speciesBreed.create({
+        data: {
+          companyId: fixture.companyId, speciesKey: 'snail', code: 'ARCH-MARGINATA', name: 'Archachatina marginata', openingStage: 'Breeder',
+          stages: { create: [{ stageName: 'Breeder', minDay: 0, sortOrder: 1, maturityClass: 'MATURE' }] },
+        },
+      });
       await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: 'SNL-1', name: 'Snailery 1', capacity: 1_000 } });
 
       const order = await approvedOrder(breeders.id, 500, 2_200_00n);

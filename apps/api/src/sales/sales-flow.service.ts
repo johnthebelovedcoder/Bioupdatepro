@@ -387,7 +387,7 @@ export class SalesFlowService {
     const openInvoices = invoices.filter(
       (invoice) =>
         (invoice.status === 'POSTED' || invoice.status === 'PART_PAID') &&
-        BigInt(invoice.availableToReceiveKobo) > 0n,
+        (BigInt(invoice.availableToReceiveKobo) > 0n || invoice.receiptPending),
     );
     const disposals = await this.prisma.workflowTransaction.findMany({
       where: {

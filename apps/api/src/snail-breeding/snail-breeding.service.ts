@@ -372,33 +372,43 @@ export class SnailBreedingService {
         const dimensions = this.dimensions(eggGroup, context);
         const journalNumber = await nextReference(tx, { companyId: params.companyId, type: 'JV', site: 'GL', date: hatchDate });
         const destination = hatchedValue > 0n
-          ? await resolveApprovedLifecycleStageAccount(tx, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Hatchling', postingKey: 'BA_DESTINATION_STAGE_CONTROL', on: hatchDate })
+          ? await resolveApprovedLifecycleStageAccount(tx, { companyId: params.companyId, speciesKey: 'snail', stageName: 'Hatchling', on: hatchDate })
           : null;
+        const stageTransfer = destination && destination.glAccountId !== asset.glAccountId;
+        const lossRule = `SNP-YFR-${abnormal ? '036' : '035'}`;
+        const recordsLoss = unhatchedValue > 0n && loss;
         const lines = [
-          ...(hatchedValue > 0n && destination ? [{ glAccountId: destination.glAccountId, description: `${cycle.code} — eggs transferred to hatchling stage`, debit: kobo(hatchedValue), dimensions }] : []),
-          ...(unhatchedValue > 0n && loss ? [{ glAccountId: loss.glAccountId, description: `${cycle.code} — ${abnormal ? 'abnormal' : 'normal'} unhatched-egg loss`, debit: kobo(unhatchedValue), dimensions }] : []),
-          { glAccountId: asset.glAccountId, description: `${cycle.code} — egg-stage carrying value relieved`, credit: kobo(totalValue), dimensions },
+          ...(stageTransfer ? [
+            { glAccountId: destination.glAccountId, description: `${cycle.code} — eggs transferred to hatchling stage`, debit: kobo(hatchedValue), dimensions },
+            { glAccountId: asset.glAccountId, description: `${cycle.code} — egg-stage carrying value relieved`, credit: kobo(hatchedValue), dimensions },
+          ] : []),
+          ...(recordsLoss ? [
+            { glAccountId: loss.glAccountId, description: `${cycle.code} — ${abnormal ? 'abnormal' : 'normal'} unhatched-egg loss`, debit: kobo(unhatchedValue), dimensions },
+            { glAccountId: asset.glAccountId, description: `${cycle.code} — unhatched-egg carrying value relieved`, credit: kobo(unhatchedValue), dimensions },
+          ] : []),
         ];
-        const posted = await this.posting.post({
+        if (lines.length > 0) {
+          const posted = await this.posting.post({
           sourceModule: 'BIOLOGICAL_ASSETS', sourceDocumentType: 'SNAIL_EGG_HATCH', sourceDocumentId: cycle.id,
           journalNumber,
           journalDate: hatchDate, narration: `${cycle.code}: ${hatched} hatched, ${unhatched} eggs lost`, ...dimensions,
           approvedControl: {
             application: 'YifrehSnail',
-            applicationRuleId: hatchedValue > 0n ? 'SNP-YFR-032' : abnormal ? 'SNP-YFR-036' : 'SNP-YFR-035',
-            additionalApplicationRuleIds: hatchedValue > 0n && unhatchedValue > 0n ? [abnormal ? 'SNP-YFR-036' : 'SNP-YFR-035'] : [],
+            applicationRuleId: stageTransfer ? 'SNP-YFR-032' : lossRule,
+            additionalApplicationRuleIds: stageTransfer && recordsLoss ? [lossRule] : [],
             dynamicAccountIds: {
-              ...(hatchedValue > 0n && destination ? { 'SNP-YFR-032:BA_DESTINATION_STAGE_CONTROL': [destination.glAccountId], 'SNP-YFR-032:BA_SOURCE_STAGE_CONTROL': [asset.glAccountId] } : {}),
-              ...(unhatchedValue > 0n && loss ? { [`SNP-YFR-${abnormal ? '036' : '035'}:${abnormal ? 'ABNORMAL_MORTALITY_LOSS' : 'NORMAL_MORTALITY_LOSS'}`]: [loss.glAccountId], [`SNP-YFR-${abnormal ? '036' : '035'}:BA_CONTROL`]: [asset.glAccountId] } : {}),
+              ...(stageTransfer ? { 'SNP-YFR-032:BA_DESTINATION_STAGE_CONTROL': [destination.glAccountId], 'SNP-YFR-032:BA_SOURCE_STAGE_CONTROL': [asset.glAccountId] } : {}),
+              ...(recordsLoss ? { [`${lossRule}:${abnormal ? 'ABNORMAL_MORTALITY_LOSS' : 'NORMAL_MORTALITY_LOSS'}`]: [loss.glAccountId], [`${lossRule}:BA_CONTROL`]: [asset.glAccountId] } : {}),
             },
             expectedLineAmountsKobo: {
-              ...(hatchedValue > 0n ? { 'SNP-YFR-032:1': hatchedValue.toString(), 'SNP-YFR-032:2': hatchedValue.toString() } : {}),
-              ...(unhatchedValue > 0n ? { [`SNP-YFR-${abnormal ? '036' : '035'}:1`]: unhatchedValue.toString(), [`SNP-YFR-${abnormal ? '036' : '035'}:2`]: unhatchedValue.toString() } : {}),
+              ...(stageTransfer ? { 'SNP-YFR-032:1': hatchedValue.toString(), 'SNP-YFR-032:2': hatchedValue.toString() } : {}),
+              ...(recordsLoss ? { [`${lossRule}:1`]: unhatchedValue.toString(), [`${lossRule}:2`]: unhatchedValue.toString() } : {}),
             },
           },
           idempotencyKey: `snail-egg-hatch:${cycle.id}`, actor: params.actor, lines,
         }, tx);
-        journalEntryId = posted.journalEntryId;
+          journalEntryId = posted.journalEntryId;
+        }
       }
 
       await tx.snailBreedingCycle.update({

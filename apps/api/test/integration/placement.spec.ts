@@ -45,6 +45,15 @@ beforeEach(async () => {
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
   actor = { userId: fixture.makerId, roles: ['FARM_MANAGER'] };
+  await prisma.speciesBreed.create({
+    data: {
+      companyId: fixture.companyId, speciesKey: 'poultry', code: 'BR-BROIL-01', name: 'Ross 308', openingStage: 'Chick',
+      stages: { create: [
+        { stageName: 'Chick', minDay: 0, sortOrder: 1 },
+        { stageName: 'Grower', minDay: 15, sortOrder: 2 },
+      ] },
+    },
+  });
   await structure.createPen({ companyId: fixture.companyId, actor, farmId: fixture.farmId, code: 'H1', name: 'House 1', capacity: 500 });
   await structure.createPen({ companyId: fixture.companyId, actor, farmId: fixture.farmId, code: 'H2', name: 'House 2', capacity: 300 });
 });
@@ -52,7 +61,7 @@ beforeEach(async () => {
 const place = (code: string, house: string, birds: number) =>
   operations.placeGroup({
     companyId: fixture.companyId, actor, idempotencyKey: `place-${code}-${house}-${birds}`,
-    payload: { module: 'poultry', code, breed: 'Ross 308', purpose: 'Broiler', stage: 'Chick', house, openingPopulation: birds, startedOn: '2026-02-01' },
+    payload: { module: 'poultry', code, breed: 'Ross 308', purpose: 'Broiler', stage: 'Chick', house, openingPopulation: birds, startedOn: '2026-02-01', originType: 'OPENING_BALANCE', originEvidence: 'TEST-OPENING' },
   });
 
 describe('Placement (UAT-010 / UAT-016)', () => {

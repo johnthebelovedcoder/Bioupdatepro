@@ -15,6 +15,7 @@ import { ProfitLossService } from '../../src/reporting/profit-loss.service';
 import { CashFlowService } from '../../src/reporting/cash-flow.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { assignApprovedLifecycleGroups, classifyFixtureFinancialStatements } from '../helpers/approved-posting';
 
 /**
  * Moving a farm's books onto the approved five-digit chart: every balance
@@ -52,6 +53,36 @@ beforeEach(async () => {
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
   actor = { userId: fixture.makerId, roles: ['CFO'] };
+  await classifyFixtureFinancialStatements(prisma as unknown as PrismaClient, fixture.companyId);
+
+  await provisioning.provision(fixture.companyId, null);
+  await classifyFixtureFinancialStatements(prisma as unknown as PrismaClient, fixture.companyId);
+
+  // The approved-chart cutover uses Finance's lifecycle-stage classifications
+  // to select the immature or mature biological-asset account.
+  await prisma.speciesBreed.create({
+    data: {
+      companyId: fixture.companyId, speciesKey: 'poultry', code: 'TEST-POULTRY', name: 'Test', openingStage: 'Grower',
+      stages: { create: [
+        { stageName: 'Grower', minDay: 0, sortOrder: 1, maturityClass: 'IMMATURE' },
+        { stageName: 'Layer', minDay: 140, sortOrder: 2, maturityClass: 'MATURE' },
+      ] },
+    },
+  });
+  await prisma.speciesBreed.create({
+    data: {
+      companyId: fixture.companyId, speciesKey: 'snail', code: 'TEST-SNAIL', name: 'Test', openingStage: 'Grower',
+      stages: { create: [
+        { stageName: 'Grower', minDay: 0, sortOrder: 1, maturityClass: 'IMMATURE' },
+        { stageName: 'Market-ready', minDay: 90, sortOrder: 2, maturityClass: 'MATURE' },
+      ] },
+    },
+  });
+  await prisma.speciesBreedStage.updateMany({ where: { speciesBreed: { companyId: fixture.companyId, speciesKey: { equals: 'poultry', mode: 'insensitive' } }, stageName: 'Layer' }, data: { maturityClass: 'MATURE' } });
+  await prisma.speciesBreedStage.updateMany({ where: { speciesBreed: { companyId: fixture.companyId, speciesKey: { equals: 'poultry', mode: 'insensitive' } }, stageName: 'Grower' }, data: { maturityClass: 'IMMATURE' } });
+  await prisma.speciesBreedStage.updateMany({ where: { speciesBreed: { companyId: fixture.companyId, speciesKey: { equals: 'snail', mode: 'insensitive' } }, stageName: 'Grower' }, data: { maturityClass: 'IMMATURE' } });
+  await prisma.speciesBreedStage.updateMany({ where: { speciesBreed: { companyId: fixture.companyId, speciesKey: { equals: 'snail', mode: 'insensitive' } }, stageName: 'Market-ready' }, data: { maturityClass: 'MATURE' } });
+  await assignApprovedLifecycleGroups(prisma as unknown as PrismaClient, fixture.companyId, fixture.financeUserId);
 
   const uom = await prisma.unitOfMeasure.create({ data: { companyId: fixture.companyId, code: 'EA', name: 'Each' } });
   for (const [code, description, feed, account] of [
@@ -192,7 +223,9 @@ describe('ApprovedCutoverService', () => {
   it('keeps the cash flow statement reconciled to the bank in the month of the cutover (found by the restore rehearsal)', async () => {
     // Receivables and payables moving between accounts are not cash: both sides must count in the same bucket.
     for (const [number, name, accountType, normalBalance] of [['1201', 'Trade Receivables', 'ASSET', 'DEBIT'], ['2201', 'Trade Payables', 'LIABILITY', 'CREDIT']] as const) {
-      fixture.accounts[number] ??= (await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: number, name, accountType, normalBalance } })).id;
+      fixture.accounts[number] ??= (await prisma.gLAccount.create({
+        data: { companyId: fixture.companyId, accountNumber: number, name, accountType, normalBalance, fsCategory: accountType === 'ASSET' ? 'CURRENT_ASSET' : 'CURRENT_LIABILITY' },
+      })).id;
     }
     await books([{ account: '1201', debit: 70_000n }, { account: '2201', credit: 20_000n }]);
     await cutover.run({ companyId: fixture.companyId, cutoverDate: CUTOVER, approval, actor });

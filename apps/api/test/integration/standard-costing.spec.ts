@@ -25,6 +25,7 @@ import { VarianceProrationService } from '../../src/production/variance-proratio
 import { PeriodCloseService } from '../../src/closing/period-close.service';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
 import { resetDatabase, seedFixture, TestFixture, dims } from '../helpers/test-db';
+import { assignApprovedPostingGroup } from '../helpers/approved-posting';
 
 /**
  * Standard costing (Costing_Policy_v2 POL-001–004, SOP-049/050, PCR-032–036,
@@ -110,6 +111,8 @@ beforeEach(async () => {
 
   // Routing: grinding/mixing labour, the mixer, and other overhead a kg.
   const routing = new RoutingService(prisma, new AuditService(prisma));
+  const grindingCentre = await prisma.costCentre.create({ data: { companyId: fixture.companyId, code: 'FM-GRN', name: 'Feed mill grinding', branchId: fixture.branchId, departmentId: fixture.departmentId, effectiveDate: new Date('2026-01-01'), approvedApplication: 'YifrehCore', businessUnit: 'FEED_MILL' } });
+  await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Work centre', masterId: grindingCentre.id, application: 'YifrehCore', postingGroup: 'COR-WC-MAIN', assignedById: fixture.financeUserId });
   for (const [code, name, driver, cost, capacity, op, type, setup, run] of [
     ['SFM-LAB', 'Mill labour', 'Labour hours', 250_000_00n, '100', 'Grind and mix', 'LABOUR', '24', '0'],
     ['SFM-MCH', 'Mixer SFM-01', 'Machine hours', 500_000_00n, '100', 'Mixer run', 'MACHINE', '10', '0'],
@@ -118,7 +121,7 @@ beforeEach(async () => {
     const pool = await routing.createCostPool({ companyId: fixture.companyId, code, name, driverName: driver, actorId: fixture.makerId });
     await routing.setCostPoolRate({ companyId: fixture.companyId, poolId: pool.id, poolCost: kobo(cost), practicalCapacity: capacity, effectiveFrom: new Date('2026-01-01'), actorId: fixture.makerId });
     await routing.createRoutingOperation({
-      companyId: fixture.companyId, recipeVersionId: versionId, costCentreId: fixture.costCentreId, costPoolId: pool.id,
+      companyId: fixture.companyId, recipeVersionId: versionId, costCentreId: type === 'MACHINE' ? grindingCentre.id : fixture.costCentreId, costPoolId: pool.id,
       operationName: op, resourceType: type, setupHours: setup, runHoursPerUnit: run, actorId: fixture.makerId,
     });
   }
@@ -143,7 +146,7 @@ async function throughConversion() {
   const submitted = await orders.submit({ productionOrderId: id, actor: maker });
   await workflow.approve({ transactionId: submitted.transactionId, actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
   await orders.issueMaterials({ productionOrderId: id, actor: maker });
-  await orders.confirmConversion({ productionOrderId: id, actualLabourCostKobo: 62_500_00n, actualOverheadCostKobo: 92_000_00n, actor: maker });
+  await orders.confirmConversion({ productionOrderId: id, feedMillInputWeightKg: 1050, feedMillOutputWeightKg: 980, actualHours: { 'Mixer run': 10 }, actualLabourCostKobo: 62_500_00n, actualOverheadCostKobo: 92_000_00n, actor: maker });
   return id;
 }
 
@@ -394,7 +397,7 @@ describe('Standard costing (POL-001–004, SOP-049/050, PCR-032–036)', () => {
       const submitted = await orders.submit({ productionOrderId: id, actor: maker });
       await workflow.approve({ transactionId: submitted.transactionId, actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
       await orders.issueMaterials({ productionOrderId: id, actor: maker });
-      await orders.confirmConversion({ productionOrderId: id, actualLabourCostKobo: 30_000_00n, actualOverheadCostKobo: 40_000_00n, actor: maker });
+      await orders.confirmConversion({ productionOrderId: id, feedMillInputWeightKg: Number(quantity) * 1.05, feedMillOutputWeightKg: Number(quantity) * 0.98, actualHours: { 'Mixer run': 10 }, actualLabourCostKobo: 30_000_00n, actualOverheadCostKobo: 40_000_00n, actor: maker });
       return id;
     };
     const snail = await run(' Snail ', '500');

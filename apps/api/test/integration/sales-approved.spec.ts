@@ -30,6 +30,7 @@ import { ProfitLossService } from '../../src/reporting/profit-loss.service';
 import { ControlAccountReconciliationService } from '../../src/reporting/control-account-reconciliation.service';
 import { WorkflowActor } from '../../src/workflow/workflow.types';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { assignApprovedPostingGroup } from '../helpers/approved-posting';
 
 /**
  * Order-to-cash on the approved five-digit chart: the company's sales
@@ -103,6 +104,16 @@ describe('Order-to-cash on the approved chart', () => {
 
     await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
     await provisioning.provision(fixture.companyId, null);
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId }, data: { fsCategory: 'CURRENT_ASSET' } });
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'LIABILITY' }, data: { fsCategory: 'CURRENT_LIABILITY' } });
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EQUITY' }, data: { fsCategory: 'EQUITY' } });
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'REVENUE' }, data: { fsCategory: 'REVENUE' } });
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EXPENSE' }, data: { fsCategory: 'OPERATING_EXPENSE' } });
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountNumber: { in: ['50000', '50310', '50330'] } }, data: { fsCategory: 'COST_OF_SALES' } });
+    const registeredBank = await prisma.bankAccount.create({
+      data: { companyId: fixture.companyId, glAccountId: await acct('10100'), name: 'Main Operating Account', bankName: 'First Bank', accountNumber: '1000000001', createdById: fixture.financeUserId },
+    });
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Bank', masterId: registeredBank.id, application: 'YifrehCore', postingGroup: 'COR-BANK-MAIN', assignedById: fixture.financeUserId });
     await new TaxSetupService(prisma, new AuditService(prisma)).activate({ companyId: fixture.companyId, actorId: fixture.makerId, whtBasis: 'NET_OF_VAT' });
     for (const taxType of [TaxType.VAT, TaxType.WHT] as const) {
       await prisma.taxPeriod.create({
@@ -122,6 +133,7 @@ describe('Order-to-cash on the approved chart', () => {
     const uom = await prisma.unitOfMeasure.create({ data: { companyId: fixture.companyId, code: 'Unit', name: 'Unit', precision: 0 } });
     warehouseId = (await prisma.warehouse.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'FG-WH', name: 'Finished Goods', type: 'FINISHED_GOODS' } })).id;
     const vat = await prisma.taxCode.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'VAT-STD' } });
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Tax code', masterId: vat.id, application: 'YifrehCore', postingGroup: 'COR-VAT-OUT', assignedById: fixture.financeUserId });
     const standard = { create: [{ standardCostKobo: UNIT_COST, effectiveFrom: new Date('2026-01-01') }] };
     // Names no accounts of its own: sells through the company configuration.
     itemId = (await prisma.item.create({
@@ -134,12 +146,15 @@ describe('Order-to-cash on the approved chart', () => {
         inventoryGlAccountId: await acct('12420'), revenueGlAccountId: await acct('40330'), costOfSalesGlAccountId: await acct('50330'), standardCosts: standard,
       },
     })).id;
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Item', masterId: itemId, application: 'YifrehCore', postingGroup: 'COR-FG', assignedById: fixture.financeUserId });
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Item', masterId: eggItemId, application: 'YifrehPoultry', postingGroup: 'PLP-FG-EGG', assignedById: fixture.financeUserId });
     await prisma.paymentTerm.create({ data: { companyId: fixture.companyId, code: 'NET30', name: 'Net 30', netDays: 30 } });
     const parties = (globalThis as { __parties?: PartyService }).__parties!;
     customerId = (await parties.createCustomer({
       companyId: fixture.companyId, code: 'CUS-001', name: 'Lagos Distributors', creditLimit: 10_000_000_00n as never, currencyId: fixture.currencyId,
       paymentTermCode: 'NET30', tin: 'TIN-CUS-001', actorId: fixture.makerId,
     })).id;
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Customer', masterId: customerId, application: 'YifrehCore', postingGroup: 'COR-CUST-LOCAL', assignedById: fixture.financeUserId });
   });
 
   const period = () => ({ financialYearId: fixture.financialYearId, financialPeriodId: fixture.periodIds[0]! });

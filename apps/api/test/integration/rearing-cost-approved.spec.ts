@@ -15,6 +15,8 @@ import { WorkflowRoutingService } from '../../src/workflow/workflow-routing.serv
 import { DelegationService } from '../../src/workflow/delegation.service';
 import { NotificationService } from '../../src/workflow/notification.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { assignApprovedLifecycleGroups, assignApprovedPostingGroup } from '../helpers/approved-posting';
+import { PostingControlProvisioningService } from '../../src/posting-control/posting-control-provisioning.service';
 
 /**
  * Poultry rearing cost on the approved five-digit chart is held by the flock's
@@ -53,6 +55,25 @@ beforeEach(async () => {
   fixture = await seedFixture(prisma as unknown as PrismaClient);
   actor = { userId: fixture.makerId, roles: ['FARM_MANAGER'] };
   await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
+  await new PostingControlProvisioningService(prisma, new AuditService(prisma)).provision(fixture.companyId, null);
+  const postingCentres = await prisma.costCentre.findMany({ where: { companyId: fixture.companyId, active: true, postingAllowed: true }, select: { id: true } });
+  for (const centre of postingCentres) {
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, {
+      companyId: fixture.companyId, masterType: 'Work centre', masterId: centre.id, application: 'YifrehPoultry',
+      postingGroup: 'PLP-WC-MAIN', assignedById: fixture.financeUserId,
+    });
+  }
+  await prisma.speciesBreed.create({
+    data: {
+      companyId: fixture.companyId, speciesKey: 'poultry', code: 'TEST-POULTRY', name: 'Test', openingStage: 'Chick',
+      stages: { create: [
+        { stageName: 'Chick', minDay: 0, sortOrder: 1, maturityClass: 'IMMATURE' },
+        { stageName: 'Grower', minDay: 15, sortOrder: 2, maturityClass: 'IMMATURE' },
+        { stageName: 'Layer', minDay: 140, sortOrder: 3, maturityClass: 'MATURE' },
+      ] },
+    },
+  });
+  await assignApprovedLifecycleGroups(prisma as unknown as PrismaClient, fixture.companyId, fixture.financeUserId);
 
   // The workbook's accounts: the two livestock stages and feed inventory are
   // control accounts (no direct journals), mortality loss and cost of sales post.
@@ -69,8 +90,10 @@ beforeEach(async () => {
   ];
   ledger.clear();
   for (const [accountNumber, name, accountType, normalBalance, control] of accounts) {
-    const account = await prisma.gLAccount.create({
-      data: { companyId: fixture.companyId, accountNumber, name, accountType, normalBalance, isControlAccount: control, isPostingAccount: !control },
+    const account = await prisma.gLAccount.upsert({
+      where: { companyId_accountNumber: { companyId: fixture.companyId, accountNumber } },
+      create: { companyId: fixture.companyId, accountNumber, name, accountType, normalBalance, isControlAccount: control, isPostingAccount: !control },
+      update: { name, accountType, normalBalance, isControlAccount: control, isPostingAccount: !control },
     });
     ledger.set(accountNumber, account.id);
   }

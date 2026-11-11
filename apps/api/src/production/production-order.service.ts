@@ -897,15 +897,21 @@ export class ProductionOrderService {
       );
     }
     const standardDebitLines = version === 'APPROVED' && order.processingCycle === ProductionOrderCycle.FEED_MILL && recoveryByWorkCentre.size
-      ? [...new Map([...recoveryByWorkCentre.values()].map((entry) => [entry.costCentreId, entry.amount])).entries()].map(([costCentreId, amount]) => ({
+      ? [...[...recoveryByWorkCentre.values()].reduce((byCentre, entry) => {
+          byCentre.set(entry.costCentreId, (byCentre.get(entry.costCentreId) ?? 0n) + entry.amount);
+          return byCentre;
+        }, new Map<string, bigint>()).entries()].map(([costCentreId, amount]) => ({
           glAccountId: feedMillWipAccountId!,
           description: `${rules.standardRuleId} — feed-mill conversion absorbed (${order.orderNumber})`,
           debit: kobo(amount),
           dimensions: { ...dimensions, costCentreId },
         }))
       : perResource && recoveryByWorkCentre.size
-      ? await Promise.all([...new Map([...recoveryByWorkCentre.values()].map((entry) => [entry.costCentreId, entry.amount])).entries()].map(async ([costCentreId, amount]) => ({
-          glAccountId: await this.approvedWorkCentreAccount(order.companyId, order.processingCycle, costCentreId, 'WIP_CONTROL', order.createdAt),
+      ? await Promise.all([... [...recoveryByWorkCentre.values()].reduce((byCentre, entry) => {
+          byCentre.set(entry.costCentreId, (byCentre.get(entry.costCentreId) ?? 0n) + entry.amount);
+          return byCentre;
+        }, new Map<string, bigint>()).entries()].map(async ([costCentreId, amount]) => ({
+          glAccountId: await this.approvedWorkCentreAccount(order.companyId, order.processingCycle, costCentreId, 'PROCESSING_WIP', order.createdAt),
           description: `${rules.standardRuleId} — standard conversion absorbed (${order.orderNumber})`,
           debit: kobo(amount),
           dimensions: { ...dimensions, costCentreId },
@@ -1079,7 +1085,7 @@ export class ProductionOrderService {
         const ruleId = `${order.processingCycle === ProductionOrderCycle.SNAILPRO ? 'SNP' : 'PLP'}-YFR-${suffix}`;
         const recoveryKey = entry.resource === 'LABOUR' ? 'LABOUR_RECOVERY' : entry.resource === 'MACHINE' ? 'MACHINE_RECOVERY' : 'OVERHEAD_RECOVERY';
         const [wip, recovery] = await Promise.all([
-          this.approvedWorkCentreAccount(order.companyId, order.processingCycle, entry.costCentreId, 'WIP_CONTROL', on),
+          this.approvedWorkCentreAccount(order.companyId, order.processingCycle, entry.costCentreId, 'PROCESSING_WIP', on),
           this.approvedWorkCentreAccount(order.companyId, order.processingCycle, entry.costCentreId, recoveryKey, on),
         ]);
         approvedAbsorptionAccounts[`${ruleId}:WIP_CONTROL`] = [...new Set([...(approvedAbsorptionAccounts[`${ruleId}:WIP_CONTROL`] ?? []), wip])];
@@ -1758,10 +1764,12 @@ export class ProductionOrderService {
       throw new AccountingRuleViolation('Consolidated Reference §8 — Financial calendar', `No open period for ${order.orderNumber}.`, {});
     }
     const dimensions = this.dimensions(order, context);
+    const approvedChart = await chartVersionOf(this.prisma, order.companyId) === 'APPROVED';
     const rule = await this.postingControl.resolve({ companyId: order.companyId, ruleId: rules.completionRuleId, on: new Date() });
     const fgAccount = this.requireSide(rule.debit, rules.completionRuleId, 'debit').glAccountId;
-    const wipAccount = this.requireSide(rule.credit, rules.completionRuleId, 'credit').glAccountId;
-    const approvedChart = await chartVersionOf(this.prisma, order.companyId) === 'APPROVED';
+    const wipAccount = approvedChart && order.processingCycle !== ProductionOrderCycle.FEED_MILL
+      ? await this.approvedWorkCentreAccount(order.companyId, order.processingCycle, (await this.prisma.productionOrderRoutingLine.findFirstOrThrow({ where: { productionOrderId: order.id }, select: { routingOperation: { select: { costCentreId: true } } } })).routingOperation.costCentreId, 'PROCESSING_WIP', order.createdAt)
+      : this.requireSide(rule.credit, rules.completionRuleId, 'credit').glAccountId;
     const controlApplication = order.processingCycle === ProductionOrderCycle.SNAILPRO || (order.processingCycle === ProductionOrderCycle.FEED_MILL && order.speciesKey === 'SNAIL')
       ? 'YifrehSnail'
       : 'YifrehPoultry';
@@ -1875,6 +1883,10 @@ export class ProductionOrderService {
                 [`${controlPrefix}-YFR-${order.processingCycle === ProductionOrderCycle.FEED_MILL ? (yieldVariance > 0n ? '061A' : '061B') : (yieldVariance > 0n ? '049A' : '049B')}:1`]: (yieldVariance > 0n ? yieldVariance : -yieldVariance).toString(),
                 [`${controlPrefix}-YFR-${order.processingCycle === ProductionOrderCycle.FEED_MILL ? (yieldVariance > 0n ? '061A' : '061B') : (yieldVariance > 0n ? '049A' : '049B')}:2`]: (yieldVariance > 0n ? yieldVariance : -yieldVariance).toString(),
               } : {}),
+            },
+            dynamicAccountIds: {
+              [`${controlPrefix}-YFR-038B:FINISHED_GOODS_INVENTORY`]: [fgAccount],
+              [`${controlPrefix}-YFR-038B:WIP_CONTROL`]: [wipAccount],
             },
           } } : {}),
           actor: params.actor,
@@ -2179,14 +2191,21 @@ export class ProductionOrderService {
     const feedRecoveryLines = feedPool
       ? await this.prisma.productionOrderRoutingLine.findMany({
           where: { productionOrderId: order.id },
-          select: { absorbedCostKobo: true, routingOperation: { select: { costCentreId: true } } },
+          select: { absorbedCostKobo: true, routingOperation: { select: { costCentreId: true, resourceType: true } } },
         })
       : [];
     const recoveryByCentre = new Map<string, bigint>();
+    const feedLabourByCentre = new Map<string, bigint>();
+    let feedOverheadStandardKobo = 0n;
     for (const line of feedRecoveryLines) {
       if ((line.absorbedCostKobo ?? 0n) > 0n) {
         const costCentreId = line.routingOperation.costCentreId;
         recoveryByCentre.set(costCentreId, (recoveryByCentre.get(costCentreId) ?? 0n) + line.absorbedCostKobo!);
+        if (line.routingOperation.resourceType === 'LABOUR') {
+          feedLabourByCentre.set(costCentreId, (feedLabourByCentre.get(costCentreId) ?? 0n) + line.absorbedCostKobo!);
+        } else {
+          feedOverheadStandardKobo += line.absorbedCostKobo!;
+        }
       }
     }
     if (feedPool && recoveryByCentre.size && [...recoveryByCentre.values()].reduce((sum, amount) => sum + amount, 0n) !== order.standardConversionCostKobo) {
@@ -2196,6 +2215,28 @@ export class ProductionOrderService {
     const rule = rules.settleDebitKey.replace('-DR', '');
     const approvedFeedRuleId = variance > 0n ? 'COR-YFR-062A' : 'COR-YFR-062B';
     const approvedFeedMagnitude = variance < 0n ? -variance : variance;
+    const approvedFeedRecoveryClearLines = approvedFeedSettlement
+      ? [
+          ...await Promise.all([...feedLabourByCentre.entries()].map(async ([costCentreId, amount]) => ({
+            glAccountId: await this.approvedWorkCentreAccount(order.companyId, order.processingCycle, costCentreId, 'LABOUR_RECOVERY', order.createdAt),
+            description: `COR-YFR-062 — labour recovery cleared (${order.orderNumber})`,
+            debit: kobo(amount),
+            dimensions: { ...dimensions, costCentreId },
+          }))),
+          ...((feedOverheadStandardKobo + variance) > 0n ? [{
+            glAccountId: recoveryAccount,
+            description: `COR-YFR-062 — machine and overhead recovery cleared (${order.orderNumber})`,
+            debit: kobo(feedOverheadStandardKobo + variance),
+            dimensions,
+          }] : []),
+          ...[...new Map(pools.filter((pool) => pool.amount > 0n).map((pool) => [pool.account, (pools.filter((row) => row.account === pool.account).reduce((sum, row) => sum + row.amount, 0n))])).entries()].map(([account, amount]) => ({
+            glAccountId: account,
+            description: `COR-YFR-062 — allocated actual pool cleared (${order.orderNumber})`,
+            credit: kobo(amount),
+            dimensions,
+          })),
+        ]
+      : [];
     return this.prisma.$transaction(async (tx) => {
       const favourable = variance < 0n;
       const magnitude = favourable ? -variance : variance;
@@ -2219,6 +2260,7 @@ export class ProductionOrderService {
                 [`${approvedFeedRuleId}:RECOVERY_VARIANCE`]: [varianceAccount],
                 [`${approvedFeedRuleId}:FEED_MILL_OVERHEAD_RECOVERY`]: [recoveryAccount],
               },
+              additionalMappedAccountSidePairs: approvedFeedRecoveryClearLines.map((line) => `${'debit' in line ? 'Debit' : 'Credit'}:${line.glAccountId}`),
               expectedLineAmountsKobo: {
                 [`${approvedFeedRuleId}:1`]: approvedFeedMagnitude.toString(),
                 [`${approvedFeedRuleId}:2`]: approvedFeedMagnitude.toString(),
@@ -2230,10 +2272,12 @@ export class ProductionOrderService {
               ? [
                   { glAccountId: varianceAccount, description: `${approvedFeedRuleId} — feed-mill under-recovery (${order.orderNumber})`, debit: kobo(approvedFeedMagnitude), dimensions: { ...dimensions, costCentreId: feedVarianceCostCentreId } },
                   { glAccountId: recoveryAccount, description: `${approvedFeedRuleId} — feed-mill under-recovery (${order.orderNumber})`, credit: kobo(approvedFeedMagnitude), dimensions },
+                  ...approvedFeedRecoveryClearLines,
                 ]
               : [
                   { glAccountId: recoveryAccount, description: `${approvedFeedRuleId} — feed-mill over-recovery (${order.orderNumber})`, debit: kobo(approvedFeedMagnitude), dimensions },
                   { glAccountId: varianceAccount, description: `${approvedFeedRuleId} — feed-mill over-recovery (${order.orderNumber})`, credit: kobo(approvedFeedMagnitude), dimensions: { ...dimensions, costCentreId: feedVarianceCostCentreId } },
+                  ...approvedFeedRecoveryClearLines,
                 ]
             : clearsPools
             ? [

@@ -42,6 +42,11 @@ beforeAll(() => {
 beforeEach(async () => {
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId }, data: { fsCategory: 'CURRENT_ASSET' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'REVENUE' }, data: { fsCategory: 'REVENUE' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EXPENSE' }, data: { fsCategory: 'OPERATING_EXPENSE' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'LIABILITY' }, data: { fsCategory: 'CURRENT_LIABILITY' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EQUITY' }, data: { fsCategory: 'EQUITY' } });
   const second = await prisma.farm.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'NORTH', name: 'North farm' } });
   const post = async (n: string, farmId: string, revenue: bigint) => {
     const d = dims(fixture, 0, { farmId });

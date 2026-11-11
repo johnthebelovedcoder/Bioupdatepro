@@ -70,7 +70,8 @@ describe('Age and stage', () => {
     });
 
     // Bought in at a day old: hatched the day before placement, on the vendor's word.
-    await profiles.setHatchDate({ companyId: fixture.companyId, code: 'BR-1', hatchedOn: new Date('2026-01-30'), estimated: true, actor: supervisor });
+    await profiles.setHatchDate({ companyId: fixture.companyId, code: 'BR-1', hatchedOn: new Date('2026-01-30'), estimated: true, evidence: 'Supplier hatch-date estimate', actor: supervisor });
+    await profiles.approveEstimatedHatchDate({ companyId: fixture.companyId, code: 'BR-1', actor: { userId: fixture.makerId, roles: ['POULTRY_SUPERVISOR'] } });
     // 30 days old: Finisher by the thresholds, still Grower on the record — REVIEW.
     expect(await profiles.profile(fixture.companyId, 'BR-1', TODAY)).toMatchObject({
       ageDays: 30, ageBasis: 'ESTIMATED', suggestedStage: 'Finisher', stageStatus: 'REVIEW',

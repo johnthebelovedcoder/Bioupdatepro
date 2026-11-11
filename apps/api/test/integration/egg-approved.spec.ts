@@ -11,11 +11,13 @@ import { PoultryEggService } from '../../src/poultry-egg/poultry-egg.service';
 import { EggPostingService } from '../../src/poultry-egg/egg-posting.service';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
 import { ControlAccountReconciliationService } from '../../src/reporting/control-account-reconciliation.service';
+import { PostingControlProvisioningService } from '../../src/posting-control/posting-control-provisioning.service';
+import { assignApprovedLifecycleGroups, assignApprovedPostingGroup } from '../helpers/approved-posting';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
  * Eggs on the approved five-digit chart: collected into 12420 against the
- * 42000 recognition gain, set into 13020 (eggs in incubation, an engineering
+ * 42000 recognition gain, set into 13200 (eggs in incubation, an engineering
  * proposal — the workbook has no account for it), and hatched into the
  * immature poultry account 16032, or written off to 51120 when nothing hatches.
  */
@@ -42,12 +44,14 @@ beforeAll(() => {
 beforeEach(async () => {
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
+  const audit = new AuditService(prisma);
+  await new PostingControlProvisioningService(prisma, audit).provision(fixture.companyId, null);
   actor = { userId: fixture.makerId, roles: ['CFO'] };
   await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
 
   const accounts: Array<[string, string, 'ASSET' | 'EXPENSE' | 'REVENUE', 'DEBIT' | 'CREDIT', boolean]> = [
     ['12420', 'Finished poultry products inventory control', 'ASSET', 'DEBIT', true],
-    ['13020', 'Poultry farm WIP control', 'ASSET', 'DEBIT', true],
+    ['13200', 'Eggs in incubation', 'ASSET', 'DEBIT', true],
     ['16032', 'Poultry biological assets - immature', 'ASSET', 'DEBIT', true],
     ['42000', 'Fair value gain on biological assets', 'REVENUE', 'CREDIT', false],
     ['40330', 'Revenue - eggs', 'REVENUE', 'CREDIT', false],
@@ -56,9 +60,12 @@ beforeEach(async () => {
   ];
   gl.clear();
   for (const [accountNumber, name, accountType, normalBalance, control] of accounts) {
-    gl.set(accountNumber, (await prisma.gLAccount.create({
-      data: { companyId: fixture.companyId, accountNumber, name, accountType, normalBalance, isControlAccount: control, isPostingAccount: !control },
-    })).id);
+    const row = await prisma.gLAccount.upsert({
+      where: { companyId_accountNumber: { companyId: fixture.companyId, accountNumber } },
+      create: { companyId: fixture.companyId, accountNumber, name, accountType, normalBalance, isControlAccount: control, isPostingAccount: !control },
+      update: { name, accountType, normalBalance, isControlAccount: control, isPostingAccount: !control },
+    });
+    gl.set(accountNumber, row.id);
   }
 
   const crate = await prisma.unitOfMeasure.create({ data: { companyId: fixture.companyId, code: 'CRATE', name: 'Crate of 30' } });
@@ -66,6 +73,12 @@ beforeEach(async () => {
   itemId = (await prisma.item.create({
     data: { companyId: fixture.companyId, code: 'EGGS', description: 'Table eggs', unitOfMeasureId: crate.id, defaultWarehouseId: store.id },
   })).id;
+  await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Item', masterId: itemId, application: 'YifrehPoultry', postingGroup: 'PLP-FG-EGG', assignedById: fixture.financeUserId });
+  await prisma.speciesBreed.create({ data: { companyId: fixture.companyId, speciesKey: 'poultry', code: 'TEST-EGG', name: 'Test layers', openingStage: 'Layer', stages: { create: [
+    { stageName: 'Chick', minDay: 0, sortOrder: 1, maturityClass: 'IMMATURE' },
+    { stageName: 'Layer', minDay: 140, sortOrder: 2, maturityClass: 'MATURE' },
+  ] } } });
+  await assignApprovedLifecycleGroups(prisma as unknown as PrismaClient, fixture.companyId, fixture.financeUserId);
   const pen = await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: 'PEN-L', name: 'Layers' } });
   layersId = (await prisma.livestockGroup.create({
     data: {
@@ -114,7 +127,14 @@ describe('eggs on the approved chart', () => {
       setQuantity: 30, recordedById: fixture.makerId, idempotencyKey: 'inc-1',
     });
     expect(await eggPostings.postIncubation(incubation.id, actor)).toEqual({ posted: true });
-    expect(await balance('13020')).toBe(150_000n);
+    const valuedIncubation = await prisma.incubationBatch.findUniqueOrThrow({ where: { id: incubation.id } });
+    expect(valuedIncubation.valueKobo, `incubation value/journal: ${JSON.stringify({ value: valuedIncubation.valueKobo.toString(), journalEntryId: valuedIncubation.journalEntryId })}`).toBe(150_000n);
+    const incubationJournal = await prisma.journalEntry.findUniqueOrThrow({ where: { id: valuedIncubation.journalEntryId! }, include: { lines: { include: { glAccount: { select: { accountNumber: true } } } } } });
+    expect(incubationJournal.lines.map((line) => ({ account: line.glAccount.accountNumber, debit: line.debitKobo.toString(), credit: line.creditKobo.toString() })), 'posted incubation journal').toEqual([
+      { account: '13200', debit: '150000', credit: '0' },
+      { account: '12420', debit: '0', credit: '150000' },
+    ]);
+    expect(await balance('13200')).toBe(150_000n);
     expect(await balance('12420')).toBe(150_000n);
 
     const hatch = await eggs.recordHatch({
@@ -122,7 +142,7 @@ describe('eggs on the approved chart', () => {
       hatchedCount: 25, unhatchedCount: 5, damagedCount: 0, chickGroupCode: 'C-1', recordedById: fixture.makerId, idempotencyKey: 'hatch-1',
     });
     expect(await eggPostings.postHatch(hatch.id, actor)).toEqual({ posted: true });
-    expect(await balance('13020')).toBe(0n); // incubation cleared
+    expect(await balance('13200')).toBe(0n); // incubation cleared
     expect(await balance('16032')).toBe(150_000n); // the chicks, at what the eggs were worth
     const chicks = await prisma.livestockGroup.findUniqueOrThrow({ where: { id: hatch.chickGroupId! } });
     expect(chicks).toMatchObject({ stage: 'Chick', acquisitionCostKobo: 150_000n });
@@ -146,7 +166,7 @@ describe('eggs on the approved chart', () => {
       hatchedCount: 0, unhatchedCount: 30, damagedCount: 0, recordedById: fixture.makerId, idempotencyKey: 'hatch-2',
     });
     expect(await eggPostings.postHatch(hatch.id, actor)).toEqual({ posted: true });
-    expect(await balance('13020')).toBe(0n);
+    expect(await balance('13200')).toBe(0n);
     expect(await balance('51120')).toBe(150_000n);
     expect(await balance('16032')).toBe(0n);
   });

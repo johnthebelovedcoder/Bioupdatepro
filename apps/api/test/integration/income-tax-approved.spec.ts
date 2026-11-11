@@ -15,6 +15,7 @@ import { CashFlowService } from '../../src/reporting/cash-flow.service';
 import { IncomeTaxService } from '../../src/closing/income-tax.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { classifyFixtureFinancialStatements } from '../helpers/approved-posting';
 
 /**
  * Company income tax (PCR-084) on the approved chart: provided to 58000 income
@@ -48,6 +49,8 @@ beforeEach(async () => {
   fixture = await seedFixture(prisma as unknown as PrismaClient);
   await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
   await new PostingControlProvisioningService(prisma, new AuditService(prisma)).provision(fixture.companyId, null);
+  await classifyFixtureFinancialStatements(prisma as unknown as PrismaClient, fixture.companyId);
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountNumber: '58000' }, data: { fsCategory: 'INCOME_TAX' } });
 });
 
 /** A sale for cash (Dr bank / Cr revenue) or, when negative, a cost (Dr depreciation expense / Cr bank). */

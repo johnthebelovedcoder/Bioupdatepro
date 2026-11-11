@@ -73,7 +73,7 @@ describe('Provisioning a new farm on the approved five-digit chart', () => {
     expect(centres.find((centre) => centre.code === 'COR-FIN')?.businessUnit).toBeTruthy();
   });
 
-  it('points sales, procurement, payroll and the livestock stages at approved accounts', async () => {
+  it('points sales, procurement and payroll at approved accounts without hard-coding livestock stages', async () => {
     const { companyId } = await provision();
     const number = (account: { accountNumber: string } | null) => account?.accountNumber ?? null;
 
@@ -111,19 +111,13 @@ describe('Provisioning a new farm on the approved five-digit chart', () => {
       numberFor('APPROVED', 'payePayable'),
     );
 
-    // Livestock carrying accounts follow the stage's maturity on this chart:
-    // 16031/16041 for snails, 16032/16042 for poultry.
+    // Approved-chart livestock accounts are assigned from each Finance-classified
+    // breed stage when that master data is configured, not hard-coded by stage name.
     const stages = await prisma.biologicalAssetStageAccount.findMany({
       where: { companyId },
       include: { glAccount: true },
     });
-    expect(stages.length).toBeGreaterThan(0);
-    const accountFor = (speciesKey: string, stage: string) =>
-      number(stages.find((row) => row.speciesKey === speciesKey && row.stage === stage)?.glAccount ?? null);
-    expect(accountFor('poultry', 'Chick')).toBe('16032');
-    expect(accountFor('poultry', 'Layer')).toBe('16042');
-    expect(accountFor('snail', 'Juvenile')).toBe('16031');
-    expect(accountFor('snail', 'Breeder')).toBe('16041');
+    expect(stages).toHaveLength(0);
   });
 
   it('still provisions the four-digit chart when a caller asks for it', async () => {

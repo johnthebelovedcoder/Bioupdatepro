@@ -316,10 +316,12 @@ export class ReportingController {
     const rows = [
       ...lineRows('Revenue', pl.revenueLines),
       ...lineRows('Other Income', pl.otherIncomeLines),
+      ...lineRows('Other Expense', pl.otherExpenseLines),
       ...lineRows('Cost of Sales', pl.costOfSalesLines),
       ...lineRows('Operating Expense', pl.operatingExpenseLines),
       ['Total Revenue', '', '', pl.revenueKobo],
       ['Total Other Income', '', '', pl.otherIncomeKobo],
+      ['Total Other Expense', '', '', pl.otherExpenseKobo],
       ['Total Cost of Sales', '', '', pl.costOfSalesKobo],
       ['Gross Profit', '', '', pl.grossProfitKobo],
       ['Total Operating Expense', '', '', pl.operatingExpenseKobo],

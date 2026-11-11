@@ -14,6 +14,7 @@ import { WorkflowRoutingService } from '../../src/workflow/workflow-routing.serv
 import { DelegationService } from '../../src/workflow/delegation.service';
 import { NotificationService } from '../../src/workflow/notification.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { assignApprovedLifecycleGroups } from '../helpers/approved-posting';
 
 let prisma: PrismaService;
 let breeding: SnailBreedingService;
@@ -29,10 +30,21 @@ beforeEach(async () => {
   await prisma.snailBreedingCycle.deleteMany({});
   fixture = await seedFixture(prisma as unknown as PrismaClient);
   await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'SPEC' } });
+  await prisma.speciesBreed.create({
+    data: {
+      companyId: fixture.companyId, speciesKey: 'snail', code: 'TEST-SNAIL', name: 'Achatina achatina', openingStage: 'Breeder',
+      stages: { create: [
+        { stageName: 'Egg', minDay: 0, sortOrder: 1, maturityClass: 'IMMATURE' },
+        { stageName: 'Hatchling', minDay: 28, sortOrder: 2, maturityClass: 'IMMATURE' },
+        { stageName: 'Breeder', minDay: 180, sortOrder: 3, maturityClass: 'MATURE' },
+      ] },
+    },
+  });
   const audit = new AuditService(prisma);
   const posting = new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma));
   const postingControl = new PostingControlService(prisma);
   await new PostingControlProvisioningService(prisma, audit).provision(fixture.companyId, null);
+  await assignApprovedLifecycleGroups(prisma as unknown as PrismaClient, fixture.companyId, fixture.financeUserId);
   const workflow = new WorkflowService(prisma, new WorkflowRoutingService(prisma), new DelegationService(prisma, audit), new NotificationService(prisma), audit);
   breeding = new SnailBreedingService(prisma, audit, posting, postingControl, workflow);
   const pen = await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: 'SN-P1', name: 'Snail pen 1' } });

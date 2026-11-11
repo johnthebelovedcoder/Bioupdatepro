@@ -15,6 +15,7 @@ import { CashFlowService } from '../../src/reporting/cash-flow.service';
 import { IncomeTaxService } from '../../src/closing/income-tax.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { classifyFixtureFinancialStatements } from '../helpers/approved-posting';
 
 /**
  * Company income tax (PCR-084, 500_Assumptions: 30%): provided for on the
@@ -47,6 +48,8 @@ beforeEach(async () => {
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
   await new PostingControlProvisioningService(prisma, new AuditService(prisma)).provision(fixture.companyId, null);
+  await classifyFixtureFinancialStatements(prisma as unknown as PrismaClient, fixture.companyId);
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountNumber: '650100' }, data: { fsCategory: 'INCOME_TAX' } });
 });
 
 async function trade(n: string, period: number, amount: bigint) {
@@ -54,7 +57,7 @@ async function trade(n: string, period: number, amount: bigint) {
   const [dr, cr] = amount > 0n ? ['1101', '4101'] : ['5501', '1101'];
   const abs = amount > 0n ? amount : -amount;
   if (!fixture.accounts['5501']) {
-    fixture.accounts['5501'] = (await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: '5501', name: 'Depreciation', accountType: 'EXPENSE', normalBalance: 'DEBIT' } })).id;
+    fixture.accounts['5501'] = (await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: '5501', name: 'Depreciation', accountType: 'EXPENSE', normalBalance: 'DEBIT', fsCategory: 'OPERATING_EXPENSE' } })).id;
   }
   await posting.post({
     sourceModule: 'test', sourceDocumentType: 'Test', journalNumber: n, journalDate: new Date(Date.UTC(2026, period, 15)), narration: n,

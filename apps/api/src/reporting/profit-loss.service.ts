@@ -11,6 +11,7 @@ export interface ProfitLossLine {
 export interface ProfitLoss {
   revenueKobo: string;
   otherIncomeKobo: string;
+  otherExpenseKobo: string;
   costOfSalesKobo: string;
   grossProfitKobo: string;
   operatingExpenseKobo: string;
@@ -20,6 +21,7 @@ export interface ProfitLoss {
   profitAfterTaxKobo: string;
   revenueLines: ProfitLossLine[];
   otherIncomeLines: ProfitLossLine[];
+  otherExpenseLines: ProfitLossLine[];
   costOfSalesLines: ProfitLossLine[];
   operatingExpenseLines: ProfitLossLine[];
   incomeTaxLines: ProfitLossLine[];
@@ -68,23 +70,25 @@ export class ProfitLossService {
     const otherIncomeRows = rows(FsCategory.OTHER_INCOME);
     const costOfSalesRows = rows(FsCategory.COST_OF_SALES);
     const otherExpenseRows = rows(FsCategory.OTHER_EXPENSE);
-    const operatingExpenseRows = [...rows(FsCategory.OPERATING_EXPENSE), ...otherExpenseRows];
+    const operatingExpenseRows = rows(FsCategory.OPERATING_EXPENSE);
     const incomeTaxRows = rows(FsCategory.INCOME_TAX);
 
     // Revenue is credit-normal, so `displayedBalanceKobo` is already positive
     // for a genuine credit balance; expenses are debit-normal, same reasoning.
     const revenueKobo = sumOf(revenueRows);
     const otherIncomeKobo = sumOf(otherIncomeRows);
+    const otherExpenseKobo = sumOf(otherExpenseRows);
     const costOfSalesKobo = sumOf(costOfSalesRows);
     const operatingExpenseKobo = sumOf(operatingExpenseRows);
     const grossProfitKobo = revenueKobo - costOfSalesKobo;
-    const profitBeforeTaxKobo = grossProfitKobo + otherIncomeKobo - operatingExpenseKobo;
+    const profitBeforeTaxKobo = grossProfitKobo + otherIncomeKobo - otherExpenseKobo - operatingExpenseKobo;
     const incomeTaxKobo = sumOf(incomeTaxRows);
     const profitAfterTaxKobo = profitBeforeTaxKobo - incomeTaxKobo;
 
     return {
       revenueKobo: revenueKobo.toString(),
       otherIncomeKobo: otherIncomeKobo.toString(),
+      otherExpenseKobo: otherExpenseKobo.toString(),
       costOfSalesKobo: costOfSalesKobo.toString(),
       grossProfitKobo: grossProfitKobo.toString(),
       operatingExpenseKobo: operatingExpenseKobo.toString(),
@@ -93,6 +97,7 @@ export class ProfitLossService {
       profitAfterTaxKobo: profitAfterTaxKobo.toString(),
       revenueLines: toLines(revenueRows),
       otherIncomeLines: toLines(otherIncomeRows),
+      otherExpenseLines: toLines(otherExpenseRows),
       costOfSalesLines: toLines(costOfSalesRows),
       operatingExpenseLines: toLines(operatingExpenseRows),
       incomeTaxLines: toLines(incomeTaxRows),

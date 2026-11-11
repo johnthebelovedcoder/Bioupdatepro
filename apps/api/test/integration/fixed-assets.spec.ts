@@ -52,6 +52,7 @@ beforeEach(async () => {
   maker = { userId: fixture.makerId, roles: ['FARM_ACCOUNTANT'] };
   approver = { userId: fixture.checkerId, roles: ['FARM_MANAGER'] };
   for (const [number, name, type, normal] of [
+    ['1201', 'Trade Receivables', 'ASSET', 'DEBIT'],
     ['1701', 'Property, Plant & Equipment', 'ASSET', 'DEBIT'],
     ['1702', 'Accumulated Depreciation', 'ASSET', 'CREDIT'],
     ['5501', 'Depreciation Expense', 'EXPENSE', 'DEBIT'],

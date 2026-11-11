@@ -32,6 +32,7 @@ import { SupplierReturnService } from '../../src/procurement/supplier-return.ser
 import { PostingControlProvisioningService } from '../../src/posting-control/posting-control-provisioning.service';
 import { WorkflowActor } from '../../src/workflow/workflow.types';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { assignApprovedPostingGroup } from '../helpers/approved-posting';
 
 /**
  * Procure-to-pay on the approved five-digit chart: the company's procurement
@@ -101,6 +102,10 @@ describe('Procure-to-pay on the approved chart', () => {
 
     await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
     await provisioning.provision(fixture.companyId, null);
+    const registeredBank = await prisma.bankAccount.create({
+      data: { companyId: fixture.companyId, glAccountId: await acct('10100'), name: 'Main Operating Account', bankName: 'First Bank', accountNumber: '1000000001', createdById: fixture.financeUserId },
+    });
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Bank', masterId: registeredBank.id, application: 'YifrehCore', postingGroup: 'COR-BANK-MAIN', assignedById: fixture.financeUserId });
     // VAT and withholding set up the way a farm does it, on the approved accounts.
     await new TaxSetupService(prisma, new AuditService(prisma)).activate({ companyId: fixture.companyId, actorId: fixture.makerId, whtBasis: 'NET_OF_VAT' });
     for (const taxType of [TaxType.VAT, TaxType.WHT] as const) {
@@ -121,6 +126,7 @@ describe('Procure-to-pay on the approved chart', () => {
     const uom = await prisma.unitOfMeasure.create({ data: { companyId: fixture.companyId, code: 'Unit', name: 'Unit', precision: 0 } });
     warehouseId = (await prisma.warehouse.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'RAW-WH', name: 'Raw Material Store', type: 'RAW_MATERIAL' } })).id;
     const vat = await prisma.taxCode.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'VAT-STD' } });
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Tax code', masterId: vat.id, application: 'YifrehCore', postingGroup: 'COR-VAT-IN', assignedById: fixture.financeUserId });
     inventoryItemId = (await prisma.item.create({
       data: {
         companyId: fixture.companyId, code: 'RM-SLIME', description: 'Fresh Snail Slime', unitOfMeasureId: uom.id, itemType: ItemType.INVENTORY, vatTaxCodeId: vat.id,
@@ -130,11 +136,14 @@ describe('Procure-to-pay on the approved chart', () => {
     expenseItemId = (await prisma.item.create({
       data: { companyId: fixture.companyId, code: 'SVC-CLEAN', description: 'Cleaning service', unitOfMeasureId: uom.id, itemType: ItemType.EXPENSE, vatTaxCodeId: vat.id, expenseGlAccountId: await acct('56000') },
     })).id;
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Item', masterId: inventoryItemId, application: 'YifrehCore', postingGroup: 'COR-RM', assignedById: fixture.financeUserId });
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Item', masterId: expenseItemId, application: 'YifrehCore', postingGroup: 'COR-RM', assignedById: fixture.financeUserId });
     await prisma.paymentTerm.create({ data: { companyId: fixture.companyId, code: 'NET30', name: 'Net 30', netDays: 30 } });
     supplierId = (await parties.createSupplier({
       companyId: fixture.companyId, code: 'SUP-001', name: 'Shell Supplies Ltd', tin: 'TIN-SUP-001', paymentTermCode: 'NET30', defaultCurrencyId: fixture.currencyId,
       bankName: 'First Bank', accountNumber: '3012345678', accountName: 'Shell Supplies Ltd', actorId: fixture.makerId,
     })).id;
+    await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Vendor', masterId: supplierId, application: 'YifrehCore', postingGroup: 'COR-VEND-LOCAL', assignedById: fixture.financeUserId });
     await parties.verifySupplierBank({ companyId: fixture.companyId, supplierId, reference: 'Bank letter ref. SS/01', actorId: fixture.checkerId });
   });
 

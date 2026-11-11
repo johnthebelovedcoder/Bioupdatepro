@@ -19,6 +19,7 @@ import { OperationsPostingService } from '../../src/operations/operations-postin
 import { OperationsService } from '../../src/operations/operations.service';
 import { BatchProfileService } from '../../src/operations/batch-profile.service';
 import { SnailBreedingService } from '../../src/snail-breeding/snail-breeding.service';
+import { assignApprovedLifecycleGroups, classifyFixtureFinancialStatements } from '../helpers/approved-posting';
 import { RecipeService } from '../../src/masters/recipe.service';
 import { CostAllocationService } from '../../src/production/cost-allocation.service';
 import { ProductionOrderService } from '../../src/production/production-order.service';
@@ -40,6 +41,13 @@ import { FarmAbcService } from '../../src/cost-allocation/farm-abc.service';
 import { FarmCostAllocationService } from '../../src/cost-allocation/farm-cost-allocation.service';
 import { TimesheetService } from '../../src/cost-allocation/timesheet.service';
 import { MortalityReportService } from '../../src/operations/mortality-report.service';
+import { ItemType } from '@bioassetpro/database';
+import { PartyService } from '../../src/masters/party.service';
+import { PurchaseOrderService } from '../../src/procurement/purchase-order.service';
+import { GoodsReceiptService } from '../../src/procurement/goods-receipt.service';
+import { ProcurementConfigService } from '../../src/procurement/procurement-config.service';
+import { TaxEngineService } from '../../src/tax/tax-engine.service';
+import { GoodsReceiptPostingHandler } from '../../src/procurement/procurement.handlers';
 
 /**
  * The client's 500-snail case (500_Assumptions → APP_EXPECTED_RESULTS), run
@@ -123,6 +131,7 @@ const CAUSES = {
 let prisma: PrismaService;
 let posting: PostingService;
 let fixture: TestFixture;
+let breederSupplierId: string;
 const account: Record<string, string> = {};
 const actor = () => ({ userId: fixture.makerId, roles: ['CFO'] });
 const approver = () => ({ userId: fixture.checkerId, roles: ['FARM_MANAGER'] });
@@ -140,6 +149,8 @@ let services: {
   cf: CashFlowService;
   recon: ControlAccountReconciliationService;
   tax: IncomeTaxService;
+  purchases: PurchaseOrderService;
+  receipts: GoodsReceiptService;
 };
 
 beforeAll(async () => {
@@ -170,12 +181,30 @@ beforeAll(async () => {
     cf: new CashFlowService(prisma, pl),
     recon: new ControlAccountReconciliationService(prisma, tb),
     tax: new IncomeTaxService(prisma, audit, posting, new PostingControlService(prisma), pl),
+    purchases: new PurchaseOrderService(prisma, audit, workflow, new TaxEngineService(prisma)),
+    receipts: new GoodsReceiptService(prisma, audit, posting, workflow, new ProcurementConfigService(prisma), stock),
   };
 
   await resetDatabase(prisma as unknown as PrismaClient);
   fixture = await seedFixture(prisma as unknown as PrismaClient);
+  await prisma.mortalityCause.create({
+    data: { companyId: fixture.companyId, speciesKey: 'snail', code: 'NATURAL_ATTRITION', label: 'Natural attrition' },
+  });
   await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'SPEC' } });
   await new PostingControlProvisioningService(prisma, audit).provision(fixture.companyId, null);
+  const term = await prisma.paymentTerm.create({ data: { companyId: fixture.companyId, code: 'CASE-NET30', name: 'Case net 30', netDays: 30 } });
+  breederSupplierId = (await new PartyService(prisma, audit).createSupplier({
+    companyId: fixture.companyId, code: 'CASE-BREEDER', name: 'Case Breeder Supplier', tin: 'TIN-CASE-BREEDER', paymentTermCode: term.code,
+    defaultCurrencyId: fixture.currencyId, bankName: 'Test Bank', accountNumber: '3012345678', accountName: 'Case Breeder Supplier', actorId: fixture.makerId,
+  })).id;
+  await prisma.procurementConfiguration.create({ data: {
+    companyId: fixture.companyId,
+    grniGlAccountId: (await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '210200' } })).id,
+    payablesGlAccountId: (await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '210100' } })).id,
+    whtPayableGlAccountId: (await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '210100' } })).id,
+    effectiveFrom: new Date('2026-01-01'),
+  } });
+  services.workflow.register(new GoodsReceiptPostingHandler(services.receipts));
   for (const n of ['110100', '120100', '130100', '130510', '210100', '210200', '220100', '230100', '320100', '410100', '410200', '510100', '510200', '611000', '612000']) {
     account[n] =
       (await prisma.gLAccount.findFirst({ where: { companyId: fixture.companyId, accountNumber: n } }))?.id ??
@@ -189,6 +218,7 @@ beforeAll(async () => {
   }
   for (const [stage, number] of [['Breeder', '130200'], ['Hatchling', '130202'], ['Juvenile', '130203'], ['Market-ready', '130204']] as const) {
     const glAccountId = (await prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: number } })).id;
+    account[number] = glAccountId;
     await prisma.biologicalAssetStageAccount.create({ data: { companyId: fixture.companyId, speciesKey: 'snail', stage, glAccountId } });
   }
   for (const [type, autoPostOnApproval] of [['BA_VALUATION', true], ['PRODUCTION_ORDER', false], ['BIOLOGICAL_ASSET_ABNORMAL_MORTALITY', true]] as const) {
@@ -199,6 +229,24 @@ beforeAll(async () => {
       },
     });
   }
+  for (const [type, autoPostOnApproval] of [['PURCHASE_ORDER', false], ['GOODS_RECEIPT', true]] as const) {
+    await prisma.workflowDefinition.create({ data: { companyId: fixture.companyId, transactionType: type, name: type, autoPostOnApproval, effectiveFrom: new Date('2026-01-01'), steps: { create: [{ level: 1, roleCode: 'FARM_MANAGER', name: 'Farm Manager', maxAmountKobo: null }] } } });
+  }
+  await prisma.speciesBreed.create({ data: { companyId: fixture.companyId, speciesKey: 'snail', code: 'ARCHA', name: 'Archachatina marginata', openingStage: 'Breeder', stages: { create: [
+    { stageName: 'Egg', minDay: 0, sortOrder: 1, maturityClass: 'IMMATURE' }, { stageName: 'Breeder', minDay: 0, sortOrder: 2, maturityClass: 'MATURE' },
+    { stageName: 'Hatchling', minDay: 1, sortOrder: 3, maturityClass: 'IMMATURE' }, { stageName: 'Juvenile', minDay: 20, sortOrder: 4, maturityClass: 'IMMATURE' },
+    { stageName: 'Market-ready', minDay: 50, sortOrder: 5, maturityClass: 'MATURE' },
+  ] } } });
+  await assignApprovedLifecycleGroups(prisma as unknown as PrismaClient, fixture.companyId, fixture.financeUserId);
+  await classifyFixtureFinancialStatements(prisma as unknown as PrismaClient, fixture.companyId);
+  await prisma.gLAccount.updateMany({
+    where: { companyId: fixture.companyId, accountNumber: '650100' },
+    data: { fsCategory: 'INCOME_TAX' },
+  });
+  await prisma.gLAccount.updateMany({
+    where: { companyId: fixture.companyId, accountNumber: { in: ['42000', '420100'] } },
+    data: { fsCategory: 'OTHER_INCOME' },
+  });
 }, 300_000);
 
 async function journal(ref: string, month: number, lines: Array<[string, 'debit' | 'credit', bigint]>) {
@@ -226,12 +274,33 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
     const cold = await prisma.warehouse.create({ data: { companyId: fixture.companyId, branchId: fixture.branchId, code: 'COLD', name: 'Cold store', type: 'FINISHED_GOODS' } });
 
     // --- Procurement: 500 breeders at ₦2,000 plus ₦100,000 transport (GRN-001, INV-001) ---
-    await operations.placeGroup({
-      companyId: fixture.companyId, actor: actor(), idempotencyKey: 'case-brd',
-      payload: { module: 'snail', code: 'BRD-1', breed: 'Archachatina marginata', purpose: 'Breeders', stage: 'Breeder', house: 'SNL-1', openingPopulation: 500, startedOn: '2026-01-05', acquisitionCostKobo: String(N(1_100_000)) },
+    const breederItem = await prisma.item.create({ data: {
+      companyId: fixture.companyId, code: 'LIVE-BREEDER', description: 'Archachatina marginata breeders', unitOfMeasureId: uom.id,
+      itemType: ItemType.INVENTORY, livestockSpeciesKey: 'snail', inventoryGlAccountId: account['130100']!, defaultWarehouseId: store.id,
+    } });
+    const buyer = { userId: fixture.makerId, roles: ['BUYER'] };
+    const purchase = await services.purchases.createOrder({
+      companyId: fixture.companyId, orderNumber: 'PO-BREEDERS', supplierId: breederSupplierId, orderDate: new Date('2026-01-05'), currencyId: fixture.currencyId,
+      branchId: fixture.branchId, warehouseId: store.id, farmId: fixture.farmId, costCentreId: fixture.costCentreId,
+      lines: [{ itemId: breederItem.id, quantity: 500, unitPriceKobo: N(2_000) }], actor: buyer,
     });
-    expect(await balance('210200')).toBe(-N(1_100_000)); // Dr BA / Cr GRNI by the application's own acquisition posting
-    await journal('INV-001', 0, [['210200', 'debit', N(1_100_000)], ['210100', 'credit', N(1_100_000)]]);
+    const purchaseSubmit = await services.purchases.submitOrder({ purchaseOrderId: purchase.id, actor: buyer });
+    await workflow.approve({ transactionId: purchaseSubmit.transactionId, actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
+    await services.purchases.syncStatus(purchase.id);
+    const approvedPurchase = await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: purchase.id }, include: { lines: true } });
+    const grn = await services.receipts.create({
+      purchaseOrderId: purchase.id, grnNumber: 'GRN-BREEDERS', receiptDate: new Date('2026-01-05'), financialYearId: fixture.financialYearId, financialPeriodId: fixture.periodIds[0]!,
+      qualityStatus: 'PASSED', actor: buyer,
+      lines: [{ purchaseOrderLineId: approvedPurchase.lines[0]!.id, receivedQuantity: 500, placement: { code: 'BRD-1', house: 'SNL-1', stage: 'Breeder', breed: 'Archachatina marginata', purpose: 'Breeders' } }],
+    });
+    const grnSubmit = await services.receipts.submit({ grnId: grn.id, actor: buyer });
+    await workflow.approve({ transactionId: grnSubmit.transactionId, actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
+    expect(await balance('210200')).toBe(-N(1_000_000)); // The GRN posts the purchase price; transport is in the supplier invoice.
+    await journal('INV-001', 0, [
+      ['210200', 'debit', N(1_000_000)],
+      ['130200', 'debit', N(100_000)],
+      ['210100', 'credit', N(1_100_000)],
+    ]);
 
     // --- Packaging: 1,000 kg opening at ₦500, 2,000 kg bought at ₦650 (GRN-002) ---
     const pack = await prisma.item.create({

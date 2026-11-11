@@ -509,12 +509,12 @@ export class BiologicalAssetService {
           application: group.speciesKey.trim().toLowerCase() === 'snail' ? 'YifrehSnail' : 'YifrehPoultry',
           applicationRuleId: group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP-APP-BA-ACQ-001' : 'PLP-APP-BA-ACQ-001',
           dynamicAccountIds: {
-            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-YFR-030A:BA_SOURCE_STAGE_CONTROL`]: [stage.glAccountId],
-            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-YFR-030A:GRNI`]: [grni.glAccountId],
+            BA_SOURCE_STAGE_CONTROL: [stage.glAccountId],
+            GRNI: [grni.glAccountId],
           },
           expectedLineAmountsKobo: {
-            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-YFR-030A:1`]: group.acquisitionCostKobo.toString(),
-            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-YFR-030A:2`]: group.acquisitionCostKobo.toString(),
+            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-APP-BA-ACQ-001:1`]: group.acquisitionCostKobo.toString(),
+            [`${group.speciesKey.trim().toLowerCase() === 'snail' ? 'SNP' : 'PLP'}-APP-BA-ACQ-001:2`]: group.acquisitionCostKobo.toString(),
           },
         } } : {},
         lines: [
@@ -1511,6 +1511,13 @@ export class BiologicalAssetService {
             { glAccountId: stage.glAccountId, description: `${valuation.group.code} — fair-value loss`, credit: kobo(valuation.gainLossKobo), dimensions },
           ];
     const lines = [...gainLossLines, ...reclassLines];
+    const expectedAccountSideAmountsKobo: Record<string, string> = {};
+    for (const line of lines) {
+      const side = (line.debit ?? 0n) > 0n ? 'Debit' : 'Credit';
+      const key = `${side}:${line.glAccountId}`;
+      const amount = line.debit ?? line.credit ?? 0n;
+      expectedAccountSideAmountsKobo[key] = (BigInt(expectedAccountSideAmountsKobo[key] ?? '0') + amount).toString();
+    }
 
     /*
      * A valuation that confirms the carrying value (a month-end count at an
@@ -1533,6 +1540,16 @@ export class BiologicalAssetService {
           approvedControl: {
             application: valuation.group.speciesKey.toLowerCase().includes('snail') ? 'YifrehSnail' : 'YifrehPoultry',
             applicationRuleId: `${valuation.group.speciesKey.toLowerCase().includes('snail') ? 'SNP' : 'PLP'}-YFR-${isGain ? '033' : '034'}`,
+            dynamicAccountIds: isGain
+              ? {
+                  BA_CONTROL: [stage.glAccountId],
+                  BA_FAIR_VALUE_GAIN: [results.gain!.glAccountId],
+                }
+              : {
+                  BA_FAIR_VALUE_LOSS: [results.loss!.glAccountId],
+                  BA_CONTROL: [stage.glAccountId],
+                },
+            expectedAccountSideAmountsKobo,
             additionalMappedAccountSidePairs: reclassLines.map((line) => `${(line.debit ?? 0n) > 0n ? 'Debit' : 'Credit'}:${line.glAccountId}`),
           },
         } : {}),

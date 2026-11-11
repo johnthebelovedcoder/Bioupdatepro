@@ -1041,7 +1041,7 @@ describe('Order-to-Cash (§6)', () => {
           allocations: [{ invoiceId: invoice.id, amountKobo: tooMuch }],
           actor: maker,
         }),
-      ).rejects.toThrow(/only .* is outstanding/i);
+      ).rejects.toThrow(/only .* is available after pending receipts/i);
     });
 
     it('marks an invoice part-paid on a partial receipt', async () => {

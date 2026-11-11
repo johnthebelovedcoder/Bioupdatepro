@@ -443,7 +443,7 @@ export class PostingService {
     if (missing.length || unexpected.length || amountMismatches.length || missingExpectedAmounts.length) {
       throw new AccountingRuleViolation(
         'Approved Posting Control — journal lines',
-        `${applicationRuleIds.join(', ')} journal accounts, sides or amounts do not match its approved workbook event contract.`,
+        `${applicationRuleIds.join(', ')} journal does not match its approved event contract.${missing.length ? ` Missing: ${missing.join(', ')}.` : ''}${unexpected.length ? ` Unexpected: ${unexpected.join(', ')}.` : ''}${amountMismatches.length ? ` Amount mismatches: ${amountMismatches.map((row) => `${row.pair} expected ${row.expectedKobo}, got ${row.actualKobo}`).join('; ')}.` : ''}${missingExpectedAmounts.length ? ` Missing expected amounts: ${missingExpectedAmounts.join(', ')}.` : ''}`,
         { ...contract, missing, unexpected, amountMismatches, missingExpectedAmounts },
       );
     }

@@ -25,6 +25,7 @@ import { VarianceProrationService } from '../../src/production/variance-proratio
 import { PeriodCloseService } from '../../src/closing/period-close.service';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
 import { resetDatabase, seedFixture, TestFixture, dims } from '../helpers/test-db';
+import { assignApprovedPostingGroup } from '../helpers/approved-posting';
 
 /**
  * The feed mill on the approved five-digit chart: raw materials out of feed
@@ -93,6 +94,8 @@ beforeEach(async () => {
       data: { companyId: fixture.companyId, code: 'SFD-GROWER-01', description: 'Snail grower mash', unitOfMeasureId: uom.id, inventoryGlAccountId: await acct('12450'), isManufactured: true },
     })
   ).id;
+  await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Item', masterId: item.RM!, application: 'YifrehCore', postingGroup: 'COR-RM', assignedById: fixture.financeUserId });
+  await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Item', masterId: item.FEED!, application: 'YifrehCore', postingGroup: 'COR-FG', assignedById: fixture.financeUserId });
   // 1,050 kg in store that cost ₦405,000 — above the ₦380 standard.
   await prisma.$transaction((tx) =>
     new StockMovementService(prisma).receiveIn({
@@ -114,6 +117,9 @@ beforeEach(async () => {
 
   // Routing: grinding/mixing labour, the mixer, and other overhead a kg.
   const routing = new RoutingService(prisma, new AuditService(prisma));
+  const grindingCentre = await prisma.costCentre.create({ data: { companyId: fixture.companyId, code: 'FM-GRN', name: 'Feed mill grinding', branchId: fixture.branchId, departmentId: fixture.departmentId, effectiveDate: new Date('2026-01-01'), approvedApplication: 'YifrehCore', businessUnit: 'FEED_MILL' } });
+  await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Work centre', masterId: grindingCentre.id, application: 'YifrehCore', postingGroup: 'COR-WC-MAIN', assignedById: fixture.financeUserId });
+  await assignApprovedPostingGroup(prisma as unknown as PrismaClient, { companyId: fixture.companyId, masterType: 'Work centre', masterId: fixture.costCentreId, application: 'YifrehCore', postingGroup: 'COR-WC-MAIN', assignedById: fixture.financeUserId });
   for (const [code, name, driver, cost, capacity, op, type, setup, run] of [
     ['SFM-LAB', 'Mill labour', 'Labour hours', 250_000_00n, '100', 'Grind and mix', 'LABOUR', '24', '0'],
     ['SFM-MCH', 'Mixer SFM-01', 'Machine hours', 500_000_00n, '100', 'Mixer run', 'MACHINE', '10', '0'],
@@ -122,7 +128,7 @@ beforeEach(async () => {
     const pool = await routing.createCostPool({ companyId: fixture.companyId, code, name, driverName: driver, actorId: fixture.makerId });
     await routing.setCostPoolRate({ companyId: fixture.companyId, poolId: pool.id, poolCost: kobo(cost), practicalCapacity: capacity, effectiveFrom: new Date('2026-01-01'), actorId: fixture.makerId });
     await routing.createRoutingOperation({
-      companyId: fixture.companyId, recipeVersionId: versionId, costCentreId: fixture.costCentreId, costPoolId: pool.id,
+      companyId: fixture.companyId, recipeVersionId: versionId, costCentreId: type === 'MACHINE' ? grindingCentre.id : fixture.costCentreId, costPoolId: pool.id,
       operationName: op, resourceType: type, setupHours: setup, runHoursPerUnit: run, actorId: fixture.makerId,
     });
   }
@@ -147,7 +153,7 @@ async function throughConversion() {
   const submitted = await orders.submit({ productionOrderId: id, actor: maker });
   await workflow.approve({ transactionId: submitted.transactionId, actor: { userId: fixture.checkerId, roles: ['FARM_MANAGER'] } });
   await orders.issueMaterials({ productionOrderId: id, actor: maker });
-  await orders.confirmConversion({ productionOrderId: id, actualLabourCostKobo: 62_500_00n, actualOverheadCostKobo: 92_000_00n, actor: maker });
+  await orders.confirmConversion({ productionOrderId: id, feedMillInputWeightKg: 1050, feedMillOutputWeightKg: 980, actualHours: { 'Mixer run': 10 }, actualLabourCostKobo: 62_500_00n, actualOverheadCostKobo: 92_000_00n, actor: maker });
   return id;
 }
 
@@ -185,6 +191,14 @@ async function allocateActualCosts(orderIds: string[]) {
     account('52700', 'Feed milling conversion cost'), account('52400', 'Depreciation expense'),
     prisma.gLAccount.findFirstOrThrow({ where: { companyId: fixture.companyId, accountNumber: '1101' } }),
   ]);
+  for (const [postingKey, source] of [['ACTUAL_LABOUR_POOL', labourAccount], ['ACTUAL_OVERHEAD_POOL', overheadAccount]] as const) {
+    const mapKey = `YifrehCore|COR-WC-MAIN|${postingKey}`;
+    await prisma.approvedPostingMap.upsert({
+      where: { companyId_application_postingGroup_postingKey_effectiveFrom: { companyId: fixture.companyId, application: 'YifrehCore', postingGroup: 'COR-WC-MAIN', postingKey, effectiveFrom: new Date('2026-01-01') } },
+      create: { companyId: fixture.companyId, application: 'YifrehCore', postingGroup: 'COR-WC-MAIN', postingKey, mapKey, glAccountId: source.id, accountCode: source.accountNumber, status: 'Active', effectiveFrom: new Date('2026-01-01'), resolutionNote: 'Approved actual pool source for this feed mill integration fixture' },
+      update: { glAccountId: source.id, accountCode: source.accountNumber, status: 'Active' },
+    });
+  }
   const routing = new RoutingService(prisma, new AuditService(prisma));
   const pools = await prisma.costPool.findMany({ where: { companyId: fixture.companyId, code: { in: ['SFM-LAB', 'SFM-OH'] } } });
   const labourPool = pools.find((pool) => pool.code === 'SFM-LAB')!;
@@ -215,7 +229,7 @@ describe('Feed mill on the approved chart', () => {
   it('receives good feed at standard and settles with WIP and recovery at exactly zero', async () => {
     const id = await throughConversion();
     expect(await balanceOf('13200')).toBeGreaterThan(0n);
-    expect(await balanceOf('54300')).toBe(-145_000_00n); // standard conversion absorbed to the one recovery account
+    expect(await balanceOf('54300')).toBe(-85_000_00n); // machine and other overhead share the Feed Mill recovery; labour is separate
     expect(await balanceOf('12100')).toBe(-405_000_00n); // ingredients out of feed ingredients control
 
     await releasedStandard();
@@ -229,7 +243,8 @@ describe('Feed mill on the approved chart', () => {
 
     expect(await balanceOf('13200')).toBe(0n); // Feed Mill WIP
     expect(await balanceOf('54300')).toBe(0n); // Feed Mill Recovery
-    expect(await balanceOf('53600')).toBe(26_380_00n); // the workbook's total cost variance, in the feed mill variance account
+    expect(await balanceOf('53500')).toBe(950_000n); // adverse conversion variance is mapped to COR-WC-MAIN recovery variance
+    expect(await balanceOf('53600')).toBe(1_688_000n); // material and yield cost variances on the feed mill chart
     expect(await balanceOf('12450')).toBe(533_120_00n); // finished feed at standard
   });
 });

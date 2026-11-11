@@ -904,7 +904,7 @@ export class ApprovedCutoverService {
     try {
       const mapped = await resolveApprovedMappedAccount(client, {
         companyId, application, postingGroup: `${prefix}-BA-${values[0] === 'IMMATURE' ? 'IMM' : 'MAT'}`,
-        postingKey: 'BA_CONTROL', on,
+        postingKey: values[0] === 'MATURE' ? 'BA_DESTINATION_STAGE_CONTROL' : 'BA_CONTROL', on,
       });
       return mapped.accountNumber;
     } catch (error) {

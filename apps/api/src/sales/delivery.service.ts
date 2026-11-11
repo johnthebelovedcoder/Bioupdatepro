@@ -384,6 +384,10 @@ export class DeliveryService {
           ...(await chartVersionOf(params.tx, delivery.companyId)) === 'APPROVED' ? { approvedControl: {
             application: 'YifrehCore',
             applicationRuleId: 'COR-YFR-020A',
+            // A core delivery may sell poultry or snail products whose
+            // item-specific inventory and COGS accounts are governed by
+            // their business application's approved map.
+            dynamicMappingApplications: ['YifrehCore', 'YifrehPoultry', 'YifrehSnail'],
             dynamicAccountIds: {
               COGS: [...new Set(groupedCost.map((pair) => pair.debitAccount))],
               FINISHED_GOODS_INVENTORY: [...new Set(groupedCost.map((pair) => pair.creditAccount))],

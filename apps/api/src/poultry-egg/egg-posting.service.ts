@@ -9,6 +9,7 @@ import { StockMovementService } from '../inventory/stock-movement.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { resolveApprovedItemInventoryAccount, resolveApprovedLifecycleStageAccount } from '../posting-control/approved-account-map';
 import { kobo } from '../common/money';
+import { approvedDefaultCostCentreId } from '../chart/default-cost-centre';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
 /**
@@ -515,12 +516,14 @@ export class EggPostingService {
       throw new AccountingRuleViolation('§9 — Financial period', `No open accounting period covers ${day(on)}.`, {});
     }
     const company = await tx.company.findUniqueOrThrow({ where: { id: companyId }, select: { baseCurrencyId: true } });
+    const costCentreId = await approvedDefaultCostCentreId(tx, companyId);
     return {
       companyId,
       financialYearId: period.financialYearId,
       financialPeriodId: period.id,
       currencyId: company.baseCurrencyId,
       exchangeRate: '1',
+      ...(costCentreId ? { costCentreId } : {}),
     };
   }
 

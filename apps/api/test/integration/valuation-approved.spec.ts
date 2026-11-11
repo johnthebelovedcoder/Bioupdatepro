@@ -15,6 +15,8 @@ import { NotificationService } from '../../src/workflow/notification.service';
 import { TrialBalanceService } from '../../src/reporting/trial-balance.service';
 import { ProfitLossService } from '../../src/reporting/profit-loss.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { assignApprovedLifecycleGroups } from '../helpers/approved-posting';
+import { PostingControlProvisioningService } from '../../src/posting-control/posting-control-provisioning.service';
 
 /**
  * Valuation and mortality results on the approved five-digit chart: a gain
@@ -48,6 +50,26 @@ beforeEach(async () => {
   fixture = await seedFixture(prisma as unknown as PrismaClient);
   cfo = { userId: fixture.makerId, roles: ['CFO'] };
   await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
+  await new PostingControlProvisioningService(prisma, new AuditService(prisma)).provision(fixture.companyId, null);
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId }, data: { fsCategory: 'CURRENT_ASSET' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'LIABILITY' }, data: { fsCategory: 'CURRENT_LIABILITY' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EQUITY' }, data: { fsCategory: 'EQUITY' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'REVENUE' }, data: { fsCategory: 'REVENUE' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EXPENSE' }, data: { fsCategory: 'OPERATING_EXPENSE' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountNumber: { in: ['42000', '42010'] } }, data: { fsCategory: 'OTHER_INCOME' } });
+  await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountNumber: { in: ['42100', '42110'] } }, data: { fsCategory: 'OTHER_EXPENSE' } });
+  for (const [speciesKey, code, stages] of [
+    ['poultry', 'TEST-POULTRY', [['Grower', 'IMMATURE'], ['Layer', 'MATURE']]],
+    ['snail', 'TEST-SNAIL', [['Grower', 'IMMATURE'], ['Market-ready', 'MATURE']]],
+  ] as const) {
+    await prisma.speciesBreed.create({
+      data: {
+        companyId: fixture.companyId, speciesKey, code, name: 'Test', openingStage: stages[0][0],
+        stages: { create: stages.map(([stageName, maturityClass], sortOrder) => ({ stageName, minDay: sortOrder * 90, sortOrder: sortOrder + 1, maturityClass })) },
+      },
+    });
+  }
+  await assignApprovedLifecycleGroups(prisma as unknown as PrismaClient, fixture.companyId, fixture.financeUserId);
 
   const accounts: Array<[string, string, 'ASSET' | 'EXPENSE' | 'REVENUE' | 'LIABILITY', 'DEBIT' | 'CREDIT', boolean]> = [
     ['16031', 'Snail biological assets - immature', 'ASSET', 'DEBIT', true],
@@ -64,9 +86,12 @@ beforeEach(async () => {
   ];
   gl.clear();
   for (const [accountNumber, name, accountType, normalBalance, control] of accounts) {
-    gl.set(accountNumber, (await prisma.gLAccount.create({
-      data: { companyId: fixture.companyId, accountNumber, name, accountType, normalBalance, isControlAccount: control, isPostingAccount: !control },
-    })).id);
+    const account = await prisma.gLAccount.upsert({
+      where: { companyId_accountNumber: { companyId: fixture.companyId, accountNumber } },
+      create: { companyId: fixture.companyId, accountNumber, name, accountType, normalBalance, isControlAccount: control, isPostingAccount: !control },
+      update: { name, accountType, normalBalance, isControlAccount: control, isPostingAccount: !control },
+    });
+    gl.set(accountNumber, account.id);
   }
   await prisma.workflowDefinition.create({
     data: {
@@ -113,18 +138,17 @@ describe('valuation and mortality results on the approved chart', () => {
     expect(await balance('16032')).toBe(8_000_000n);
   });
 
-  it('presents a fair value loss against other income, not among the operating costs', async () => {
+  it('presents fair value gains and losses outside operating costs', async () => {
     const flock = await population('L-2', 'poultry', 'Grower', 100);
     await value(flock.id, 100_000n);
     await value(flock.id, 80_000n, new Date('2026-01-20'));
     const result = await profitLoss.build({ companyId: fixture.companyId, financialYearId: fixture.financialYearId });
-    expect(result.otherIncomeKobo).toBe('8000000'); // ₦100,000 gain less ₦20,000 loss
+    expect(result.otherIncomeKobo).toBe('10000000');
+    expect(result.otherExpenseKobo).toBe('2000000');
     expect(result.operatingExpenseKobo).toBe('0');
     expect(result.profitBeforeTaxKobo).toBe('8000000');
-    expect(result.otherIncomeLines.map((l) => [l.accountNumber, l.amountKobo]).sort()).toEqual([
-      ['42000', '10000000'],
-      ['42100', '-2000000'],
-    ]);
+    expect(result.otherIncomeLines.map((l) => [l.accountNumber, l.amountKobo])).toEqual([['42000', '10000000']]);
+    expect(result.otherExpenseLines.map((l) => [l.accountNumber, l.amountKobo])).toEqual([['42100', '2000000']]);
   });
 
   it('carries a snail in 16031 while immature and 16041 once mature', async () => {
@@ -161,7 +185,7 @@ describe('valuation and mortality results on the approved chart', () => {
   });
 
   it('credits a bought flock to GRNI 20300 against its stage account', async () => {
-    const flock = await population('L-5', 'poultry', 'Chick', 100, { acquisitionCostKobo: 4_000_000n });
+    const flock = await population('L-5', 'poultry', 'Grower', 100, { acquisitionCostKobo: 4_000_000n });
     expect(await assets.postAcquisition({ groupId: flock.id, actor: cfo })).toMatchObject({ posted: true });
     expect(await balance('16032')).toBe(4_000_000n);
     expect(await balance('20300')).toBe(-4_000_000n);

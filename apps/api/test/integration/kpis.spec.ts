@@ -18,6 +18,7 @@ import { KpiService } from '../../src/reporting/kpi.service';
 import { kobo } from '../../src/common/money';
 import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 import { kpiService, kpisByKey } from '../helpers/kpis';
+import { classifyFixtureFinancialStatements } from '../helpers/approved-posting';
 
 /**
  * KPI-02 current ratio and KPI-04 inventory days on the KPIs page
@@ -58,18 +59,28 @@ async function journal(ref: string, lines: Array<[string, 'debit' | 'credit', bi
 describe('KPIs: current ratio and inventory days (KPI-02, KPI-04)', () => {
   it('works out the current ratio once every account holding a balance is classified, and says which are not', async () => {
     // KPI_FORMULA_DEMOS KPI-02: ₦5,000,000 current assets, ₦2,500,000 current liabilities.
+    await classifyFixtureFinancialStatements(prisma as unknown as PrismaClient, fixture.companyId);
+    await prisma.gLAccount.updateMany({
+      where: { id: { in: [fixture.accounts['1101']!, fixture.accounts['2130']!] } },
+      data: { fsCategory: null },
+    });
     await journal('CR-1', [['1101', 'debit', 500_000_000n], ['2130', 'credit', 250_000_000n], ['4101', 'credit', 250_000_000n]]);
-    expect((await kpisByKey(kpis, fixture.companyId)).currentRatio).toMatchObject({ computable: false, reason: expect.stringMatching(/2 asset or liability accounts with a balance have no statement category/) });
+    expect(await kpis.currentRatio(fixture.companyId)).toMatchObject({ computable: false, reason: expect.stringMatching(/2 asset or liability accounts with a balance have no statement category/) });
 
     await prisma.gLAccount.update({ where: { id: fixture.accounts['1101']! }, data: { fsCategory: 'CURRENT_ASSET' } });
     await prisma.gLAccount.update({ where: { id: fixture.accounts['2130']! }, data: { fsCategory: 'CURRENT_LIABILITY' } });
-    expect((await kpisByKey(kpis, fixture.companyId)).currentRatio).toMatchObject({ computable: true, value: '2.00', format: 'times' });
+    expect(await kpis.currentRatio(fixture.companyId)).toMatchObject({ computable: true, value: '2.00', format: 'times' });
   });
 
   it('works out inventory days from the stock on hand and the year’s cost of sales', async () => {
-    const cogs = await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: '5001', name: 'Cost of sales', accountType: 'EXPENSE', normalBalance: 'DEBIT' } });
+    const cogs = await prisma.gLAccount.create({ data: { companyId: fixture.companyId, accountNumber: '5001', name: 'Cost of sales', accountType: 'EXPENSE', normalBalance: 'DEBIT', fsCategory: 'COST_OF_SALES' } });
     fixture.accounts['5001'] = cogs.id;
     expect((await kpisByKey(kpis, fixture.companyId)).inventoryDays!.computable).toBe(false);
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'ASSET' }, data: { fsCategory: 'CURRENT_ASSET' } });
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'LIABILITY' }, data: { fsCategory: 'CURRENT_LIABILITY' } });
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EQUITY' }, data: { fsCategory: 'EQUITY' } });
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'REVENUE' }, data: { fsCategory: 'REVENUE' } });
+    await prisma.gLAccount.updateMany({ where: { companyId: fixture.companyId, accountType: 'EXPENSE', accountNumber: { not: '5001' } }, data: { fsCategory: 'OPERATING_EXPENSE' } });
 
     // KPI-04's inputs: ₦1,800,000 of stock, ₦4,283,333 cost of sales.
     const uom = await prisma.unitOfMeasure.create({ data: { companyId: fixture.companyId, code: 'KG', name: 'Kilogram' } });
