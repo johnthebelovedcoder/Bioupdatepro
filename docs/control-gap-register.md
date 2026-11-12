@@ -21,13 +21,11 @@ Tests are in `apps/api/test/integration/`. Run them with
 | Built | 63 |
 | Built 26 Sep | 23 |
 | Partial | 0 |
-| Not enforced | 1 |
+| Deployment verification open | 1 |
 
-The one not enforced is INT-034, authenticator MFA: built, then switched off
-on 2026-10-20 pending a test of the setup, verification and recovery flow. It
-is counted here rather than left inside the Built total, because a control
-register that reports a security control as built while it is off is worse
-than one that reports nothing.
+INT-034 is enforced in code; its deployment key configuration and complete
+privileged sign-in/recovery flow still require verification in the target
+environment.
 
 88 rows; AC-001, a check on the workbook itself rather than the application, is not counted.
 
@@ -43,12 +41,12 @@ until the reconciliation itself clears.
 
 ## Authenticator MFA
 
-Finance, approval and administrator roles must complete authenticator-app MFA
-before accessing the product. **Temporarily disabled:** authenticator MFA
-enforcement is off, so all roles sign in with their password only. Enrollment
-and verification remain implemented but are not required for product access.
-Re-enable enforcement only after confirming production key configuration and
-testing the complete setup, verification and recovery flow.
+Finance, approval, administrator, HR, treasury, accounting, procurement,
+payables, receivables, and sales roles must complete authenticator-app MFA
+before accessing the product. Setup-only tokens are limited to enrollment
+routes; API access and session refresh require a verified MFA claim. Verify
+`MFA_ENCRYPTION_KEY` and the complete setup, verification, recovery, and
+re-login flow in the target deployment.
 
 ## Built 26 Sep
 
@@ -182,4 +180,4 @@ recovery close to zero for both species.
 | INT-031 | TB and statements | Built | Built from postings, never typed balances; reconciliations |
 | INT-032 | Month close | Built | closing.spec |
 | INT-033 | Year close | Built | closing.spec |
-| INT-034 | Security/audit | **Not enforced** | Enrollment, one-time recovery codes, replay protection and restricted setup sessions are built. Enforcement was switched off on 2026-10-20 (`6c891ea`), so finance, approval and administrator roles sign in on a password alone, and auth-session.spec now asserts that ("temporarily allows password-only sign-in for roles that normally require MFA"). Role-based access and append-only audit remain enforced. See "Authenticator MFA" above. |
+| INT-034 | Security/audit | **Code enforced; deployment verification open** | Required roles now receive an MFA challenge when enrolled and a setup-only session otherwise. API access and refresh are denied until the factor is verified; setup-only tokens are limited to enrollment routes. Production `MFA_ENCRYPTION_KEY` and end-to-end privileged-role sign-in still need CI/deployment verification. |

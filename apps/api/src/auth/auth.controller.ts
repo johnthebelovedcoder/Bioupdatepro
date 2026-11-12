@@ -11,7 +11,7 @@ import { IsArray, IsEmail, IsOptional, IsString, MinLength } from 'class-validat
 import { SkipThrottle, Throttle, minutes } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService, AuthenticatedUser } from './auth.service';
-import { CurrentCompany, CurrentUser, Public } from './current-user.decorator';
+import { AllowMfaSetupOnly, CurrentCompany, CurrentUser, Public } from './current-user.decorator';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { RegistrationService } from './registration.service';
 import { InvitationService } from './invitation.service';
@@ -99,6 +99,7 @@ export class AuthController {
   }
 
   @AnyRole('Authenticator enrollment only; required-factor accounts cannot access product routes before completing this setup.')
+  @AllowMfaSetupOnly()
   @Post('mfa/setup')
   async beginMfaEnrollment(@CurrentUser() actor: WorkflowActor) {
     return this.mfa.beginEnrollment(actor.userId);
@@ -114,6 +115,7 @@ export class AuthController {
   @SkipThrottle({ default: true })
   @Throttle({ account: { limit: 5, ttl: minutes(15) }, ceiling: { limit: 100, ttl: minutes(15) } })
   @AnyRole('Confirm the authenticator setup for this account.')
+  @AllowMfaSetupOnly()
   @Post('mfa/confirm')
   async confirmMfaEnrollment(
     @CurrentUser() actor: WorkflowActor,
@@ -348,6 +350,7 @@ export class AuthController {
 
   /** Who the current token belongs to — the frontend's session check. */
   @AnyRole('The session check. Every signed-in user asks who they are.')
+  @AllowMfaSetupOnly()
   @Get('me')
   async me(@Req() request: Request & { user: AuthenticatedUser }) {
     return request.user;

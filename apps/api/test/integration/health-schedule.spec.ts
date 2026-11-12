@@ -57,7 +57,7 @@ beforeEach(async () => {
   await prisma.penHouse.create({ data: { farmId: fixture.farmId, code: 'H1', name: 'House 1' } });
   await operations.placeGroup({
     companyId: fixture.companyId, actor: actor(), idempotencyKey: 'place',
-    payload: { module: 'poultry', code: 'LAY-1', breed: 'ISA Brown', purpose: 'Layer', stage: 'Chick', house: 'H1', openingPopulation: 500, startedOn: '2026-01-01', originType: 'OPENING_BALANCE', originEvidence: 'TEST-OPENING' },
+    payload: { module: 'poultry', code: 'LAY-1', breed: 'ISA Brown', purpose: 'Layer', stage: 'Chick', house: 'H1', openingPopulation: 500, startedOn: '2026-01-01', originType: 'OPENING_BALANCE', originEvidence: 'TEST-OPENING', responsibleSupervisorId: fixture.makerId },
   });
 });
 

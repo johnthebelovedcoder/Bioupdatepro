@@ -5,9 +5,6 @@
 //
 //   RESTORE_CHECK_URL="postgres://…restored-branch…" npm run restore:check -w @bioassetpro/database
 //
-// With RESTORE_CHECK_URL unset it checks DATABASE_URL (from the repo's .env),
-// which is how the script is exercised locally.
-//
 // It reads only. It checks that every migration is applied, every protective
 // trigger exists, every journal balances, each company's ledger balances, and
 // every close pack still hashes to its fingerprint; and it prints the newest
@@ -15,26 +12,16 @@
 // Exit code 1 if anything fails, so the drill record is unambiguous.
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const repoRoot = resolve(packageDir, '..', '..');
 
-if (!process.env.RESTORE_CHECK_URL && !process.env.DATABASE_URL) {
-  const envPath = join(repoRoot, '.env');
-  if (existsSync(envPath)) {
-    for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
-      const match = /^\s*(DATABASE_URL)\s*=\s*(.*)\s*$/.exec(line);
-      if (match) process.env.DATABASE_URL = match[2].replace(/^["']|["']$/g, '');
-    }
-  }
-}
-const url = process.env.RESTORE_CHECK_URL ?? process.env.DATABASE_URL;
+const url = process.env.RESTORE_CHECK_URL;
 if (!url) {
-  console.error('Set RESTORE_CHECK_URL to the restored database.');
+  console.error('Set RESTORE_CHECK_URL to an isolated restored database branch; DATABASE_URL is intentionally ignored.');
   process.exit(2);
 }
 
@@ -97,27 +84,16 @@ const offCompanies = companies.filter((c) => c.dr !== c.cr);
 check('Each company ledger balances', offCompanies.length === 0, `${companies.length} companies${offCompanies.length ? `, ${offCompanies.length} out of balance` : ''}`);
 
 // 5. Close packs still hash to their fingerprints.
-let packs = [];
-try {
-  packs = await q(`SELECT id, content, sha256 FROM close_packs`);
-} catch {
-  packs = null;
-}
-if (packs) {
-  const altered = packs.filter((p) => createHash('sha256').update(canonicalJson(p.content), 'utf8').digest('hex') !== p.sha256);
-  check('Close packs intact', altered.length === 0, `${packs.length} packs${altered.length ? `, ${altered.length} altered` : ''}`);
-}
+const packs = await q(`SELECT id, content, sha256 FROM close_packs`);
+const altered = packs.filter((p) => createHash('sha256').update(canonicalJson(p.content), 'utf8').digest('hex') !== p.sha256);
+check('Close packs intact', altered.length === 0, `${packs.length} packs${altered.length ? `, ${altered.length} altered` : ''}`);
 
 // 6. The recovery point: the newest records the restore holds.
 const [{ lastJournal }] = await q(`SELECT to_char(max(created_at), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "lastJournal" FROM journal_entries`);
 const [{ lastAudit }] = await q(`SELECT to_char(max(occurred_at), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "lastAudit" FROM audit_records`);
 const counts = {};
 for (const table of ['companies', 'users', 'journal_entries', 'journal_lines', 'audit_records', 'employees', 'livestock_groups', 'stock_movements', 'payroll_runs', 'close_packs']) {
-  try {
-    counts[table] = (await q(`SELECT count(*)::int AS n FROM ${table}`))[0].n;
-  } catch {
-    counts[table] = null;
-  }
+  counts[table] = (await q(`SELECT count(*)::int AS n FROM ${table}`))[0].n;
 }
 
 await client.end();

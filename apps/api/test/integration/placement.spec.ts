@@ -61,7 +61,7 @@ beforeEach(async () => {
 const place = (code: string, house: string, birds: number) =>
   operations.placeGroup({
     companyId: fixture.companyId, actor, idempotencyKey: `place-${code}-${house}-${birds}`,
-    payload: { module: 'poultry', code, breed: 'Ross 308', purpose: 'Broiler', stage: 'Chick', house, openingPopulation: birds, startedOn: '2026-02-01', originType: 'OPENING_BALANCE', originEvidence: 'TEST-OPENING' },
+    payload: { module: 'poultry', code, breed: 'Ross 308', purpose: 'Broiler', stage: 'Chick', house, openingPopulation: birds, startedOn: '2026-02-01', originType: 'OPENING_BALANCE', originEvidence: 'TEST-OPENING', responsibleSupervisorId: fixture.makerId },
   });
 
 describe('Placement (UAT-010 / UAT-016)', () => {
@@ -96,6 +96,35 @@ describe('Placement (UAT-010 / UAT-016)', () => {
     await expect(structure.setPenCapacity({ companyId: fixture.companyId, penId: h1.id, capacity: 400, actor })).rejects.toThrow(/450 animals in it now/);
     await structure.setPenCapacity({ companyId: fixture.companyId, penId: h1.id, capacity: null, actor });
     await place('FLK-BR-002', 'H1', 5_000); // no limit now
+  });
+
+  it('records an audited supervisor reassignment and rejects users without an operations role', async () => {
+    await place('FLK-BR-001', 'H1', 450);
+    const assigned = await operations.setResponsibleSupervisor({
+      companyId: fixture.companyId,
+      actor,
+      code: 'FLK-BR-001',
+      supervisorId: fixture.checkerId,
+    });
+    expect(assigned.responsibleSupervisor).toMatchObject({ id: fixture.checkerId, fullName: 'Checker User' });
+
+    const group = await prisma.livestockGroup.findUniqueOrThrow({
+      where: { companyId_code: { companyId: fixture.companyId, code: 'FLK-BR-001' } },
+    });
+    expect(group.responsibleSupervisorId).toBe(fixture.checkerId);
+
+    const audit = await prisma.auditRecord.findFirstOrThrow({
+      where: { entityId: group.id, status: 'SUPERVISOR_ASSIGNED' },
+    });
+    expect(audit.oldValueJson).toMatchObject({ id: fixture.makerId, fullName: 'Maker User' });
+    expect(audit.newValueJson).toMatchObject({ id: fixture.checkerId, fullName: 'Checker User' });
+
+    await expect(operations.setResponsibleSupervisor({
+      companyId: fixture.companyId,
+      actor,
+      code: 'FLK-BR-001',
+      supervisorId: fixture.financeUserId,
+    })).rejects.toThrow(/active supervisor from this company/);
   });
 
   it('never holds a negative population, at the database (BIO_MASTER_CHECKS)', async () => {

@@ -198,6 +198,7 @@ model User {
   hatchDatesEstimated       LivestockGroup[]           @relation("HatchDateEstimator")
   hatchDatesApproved        LivestockGroup[]           @relation("HatchDateApprover")
   hatchDateRequests         LivestockGroup[]           @relation("HatchDateRequester")
+  responsibleLivestockGroups LivestockGroup[]          @relation("LivestockGroupResponsibleSupervisor")
   invitationsSent           Invitation[]               @relation("InvitationSender")
   passwordResetsReceived    PasswordResetToken[]       @relation("PasswordResetTarget")
   passwordResetsIssued      PasswordResetToken[]       @relation("PasswordResetIssuer")
@@ -6152,6 +6153,7 @@ model LivestockGroup {
   hatchDateEvidence String? @map("hatch_date_evidence")
   hatchDateEstimatedById String? @map("hatch_date_estimated_by_id") @db.Uuid
   hatchDateApprovedById String? @map("hatch_date_approved_by_id") @db.Uuid
+  responsibleSupervisorId String? @map("responsible_supervisor_id") @db.Uuid
   hatchDateApprovedAt DateTime? @map("hatch_date_approved_at")
   hatchDateApprovalStatus String? @map("hatch_date_approval_status")
   hatchDateRejectionReason String? @map("hatch_date_rejection_reason")
@@ -6215,6 +6217,7 @@ model LivestockGroup {
   penHouse PenHouse @relation("GroupPenHouse", fields: [penHouseId], references: [id])
   hatchDateEstimatedBy User? @relation("HatchDateEstimator", fields: [hatchDateEstimatedById], references: [id], onDelete: Restrict)
   hatchDateApprovedBy User? @relation("HatchDateApprover", fields: [hatchDateApprovedById], references: [id], onDelete: Restrict)
+  responsibleSupervisor User? @relation("LivestockGroupResponsibleSupervisor", fields: [responsibleSupervisorId], references: [id], onDelete: Restrict)
   pendingHatchRequestedBy User? @relation("HatchDateRequester", fields: [pendingHatchRequestedById], references: [id], onDelete: Restrict)
   originParentGroup LivestockGroup? @relation("LivestockLineage", fields: [originParentGroupId], references: [id])
   offspringGroups LivestockGroup[] @relation("LivestockLineage")

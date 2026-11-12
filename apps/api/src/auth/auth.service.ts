@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { withDbRetry } from '../prisma/retry';
 import { verifyPassword } from './password';
@@ -22,6 +23,7 @@ export interface AuthenticatedUser {
   companyId: string | null;
   mfaRequired: boolean;
   mfaEnabled: boolean;
+  mfaSetupOnly?: boolean;
 }
 
 export interface JwtPayload {
@@ -39,12 +41,20 @@ export interface JwtPayload {
   purpose?: 'MFA_LOGIN';
   jti?: string;
   mfaSetupOnly?: boolean;
+  mfaVerified?: boolean;
 }
 
 export interface AuthLoginResult {
   accessToken: string;
   user: AuthenticatedUser;
 }
+
+export interface AuthLoginChallengeResult {
+  challengeToken: string;
+  user: AuthenticatedUser;
+}
+
+export type AuthLoginResponse = AuthLoginResult | AuthLoginChallengeResult;
 
 /** However active a session is, the password is asked for again after this. */
 export const MAX_SESSION_SECONDS = 7 * 24 * 60 * 60;
@@ -60,7 +70,7 @@ export class AuthService {
   async login(
     email: string,
     password: string,
-  ): Promise<AuthLoginResult> {
+  ): Promise<AuthLoginResponse> {
     const user = await withDbRetry(() =>
       this.prisma.user.findUnique({
         where: { email: email.trim().toLowerCase() },
@@ -93,15 +103,37 @@ export class AuthService {
       mfaEnabled: Boolean(user.mfaEnabledAt && user.mfaSecret),
     };
 
+    const authAt = Math.floor(Date.now() / 1000);
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       name: user.fullName,
       roles: user.roles,
-      authAt: Math.floor(Date.now() / 1000),
+      authAt,
     };
 
-    // MFA setup and challenge issuance are temporarily disabled.
+    if (authenticated.mfaRequired) {
+      if (!authenticated.mfaEnabled) {
+        return {
+          accessToken: await this.jwt.signAsync({ ...payload, mfaSetupOnly: true }),
+          user: { ...authenticated, mfaSetupOnly: true },
+        };
+      }
+
+      const challengeId = randomUUID();
+      const expiresAt = new Date(Date.now() + 5 * 60_000);
+      await this.prisma.mfaLoginChallenge.create({
+        data: { id: challengeId, userId: user.id, expiresAt },
+      });
+      return {
+        challengeToken: await this.jwt.signAsync(
+          { ...payload, purpose: 'MFA_LOGIN', jti: challengeId },
+          { expiresIn: '5m' },
+        ),
+        user: authenticated,
+      };
+    }
+
     return { accessToken: await this.jwt.signAsync(payload), user: authenticated };
   }
 
@@ -137,6 +169,7 @@ export class AuthService {
       name: user.fullName,
       roles: user.roles,
       authAt: challenge.authAt,
+      mfaVerified: true,
     };
     return { accessToken: await this.jwt.signAsync(payload), user };
   }
@@ -154,18 +187,25 @@ export class AuthService {
     if (presented?.purpose) {
       throw new UnauthorizedException('Complete MFA verification before renewing this session.');
     }
+    if (presented?.mfaSetupOnly) {
+      throw new UnauthorizedException('Complete authenticator setup before renewing this session.');
+    }
     const authAt = presented?.authAt ?? presented?.iat;
     if (!presented?.sub || !authAt) throw new UnauthorizedException('Session is no longer valid.');
     if (Math.floor(Date.now() / 1000) - authAt > MAX_SESSION_SECONDS) {
       throw new UnauthorizedException('Please sign in again — a session lasts at most seven days.');
     }
     const user = await this.resolve(presented.sub);
+    if (user.mfaRequired && (!user.mfaEnabled || !presented.mfaVerified)) {
+      throw new UnauthorizedException('Complete authenticator verification before renewing this session.');
+    }
     const payload: JwtPayload = {
       sub: user.userId,
       email: user.email,
       name: user.fullName,
       roles: user.roles,
       authAt,
+      ...(presented.mfaVerified ? { mfaVerified: true } : {}),
     };
     return { accessToken: await this.jwt.signAsync(payload) };
   }

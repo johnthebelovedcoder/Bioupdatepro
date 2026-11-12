@@ -58,6 +58,13 @@ export class OperationsController {
     return this.reads.groups(companyId, species);
   }
 
+  @AnyRole('A responsible supervisor is a named operations assignment for a cohort.')
+  @Get('supervisors')
+  async supervisors(@CurrentCompany() companyId: string, @Query('species') species: string) {
+    if (!species?.trim()) throw new BadRequestException('Say which species.');
+    return this.reads.supervisors(companyId, species);
+  }
+
   @AnyRole('Mortality cause choices are governed farm master data.')
   @Get('mortality-causes')
   async mortalityCauseCatalog(@CurrentCompany() companyId: string, @Query('species') species: string) {
@@ -99,6 +106,22 @@ export class OperationsController {
     const group = await this.reads.groupDetail(companyId, code);
     if (!group) throw new NotFoundException(`No population with the code ${code}.`);
     return group;
+  }
+
+  @Roles('FARM_MANAGER', 'PRODUCTION_SUPERVISOR', 'PRODUCTION_LEAD', 'POULTRY_SUPERVISOR', 'SNAIL_SUPERVISOR', 'CFO')
+  @Patch('groups/:code/responsible-supervisor')
+  async setResponsibleSupervisor(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('code') code: string,
+    @Body() body: { supervisorId?: string },
+  ) {
+    return this.operations.setResponsibleSupervisor({
+      companyId,
+      actor,
+      code,
+      supervisorId: body?.supervisorId ?? '',
+    });
   }
 
   @AnyRole('Livestock reads are the shared ground floor of the product.')

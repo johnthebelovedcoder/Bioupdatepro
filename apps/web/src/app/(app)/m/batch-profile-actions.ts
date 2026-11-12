@@ -108,3 +108,24 @@ export async function requestHatchDateCorrection(_previous: GrowthState, formDat
     return failed(caught, 'Could not request hatch-date correction.');
   }
 }
+
+export async function assignResponsibleSupervisor(
+  _previous: GrowthState,
+  formData: FormData,
+): Promise<GrowthState> {
+  const code = String(formData.get('code') ?? '').trim();
+  const supervisorId = String(formData.get('supervisorId') ?? '').trim();
+  if (!code || !supervisorId) {
+    return { error: 'Choose a responsible supervisor.', message: null };
+  }
+  try {
+    await api(`/operations/groups/${encodeURIComponent(code)}/responsible-supervisor`, {
+      method: 'PATCH',
+      body: { supervisorId },
+    });
+    revalidatePath('/', 'layout');
+    return { error: null, message: 'Responsible supervisor updated.' };
+  } catch (caught) {
+    return failed(caught, 'Could not update the responsible supervisor.');
+  }
+}

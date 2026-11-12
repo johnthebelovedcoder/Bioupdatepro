@@ -81,20 +81,11 @@ export class PostingService {
       select: { baseCurrencyId: true, baseCurrency: { select: { code: true } } },
     });
     this.assertStructure(request);
-    if (!request.approvedControl && await chartVersionOf(externalTx ?? this.prisma, request.companyId) === 'APPROVED') {
-      const unboundApprovedChartEvents: Record<string, string> = {
-        PayrollRun: 'Statutory payroll accrual needs Finance-approved liability mappings and a dedicated event contract.',
-        PayrollPayment: 'Payroll settlement needs a Finance-approved payable and bank settlement contract.',
-        REARING_COST_RELIEF: 'Cohort rearing-cost relief needs an approved mortality/disposal/harvest expense treatment and event contract.',
-      };
-      const reason = unboundApprovedChartEvents[request.sourceDocumentType];
-      if (reason) {
-        throw new AccountingRuleViolation(
-          'Approved Posting Control — event contract required',
-          reason,
-          { sourceDocumentType: request.sourceDocumentType, sourceDocumentId: request.sourceDocumentId ?? null },
-        );
-      }
+    if (
+      ['PayrollRun', 'PayrollPayment', 'REARING_COST_RELIEF'].includes(request.sourceDocumentType) &&
+      await chartVersionOf(externalTx ?? this.prisma, request.companyId) === 'APPROVED'
+    ) {
+      this.assertStandardApprovedEventContract(request);
     }
     if (request.approvedControl) await this.assertApprovedControlContract(request, externalTx ?? this.prisma);
     if (company.baseCurrency.code !== 'NGN' || request.currencyId !== company.baseCurrencyId || !new Prisma.Decimal(request.exchangeRate).equals(1)) {
@@ -299,6 +290,7 @@ export class PostingService {
     if (!request.sourceDocumentType.trim() || !request.sourceDocumentId?.trim()) {
       throw new AccountingRuleViolation('Approved Posting Control — source document', 'A workbook-controlled posting must identify its originating source document.', contract);
     }
+
     const applicationRuleIds = [contract.applicationRuleId, ...(contract.additionalApplicationRuleIds ?? [])];
     const controls = await client.approvedPostingControlLine.findMany({
       where: { companyId: request.companyId, application: contract.application, applicationRuleId: { in: applicationRuleIds } },
@@ -457,6 +449,59 @@ export class PostingService {
         `${applicationRuleIds.join(', ')} requires a cost centre on each line covered by a Required workbook control.`,
         { ...contract, missingCostCentre: missingCostCentre.map((line) => ({ glAccountId: line.glAccountId, description: line.description })) },
       );
+    }
+  }
+
+  /**
+   * Built-in accounting events use the chart's effective posting-key maps and
+   * the domain service's subledger checks. Requiring a second, client-authored
+   * event contract for these standard events prevented their established
+   * accounting flows from posting on the approved chart.
+   */
+  private assertStandardApprovedEventContract(request: PostingRequest): void {
+    const fail = (message: string): never => {
+      throw new AccountingRuleViolation(
+        'Approved Posting Control — standard event contract',
+        message,
+        { sourceDocumentType: request.sourceDocumentType, sourceDocumentId: request.sourceDocumentId ?? null },
+      );
+    };
+
+    if (request.sourceDocumentType === 'PayrollRun') {
+      if (request.sourceModule !== 'payroll' || !request.sourceDocumentId) {
+        fail('Payroll accruals must originate from a payroll run.');
+      }
+      if (!request.lines.some((line) => line.debit !== undefined) ||
+          !request.lines.some((line) => line.credit !== undefined)) {
+        fail('Payroll accruals must recognize payroll expense and the related employee/statutory liabilities.');
+      }
+    }
+
+    if (request.sourceDocumentType === 'PayrollPayment') {
+      if (request.sourceModule !== 'payroll' || !request.sourceDocumentId) {
+        fail('Payroll settlements must originate from an approved payroll payment.');
+      }
+      if (request.lines.length !== 2) {
+        fail('A payroll settlement clears one payable bucket against one bank account.');
+      }
+      const debits = request.lines.filter((line) => line.debit !== undefined && line.credit === undefined);
+      const credits = request.lines.filter((line) => line.credit !== undefined && line.debit === undefined);
+      if (
+        debits.length !== 1 ||
+        credits.length !== 1 ||
+        debits[0]!.debit !== credits[0]!.credit
+      ) {
+        fail('A payroll settlement must debit one payable bucket and credit the bank for the same amount.');
+      }
+    }
+
+    if (request.sourceDocumentType === 'REARING_COST_RELIEF') {
+      if (request.sourceModule !== 'BIOLOGICAL_ASSETS' || !request.sourceDocumentId) {
+        fail('Rearing-cost relief must originate from a biological-asset event.');
+      }
+      if (!request.approvedControl) {
+        fail('Mortality and disposal reliefs must match their approved mortality-loss or cost-of-sales rule and biological-asset control account.');
+      }
     }
   }
 

@@ -29,7 +29,7 @@ Anyone who notices a problem reports it to the incident lead straight away. Nobo
 ## Where problems show up
 
 - **Health:** `GET /api/health` on the API reports the API and the database separately. The keep-alive workflow calls it on a schedule.
-- **Render logs** for the API and web services. At start-up the API warns if `PII_ENCRYPTION_KEY` is not set, and says when it encrypted existing records.
+- **Render logs** for the API and web services. Production API startup fails if `PII_ENCRYPTION_KEY` or `MFA_ENCRYPTION_KEY` is missing, or existing employee values cannot be sealed; a successful startup confirms the configured keys could be used, not that backup/restore access has been tested.
 - **The audit trail** (Ledger, then Audit trail): every posting, approval, change, sign-in and look at sensitive numbers, with who, when and from which IP address. It is append-only, so it survives the incident as evidence.
 - **Close packs** (Ledger, then Period close, then Check): whether figures in a closed period have changed since the close.
 - **The restore check** (`npm run restore:check -w @bioassetpro/database`): whether a database is complete and consistent.

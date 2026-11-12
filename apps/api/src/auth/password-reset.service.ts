@@ -11,7 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { EmailService } from './email.service';
 import { hashPassword } from './password';
 import { passwordProblem } from './registration.service';
-import { AuthService, type AuthLoginResult } from './auth.service';
+import { AuthService, type AuthLoginResponse } from './auth.service';
 import { AuditAction } from '@bioassetpro/database';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
@@ -180,7 +180,7 @@ export class PasswordResetService {
   async complete(params: {
     token: string;
     password: string;
-  }): Promise<AuthLoginResult> {
+  }): Promise<AuthLoginResponse> {
     const problem = passwordProblem(params.password);
     if (problem) throw new BadRequestException(problem);
 

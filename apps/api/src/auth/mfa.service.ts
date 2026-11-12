@@ -12,13 +12,22 @@ const MFA_ROLES = new Set([
   'INTERNAL_AUDITOR',
   'MD_CEO',
   'FARM_ACCOUNTANT',
+  'FINANCIAL_ACCOUNTANT',
+  'AP_OFFICER',
+  'AR_OFFICER',
+  'PROCUREMENT_OFFICER',
+  'SALES_OFFICER',
+  'TREASURY_OFFICER',
+  'HR_MANAGER',
+  'HR_OFFICER',
   'FARM_MANAGER',
   'PRODUCTION_SUPERVISOR',
+  'PRODUCTION_LEAD',
+  'POULTRY_SUPERVISOR',
+  'SNAIL_SUPERVISOR',
   'SYSTEM_ADMIN',
 ]);
 const PERIOD_SECONDS = 30;
-// Temporary bypass: resume required-role MFA only after the production flow is verified.
-const MFA_ENFORCEMENT_ENABLED = false;
 
 @Injectable()
 export class MfaService {
@@ -27,8 +36,12 @@ export class MfaService {
     private readonly audit: AuditService,
   ) {}
 
+  onModuleInit(): void {
+    if (process.env.NODE_ENV === 'production') encryptionKey();
+  }
+
   requiredFor(roles: readonly string[]): boolean {
-    return MFA_ENFORCEMENT_ENABLED && roles.some((role) => MFA_ROLES.has(role));
+    return roles.some((role) => MFA_ROLES.has(role));
   }
 
   async beginEnrollment(userId: string) {

@@ -170,8 +170,8 @@ export const GLOSSARY: GlossaryEntry[] = [
     term: 'Responsible supervisor',
     group: 'Both',
     meaning: 'The person accountable for a batch’s records and approvals.',
-    rule: 'Not recorded on the batch yet; who recorded and who approved each event is.',
-    where: null,
+    rule: 'An active, species-eligible supervisor from the same company is assigned to each new batch; reassignment is audited. Event records still identify who recorded and approved each action.',
+    where: { label: 'Poultry → Flocks', href: '/m/poultry/flocks' },
   },
   // --- Snails ---------------------------------------------------------------
   {

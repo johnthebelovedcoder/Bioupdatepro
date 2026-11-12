@@ -21,7 +21,7 @@ describe('Sensitive employee numbers', () => {
   const originalKey = process.env.PII_ENCRYPTION_KEY;
 
   beforeAll(async () => {
-    process.env.PII_ENCRYPTION_KEY = 'integration-test-key';
+    process.env.PII_ENCRYPTION_KEY = 'integration-test-key-012345678901234567890123';
     prisma = new PrismaService();
     await prisma.$connect();
     const audit = new AuditService(prisma);

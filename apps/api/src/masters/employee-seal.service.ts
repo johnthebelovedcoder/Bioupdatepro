@@ -28,20 +28,27 @@ export class EmployeeSealService implements OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     if (process.env.NODE_ENV === 'test' || process.env.VITEST) return;
     if (!encryptionConfigured()) {
-      this.logger.warn('PII_ENCRYPTION_KEY is not set: employee bank and statutory numbers are stored unencrypted.');
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('PII_ENCRYPTION_KEY must be configured before the production API can start.');
+      }
+      this.logger.warn('PII_ENCRYPTION_KEY is not set: sensitive employee fields cannot be written until it is configured.');
       return;
     }
     try {
       const { sealed } = await this.sealAll();
       if (sealed > 0) this.logger.log(`Encrypted the sensitive numbers on ${sealed} employee record(s) and identity-check reference(s).`);
     } catch (error) {
-      this.logger.error(`Could not encrypt existing employee numbers: ${(error as Error).message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Could not encrypt existing employee numbers: ${message}`);
+      throw error;
     }
   }
 
   /** Seal every unsealed record, company by company. Returns how many records (employees and references) changed. */
   async sealAll(): Promise<{ sealed: number }> {
-    if (!encryptionConfigured()) return { sealed: 0 };
+    if (!encryptionConfigured()) {
+      throw new Error('PII_ENCRYPTION_KEY must be configured before existing sensitive employee data can be sealed.');
+    }
     let sealed = 0;
     const companies = await this.prisma.company.findMany({ select: { id: true } });
     for (const { id: companyId } of companies) {

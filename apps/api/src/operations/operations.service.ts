@@ -16,6 +16,7 @@ import { OperationsPostingService } from './operations-posting.service';
 import { BiologicalAssetService } from '../biological-assets/biological-asset.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
 import { DEFAULT_MORTALITY_CAUSES, mortalityCauseRows } from './mortality-cause-catalog';
+import { supervisorRolesForSpecies } from './responsible-supervisor';
 
 
 /**
@@ -80,6 +81,7 @@ export class OperationsService {
       acquisitionCostKobo?: string | null;
       expectedTransferDate?: string | null;
       expectedHarvestDate?: string | null;
+      responsibleSupervisorId?: string;
     };
   }) {
     const { companyId, actor, idempotencyKey, payload } = input;
@@ -89,6 +91,7 @@ export class OperationsService {
       throw new BadRequestException('Opening population must be greater than zero.');
     }
     if (!payload.stage?.trim()) throw new BadRequestException('A starting stage is required.');
+    if (!payload.responsibleSupervisorId?.trim()) throw new BadRequestException('Choose a responsible supervisor.');
     if (payload.originType === 'PURCHASE') throw new BadRequestException('Purchased animals must be recorded through an approved purchase order and accepted GRN.');
     if (!['OPENING_BALANCE', 'MIGRATION'].includes(payload.originType ?? '')) throw new BadRequestException('Choose Opening balance or Migration for manual placement; purchases and hatchlings use their governed workflows.');
     const originEvidence = payload.originEvidence?.trim();
@@ -114,6 +117,18 @@ export class OperationsService {
       if (!breed) throw new BadRequestException('Choose an active, approved breed from the species master.');
       if (!breed.stages.some((configured) => configured.stageName === payload.stage.trim())) {
         throw new BadRequestException(`Stage “${payload.stage}” is not configured for ${breed.name}.`);
+      }
+      const supervisor = await tx.user.findFirst({
+        where: {
+          id: payload.responsibleSupervisorId,
+          companyId,
+          active: true,
+          roles: { hasSome: supervisorRolesForSpecies(payload.module) },
+        },
+        select: { id: true },
+      });
+      if (!supervisor) {
+        throw new BadRequestException('Choose an active supervisor from this company who can oversee this species.');
       }
 
       // UAT-010/016: a batch code is used once, and a house is not overfilled.
@@ -152,6 +167,7 @@ export class OperationsService {
             : 0n,
           expectedTransferDate: payload.expectedTransferDate ? asDate(payload.expectedTransferDate) : null,
           expectedHarvestDate: payload.expectedHarvestDate ? asDate(payload.expectedHarvestDate) : null,
+          responsibleSupervisorId: supervisor.id,
         },
       });
 
@@ -187,8 +203,66 @@ export class OperationsService {
         if (!outcome.posted && outcome.reason && outcome.reason !== 'No acquisition cost recorded.') {
           this.logger.warn(`Placement ${result.id}: ${outcome.reason}`);
         }
+
       }
       return result;
+    });
+  }
+
+  async setResponsibleSupervisor(input: {
+    companyId: string;
+    actor: WorkflowActor;
+    code: string;
+    supervisorId: string;
+  }) {
+    const code = input.code.trim();
+    const supervisorId = input.supervisorId.trim();
+    if (!code || !supervisorId) throw new BadRequestException('Choose a responsible supervisor.');
+
+    return this.prisma.$transaction(async (tx) => {
+      const group = await tx.livestockGroup.findFirst({
+        where: { companyId: input.companyId, code },
+        include: { responsibleSupervisor: { select: { id: true, fullName: true } } },
+      });
+      if (!group) throw new NotFoundException(`No population with the code ${code}.`);
+
+      const supervisor = await tx.user.findFirst({
+        where: {
+          id: supervisorId,
+          companyId: input.companyId,
+          active: true,
+          roles: { hasSome: supervisorRolesForSpecies(group.speciesKey) },
+        },
+        select: { id: true, fullName: true },
+      });
+      if (!supervisor) {
+        throw new BadRequestException('Choose an active supervisor from this company who can oversee this species.');
+      }
+
+      if (group.responsibleSupervisorId === supervisor.id) {
+        return { responsibleSupervisor: supervisor };
+      }
+
+      await tx.livestockGroup.update({
+        where: { id: group.id },
+        data: { responsibleSupervisorId: supervisor.id },
+      });
+      await this.audit.write({
+        transactionId: group.id,
+        module: 'OPERATIONS',
+        entityType: 'LivestockGroup',
+        entityId: group.id,
+        status: 'SUPERVISOR_ASSIGNED',
+        action: AuditAction.UPDATE,
+        userId: input.actor.userId,
+        ipAddress: input.actor.ipAddress,
+        device: input.actor.device,
+        comments: `Responsible supervisor changed for ${group.code}.`,
+        oldValue: group.responsibleSupervisor,
+        newValue: supervisor,
+      }, tx);
+
+      return { responsibleSupervisor: supervisor };
     });
   }
 

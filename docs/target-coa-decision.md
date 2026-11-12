@@ -146,12 +146,33 @@ The project owner explicitly approved these engineering policy choices and they 
 
 The workbook control source now has 704 event lines, including the two-line exact-source reversal contract for approved variance proration. PCC-10 derives its expected row count from that source instead of a stale 669 literal. Migration `0063_snail_egg_cost_source` stores the attributable-cost account selected for an approved snail egg cycle. The pending migrations are still not applied to any database.
 
-The continued source-level review covered all 54 direct `PostingService.post` call sites. Business events either bind an approved control (including the dynamically constructed VAT clearing contract), use the separate manual-journal approval path, or are chart cutover/demo utilities. The payroll and rearing-cost cases that lack Finance-approved event mappings now fail closed on the approved chart. Source-pool clearing for feed-mill settlement remains outside COR-YFR-062A/B by the approved choice. The chart cutover stays guarded until the release rehearsal and named UAT sign-offs are complete.
+The continued source-level review covered all 54 direct `PostingService.post` call sites. Business events either bind an approved control (including the dynamically constructed VAT clearing contract), use the separate manual-journal approval path, or are chart cutover/demo utilities. At the time of this review, payroll and rearing-cost events did not yet have standard approved-chart posting contracts. Source-pool clearing for feed-mill settlement remains outside COR-YFR-062A/B by the approved choice. The chart cutover stays guarded until the release rehearsal and named UAT sign-offs are complete.
 
-## Remaining code-to-workbook gaps found in the continued audit (10 November 2026)
+## Findings from the continued audit (10 November 2026; status updated below)
 
 - Statutory payroll accrual (`PayrollRun`) and payroll payment (`PayrollPayment`) still call the GL posting service without an approved event contract. The workbook's `COR-YFR-063A` is only eligible labour expense against payroll payable; it does not describe a full statutory accrual or bank settlement. The approved chart has no distinct mapped keys for PAYE, employee/employer pension, NHF, NSITF and ITF liabilities, and currently has only generic `PAYROLL_PAYABLE` and `ACCRUAL_CONTROL` mappings. Binding the full payroll journal to 063A or substituting those generic accounts would be unsupported. Finance needs to approve the missing liability account keys and event directions before those contracts can be completed.
 - `REARING_COST_RELIEF` (mortality/disposal/harvest weighted-average rearing cost outflow) still posts without an approved control. It is distinct from the fair-value biological-asset mortality events `COR-YFR-035/036`; those rules debit normal/abnormal biological loss and credit biological-asset control, while this service clears accumulated cohort rearing cost. Its correct expense/COGS treatment and mortality classification need an approved event basis before binding.
 - Approved capitalized variance proration reversal now has its own contract (`COR-APP-VAR-PRORATE-REV-001`). It checks the exact reversed account-side amounts against the source journal and verifies all source accounts remain actively mapped.
 
 These are not database migration tasks. They are incomplete contract/accounting decisions in code and source mappings; no production data was changed while identifying them. Manual journals remain governed by their own approval and account-policy path, so their lack of a workbook event binding is not automatically a defect.
+
+## Status update — 12 November 2026
+
+The two standard-event gaps above are now addressed in code and supersede the
+open-contract findings from the 10 November review:
+
+- Payroll accrual uses the approved chart's payroll expense, payroll control,
+  statutory liability, and employer-accrual mappings. Payroll payment clears
+  the selected payable bucket against a bank account for the exact outstanding
+  amount. Existing payroll bucket/subledger checks remain authoritative.
+- Rearing-cost mortality and disposal relief uses the approved mortality-loss
+  or cost-of-sales control contract. Harvested rearing cost is relieved by the
+  production-order issue journal, not by an invented parallel posting.
+- Built-in accounting event semantics are product standards, not client-authored
+  contracts. Finance still validates current statutory rates, active account
+  mappings, and the resulting ledgers; that review does not defer ordinary
+  accounting behavior to a client-specific decision.
+
+Focused approved-chart rearing integration coverage and API typechecking pass
+on the current working tree. This is code evidence only: it is not CI evidence,
+Finance approval of historical balance mappings, or a production cutover.

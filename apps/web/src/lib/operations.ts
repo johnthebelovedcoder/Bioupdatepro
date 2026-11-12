@@ -39,6 +39,12 @@ export async function getGroups(moduleKey: string): Promise<BatchSummary[]> {
   return api<BatchSummary[]>(`/operations/groups?species=${encodeURIComponent(moduleKey)}`);
 }
 
+export async function getSupervisors(moduleKey: string): Promise<Array<{ id: string; fullName: string }>> {
+  return api<Array<{ id: string; fullName: string }>>(
+    `/operations/supervisors?species=${encodeURIComponent(moduleKey)}`,
+  );
+}
+
 export async function getGroupDetail(
   moduleKey: string,
   code: string,

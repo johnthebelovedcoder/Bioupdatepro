@@ -23,6 +23,7 @@ export function NewGroupForm({
   houses,
   today,
   governedBreeds = [],
+  supervisors,
 }: {
   moduleKey: ModuleKey;
   houses: string[];
@@ -30,6 +31,7 @@ export function NewGroupForm({
   /** Real breed names from the species/breed master (US-897-004/005), shown
  *  Only approved master values are selectable. */
   governedBreeds?: string[];
+  supervisors: Array<{ id: string; fullName: string }>;
 }) {
   const module = getModule(moduleKey)!;
   const t = module.terms;
@@ -44,6 +46,7 @@ export function NewGroupForm({
   const [source, setSource] = useState('');
   const [originType, setOriginType] = useState<'OPENING_BALANCE' | 'MIGRATION'>('OPENING_BALANCE');
   const [originEvidence, setOriginEvidence] = useState('');
+  const [responsibleSupervisorId, setResponsibleSupervisorId] = useState(supervisors[0]?.id ?? '');
   const [cost, setCost] = useState('');
   const [queued, setQueued] = useState(false);
 
@@ -54,6 +57,8 @@ export function NewGroupForm({
   if (code.trim().length === 0) problems.push(`Give the ${t.group.one} a code`);
   if (countValue <= 0) problems.push(`Enter how many ${t.animal.many} arrived`);
   if (!house) problems.push(`Choose a ${t.housing.one}`);
+  if (!supervisors.length) problems.push('Add an active supervisor for this species before creating a population');
+  if (!responsibleSupervisorId) problems.push('Choose a responsible supervisor');
   if (!breed) problems.push('Choose a breed from the approved species master');
   if (!originEvidence.trim()) problems.push('Add an opening balance or migration source reference');
   if (cost.trim() !== '' && costKobo === null) problems.push('Cost is not a valid amount');
@@ -80,6 +85,7 @@ export function NewGroupForm({
         source: source.trim(),
         originType,
         originEvidence: originEvidence.trim(),
+        responsibleSupervisorId,
         acquisitionCostKobo: costKobo !== null ? costKobo.toString() : null,
       },
     });
@@ -182,6 +188,24 @@ export function NewGroupForm({
                     </option>
                   ))
                 )}
+              </select>
+            </label>
+            <label className="field">
+              Responsible supervisor
+              <select
+                value={responsibleSupervisorId}
+                onChange={(event) => setResponsibleSupervisorId(event.target.value)}
+                disabled={!supervisors.length}
+                required
+              >
+                {supervisors.length === 0 ? (
+                  <option value="">No active supervisor for this species</option>
+                ) : null}
+                {supervisors.map((supervisor) => (
+                  <option key={supervisor.id} value={supervisor.id}>
+                    {supervisor.fullName}
+                  </option>
+                ))}
               </select>
             </label>
             {houses.length === 0 ? (

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { formatKobo, kobo } from '../common/money';
+import { supervisorRolesForSpecies } from './responsible-supervisor';
 
 /**
  * Reading the livestock back.
@@ -29,6 +30,7 @@ export class OperationsReadService {
       orderBy: [{ status: 'asc' }, { startedOn: 'desc' }],
       include: {
         penHouse: { select: { name: true } },
+        responsibleSupervisor: { select: { id: true, fullName: true } },
         dailyRecords: {
           select: {
             feedIssues: { select: { valueKobo: true } },
@@ -43,11 +45,25 @@ export class OperationsReadService {
     return groups.map((group) => this.toSummary(group));
   }
 
+  async supervisors(companyId: string, speciesKey: string) {
+    const users = await this.prisma.user.findMany({
+      where: {
+        companyId,
+        active: true,
+        roles: { hasSome: supervisorRolesForSpecies(speciesKey) },
+      },
+      orderBy: { fullName: 'asc' },
+      select: { id: true, fullName: true },
+    });
+    return users;
+  }
+
   async groupDetail(companyId: string, code: string) {
     const group = await this.prisma.livestockGroup.findFirst({
       where: { companyId, code },
       include: {
         penHouse: { select: { name: true } },
+        responsibleSupervisor: { select: { id: true, fullName: true } },
         dailyRecords: {
           orderBy: { recordedOn: 'asc' },
           include: {
@@ -356,6 +372,7 @@ export class OperationsReadService {
     currentWeightKg: { toString(): string } | null;
     expectedTransferDate: Date | null;
     expectedHarvestDate: Date | null;
+    responsibleSupervisor: { id: string; fullName: string } | null;
   }) {
     // Deaths only — NOT openingPopulation - population, which also falls
     // whenever the group sells, transfers out, or gets harvested. Every
@@ -398,6 +415,7 @@ export class OperationsReadService {
       expectedTransferDate: group.expectedTransferDate ? iso(group.expectedTransferDate) : null,
       expectedHarvestDate: group.expectedHarvestDate ? iso(group.expectedHarvestDate) : null,
       source: group.source ?? '',
+      responsibleSupervisor: group.responsibleSupervisor,
       costToDateKobo: (group.acquisitionCostKobo + feedKobo + treatmentKobo).toString(),
       // Nothing links a sale to a population yet, so this is honestly zero
       // rather than a plausible-looking figure.

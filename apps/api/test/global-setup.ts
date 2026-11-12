@@ -120,11 +120,11 @@ export async function setup(): Promise<void> {
         '-c', 'fsync=off',
         '-c', 'synchronous_commit=off',
         '-c', 'full_page_writes=off',
-        // PostgreSQL's default five-minute checkpoint interval caused long
-        // Windows write bursts in this fixture-heavy suite and occasionally
-        // pushed a setup hook past Vitest's timeout. This server contains only
-        // disposable test data, so let its single final shutdown flush it.
-        '-c', 'checkpoint_timeout=1h',
+        // The serial suite takes over two hours. A one-hour checkpoint caused
+        // a multi-minute Windows write stall mid-suite, timing out fixture
+        // hooks and letting their resets overlap. This database is disposable;
+        // avoid time-based checkpoints during the run and flush at shutdown.
+        '-c', 'checkpoint_timeout=24h',
         '-c', 'max_wal_size=4GB',
       ],
       // `persistent: false` would have embedded-postgres delete the data
@@ -152,6 +152,7 @@ export async function setup(): Promise<void> {
 
     process.env.DATABASE_URL =
       `postgresql://postgres:postgres@127.0.0.1:${port}/bioassetpro_test`;
+    process.env.TEST_DATABASE_EMBEDDED = 'true';
     console.log(`\n[test] PostgreSQL started on 127.0.0.1:${port}`);
   }
 

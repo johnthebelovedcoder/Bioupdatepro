@@ -39,6 +39,7 @@ export interface BatchSummary {
   ageDays: number;
   mortalityRate: number;
   status: 'ACTIVE' | 'CLOSED';
+  responsibleSupervisor?: { id: string; fullName: string } | null;
   /** When the population was placed or stocked. */
   startedOn: string;
   source: string;

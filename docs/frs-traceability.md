@@ -51,27 +51,21 @@ running deployment, which a traceability table will otherwise hide.
 A green test means the code satisfies the requirement. It does not always mean
 the deployment does, and the difference is invisible in the table above.
 
-### 1. FR-HR-01 — encryption at rest is not active in production
+### 1. FR-HR-01 — deployment encryption remains to be verified
 
 The requirement covers bank, tax and pension identifiers. Two halves:
 
 - **Access logging: satisfied.** `reveal()` writes an `AuditAction.VIEW` row
   before returning any number in the clear
   (`apps/api/src/masters/employee-onboarding.service.ts`).
-- **Storage: not satisfied where it runs.** The numbers are encrypted with
-  `PII_ENCRYPTION_KEY`, which is `sync: false` in `render.yaml` and has never
-  been set on the API service. Without it `seal()` stores the value as given,
-  and the service says so at every start-up: *"PII_ENCRYPTION_KEY is not set:
-  employee bank and statutory numbers are stored unencrypted."*
+- **Storage: fail-closed in code; deployment not verified.** Writes to
+  sensitive employee values require a valid `PII_ENCRYPTION_KEY`; production
+  startup fails if the key is missing or existing values cannot be sealed.
+  Verify the key in the target deployment and prove it is available during
+  restore before relying on the control.
 
-The test that evidences this row sets its own key
-(`sensitive-data.spec.ts`: `process.env.PII_ENCRYPTION_KEY = 'integration-test-key'`),
-so it proves the mechanism works and says nothing about production.
-
-Setting the key encrypts the existing records on the next start
-(`EmployeeSealService`), so this closes in one dashboard edit and a restart.
-The key must be kept outside Render as well — a restored database cannot show
-those numbers without it.
+Local tests prove the fail-closed behavior and sealing mechanism; they do not
+prove the runtime secret or backup/restore process is configured.
 
 ### 2. FR-GL-02 — reopen was blocked in the live farm until 2026-10-30
 
@@ -105,7 +99,8 @@ requires every one of the 26 terms to name a screen that exists, and by
 `110_biological_event_constraints.sql`, which enforces `BIO_MASTER_CHECKS`
 (weight history immutable; population never negative).
 
-One requirement of `BIO_TERMINOLOGY_SCREEN_MAP` is not met: **Responsible
-Supervisor**, the accountable owner named on a cohort or flock. The glossary
-says so rather than implying otherwise — *"Not recorded on the batch yet; who
-recorded and who approved each event is."*
+**Responsible Supervisor** is now stored on each livestock group. New
+placements require an active, species-eligible supervisor from the same
+company; reassignment is audited. Migration `0064` must be deployed and
+existing groups assigned before the control is operational on a given
+database.

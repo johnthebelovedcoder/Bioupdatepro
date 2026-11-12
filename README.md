@@ -218,16 +218,24 @@ API at it. `pg_restore` must be version 18 or newer, like the server.
 
 ```bash
 npm run typecheck
-npm test                  # 380 integration and 34 unit tests against a real PostgreSQL
+npm test                  # API unit and integration suites; integration uses ephemeral PostgreSQL
 ```
+
+The latest recorded counts are 118 unit tests and 620 integration tests. The
+full integration suite passed 620/620 tests across 61 files in about 46 minutes
+on 2026-11-12. Integration files run serially against one shared database; the
+runtime depends on the machine. On the embedded database, fixture resets also
+terminate leftover in-flight test transactions before truncating tables, so a
+timed-out hook cannot contaminate the next fixture.
 
 The same checks run on every push (`.github/workflows/ci.yml`), including a
 scan that fails if any query over a company-owned table does not name its
 company (`apps/api/test/unit/tenant-scope.spec.ts`).
 
-The integration suite starts its own ephemeral database. It exercises the
-accounting rules directly — balanced postings, immutability triggers,
-maker-checker, tax reconciliation, year-end close.
+By default, the integration suite starts its own ephemeral database; when
+`TEST_DATABASE_URL` is configured, it uses that test database instead. It
+exercises the accounting rules directly — balanced postings, immutability
+triggers, maker-checker, tax reconciliation, year-end close.
 
 ## What is not built yet
 

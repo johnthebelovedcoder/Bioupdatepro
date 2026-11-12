@@ -23,8 +23,8 @@ somebody.
 |---|---|---|---|
 | 1 | **The API is awake** | Open `/api/health`. It should answer at once and report the current commit. | A cold start takes 53–56 seconds. Open it ten minutes before the call, not at the start. |
 | 2 | **Period close is ready** | **Period close** → open the checklist for an older period. Verify you can see the 14 items and that settlement and close are not blocked by a routing error. | If it refuses with a workflow-routing error naming two matching definitions, migration `0053` has not reached that database. Stop and say so; do not demonstrate FR-GL-02. **Do not attempt a full close — it requires settling all 14 checklist items, raising FVLCTS valuations for every population, and approving them through a four-level ladder. That is real month-end, not a demo step.** |
-| 3 | **Employee numbers are encrypted** | **Employees** → open one → reveal the bank account. | If `PII_ENCRYPTION_KEY` is still unset the number shows in clear from storage. You can still demo the control (access is logged), but say plainly it is not yet encrypted at rest. |
-| 4 | **Know what MFA will do** | Sign in once, fresh. | Enforcement is off, so a CFO sign-in asks for a password only. If they ask, answer straight: built, switched off on 20 October pending a test of the recovery flow. |
+| 3 | **Employee numbers are encrypted** | Verify `PII_ENCRYPTION_KEY` is configured in the deployment and the API starts successfully; then open an employee and reveal the bank account. | Do not demonstrate or enter employee data if the key is missing or the API cannot decrypt existing values. The API now fails closed; deployment configuration and restored-data access still need verification. |
+| 4 | **Privileged MFA works** | Sign in fresh as a privileged user; verify the authenticator challenge and recovery process. | Required roles cannot enter the application on a password-only session. Stop the demo if the deployed challenge, key configuration, or recovery flow is not verified. |
 
 Have `frs-traceability.md` open in a second window. When someone asks "how do
 you know", the answer is a named test, not an opinion.
@@ -147,12 +147,12 @@ traceable back to it.
 **The point to land:** the payroll register equals the journal equals the
 payment. Three numbers, one figure.
 
-> **Caution — FR-HR-01 is half-met in production.** Access to a bank or tax
-> number is logged (`reveal()` writes an audit row, and you can show it on
-> **Audit trail**). Storage is not encrypted, because `PII_ENCRYPTION_KEY`
-> has never been set on the server. If you have set it before the meeting,
-> this block is clean. If not, say so when you open the employee record
-> rather than letting them find it. It is a settings change, not a defect.
+> **FR-HR-01 deployment check.** Access to a bank or tax number is logged
+> (`reveal()` writes an audit row, visible on **Audit trail**). The application
+> now refuses writes and stops production startup if `PII_ENCRYPTION_KEY` is
+> missing or too short. Verify the key and existing-data sealing in the target
+> deployment before showing employee data; local test evidence is not
+> deployment evidence.
 
 ---
 
@@ -224,16 +224,15 @@ against its subledger.
 Volunteering these costs less than being caught by them, and it is the
 difference between a review and a sales pitch.
 
-1. **MFA enforcement is off.** Built and tested, switched off on 20 October
-   pending a walkthrough of setup, verification and recovery. Every privileged
-   role currently signs in with a password alone.
-2. **`PII_ENCRYPTION_KEY` is not set**, so staff bank and statutory numbers
-   are stored as typed. One settings change; encrypts existing records on the
-   next restart.
-3. **Responsible Supervisor is not implemented.** `BIO_TERMINOLOGY_SCREEN_MAP`
-   asks for a named accountable owner on each cohort. The system records who
-   entered and who approved every event, but not a standing owner for the
-   batch. The glossary in the app already says so.
+1. **Privileged MFA is enforced in code.** Required roles must verify an
+   authenticator factor; verify the deployed encryption key and complete
+   sign-in, setup, recovery, and re-login checks before the pilot.
+2. **Employee data encryption fails closed.** Production startup requires
+   `PII_ENCRYPTION_KEY`; verify the deployment and a restore procedure that
+   keeps the key available outside the database.
+3. **Responsible Supervisor is implemented.** New batches require an active,
+   species-eligible supervisor from the same company. Apply migration `0064`
+   and assign existing batches before relying on the control.
 
 ---
 
@@ -244,7 +243,7 @@ difference between a review and a sales pitch.
 | The **approved account crosswalk**, signed | The balance cutover refuses without a named approver |
 | Answers to the **five open questions** in `finance-confirmation-sheet.pdf` | Impairment account, capitalised-variance accounts, stage-maturity lists, approval thresholds, abnormal-mortality rate |
 | **Stage 7 (IAS 41) specification**, if it now exists | The addendum promises it and jumps to Stage 8; we built a thin interface rather than inventing a valuation model |
-| A decision on **MFA** | Whether to enforce before the pilot or accept the risk in writing |
+| **MFA deployment evidence** | Verify the required authenticator challenge, recovery, key configuration, and privileged-role access before the pilot |
 | Their **UAT sign-off plan** | Gate 5 needs named operators, training and an acceptance signature |
 
 ---

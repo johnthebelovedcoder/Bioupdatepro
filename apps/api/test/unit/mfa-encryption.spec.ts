@@ -4,11 +4,14 @@ import type { PrismaService } from '../../src/prisma/prisma.service';
 
 describe('MFA secret encryption key', () => {
   const originalKey = process.env.MFA_ENCRYPTION_KEY;
+  const originalNodeEnv = process.env.NODE_ENV;
 
   afterEach(() => {
     vi.restoreAllMocks();
     if (originalKey === undefined) delete process.env.MFA_ENCRYPTION_KEY;
     else process.env.MFA_ENCRYPTION_KEY = originalKey;
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
   });
 
   it.each([
@@ -58,5 +61,13 @@ describe('MFA secret encryption key', () => {
     await expect(service.beginEnrollment('user-1')).rejects.toThrow(/MFA_ENCRYPTION_KEY/);
     process.env.MFA_ENCRYPTION_KEY = 'too-short';
     await expect(service.beginEnrollment('user-1')).rejects.toThrow(/MFA_ENCRYPTION_KEY/);
+  });
+
+  it('refuses production startup without a valid encryption key', () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.MFA_ENCRYPTION_KEY;
+    const service = new MfaService({} as PrismaService, {} as never);
+
+    expect(() => service.onModuleInit()).toThrow(/MFA_ENCRYPTION_KEY/);
   });
 });

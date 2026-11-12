@@ -4,6 +4,7 @@ name: Checks
 # books depend on is caught here — before Render deploys it to farms.
 #
 #   typecheck    the API (including its tests) and the web app
+#   database    the database workspace types and Prisma schema
 #   unit         pure logic, plus the tenant-isolation scan: every query over
 #                a company-owned table must name its company, or be on the
 #                reviewed list in apps/api/test/unit/tenant-scope.allowlist.json
@@ -49,6 +50,13 @@ jobs:
 
       - name: Generate the database client
         run: npm run db:generate
+
+      - name: Database package and schema
+        run: |
+          npm run typecheck --workspace @bioassetpro/database
+          npm exec --workspace @bioassetpro/database -- prisma validate --schema prisma/schema.prisma
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
 
       - name: Typecheck
         run: |

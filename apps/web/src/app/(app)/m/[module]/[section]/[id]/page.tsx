@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getModule, title } from '@/lib/modules';
-import { getGroupDetail, getGroupProfile, getGroups } from '@/lib/operations';
+import { getGroupDetail, getGroupProfile, getGroups, getSupervisors } from '@/lib/operations';
 import { getSpeciesBreeds } from '@/lib/trade';
 import { getPens } from '@/lib/masters';
 import { formatDate, formatNaira, toKobo } from '@/lib/money';
@@ -10,9 +10,12 @@ import { CloseBatchForm } from '@/components/close-batch-form';
 import { GrowthCard } from '@/components/growth-card';
 import { HelpTerm } from '@/components/help';
 import { NewGroupForm } from '@/components/new-group-form';
+import { ResponsibleSupervisorForm } from '@/components/responsible-supervisor-form';
 import { StageChange } from '@/components/record-stage-change';
 import { TrendChart } from '@/components/trend-chart';
 import { formatAge } from '@/components/register';
+import { api } from '@/lib/api';
+import type { SessionUser } from '@/lib/session';
 import {
   IconAlert,
   IconArrowRight,
@@ -55,9 +58,10 @@ export default async function GroupDetailPage({
   // the same as the daily round — it just cannot reach a server yet, and says
   // so on submit rather than pretending.
   if (id === 'new') {
-    const [pens, speciesBreeds] = await Promise.all([
+    const [pens, speciesBreeds, supervisors] = await Promise.all([
       getPens(),
       getSpeciesBreeds(module.key),
+      getSupervisors(module.key),
     ]);
     /*
      * Real houses/pens, not ones derived from an existing population's own
@@ -76,15 +80,18 @@ export default async function GroupDetailPage({
         houses={houses}
         today={new Date().toISOString().slice(0, 10)}
         governedBreeds={speciesBreeds.map((breed) => breed.name)}
+        supervisors={supervisors}
       />
     );
   }
 
-  const [group, siblings, pens, profile] = await Promise.all([
+  const [group, siblings, pens, profile, supervisors, user] = await Promise.all([
     getGroupDetail(module.key, id),
     getGroups(module.key),
     getPens(),
     getGroupProfile(id),
+    getSupervisors(module.key),
+    api<SessionUser>('/auth/me'),
   ]);
   if (!group) notFound();
 
@@ -93,6 +100,9 @@ export default async function GroupDetailPage({
   const allHouseNames = pens.filter((pen) => pen.active).map((pen) => pen.name);
 
   const t = module.terms;
+  const canAssignSupervisor = user.roles.some((role) =>
+    ['FARM_MANAGER', 'PRODUCTION_SUPERVISOR', 'PRODUCTION_LEAD', 'POULTRY_SUPERVISOR', 'SNAIL_SUPERVISOR', 'CFO'].includes(role),
+  );
   // NOT openingPopulation - population — that also falls whenever the
   // population sells, transfers out, or is harvested, and would contradict
   // the mortality rate right next to it the moment any of those has
@@ -255,11 +265,25 @@ export default async function GroupDetailPage({
                   }
                 />
                 <KeyValue label="Source" value={group.source} />
+                <KeyValue
+                  label="Responsible supervisor"
+                  value={group.responsibleSupervisor?.fullName ?? 'Not assigned'}
+                />
                 {group.expectedEndOn ? (
                   <KeyValue label="Expected sale" value={formatDate(group.expectedEndOn)} />
                 ) : null}
               </div>
             </Card>
+
+            {canAssignSupervisor ? (
+              <Card title="Responsible supervisor">
+                <ResponsibleSupervisorForm
+                  code={group.code}
+                  currentSupervisorId={group.responsibleSupervisor?.id ?? ''}
+                  supervisors={supervisors}
+                />
+              </Card>
+            ) : null}
 
             {profile ? (
               <GrowthCard

@@ -5,7 +5,8 @@ How BioAssetPro's data is backed up, how to restore it, and the drill that prove
 ## Where the data is
 
 - **Database:** Postgres on Neon (the `DATABASE_URL` set on the Render API service). It holds everything: the ledger, the records behind it, the audit trail and the close packs.
-- **Encryption key:** `PII_ENCRYPTION_KEY` on the Render API service. Employee bank and statutory numbers are encrypted with it. **A restored database is unreadable for those fields without this key**, so keep a copy of the key somewhere other than Render, such as the company's password manager. Never keep it in the database or the repository.
+- **Encryption key:** `PII_ENCRYPTION_KEY` on the Render API service. Employee bank and statutory numbers are encrypted with it. The API refuses to store new sensitive employee values without a valid key, and production startup stops if the key is missing or existing values cannot be sealed. **A restored database is unreadable for those fields without this key**, so keep a copy of the key somewhere other than Render, such as the company's password manager. Never keep it in the database or the repository.
+- **Authenticator key:** `MFA_ENCRYPTION_KEY` on the Render API service. It encrypts authenticator secrets. Keep it in the same approved external secret store and recovery inventory as the PII key; without it, enrolled users' existing authenticator secrets cannot be decrypted and MFA must be securely re-enrolled.
 - **Files:** the app keeps no files outside the database.
 
 ## How it is backed up
@@ -27,13 +28,13 @@ Neon keeps the database's write-ahead log and can restore to any moment inside t
 1. **Stop further damage.** If bad data is still being written, suspend the Render API service.
 2. **Pick the moment** just before the problem, in UTC. The audit trail (Ledger, then Audit) shows who did what and when.
 3. **Create a branch from that moment** in the Neon console: Branches, then Create branch, from the production branch, with "Past point in time" at the chosen moment. Neon's `neonctl branches create --parent <prod> --parent-timestamp <time>` does the same from the command line.
-4. **Check the branch before using it.** Run this from the repository, with the branch's connection string:
+4. **Check the branch before using it.** Run this from the repository, with the isolated restored branch's connection string. The check requires `RESTORE_CHECK_URL` explicitly and intentionally ignores `DATABASE_URL` (including values in `.env`) so it cannot silently target the application's configured database:
 
    ```bash
    RESTORE_CHECK_URL="postgresql://…branch…" npm run restore:check -w @bioassetpro/database
    ```
 
-   It reads only. It confirms:
+   It reads only. It fails if required schema objects are missing and confirms:
    - every migration is applied;
    - every protective trigger exists;
    - every journal balances, and each company's ledger balances;

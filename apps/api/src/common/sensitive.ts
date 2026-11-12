@@ -40,6 +40,9 @@ export const isIdentityCheck = (code: string) => (IDENTITY_CHECKS as readonly st
 function keys(): { enc: Buffer; mac: Buffer } | null {
   const raw = process.env.PII_ENCRYPTION_KEY?.trim();
   if (!raw) return null;
+  if (raw.length < 32) {
+    throw new Error('PII_ENCRYPTION_KEY must contain at least 32 characters.');
+  }
   // Any length of secret works; a 32-byte base64 value is what the docs suggest generating.
   const root = createHash('sha256').update(raw, 'utf8').digest();
   return {
@@ -56,19 +59,22 @@ export function isSealed(stored: string | null | undefined): boolean {
   return typeof stored === 'string' && stored.startsWith(PREFIX);
 }
 
-/** Encrypt a value for storage. Blank stays null; with no key, the value is kept as given. */
+/** Encrypt a value for storage. Blank stays null; sensitive values never fall back to plaintext. */
 export function seal(plain: string | null | undefined): string | null {
   if (plain === null || plain === undefined || plain === '') return null;
   if (isSealed(plain)) return plain;
   const k = keys();
-  if (!k) return plain;
+  if (!k) {
+    if (process.env.NODE_ENV === 'test' || process.env.VITEST) return plain;
+    throw new Error('PII_ENCRYPTION_KEY must be configured before storing sensitive personal data.');
+  }
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', k.enc, iv);
   const body = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
   return `${PREFIX}${iv.toString('base64')}:${cipher.getAuthTag().toString('base64')}:${body.toString('base64')}`;
 }
 
-/** The stored value in the clear. A value written before encryption was set up is returned as it is. */
+/** Open a sealed value; legacy plaintext remains readable while it is migrated. */
 export function open(stored: string | null | undefined): string | null {
   if (stored === null || stored === undefined) return null;
   if (!isSealed(stored)) return stored;
@@ -80,12 +86,16 @@ export function open(stored: string | null | undefined): string | null {
   return Buffer.concat([decipher.update(Buffer.from(body!, 'base64')), decipher.final()]).toString('utf8');
 }
 
-/** The keyed fingerprint of a number, for equality checks; null with no key or no value. */
+/** The keyed fingerprint of a number, for equality checks; null for no value. */
 export function fingerprint(plain: string | null | undefined): string | null {
   const value = plain?.replace(/\s+/g, '').toUpperCase();
   if (!value) return null;
   const k = keys();
-  return k ? createHmac('sha256', k.mac).update(value, 'utf8').digest('hex') : null;
+  if (!k) {
+    if (process.env.NODE_ENV === 'test' || process.env.VITEST) return null;
+    throw new Error('PII_ENCRYPTION_KEY must be configured before fingerprinting sensitive personal data.');
+  }
+  return createHmac('sha256', k.mac).update(value, 'utf8').digest('hex');
 }
 
 /** What is shown by default: the last four characters. */

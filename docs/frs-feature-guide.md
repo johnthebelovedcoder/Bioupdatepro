@@ -248,10 +248,11 @@ access. Time approved, payroll calculated, labour allocated, liabilities paid.*
 | Pay it | Payroll run | **Raise payment**; **Money → Bank payment files** gathers posted transfers into one file for the bank |
 | Check it ties | **Money → Hours and pay** | Approved hours against the run, and the register against what batches were charged |
 
-> **One gap to know about.** Staff bank and statutory numbers are encrypted at
-> rest only when `PII_ENCRYPTION_KEY` is set on the server. Until it is, they
-> are stored as typed and the API warns at every start-up. Access logging
-> works either way.
+> Staff bank and statutory numbers are encrypted at rest with
+> `PII_ENCRYPTION_KEY`. The API refuses writes to those fields without a valid
+> key, and production startup stops if the key is missing or existing values
+> cannot be sealed. Verify the key is set in the deployment before opening the
+> application.
 
 ---
 
@@ -313,18 +314,25 @@ kept and flags what is past its minimum; it deletes nothing on its own.
 
 ---
 
-## Two things the system does not do
+## Deployment checks that remain open
 
-Worth knowing before someone asks.
+The application controls are implemented; deployment and existing-record
+verification remain separate release gates.
 
-**Responsible Supervisor.** The specification asks for a named accountable
-owner on each cohort or flock. The system records who entered and who approved
-every event, but no standing owner for the batch. The in-app glossary says so.
+**Responsible Supervisor.** New populations require an active, species-eligible
+supervisor from the same company. Existing populations need migration `0064`
+and an assigned supervisor; assignment changes are audited.
 
-**Authenticator MFA.** Built — enrollment, recovery codes, replay protection —
-but enforcement was switched off on 20 October pending a test of the setup,
-verification and recovery flow. Privileged roles currently sign in with a
-password alone.
+**Authenticator MFA.** Finance, approval, administrator, HR, treasury,
+accounting, procurement, payables, receivables, and sales roles cannot access
+the product until MFA is verified. Confirm the deployment's
+`MFA_ENCRYPTION_KEY` and exercise setup, verification, recovery, and re-login
+in the target environment.
+
+**Employee data encryption.** Production startup requires a valid
+`PII_ENCRYPTION_KEY` and seals existing employee values. Verify the configured
+key and restore procedure in the target environment; do not treat local tests
+as deployment evidence.
 
 ---
 

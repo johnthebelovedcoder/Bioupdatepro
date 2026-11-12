@@ -11,6 +11,8 @@ import type { WorkflowActor } from '../workflow/workflow.types';
 /** Marks a route as reachable without a token (login, health). */
 export const IS_PUBLIC_KEY = 'isPublic';
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+export const MFA_SETUP_ONLY_KEY = 'mfaSetupOnlyRoute';
+export const AllowMfaSetupOnly = () => SetMetadata(MFA_SETUP_ONLY_KEY, true);
 
 /**
  * The acting user, assembled from the verified token and the request itself.

@@ -33,6 +33,19 @@ export function pushSchema(): void {
 }
 
 export async function resetDatabase(prisma: PrismaClient): Promise<void> {
+  if (process.env.TEST_DATABASE_EMBEDDED === 'true') {
+    // A timed-out hook is not cancelled by Vitest. End any query/transaction
+    // left behind by a previous test before taking the exclusive TRUNCATE locks.
+    await prisma.$queryRawUnsafe(
+      `SELECT pg_terminate_backend(pid, 5000)
+       FROM pg_stat_activity
+       WHERE datname = current_database()
+         AND pid <> pg_backend_pid()
+         AND backend_type = 'client backend'
+         AND xact_start IS NOT NULL`,
+    );
+  }
+
   // Order matters: audit and journal lines reference everything else.
   // TRUNCATE bypasses the row-level immutability triggers by design — those
   // guard the application's DML, not a test harness reset. Production never
