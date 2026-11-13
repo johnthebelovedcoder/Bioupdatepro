@@ -71,6 +71,19 @@ describe('Sensitive employee numbers', () => {
     expect(row!.account_number_hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('identifies an employee field when the configured key cannot authenticate its ciphertext', async () => {
+    const employee = await makeEmployee();
+    const originalKey = process.env.PII_ENCRYPTION_KEY;
+    process.env.PII_ENCRYPTION_KEY = 'different-integration-key-012345678901234567890123';
+    try {
+      await expect(new EmployeeSealService(prisma).sealAll()).rejects.toThrow(
+        new RegExp(`Could not decrypt employee ${employee.id} field "accountNumber"`),
+      );
+    } finally {
+      process.env.PII_ENCRYPTION_KEY = originalKey!;
+    }
+  });
+
   it('masks them on the employee record', async () => {
     const employee = await makeEmployee();
     const view = await onboarding.onboarding(fixture.companyId, employee.id, new Date('2026-01-15'));

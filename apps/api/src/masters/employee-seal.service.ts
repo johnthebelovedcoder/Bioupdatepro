@@ -68,12 +68,22 @@ export class EmployeeSealService implements OnApplicationBootstrap {
         },
       });
       for (const employee of employees) {
+        const plainValues: Partial<Record<(typeof SENSITIVE_EMPLOYEE_FIELDS)[number], string | null>> = {};
+        for (const field of SENSITIVE_EMPLOYEE_FIELDS) {
+          try {
+            plainValues[field] = open(employee[field]);
+          } catch {
+            throw new Error(
+              `Could not decrypt employee ${employee.id} field "${field}". Verify PII_ENCRYPTION_KEY matches the key used for this record; the stored value may also be corrupted. No field value was logged.`,
+            );
+          }
+        }
         const unsealed = SENSITIVE_EMPLOYEE_FIELDS.some((f) => employee[f] && !isSealed(employee[f]));
         const stale = (Object.entries(FINGERPRINTED) as Array<[keyof typeof FINGERPRINTED, (typeof FINGERPRINTED)[keyof typeof FINGERPRINTED]]>).some(
-          ([field, hash]) => employee[hash] !== fingerprint(open(employee[field])),
+          ([field, hash]) => employee[hash] !== fingerprint(plainValues[field]),
         );
         if (!unsealed && !stale) continue;
-        const data = sealEmployeeFields(Object.fromEntries(SENSITIVE_EMPLOYEE_FIELDS.map((f) => [f, open(employee[f])])));
+        const data = sealEmployeeFields(plainValues);
         await this.prisma.employee.updateMany({ where: { id: employee.id, companyId }, data });
         sealed += 1;
       }
