@@ -1,5 +1,4 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { open } from '../common/sensitive';
 import { createHash } from 'node:crypto';
 import { AuditAction, PaymentFileKind, PaymentMethod, PaymentStatus, PayrollPayableBucket } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
@@ -229,8 +228,7 @@ export class PaymentFileService {
       .map((l) => ({
         employeeNumber: l.employee.employeeNumber,
         name: l.employee.accountName ?? `${l.employee.firstName} ${l.employee.surname}`,
-        // Decrypted only here, into the file the bank receives; issuing and downloading it are both logged.
-        accountNumber: open(l.employee.accountNumber),
+        accountNumber: l.employee.accountNumber,
         bank: l.employee.bankName,
         amountKobo: l.netPayKobo,
       }))

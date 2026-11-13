@@ -51,21 +51,21 @@ running deployment, which a traceability table will otherwise hide.
 A green test means the code satisfies the requirement. It does not always mean
 the deployment does, and the difference is invisible in the table above.
 
-### 1. FR-HR-01 — deployment encryption remains to be verified
+### 1. FR-HR-01 — employee data is currently stored in plaintext
 
 The requirement covers bank, tax and pension identifiers. Two halves:
 
 - **Access logging: satisfied.** `reveal()` writes an `AuditAction.VIEW` row
   before returning any number in the clear
   (`apps/api/src/masters/employee-onboarding.service.ts`).
-- **Storage: fail-closed in code; deployment not verified.** Writes to
-  sensitive employee values require a valid `PII_ENCRYPTION_KEY`; production
-  startup fails if the key is missing or existing values cannot be sealed.
-  Verify the key in the target deployment and prove it is available during
-  restore before relying on the control.
+- **Storage encryption: not implemented.** By current design, employee bank,
+  tax, pension and identity values and identity-check references are stored as
+  plaintext. Masking and reveal auditing apply in the application only; anyone
+  with direct database or backup access can read these values.
 
-Local tests prove the fail-closed behavior and sealing mechanism; they do not
-prove the runtime secret or backup/restore process is configured.
+This is a known, user-accepted temporary risk, not a satisfied encryption
+requirement. Encrypt backups and restrict database and backup access until
+field-level encryption is restored.
 
 ### 2. FR-GL-02 — reopen was blocked in the live farm until 2026-10-30
 

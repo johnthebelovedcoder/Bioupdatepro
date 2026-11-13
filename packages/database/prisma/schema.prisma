@@ -2631,13 +2631,12 @@ model Employee {
 
   // --- Statutory (drives Phase 9; see the payroll workbooks) ---
   tin                  String?
-  /// Keyed fingerprints (HMAC) of the account number and TIN: the duplicate
-  /// checks compare these, since the numbers themselves are encrypted.
+  /// SHA-256 fingerprints of normalized identifiers for duplicate checks.
+  /// These hashes are not encryption or protection for the plaintext values.
   accountNumberHash    String? @map("account_number_hash")
   tinHash              String? @map("tin_hash")
-  /// National identity number and health insurance (NHIA) number: encrypted
-  /// like the other identifiers (handbook §54.2); NIN also fingerprinted, so
-  /// one person cannot be two employees.
+  /// National identity number and health insurance (NHIA) number are stored
+  /// as plaintext; NIN is fingerprinted so one person cannot be two employees.
   nin                  String?
   ninHash              String? @map("nin_hash")
   nhiaNumber           String? @map("nhia_number")

@@ -81,13 +81,6 @@ services:
       #     https://bioassetpro-web.onrender.com
       - key: WEB_ORIGIN
         sync: false
-      # Encrypts employees' bank account, TIN, RSA and NHF numbers at rest.
-      # Entered by hand, and kept in the company's password manager as well:
-      # a restored database cannot show those numbers without it (see
-      # docs/backup-and-recovery.md). Production startup fails if this key is
-      # absent or existing values cannot be sealed. Never change it once set.
-      - key: PII_ENCRYPTION_KEY
-        sync: false
       # Encrypts authenticator (MFA) secrets at rest. Generated once by Render
       # and kept stable across deploys. The API derives a 256-bit key from this
       # high-entropy value; existing 32-byte hex keys remain supported. Back up

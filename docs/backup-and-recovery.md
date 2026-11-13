@@ -5,7 +5,7 @@ How BioAssetPro's data is backed up, how to restore it, and the drill that prove
 ## Where the data is
 
 - **Database:** Postgres on Neon (the `DATABASE_URL` set on the Render API service). It holds everything: the ledger, the records behind it, the audit trail and the close packs.
-- **Encryption key:** `PII_ENCRYPTION_KEY` on the Render API service. Employee bank and statutory numbers are encrypted with it. The API refuses to store new sensitive employee values without a valid key, and production startup stops if the key is missing or existing values cannot be sealed. **A restored database is unreadable for those fields without this key**, so keep a copy of the key somewhere other than Render, such as the company's password manager. Never keep it in the database or the repository.
+- **Employee personal data:** bank and statutory identifiers are currently stored in plaintext in Postgres. Anyone with database or backup access can read them. Restrict database credentials and backup access, and treat every database copy as containing exposed personal data. The application still masks these values by default and logs authorized reveals; those controls do not protect a database dump.
 - **Authenticator key:** `MFA_ENCRYPTION_KEY` on the Render API service. It encrypts authenticator secrets. Keep it in the same approved external secret store and recovery inventory as the PII key; without it, enrolled users' existing authenticator secrets cannot be decrypted and MFA must be securely re-enrolled.
 - **Files:** the app keeps no files outside the database.
 
@@ -14,7 +14,7 @@ How BioAssetPro's data is backed up, how to restore it, and the drill that prove
 Neon keeps the database's write-ahead log and can restore to any moment inside the plan's history window. That makes a point-in-time restore possible to the second, with nothing to schedule.
 
 - **Check the window.** It depends on the Neon plan. Look it up in the Neon console (Project settings, then Storage or History retention). Make sure it covers at least the time the business would take to notice a problem; seven days is a sensible minimum.
-- **Off-site copy (recommended, client decision).** Take a nightly `pg_dump` to storage the company controls, kept for 35 days. That covers losing the Neon project itself. The dump contains employees' personal data (encrypted numbers, but names and addresses in the clear), so it needs the same care as the database.
+- **Off-site copy (recommended, client decision).** Take a nightly `pg_dump` to storage the company controls, kept for 35 days. That covers losing the Neon project itself. The dump contains employees' personal data, including bank and statutory numbers in plaintext, so encrypt the backup itself and strictly limit access.
 
 ## Recovery objectives (proposed, for the client to confirm)
 
@@ -41,7 +41,7 @@ Neon keeps the database's write-ahead log and can restore to any moment inside t
    - every close pack still matches its fingerprint.
 
    It also prints the newest journal and audit entry, which is the recovery point actually reached. It exits 1 if anything fails.
-5. **Switch over.** Either restore the production branch to the moment in the Neon console, or set Render's `DATABASE_URL` to the checked branch and redeploy. Keep `PII_ENCRYPTION_KEY` unchanged.
+5. **Switch over.** Either restore the production branch to the moment in the Neon console, or set Render's `DATABASE_URL` to the checked branch and redeploy. Keep `MFA_ENCRYPTION_KEY` unchanged so enrolled users can continue to verify their authenticators.
 6. **Record the drill or incident** in the log below: when the problem happened, the moment restored to, how long each step took, and the check output.
 
 ## The drill

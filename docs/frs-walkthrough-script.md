@@ -23,7 +23,7 @@ somebody.
 |---|---|---|---|
 | 1 | **The API is awake** | Open `/api/health`. It should answer at once and report the current commit. | A cold start takes 53–56 seconds. Open it ten minutes before the call, not at the start. |
 | 2 | **Period close is ready** | **Period close** → open the checklist for an older period. Verify you can see the 14 items and that settlement and close are not blocked by a routing error. | If it refuses with a workflow-routing error naming two matching definitions, migration `0053` has not reached that database. Stop and say so; do not demonstrate FR-GL-02. **Do not attempt a full close — it requires settling all 14 checklist items, raising FVLCTS valuations for every population, and approving them through a four-level ladder. That is real month-end, not a demo step.** |
-| 3 | **Employee numbers are encrypted** | Verify `PII_ENCRYPTION_KEY` is configured in the deployment and the API starts successfully; then open an employee and reveal the bank account. | Do not demonstrate or enter employee data if the key is missing or the API cannot decrypt existing values. The API now fails closed; deployment configuration and restored-data access still need verification. |
+| 3 | **Employee numbers are access-controlled** | Open an employee, confirm values are masked by default, then reveal a bank account as an authorized role and confirm the audit entry. | Employee identifiers are stored in plaintext in the database. Do not claim database-at-rest encryption; restrict database and backup access. |
 | 4 | **Privileged MFA works** | Sign in fresh as a privileged user; verify the authenticator challenge and recovery process. | Required roles cannot enter the application on a password-only session. Stop the demo if the deployed challenge, key configuration, or recovery flow is not verified. |
 
 Have `frs-traceability.md` open in a second window. When someone asks "how do
@@ -147,12 +147,10 @@ traceable back to it.
 **The point to land:** the payroll register equals the journal equals the
 payment. Three numbers, one figure.
 
-> **FR-HR-01 deployment check.** Access to a bank or tax number is logged
-> (`reveal()` writes an audit row, visible on **Audit trail**). The application
-> now refuses writes and stops production startup if `PII_ENCRYPTION_KEY` is
-> missing or too short. Verify the key and existing-data sealing in the target
-> deployment before showing employee data; local test evidence is not
-> deployment evidence.
+> **FR-HR-01 limitation.** Access to a bank or tax number is logged
+> (`reveal()` writes an audit row, visible on **Audit trail**), but employee
+> identifiers are stored in plaintext in the database. Do not describe them as
+> encrypted at rest; direct database and backup access exposes them.
 
 ---
 
@@ -227,9 +225,10 @@ difference between a review and a sales pitch.
 1. **Privileged MFA is enforced in code.** Required roles must verify an
    authenticator factor; verify the deployed encryption key and complete
    sign-in, setup, recovery, and re-login checks before the pilot.
-2. **Employee data encryption fails closed.** Production startup requires
-   `PII_ENCRYPTION_KEY`; verify the deployment and a restore procedure that
-   keeps the key available outside the database.
+2. **MFA secrets are encrypted.** Production startup requires
+   `MFA_ENCRYPTION_KEY`; verify the deployment and a restore procedure that
+   keeps the key available outside the database. Employee PII is plaintext in
+   database backups and needs separate backup encryption and access controls.
 3. **Responsible Supervisor is implemented.** New batches require an active,
    species-eligible supervisor from the same company. Apply migration `0064`
    and assign existing batches before relying on the control.

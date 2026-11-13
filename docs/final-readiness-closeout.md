@@ -19,6 +19,11 @@
 > or production readiness sign-off is implied. The chart migration and
 > Finance approval of the account-level crosswalk remain open.
 
+> **Subsequent code change — 2026-11-13.** Employee bank, tax and identity
+> values are now stored in plaintext by request; the `PII_ENCRYPTION_KEY`
+> requirement was removed. Masking and reveal auditing remain application
+> controls only. This change is local and has not been committed or deployed.
+
 > **Superseded in part, 2026-10-31.** The bullets below were written on
 > 2 October and several are no longer true. Corrected against commit
 > `6839448`:
@@ -153,7 +158,7 @@ Still open:
 - CI run #153 is green on `574f4b0`, but does not include this working tree. The latest full local suite now passes; before calling this the release candidate, commit the intended changes and capture CI build, typecheck, unit, integration, UAT, and web-build evidence on that exact commit. The workflow currently does not run `restore:check`; that check requires a restored database branch and remains a separate restore-drill gate, not a local test against production.
 - The historical five-digit cutover is not approved or rehearsed. Finance has not signed the account-level crosswalk. Standard payroll and rearing-cost posting flows are implemented in code; keep statutory rates and chart mappings current and have Finance validate them against applicable law and the approved chart. Rehearse the migration and balance reconciliation on an isolated staging copy before any production change.
 - Production data is not closed: confirm which database is production versus UAT, verify a restorable backup, classify suspected test records, and reconcile inventory, biological assets, fixed assets, bank, supplier, payroll, and the other balances in the reconciliation workpaper to source evidence.
-- Deployment controls are not closed: rotate the previously exposed database credential; configure and verify `PII_ENCRYPTION_KEY` and `MFA_ENCRYPTION_KEY`; verify the required privileged-role MFA flow and recovery in the target deployment. MFA is enforced in code; risk acceptance is not a substitute for the standard control.
+- Deployment controls are not closed: rotate the previously exposed database credential; verify `MFA_ENCRYPTION_KEY` and the required privileged-role MFA flow and recovery in the target deployment. Employee PII is stored in plaintext; database and backup access must be strictly restricted, and backups encrypted.
 - Operational sign-off is not complete: deploy migration `0064` and assign responsible supervisors to existing populations; confirm period reopen in the live application; run role-based UAT and training; and obtain signed Finance and client acceptance. The one PASS + MANUAL UAT result is still outstanding.
 
 Proceed gate by gate. Do not migrate balances with unresolved evidence, an unapproved crosswalk, or an unrehearsed cutover.

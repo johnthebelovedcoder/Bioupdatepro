@@ -1,12 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditAction, EmploymentStatus, EmploymentType } from '@bioassetpro/database';
 import {
-  encryptionConfigured,
+  employeeSensitiveFields,
   isIdentityCheck,
   mask,
-  open,
-  seal,
-  sealEmployeeFields,
   SENSITIVE_EMPLOYEE_FIELDS,
   type SensitiveEmployeeField,
 } from '../common/sensitive';
@@ -205,9 +202,9 @@ export class EmployeeOnboardingService {
         pensionEnrolled: employee.pensionEnrolled,
         nhfEnrolled: employee.nhfEnrolled,
         // Bank and statutory numbers are masked; the clear values come only from reveal(), which is logged.
-        details: Object.fromEntries(DETAIL_FIELDS.map((field) => [field, isSensitive(field) ? mask(open(employee[field])) : (employee[field] ?? null)])),
+        details: Object.fromEntries(DETAIL_FIELDS.map((field) => [field, isSensitive(field) ? mask(employee[field]) : (employee[field] ?? null)])),
         sensitiveFields: SENSITIVE_EMPLOYEE_FIELDS,
-        encrypted: encryptionConfigured(),
+        encrypted: false,
         dateOfBirth: employee.dateOfBirth?.toISOString().slice(0, 10) ?? null,
         department: employee.department,
         branch: employee.branch,
@@ -256,7 +253,7 @@ export class EmployeeOnboardingService {
           required: required.has(c.code),
           status: v?.status ?? 'OUTSTANDING',
           // An identity check's reference may itself be an identifier: masked here, like the numbers.
-          reference: v?.reference ? (isIdentityCheck(c.code) ? mask(open(v.reference)) : v.reference) : null,
+          reference: v?.reference ? (isIdentityCheck(c.code) ? mask(v.reference) : v.reference) : null,
           note: v?.note ?? null,
           verifiedBy: v ? nameOf(v.verifiedById) : null,
           verifiedAt: v?.verifiedAt.toISOString().slice(0, 10) ?? null,
@@ -281,7 +278,7 @@ export class EmployeeOnboardingService {
       select: { id: true, employeeNumber: true, employmentStatus: true, accountNumber: true, tin: true, nhfNumber: true, pensionRsaNumber: true, nin: true, nhiaNumber: true },
     });
     if (!employee) throw new NotFoundException('No such employee.');
-    const values = Object.fromEntries(SENSITIVE_EMPLOYEE_FIELDS.map((field) => [field, open(employee[field])])) as Record<SensitiveEmployeeField, string | null>;
+    const values = Object.fromEntries(SENSITIVE_EMPLOYEE_FIELDS.map((field) => [field, employee[field]])) as Record<SensitiveEmployeeField, string | null>;
     const shown = SENSITIVE_EMPLOYEE_FIELDS.filter((field) => values[field]);
     await this.audit.write({
       transactionId: employee.id,
@@ -328,7 +325,7 @@ export class EmployeeOnboardingService {
       const raw = params.details[field];
       const value = typeof raw === 'string' ? raw.trim() || null : null;
       if ((field === 'firstName' || field === 'surname') && !value) throw new BadRequestException('First name and surname cannot be blank.');
-      const current = isSensitive(field) ? open(employee[field]) : (employee[field] ?? null);
+      const current = isSensitive(field) ? employee[field] : (employee[field] ?? null);
       if (value !== current) {
         data[field] = value;
         const check = RECHECK_ON_CHANGE[field];
@@ -348,16 +345,15 @@ export class EmployeeOnboardingService {
     if (Object.keys(data).length === 0) return employee;
     if ('accountNumber' in data || 'bankName' in data || 'tin' in data || 'nin' in data) {
       await this.employees.assertUniqueIdentity(params.companyId, employee.id, {
-        accountNumber: ('accountNumber' in data ? data.accountNumber : open(employee.accountNumber)) as string | null,
+        accountNumber: ('accountNumber' in data ? data.accountNumber : employee.accountNumber) as string | null,
         bankName: ('bankName' in data ? data.bankName : employee.bankName) as string | null,
-        tin: ('tin' in data ? data.tin : open(employee.tin)) as string | null,
-        nin: ('nin' in data ? data.nin : open(employee.nin)) as string | null,
+        tin: ('tin' in data ? data.tin : employee.tin) as string | null,
+        nin: ('nin' in data ? data.nin : employee.nin) as string | null,
       });
     }
 
-    // Encrypted at rest, with fingerprints for the duplicate checks.
     const sensitive = Object.fromEntries(Object.entries(data).filter(([field]) => isSensitive(field))) as Partial<Record<SensitiveEmployeeField, string | null>>;
-    const stored = { ...data, ...sealEmployeeFields(sensitive) };
+    const stored = { ...data, ...employeeSensitiveFields(sensitive) };
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.employee.update({ where: { id: employee.id }, data: stored });
@@ -549,8 +545,7 @@ export class EmployeeOnboardingService {
       const reference = params.reference?.trim() || null;
       const data = {
         status: params.status,
-        // Sealed for identity checks: the reference may be the identifier itself.
-        reference: isIdentityCheck(check.code) ? seal(reference) : reference,
+        reference,
         note: params.note?.trim() || null,
         verifiedById: params.actorId,
         verifiedAt: new Date(),

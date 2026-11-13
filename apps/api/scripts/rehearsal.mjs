@@ -52,7 +52,6 @@ await pg.start();
 await pg.createDatabase('bioassetpro_rehearsal');
 process.env.DATABASE_URL = `postgresql://postgres:postgres@127.0.0.1:${port}/bioassetpro_rehearsal`;
 process.env.JWT_SECRET ||= 'rehearsal-only-secret-not-used-anywhere-else-0123456789';
-process.env.PII_ENCRYPTION_KEY ||= 'rehearsal-only-encryption-key';
 console.log(`[rehearsal] clean PostgreSQL on 127.0.0.1:${port}`);
 
 const migrated = spawnSync('npm', ['run', 'migrate:deploy', '-w', '@bioassetpro/database'], {
