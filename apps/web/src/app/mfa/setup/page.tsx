@@ -3,6 +3,7 @@ import { ApiError, api } from '@/lib/api';
 import { getToken, type SessionUser } from '@/lib/session';
 import { logout } from '@/app/login/actions';
 import { SetupMfaForm } from './setup-form';
+import { SetupQrCode } from './setup-qr-code';
 
 export const metadata = { title: 'Set up authenticator — BioAssetPro' };
 
@@ -50,12 +51,12 @@ export default async function MfaSetupPage() {
           <div className="card-body stack">
             <p>
               Your role needs an authenticator app: it is required for finance, approval, farm management, supervisor and administrator roles.
-              Add BioAssetPro to your authenticator, then enter its current six-digit code.
+              Scan this code with your authenticator app, then enter its current six-digit code.
             </p>
-            <ol className="stack">
-              <li>Open your authenticator app and choose to add an account manually.</li>
-              <li>Account name: <strong>BioAssetPro</strong>. Enter this setup key:</li>
-            </ol>
+            <SetupQrCode value={setup.otpauthUri} />
+            <p className="faint" style={{ textAlign: 'center' }}>
+              If you cannot scan the code, add the account manually. Account name: <strong>BioAssetPro</strong>.
+            </p>
             <p className="notice notice-warning" style={{ overflowWrap: 'anywhere', fontFamily: 'monospace' }}>
               {setup.secret}
             </p>

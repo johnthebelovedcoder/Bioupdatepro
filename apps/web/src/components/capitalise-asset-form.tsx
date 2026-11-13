@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { Sheet } from './sheet';
 import { parseNairaToKobo } from '@/lib/money';
@@ -33,8 +33,13 @@ export function CapitaliseAssetForm({
   const [cost, setCost] = useState('');
   const [open, setOpen] = useState(false);
 
+  useEffect(() => {
+    if (state.message) setOpen(false);
+  }, [state.message]);
+
   return (
     <>
+      {state.message && !open ? <div className="notice notice-success">{state.message}</div> : null}
       <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
         Capitalise an asset
       </button>

@@ -5,6 +5,7 @@ import { formatNaira } from '@/lib/money';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
 import { StartCountForm } from '@/components/stock-count-forms';
+import type { SessionUser } from '@/lib/session';
 
 export const metadata = { title: 'Stock counts — BioAssetPro' };
 
@@ -25,22 +26,28 @@ const TONE: Record<string, string> = { POSTED: 'badge-success', CANCELLED: '', O
  * adjusted only once someone other than the counter approves.
  */
 export default async function StockCountsPage() {
-  const [counts, stores, items] = await Promise.all([
+  const [counts, stores, items, me] = await Promise.all([
     api<CountRow[]>('/inventory/counts'),
     getWarehouses(),
     getStockItems(),
+    api<SessionUser>('/auth/me'),
   ]);
+  const canStartCount = me.roles.some((role) =>
+    ['STOREKEEPER', 'FARM_MANAGER', 'FARM_ACCOUNTANT', 'PRODUCTION_LEAD'].includes(role),
+  );
   return (
     <>
       <PageHeader title="Stock counts" subtitle="Count a store against its book; differences post only once approved" />
       <Tabs />
       <div className="stack">
-        <Card title="Start a count">
-          <StartCountForm
-            stores={stores.filter((s) => s.active).map((s) => ({ id: s.id, label: `${s.code} — ${s.name}` }))}
-            items={items.map((i) => ({ id: i.id, label: `${i.code} — ${i.name}` }))}
-          />
-        </Card>
+        {canStartCount ? (
+          <Card title="Start a count">
+            <StartCountForm
+              stores={stores.filter((s) => s.active).map((s) => ({ id: s.id, label: `${s.code} — ${s.name}` }))}
+              items={items.map((i) => ({ id: i.id, label: `${i.code} — ${i.name}` }))}
+            />
+          </Card>
+        ) : null}
         <Card title="Counts" padded={false}>
           <div className="table-wrap">
             <table className="data wide">
