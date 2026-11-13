@@ -29,7 +29,7 @@ Anyone who notices a problem reports it to the incident lead straight away. Nobo
 ## Where problems show up
 
 - **Health:** `GET /api/health` on the API reports the API and the database separately. The keep-alive workflow calls it on a schedule.
-- **Render logs** for the API and web services. Production API startup requires `MFA_ENCRYPTION_KEY`; employee PII is stored in plaintext and does not use a PII encryption key.
+- **Render logs** for the API and web services. Production API startup fails if `PII_ENCRYPTION_KEY` or `MFA_ENCRYPTION_KEY` is missing, or existing employee values cannot be sealed; a successful startup confirms the configured keys could be used, not that backup/restore access has been tested.
 - **The audit trail** (Ledger, then Audit trail): every posting, approval, change, sign-in and look at sensitive numbers, with who, when and from which IP address. It is append-only, so it survives the incident as evidence.
 - **Close packs** (Ledger, then Period close, then Check): whether figures in a closed period have changed since the close.
 - **The restore check** (`npm run restore:check -w @bioassetpro/database`): whether a database is complete and consistent.
@@ -67,14 +67,12 @@ Anyone who notices a problem reports it to the incident lead straight away. Nobo
 2. Update `DATABASE_URL` on the Render API service and redeploy.
 3. Check Neon's connection history for unknown sources, and the audit trail for changes made outside the application. Direct changes to protected records are refused by the database, but other tables are not protected that way.
 
-### A database copy or plaintext personal-data export may have leaked
+### The encryption key (`PII_ENCRYPTION_KEY`) leaked
 
-Employee bank and statutory identifiers are stored in plaintext in the database. Treat any unauthorized database or backup access as a potential personal-data breach.
+Treat it as a personal-data breach if the database may also have been copied. The key alone reveals nothing without the data.
 
-1. Contain database access first: rotate the database credential, revoke unknown credentials, and restrict network access.
-2. Preserve Neon access logs, Render logs, and application audit records; establish which companies and records may have been accessed.
-3. Notify the data owner and follow the organization's legal and regulatory breach-notification process.
-4. Encrypt and restrict backup copies before restoring normal operations.
+1. Contain the database access first (previous playbook).
+2. **Known limitation:** the application cannot yet re-encrypt data under a new key. Stored values carry a version tag (`enc:v1:`) so that a rotation can be added. Until it is, changing the key makes existing encrypted numbers unreadable, so **do not change it**. Ask the technical lead to build and run a rotation first.
 
 ### A payment file may have been altered, or went to the wrong place
 

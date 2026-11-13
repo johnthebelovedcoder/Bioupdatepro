@@ -13,7 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { AccountingRuleViolation } from '../common/errors';
 import { Kobo } from '../common/money';
 import { documentPackGaps } from './employee-onboarding';
-import { employeeSensitiveFields, fingerprint, mask } from '../common/sensitive';
+import { fingerprint, mask, sealEmployeeFields } from '../common/sensitive';
 
 export interface PayrollReadiness {
   ready: boolean;
@@ -202,7 +202,8 @@ export class EmployeeService {
           reportingManagerId: input.reportingManagerId ?? null,
           bankName: (input.bankName as string) ?? null,
           accountName: (input.accountName as string) ?? null,
-          ...employeeSensitiveFields({
+          // Encrypted at rest, with fingerprints for the duplicate checks.
+          ...sealEmployeeFields({
             accountNumber: (input.accountNumber as string) || null,
             tin: (input.tin as string) || null,
             nhfNumber: (input.nhfNumber as string) || null,

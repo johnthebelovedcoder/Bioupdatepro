@@ -4,12 +4,12 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { AuditService } from '../../src/audit/audit.service';
 import { EmployeeService } from '../../src/masters/employee.service';
 import { EmployeeOnboardingService } from '../../src/masters/employee-onboarding.service';
-import { EmployeeFingerprintService } from '../../src/masters/employee-fingerprint.service';
+import { EmployeeSealService } from '../../src/masters/employee-seal.service';
 import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
  * Sensitive personal data (handbook security controls): an employee's bank
- * account, TIN, RSA and NHF numbers are stored as plaintext and masked
+ * account, TIN, RSA and NHF numbers are encrypted in the database, masked
  * wherever they are shown, visible in the clear only to the roles allowed,
  * and every such view is logged.
  */
@@ -18,7 +18,10 @@ describe('Sensitive employee numbers', () => {
   let employees: EmployeeService;
   let onboarding: EmployeeOnboardingService;
   let fixture: TestFixture;
+  const originalKey = process.env.PII_ENCRYPTION_KEY;
+
   beforeAll(async () => {
+    process.env.PII_ENCRYPTION_KEY = 'integration-test-key-012345678901234567890123';
     prisma = new PrismaService();
     await prisma.$connect();
     const audit = new AuditService(prisma);
@@ -27,6 +30,8 @@ describe('Sensitive employee numbers', () => {
   });
 
   afterAll(async () => {
+    if (originalKey === undefined) delete process.env.PII_ENCRYPTION_KEY;
+    else process.env.PII_ENCRYPTION_KEY = originalKey;
     await prisma.$disconnect();
   });
 
@@ -55,12 +60,13 @@ describe('Sensitive employee numbers', () => {
       ...overrides,
     });
 
-  it('stores the numbers as plaintext', async () => {
+  it('stores the numbers encrypted: the database never holds them in the clear', async () => {
     const employee = await makeEmployee();
     const [row] = await prisma.$queryRaw<Array<Record<string, string>>>`
       SELECT account_number, tin, nhf_number, pension_rsa_number, account_number_hash FROM employees WHERE id = ${employee.id}::uuid`;
     for (const [column, plain] of [['account_number', '0123456789'], ['tin', 'TIN-1001'], ['nhf_number', 'NHF-77'], ['pension_rsa_number', 'PEN100200300']] as const) {
-      expect(row![column]).toBe(plain);
+      expect(row![column]).toMatch(/^enc:v1:/);
+      expect(row![column]).not.toContain(plain);
     }
     expect(row!.account_number_hash).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -69,7 +75,7 @@ describe('Sensitive employee numbers', () => {
     const employee = await makeEmployee();
     const view = await onboarding.onboarding(fixture.companyId, employee.id, new Date('2026-01-15'));
     expect(view.employee.details).toMatchObject({ accountNumber: '••••6789', tin: '••••1001', nhfNumber: '••••F-77', pensionRsaNumber: '••••0300' });
-    expect(view.employee.encrypted).toBe(false);
+    expect(view.employee.encrypted).toBe(true);
   });
 
   it('shows them in the clear only to the roles allowed, and logs every look without the numbers', async () => {
@@ -115,8 +121,8 @@ describe('Sensitive employee numbers', () => {
   it('treats the NIN and NHIA number the same way, and refuses one NIN on two employees', async () => {
     const employee = await makeEmployee({ nin: '12345678901', nhiaNumber: 'NHIA-5566' });
     const [row] = await prisma.$queryRaw<Array<Record<string, string>>>`SELECT nin, nhia_number, nin_hash FROM employees WHERE id = ${employee.id}::uuid`;
-    expect(row!.nin).toBe('12345678901');
-    expect(row!.nhia_number).toBe('NHIA-5566');
+    expect(row!.nin).toMatch(/^enc:v1:/);
+    expect(row!.nhia_number).toMatch(/^enc:v1:/);
     expect(row!.nin_hash).toMatch(/^[0-9a-f]{64}$/);
 
     const view = await onboarding.onboarding(fixture.companyId, employee.id, new Date('2026-01-15'));
@@ -127,7 +133,7 @@ describe('Sensitive employee numbers', () => {
     await expect(makeEmployee({ accountNumber: '8888888888', tin: 'TIN-3003', nin: '12345678901' })).rejects.toThrow(/NIN ••••8901 is already EMP-/);
   });
 
-  it('needs the number before an identity check is verified, and stores the evidence reference as plaintext while masking it on screen', async () => {
+  it('needs the number before an identity check is verified, and keeps the evidence reference sealed and masked', async () => {
     const employee = await makeEmployee();
     await expect(
       onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType: 'NIN', status: 'VERIFIED', reference: 'NIN slip 12345678901', actorId: fixture.checkerId }),
@@ -137,7 +143,7 @@ describe('Sensitive employee numbers', () => {
     await onboarding.verify({ companyId: fixture.companyId, employeeId: employee.id, checkType: 'NIN', status: 'VERIFIED', reference: 'NIN slip 12345678901', actorId: fixture.checkerId });
 
     const stored = await prisma.employeeVerification.findFirstOrThrow({ where: { companyId: fixture.companyId, employeeId: employee.id, checkType: 'NIN' } });
-    expect(stored.reference).toBe('NIN slip 12345678901');
+    expect(stored.reference).toMatch(/^enc:v1:/);
     const view = await onboarding.onboarding(fixture.companyId, employee.id, new Date('2026-01-15'));
     expect(view.checks.find((c) => c.code === 'NIN')!.reference).toBe('••••8901');
     const audit = await prisma.auditRecord.findFirstOrThrow({ where: { companyId: fixture.companyId, entityType: 'EmployeeVerification', entityId: stored.id } });
@@ -152,7 +158,7 @@ describe('Sensitive employee numbers', () => {
     expect(await prisma.employeeVerification.count({ where: { companyId: fixture.companyId, employeeId: employee.id, checkType: 'NIN' } })).toBe(0);
   });
 
-  it('rebuilds duplicate-check fingerprints for existing plaintext records without a key', async () => {
+  it('encrypts records written before the key was set', async () => {
     const employee = await makeEmployee();
     await prisma.employee.updateMany({
       where: { id: employee.id, companyId: fixture.companyId },
@@ -161,12 +167,14 @@ describe('Sensitive employee numbers', () => {
     const oldReference = await prisma.employeeVerification.create({
       data: { companyId: fixture.companyId, employeeId: employee.id, checkType: 'BANK', status: 'VERIFIED', reference: 'Bank letter 1111111111', verifiedById: fixture.checkerId },
     });
-    expect(await new EmployeeFingerprintService(prisma).rebuildFingerprints()).toEqual({ updated: 1 });
-    expect((await prisma.employeeVerification.findFirstOrThrow({ where: { id: oldReference.id, companyId: fixture.companyId } })).reference).toBe('Bank letter 1111111111');
+    // The employee record and the bank check's reference.
+    expect(await new EmployeeSealService(prisma).sealAll()).toEqual({ sealed: 2 });
+    expect((await prisma.employeeVerification.findFirstOrThrow({ where: { id: oldReference.id, companyId: fixture.companyId } })).reference).toMatch(/^enc:v1:/);
     const row = await prisma.employee.findFirstOrThrow({ where: { id: employee.id, companyId: fixture.companyId } });
-    expect(row.accountNumber).toBe('1111111111');
+    expect(row.accountNumber).toMatch(/^enc:v1:/);
     expect(row.accountNumberHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(await new EmployeeFingerprintService(prisma).rebuildFingerprints()).toEqual({ updated: 0 });
+    // Idempotent: a second pass finds nothing to do.
+    expect(await new EmployeeSealService(prisma).sealAll()).toEqual({ sealed: 0 });
     await expect(makeEmployee({ accountNumber: '1111111111', tin: 'TIN-NEW' })).rejects.toThrow(/already EMP-/);
   });
 });

@@ -1,31 +1,79 @@
-import { describe, expect, it } from 'vitest';
-import { employeeSensitiveFields, fingerprint, isLegacyEncrypted, mask } from '../../src/common/sensitive';
+import { afterEach, describe, expect, it } from 'vitest';
+import { fingerprint, isSealed, mask, open, seal, sealEmployeeFields } from '../../src/common/sensitive';
 
-describe('sensitive employee values', () => {
-  it('stores the provided values as plaintext and creates normalized duplicate-check fingerprints without a key', () => {
-    const stored = employeeSensitiveFields({ accountNumber: '0123 456 789', tin: 'tin-e1', nhfNumber: null });
-    expect(stored).toMatchObject({
-      accountNumber: '0123 456 789',
-      accountNumberHash: fingerprint('0123456789'),
-      tin: 'tin-e1',
-      tinHash: fingerprint('TIN-E1'),
-      nhfNumber: null,
-    });
-    expect(stored.accountNumber).toBe('0123 456 789');
+/** Sensitive numbers at rest: sealed with AES-256-GCM, fingerprinted for equality, masked for display. */
+describe('sensitive numbers', () => {
+  const original = process.env.PII_ENCRYPTION_KEY;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalVitest = process.env.VITEST;
+  afterEach(() => {
+    if (original === undefined) delete process.env.PII_ENCRYPTION_KEY;
+    else process.env.PII_ENCRYPTION_KEY = original;
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+    if (originalVitest === undefined) delete process.env.VITEST;
+    else process.env.VITEST = originalVitest;
   });
 
-  it('fingerprints values consistently after removing spaces and case differences', () => {
+  it('seals a number so the stored value gives nothing away, and opens it again', () => {
+    process.env.PII_ENCRYPTION_KEY = 'unit-test-key-012345678901234567890123';
+    const stored = seal('0123456789')!;
+    expect(isSealed(stored)).toBe(true);
+    expect(stored).not.toContain('0123456789');
+    // A fresh IV each time: the same number never gives the same ciphertext.
+    expect(seal('0123456789')).not.toBe(stored);
+    expect(open(stored)).toBe('0123456789');
+  });
+
+  it('refuses a tampered value, or one sealed under a different key', () => {
+    process.env.PII_ENCRYPTION_KEY = 'unit-test-key-012345678901234567890123';
+    const stored = seal('0123456789')!;
+    const body = stored.split(':');
+    const flipped = Buffer.from(body[4]!, 'base64');
+    flipped[0] = flipped[0]! ^ 1;
+    expect(() => open([...body.slice(0, 4), flipped.toString('base64')].join(':'))).toThrow();
+    process.env.PII_ENCRYPTION_KEY = 'another-key-012345678901234567890123';
+    expect(() => open(stored)).toThrow();
+  });
+
+  it('fingerprints the same number the same way, ignoring spaces and case, and only with a key', () => {
+    process.env.PII_ENCRYPTION_KEY = 'unit-test-key-012345678901234567890123';
     expect(fingerprint('0123 456 789')).toBe(fingerprint('0123456789'));
     expect(fingerprint('tin-e1')).toBe(fingerprint('TIN-E1'));
     expect(fingerprint('0123456789')).not.toBe(fingerprint('0123456780'));
-    expect(fingerprint(null)).toBeNull();
+    delete process.env.PII_ENCRYPTION_KEY;
+    expect(fingerprint('0123456789')).toBeNull();
   });
 
-  it('masks displayed values and recognizes a legacy encrypted marker', () => {
+  it('keeps values as given with no key, reads them either way, and fails loudly on a sealed value it cannot open', () => {
+    process.env.PII_ENCRYPTION_KEY = 'unit-test-key-012345678901234567890123';
+    const stored = seal('0123456789');
+    delete process.env.PII_ENCRYPTION_KEY;
+    expect(seal('0123456789')).toBe('0123456789');
+    expect(open('0123456789')).toBe('0123456789');
+    expect(() => open(stored)).toThrow(/PII_ENCRYPTION_KEY is not set/);
+  });
+
+  it('fails closed outside tests when the encryption key is missing or too short', () => {
+    const vitest = process.env.VITEST;
+    delete process.env.VITEST;
+    process.env.NODE_ENV = 'production';
+    delete process.env.PII_ENCRYPTION_KEY;
+    expect(() => seal('0123456789')).toThrow(/PII_ENCRYPTION_KEY must be configured/);
+    process.env.PII_ENCRYPTION_KEY = 'too-short';
+    expect(() => seal('0123456789')).toThrow(/at least 32 characters/);
+    if (vitest === undefined) delete process.env.VITEST;
+    else process.env.VITEST = vitest;
+  });
+
+  it('masks to the last four, and seals only the fields it is given', () => {
     expect(mask('0123456789')).toBe('••••6789');
     expect(mask('123')).toBe('••••');
     expect(mask(null)).toBeNull();
-    expect(isLegacyEncrypted('enc:v1:iv:tag:data')).toBe(true);
-    expect(isLegacyEncrypted('0123456789')).toBe(false);
+    process.env.PII_ENCRYPTION_KEY = 'unit-test-key-012345678901234567890123';
+    const out = sealEmployeeFields({ accountNumber: '0123456789', nhfNumber: null });
+    expect(Object.keys(out).sort()).toEqual(['accountNumber', 'accountNumberHash', 'nhfNumber']);
+    expect(out.nhfNumber).toBeNull();
+    expect(open(out.accountNumber)).toBe('0123456789');
   });
 });

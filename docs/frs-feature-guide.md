@@ -248,10 +248,11 @@ access. Time approved, payroll calculated, labour allocated, liabilities paid.*
 | Pay it | Payroll run | **Raise payment**; **Money → Bank payment files** gathers posted transfers into one file for the bank |
 | Check it ties | **Money → Hours and pay** | Approved hours against the run, and the register against what batches were charged |
 
-> **Current data-handling limitation:** staff bank and statutory numbers are
-> stored in plaintext in the database. The application masks them by default,
-> limits full-value reveals to authorized roles, and audits each reveal; these
-> controls do not protect database access or backups. Restrict both carefully.
+> Staff bank and statutory numbers are encrypted at rest with
+> `PII_ENCRYPTION_KEY`. The API refuses writes to those fields without a valid
+> key, and production startup stops if the key is missing or existing values
+> cannot be sealed. Verify the key is set in the deployment before opening the
+> application.
 
 ---
 
@@ -328,9 +329,10 @@ the product until MFA is verified. Confirm the deployment's
 `MFA_ENCRYPTION_KEY` and exercise setup, verification, recovery, and re-login
 in the target environment.
 
-**Employee data handling.** Employee bank and statutory identifiers are stored
-in plaintext for now. Restrict database and backup access; application masking
-and reveal auditing do not encrypt stored data.
+**Employee data encryption.** Production startup requires a valid
+`PII_ENCRYPTION_KEY` and seals existing employee values. Verify the configured
+key and restore procedure in the target environment; do not treat local tests
+as deployment evidence.
 
 ---
 
