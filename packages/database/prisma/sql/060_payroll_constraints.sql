@@ -61,7 +61,7 @@ BEGIN
     RAISE EXCEPTION
       'PAYE band % must start where band % ends (% kobo), not at % kobo. Bands must not overlap or leave gaps.',
       NEW.band_order, NEW.band_order - 1, v_prev_upper, NEW.lower_limit_kobo
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   -- The band immediately above, if it already exists.
@@ -75,7 +75,7 @@ BEGIN
     RAISE EXCEPTION
       'PAYE band % must end where band % begins (% kobo), not at % kobo.',
       NEW.band_order, NEW.band_order + 1, v_next_lower, NEW.upper_limit_kobo
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   -- Only the top band may be open-ended.
@@ -83,7 +83,7 @@ BEGIN
     RAISE EXCEPTION
       'PAYE band % is unbounded but band % exists above it. Only the highest band may be open-ended.',
       NEW.band_order, NEW.band_order + 1
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -155,7 +155,7 @@ BEGIN
     IF OLD.status = 'POSTED' THEN
       RAISE EXCEPTION
         'Payroll run % is posted and cannot be deleted.', OLD.reference
-        USING ERRCODE = 'restrict_violation';
+        USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
@@ -164,7 +164,7 @@ BEGIN
     RAISE EXCEPTION
       'Payroll run % is posted. Correct it with an adjusting journal, not by re-opening it.',
       OLD.reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -189,7 +189,7 @@ BEGIN
   IF v_status = 'POSTED' THEN
     RAISE EXCEPTION
       'Payroll run % is posted; its lines cannot be changed.', v_reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN COALESCE(NEW, OLD);

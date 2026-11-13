@@ -47,7 +47,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION
     'Manual journals cannot be deleted (§3 — Delete is disabled entirely). Cancel the draft, or reverse it if posted.'
-    USING ERRCODE = 'restrict_violation';
+    USING ERRCODE = 'P0001';
 END;
 $$ LANGUAGE plpgsql;
 
@@ -69,7 +69,7 @@ BEGIN
     RAISE EXCEPTION
       'Manual journal % is posted and its status cannot change. Post a reversal instead.',
       OLD.reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF OLD.status = 'POSTED' AND (
@@ -81,7 +81,7 @@ BEGIN
     RAISE EXCEPTION
       'Manual journal % is posted and cannot be edited. Post a reversal or adjustment instead.',
       OLD.reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -114,7 +114,7 @@ BEGIN
   IF v_status NOT IN ('DRAFT', 'RETURNED') THEN
     RAISE EXCEPTION
       'Manual journal % is %; its lines cannot be changed.', v_reference, v_status
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN COALESCE(NEW, OLD);

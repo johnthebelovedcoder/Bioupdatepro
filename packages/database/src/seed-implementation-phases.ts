@@ -1,4 +1,5 @@
 import { PrismaClient } from '../generated/client';
+import { createPrismaClient } from './prisma-client';
 
 /**
  * The governed 12-phase build sequence (US-897-001) — Developer_Build_Order
@@ -134,7 +135,7 @@ export async function seedImplementationPhases(prisma: PrismaClient, companyId: 
 }
 
 if (process.argv[1]?.includes('seed-implementation-phases')) {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   (async () => {
     for (const company of await prisma.company.findMany({ select: { id: true, name: true } })) {
       const result = await seedImplementationPhases(prisma, company.id);

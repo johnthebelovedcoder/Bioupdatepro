@@ -12,6 +12,7 @@
  */
 
 import { PrismaClient, AccountType, NormalBalance, WarehouseType } from '../generated/client';
+import { createPrismaClient } from './prisma-client';
 import { seedPostingControl } from './seed-posting-control';
 import { seedKpiDefinitions } from './seed-kpi-definitions';
 import { seedReportDefinitions } from './seed-report-definitions';
@@ -27,7 +28,7 @@ import {
   NIGERIA_STATUTORY_2026_CONFIG,
 } from './payroll-defaults';
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 type AccountSeed = {
   number: string;

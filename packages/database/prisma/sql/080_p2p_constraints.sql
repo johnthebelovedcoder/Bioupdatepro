@@ -131,7 +131,7 @@ BEGIN
   IF (TG_OP = 'DELETE') THEN
     IF OLD.status::text = 'POSTED' THEN
       RAISE EXCEPTION '% is posted and cannot be deleted.', v_reference
-        USING ERRCODE = 'restrict_violation';
+        USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
@@ -142,7 +142,7 @@ BEGIN
      AND NEW.status::text NOT IN ('POSTED', 'PART_PAID', 'PAID') THEN
     RAISE EXCEPTION
       '% is posted; correct it with a debit note or an adjusting journal.', v_reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -180,7 +180,7 @@ BEGIN
   IF v_status <> 'DRAFT' THEN
     RAISE EXCEPTION
       'Supplier invoice % is %; its lines cannot be changed.', v_reference, v_status
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN COALESCE(NEW, OLD);
@@ -233,7 +233,7 @@ BEGIN
 
     RAISE EXCEPTION
       'Purchase order % is %; its lines cannot be changed.', v_reference, v_status
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN COALESCE(NEW, OLD);

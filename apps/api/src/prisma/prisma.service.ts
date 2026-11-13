@@ -5,6 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaClient } from '@bioassetpro/database';
+import { createPrismaAdapter } from './prisma-client';
 
 /**
  * Immutability (Rule 2) and the append-only audit trail (Rule 9) are enforced
@@ -33,6 +34,10 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PrismaService.name);
+
+  constructor() {
+    super({ adapter: createPrismaAdapter() });
+  }
 
   /**
    * Neon's compute suspends after a few minutes idle and takes a handful of

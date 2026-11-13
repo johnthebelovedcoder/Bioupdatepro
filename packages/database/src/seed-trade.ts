@@ -13,8 +13,9 @@
  */
 
 import { PrismaClient, PartyStatus } from '../generated/client';
+import { createPrismaClient } from './prisma-client';
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 const SUPPLIERS = [
   { code: 'SUP-GREENFIELDS', name: 'Greenfields Feeds', category: 'Feed' },

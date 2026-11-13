@@ -94,7 +94,7 @@ BEGIN
     RAISE EXCEPTION
       'Cost of sales for this delivery line was already recognised at %. It cannot be recognised again at %.',
       OLD.cogs_posted_at, COALESCE(NEW.cogs_posted_at::text, 'null')
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
 END;
@@ -135,7 +135,7 @@ BEGIN
   IF (TG_OP = 'DELETE') THEN
     IF OLD.status::text = 'POSTED' THEN
       RAISE EXCEPTION '% is posted and cannot be deleted.', v_reference
-        USING ERRCODE = 'restrict_violation';
+        USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
@@ -146,7 +146,7 @@ BEGIN
      AND NEW.status::text NOT IN ('POSTED', 'PART_PAID', 'PAID') THEN
     RAISE EXCEPTION
       '% is posted; correct it with a credit note or an adjusting journal.', v_reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -190,7 +190,7 @@ BEGIN
   IF v_status::text <> 'DRAFT' THEN
     RAISE EXCEPTION
       'Invoice % is %; its lines cannot be changed.', v_reference, v_status
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN COALESCE(NEW, OLD);
@@ -214,7 +214,7 @@ BEGIN
   RAISE EXCEPTION
     'stock_movements is append-only; % is not permitted. Record a reversing movement instead.',
     TG_OP
-    USING ERRCODE = 'restrict_violation';
+    USING ERRCODE = 'P0001';
 END;
 $$ LANGUAGE plpgsql;
 

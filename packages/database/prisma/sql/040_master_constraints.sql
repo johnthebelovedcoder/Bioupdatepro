@@ -89,7 +89,7 @@ BEGIN
   IF NEW.component_item_id = v_output_item THEN
     RAISE EXCEPTION
       'Recipe % cannot list its own output item as a component.', v_recipe_code
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -123,7 +123,7 @@ BEGIN
     RAISE EXCEPTION
       'Recipe version % is % and its components cannot be changed. Create a new version.',
       v_version, v_status
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN COALESCE(NEW, OLD);

@@ -35,7 +35,7 @@ BEGIN
       RAISE EXCEPTION
         'Journal % is posted and cannot be deleted. Post a reversing journal instead.',
         OLD.journal_number
-        USING ERRCODE = 'restrict_violation';
+        USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
@@ -44,7 +44,7 @@ BEGIN
     RAISE EXCEPTION
       'Journal % is posted and cannot be modified. Post a reversing or adjusting journal instead.',
       OLD.journal_number
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -89,7 +89,7 @@ BEGIN
     RAISE EXCEPTION
       'Journal % is posted; its lines cannot be modified or deleted.',
       parent_number
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
@@ -110,7 +110,7 @@ CREATE OR REPLACE FUNCTION bap_block_audit_mutation()
 RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION 'Audit records are append-only and cannot be % .', lower(TG_OP)
-    USING ERRCODE = 'restrict_violation';
+    USING ERRCODE = 'P0001';
 END;
 $$ LANGUAGE plpgsql;
 
@@ -147,14 +147,14 @@ BEGIN
     RAISE EXCEPTION
       'Journal % is posted with % line(s); a balanced entry needs at least two.',
       NEW.journal_number, line_count
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF total_debit <> total_credit THEN
     RAISE EXCEPTION
       'Journal % does not balance: debits % kobo, credits % kobo.',
       NEW.journal_number, total_debit, total_credit
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;

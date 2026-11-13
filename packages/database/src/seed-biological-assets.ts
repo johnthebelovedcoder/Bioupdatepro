@@ -1,4 +1,5 @@
 import { PrismaClient } from '../generated/client';
+import { createPrismaClient } from './prisma-client';
 
 /**
  * Wire the product's own species stage vocabulary to the workbook's GL accounts.
@@ -143,7 +144,7 @@ export async function seedBiologicalAssets(prisma: PrismaClient, companyId: stri
 
 /* Runnable on its own: `tsx packages/database/src/seed-biological-assets.ts`. */
 if (process.argv[1]?.includes('seed-biological-assets')) {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   (async () => {
     for (const company of await prisma.company.findMany({ select: { id: true, name: true } })) {
       const result = await seedBiologicalAssets(prisma, company.id);

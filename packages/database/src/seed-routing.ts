@@ -1,4 +1,5 @@
 import { PrismaClient, RoutingResourceType } from '../generated/client';
+import { createPrismaClient } from './prisma-client';
 
 /**
  * Routing operations and ABC cost pools — BOM_Routing, ABC_Pools_Drivers
@@ -153,7 +154,7 @@ export async function seedRouting(prisma: PrismaClient, companyId: string) {
 }
 
 if (process.argv[1]?.includes('seed-routing')) {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   (async () => {
     for (const company of await prisma.company.findMany({ select: { id: true, name: true } })) {
       const result = await seedRouting(prisma, company.id);

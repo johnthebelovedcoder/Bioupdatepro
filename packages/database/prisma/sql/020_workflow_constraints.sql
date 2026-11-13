@@ -35,7 +35,7 @@ BEGIN
     RAISE EXCEPTION
       'Maker-checker violation: user % created % and cannot approve it.',
       NEW.acted_by_id, v_reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -57,7 +57,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION
     'workflow_history is append-only; % is not permitted.', TG_OP
-    USING ERRCODE = 'restrict_violation';
+    USING ERRCODE = 'P0001';
 END;
 $$ LANGUAGE plpgsql;
 
@@ -82,7 +82,7 @@ BEGIN
       RAISE EXCEPTION
         'Workflow transaction % is % and cannot be deleted.',
         OLD.document_reference, OLD.status
-        USING ERRCODE = 'restrict_violation';
+        USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
@@ -91,21 +91,21 @@ BEGIN
     RAISE EXCEPTION
       'Workflow transaction % is % and cannot be re-opened. Submit a new document.',
       OLD.document_reference, OLD.status
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF OLD.status = 'POSTED' AND NEW.status NOT IN ('POSTED', 'CLOSED') THEN
     RAISE EXCEPTION
       'Workflow transaction % is posted; it may only be closed.',
       OLD.document_reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF OLD.status = 'CLOSED' AND NEW.status <> 'CLOSED' THEN
     RAISE EXCEPTION
       'Workflow transaction % is closed and cannot change status.',
       OLD.document_reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;

@@ -65,7 +65,7 @@ BEGIN
   RAISE EXCEPTION
     '% is append-only; % is not permitted. Post a tax adjustment instead.',
     TG_TABLE_NAME, TG_OP
-    USING ERRCODE = 'restrict_violation';
+    USING ERRCODE = 'P0001';
 END;
 $$ LANGUAGE plpgsql;
 
@@ -98,7 +98,7 @@ BEGIN
     RAISE EXCEPTION
       'Tax period % is % and will not accept new register entries. Post a tax adjustment instead.',
       v_name, v_status
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -126,7 +126,7 @@ BEGIN
   IF OLD.status = 'FILED' AND NEW.status <> 'FILED' THEN
     RAISE EXCEPTION
       'Tax period % has been filed and cannot be re-opened.', OLD.name
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
 END;

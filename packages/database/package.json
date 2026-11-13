@@ -5,7 +5,7 @@
   "main": "./generated/client/index.js",
   "types": "./generated/client/index.d.ts",
   "scripts": {
-    "generate": "prisma generate",
+    "generate": "node ./scripts/generate.mjs",
     "push": "node ./scripts/push.mjs",
     "migrate:deploy": "node ./scripts/migrate.mjs",
     "constraints": "node ./scripts/apply-constraints.mjs",
@@ -16,12 +16,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "^6.2.1"
+    "@prisma/adapter-pg": "^7.10.1",
+    "@prisma/client": "^7.10.1"
   },
   "devDependencies": {
-    "pg": "^8.13.1",
     "@types/pg": "^8.11.10",
-    "prisma": "^6.2.1",
+    "pg": "^8.13.1",
+    "prisma": "^7.10.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

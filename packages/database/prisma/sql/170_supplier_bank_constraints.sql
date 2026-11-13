@@ -27,7 +27,7 @@ BEGIN
      AND NEW.bank_verified_by_id IS DISTINCT FROM OLD.bank_verified_by_id
      AND NEW.bank_verified_by_id = NEW.bank_set_by_id
      AND NOT (SELECT allow_self_approval FROM companies WHERE id = NEW.company_id) THEN
-    RAISE EXCEPTION 'Supplier %: whoever entered its bank details cannot verify them.', NEW.code USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'Supplier %: whoever entered its bank details cannot verify them.', NEW.code USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;

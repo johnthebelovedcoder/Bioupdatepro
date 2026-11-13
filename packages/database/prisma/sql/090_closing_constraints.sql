@@ -16,7 +16,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION
     'period_close_logs is append-only; % is not permitted.', TG_OP
-    USING ERRCODE = 'restrict_violation';
+    USING ERRCODE = 'P0001';
 END;
 $$ LANGUAGE plpgsql;
 
@@ -36,7 +36,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   RAISE EXCEPTION
     'account_balances records a closed position and cannot be updated. Reopen the year if it is wrong.'
-    USING ERRCODE = 'restrict_violation';
+    USING ERRCODE = 'P0001';
 END;
 $$ LANGUAGE plpgsql;
 
@@ -83,7 +83,7 @@ BEGIN
   IF OLD.status::text = 'ARCHIVED' AND NEW.status::text <> 'ARCHIVED' THEN
     RAISE EXCEPTION
       'Financial year % is archived and cannot change status.', OLD.code
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
 END;

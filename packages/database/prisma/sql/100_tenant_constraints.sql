@@ -20,7 +20,7 @@ BEGIN
   IF v_account_company IS DISTINCT FROM NEW.company_id THEN
     RAISE EXCEPTION
       'Tenant isolation: journal line % names an account of another company.', NEW.id
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
 END;
@@ -43,7 +43,7 @@ BEGIN
   IF v_account_company IS DISTINCT FROM v_journal_company THEN
     RAISE EXCEPTION
       'Tenant isolation: manual journal line % names an account of another company.', NEW.id
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
 END;

@@ -15,4 +15,6 @@ export function jwtSecret(): string {
 }
 
 /** How long a session lasts before the user signs in again. */
-export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? '12h';
+export const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN ??
+  '12h') as JwtSignOptions['expiresIn'];
+import type { JwtSignOptions } from '@nestjs/jwt';

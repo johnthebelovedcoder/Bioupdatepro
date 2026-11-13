@@ -3,7 +3,6 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
-    "baseUrl": ".",
     // Must live INSIDE outDir. nest-cli.json sets deleteOutDir, so dist is
     // wiped on every start; if the incremental build-info survives that wipe,
     // tsc reads it, concludes every file is already emitted, writes nothing,

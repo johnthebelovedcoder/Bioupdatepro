@@ -29,7 +29,7 @@ BEGIN
    LIMIT 1;
   IF open_reference IS NOT NULL THEN
     RAISE EXCEPTION 'This store is frozen for stock count %: nothing moves in or out until the count is posted or cancelled.', open_reference
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
 END;
@@ -45,16 +45,16 @@ RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     IF OLD.status IN ('POSTED', 'CANCELLED') THEN
-      RAISE EXCEPTION 'Stock count % is %; it cannot be deleted.', OLD.reference, OLD.status USING ERRCODE = 'restrict_violation';
+      RAISE EXCEPTION 'Stock count % is %; it cannot be deleted.', OLD.reference, OLD.status USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
   IF OLD.status IN ('POSTED', 'CANCELLED') THEN
-    RAISE EXCEPTION 'Stock count % is %; it cannot change.', OLD.reference, OLD.status USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'Stock count % is %; it cannot change.', OLD.reference, OLD.status USING ERRCODE = 'P0001';
   END IF;
   IF NEW.warehouse_id IS DISTINCT FROM OLD.warehouse_id OR NEW.company_id IS DISTINCT FROM OLD.company_id
      OR NEW.frozen_at IS DISTINCT FROM OLD.frozen_at OR NEW.started_by_id IS DISTINCT FROM OLD.started_by_id THEN
-    RAISE EXCEPTION 'Stock count %: the store and freeze time are fixed.', OLD.reference USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'Stock count %: the store and freeze time are fixed.', OLD.reference USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
 END;
@@ -72,12 +72,12 @@ DECLARE
 BEGIN
   SELECT status INTO count_status FROM stock_counts WHERE id = COALESCE(NEW.stock_count_id, OLD.stock_count_id);
   IF count_status IN ('POSTED', 'CANCELLED') THEN
-    RAISE EXCEPTION 'That stock count is %; its lines cannot change.', count_status USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'That stock count is %; its lines cannot change.', count_status USING ERRCODE = 'P0001';
   END IF;
   IF TG_OP = 'UPDATE' AND (NEW.book_quantity IS DISTINCT FROM OLD.book_quantity
       OR NEW.unit_cost_kobo IS DISTINCT FROM OLD.unit_cost_kobo
       OR NEW.item_id IS DISTINCT FROM OLD.item_id) THEN
-    RAISE EXCEPTION 'The frozen book quantity and cost of a count line never change.' USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'The frozen book quantity and cost of a count line never change.' USING ERRCODE = 'P0001';
   END IF;
   IF TG_OP = 'DELETE' THEN
     RETURN OLD;

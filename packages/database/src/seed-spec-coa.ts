@@ -1,4 +1,5 @@
 import { PrismaClient, AccountType, NormalBalance } from '../generated/client';
+import { createPrismaClient } from './prisma-client';
 import recommended from './recommended-coa.json';
 import control from './posting-control.json';
 
@@ -154,7 +155,7 @@ function costCentreRequired(code: string): boolean {
 
 /* Runnable on its own: `tsx packages/database/src/seed-spec-coa.ts`. */
 if (process.argv[1]?.includes('seed-spec-coa')) {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   (async () => {
     for (const company of await prisma.company.findMany({ select: { id: true, name: true } })) {
       const result = await seedSpecChart(prisma, company.id);

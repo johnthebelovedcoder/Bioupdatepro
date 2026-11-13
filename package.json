@@ -26,6 +26,9 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.3.4",
     "@electric-sql/pglite-socket": "^0.0.9",
+    "@nestjs/common": "11.2.10",
+    "@nestjs/core": "11.2.10",
+    "@nestjs/platform-express": "11.2.10",
     "@types/node": "^22.10.2",
     "embedded-postgres": "^17.10.0-beta.17",
     "tsx": "^4.23.9",
@@ -33,15 +36,23 @@
     "typescript": "^5.7.2"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19"
+  },
+  "overrides": {
+    "@nestjs/common": "11.2.10",
+    "@nestjs/core": "11.2.10",
+    "@nestjs/throttler": {
+      "@nestjs/common": "11.2.10",
+      "@nestjs/core": "11.2.10"
+    }
   },
   "allowScripts": {
-    "@nestjs/core@10.4.22": true,
-    "@prisma/client@6.19.3": true,
-    "@prisma/engines@6.19.3": true,
+    "@nestjs/core@11.2.10": true,
+    "@prisma/client@7.10.1": true,
+    "@prisma/engines@7.10.1": true,
     "esbuild@0.28.1": true,
     "esbuild@0.21.5": true,
-    "prisma@6.19.3": true,
+    "prisma@7.10.1": true,
     "@embedded-postgres/linux-x64@17.10.0-beta.17": true,
     "@embedded-postgres/windows-x64@17.10.0-beta.17": true
   }

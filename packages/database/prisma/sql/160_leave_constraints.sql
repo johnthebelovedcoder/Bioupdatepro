@@ -14,7 +14,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     IF OLD.status <> 'PENDING' THEN
-      RAISE EXCEPTION 'Leave request % is %; it cannot be deleted.', OLD.id, OLD.status USING ERRCODE = 'restrict_violation';
+      RAISE EXCEPTION 'Leave request % is %; it cannot be deleted.', OLD.id, OLD.status USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
@@ -27,23 +27,23 @@ BEGIN
      OR NEW.working_days IS DISTINCT FROM OLD.working_days
      OR NEW.requested_by_id IS DISTINCT FROM OLD.requested_by_id THEN
     RAISE EXCEPTION 'Leave request %: the employee, type and dates are fixed once requested. Make a new request.', OLD.id
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF NEW.status IS DISTINCT FROM OLD.status AND NOT (
        (OLD.status = 'PENDING' AND NEW.status IN ('APPROVED', 'REJECTED', 'CANCELLED'))
        OR (OLD.status = 'APPROVED' AND NEW.status = 'CANCELLED')) THEN
-    RAISE EXCEPTION 'Leave request % cannot go from % to %.', OLD.id, OLD.status, NEW.status USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'Leave request % cannot go from % to %.', OLD.id, OLD.status, NEW.status USING ERRCODE = 'P0001';
   END IF;
 
   IF OLD.status IN ('REJECTED', 'CANCELLED') THEN
-    RAISE EXCEPTION 'Leave request % is %; it cannot change.', OLD.id, OLD.status USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'Leave request % is %; it cannot change.', OLD.id, OLD.status USING ERRCODE = 'P0001';
   END IF;
 
   IF NEW.status = 'APPROVED' AND OLD.status = 'PENDING'
      AND NEW.decided_by_id = NEW.requested_by_id
      AND NOT (SELECT allow_self_approval FROM companies WHERE id = NEW.company_id) THEN
-    RAISE EXCEPTION 'Leave request %: whoever requested it cannot approve it.', OLD.id USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'Leave request %: whoever requested it cannot approve it.', OLD.id USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;

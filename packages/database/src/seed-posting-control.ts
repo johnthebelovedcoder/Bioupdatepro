@@ -1,4 +1,5 @@
 import { PrismaClient, LedgerFlag, PostingKeySide, PostingRuleStatus } from '../generated/client';
+import { createPrismaClient } from './prisma-client';
 import control from './posting-control.json';
 
 /**
@@ -277,7 +278,7 @@ export async function seedPostingControl(prisma: PrismaClient, companyId: string
 
 /* Runnable on its own: `tsx packages/database/src/seed-posting-control.ts`. */
 if (process.argv[1]?.includes('seed-posting-control')) {
-  const prisma = new PrismaClient();
+  const prisma = createPrismaClient();
   (async () => {
     const companies = await prisma.company.findMany({ select: { id: true, name: true } });
     for (const company of companies) {

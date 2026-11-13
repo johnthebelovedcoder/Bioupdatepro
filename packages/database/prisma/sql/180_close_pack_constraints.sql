@@ -9,7 +9,7 @@
 CREATE OR REPLACE FUNCTION bap_close_pack_append_only()
 RETURNS TRIGGER AS $$
 BEGIN
-  RAISE EXCEPTION 'Close packs are append-only and cannot be %.', lower(TG_OP) USING ERRCODE = 'restrict_violation';
+  RAISE EXCEPTION 'Close packs are append-only and cannot be %.', lower(TG_OP) USING ERRCODE = 'P0001';
 END;
 $$ LANGUAGE plpgsql;
 

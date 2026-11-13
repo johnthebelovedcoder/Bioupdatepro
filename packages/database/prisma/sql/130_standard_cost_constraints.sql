@@ -18,13 +18,13 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     IF OLD.locked_at IS NOT NULL THEN
       RAISE EXCEPTION 'The costing policy for this year is locked by its first production posting and cannot be removed.'
-        USING ERRCODE = 'restrict_violation';
+        USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
 
   IF NEW.company_id IS DISTINCT FROM OLD.company_id OR NEW.financial_year_id IS DISTINCT FROM OLD.financial_year_id THEN
-    RAISE EXCEPTION 'A costing policy cannot be moved to another company or year.' USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'A costing policy cannot be moved to another company or year.' USING ERRCODE = 'P0001';
   END IF;
 
   IF OLD.locked_at IS NOT NULL AND (
@@ -34,7 +34,7 @@ BEGIN
        OR NEW.proration_threshold_kobo IS DISTINCT FROM OLD.proration_threshold_kobo
        OR NEW.locked_at IS DISTINCT FROM OLD.locked_at) THEN
     RAISE EXCEPTION 'The costing policy for this year is locked; a change takes effect from next year''s policy.'
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -51,7 +51,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     IF OLD.status IN ('RELEASED', 'SUPERSEDED') THEN
-      RAISE EXCEPTION 'Standard-cost version % was released and cannot be deleted.', OLD.id USING ERRCODE = 'restrict_violation';
+      RAISE EXCEPTION 'Standard-cost version % was released and cannot be deleted.', OLD.id USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
@@ -74,20 +74,20 @@ BEGIN
      OR NEW.lines IS DISTINCT FROM OLD.lines
      OR NEW.prepared_by_id IS DISTINCT FROM OLD.prepared_by_id THEN
     RAISE EXCEPTION 'Standard-cost version % cannot be changed once prepared. Prepare a new version.', OLD.id
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF NEW.status IS DISTINCT FROM OLD.status AND NOT (
        (OLD.status = 'PENDING' AND NEW.status IN ('RELEASED', 'REJECTED'))
        OR (OLD.status = 'RELEASED' AND NEW.status = 'SUPERSEDED')) THEN
     RAISE EXCEPTION 'Standard-cost version % cannot go from % to %.', OLD.id, OLD.status, NEW.status
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF NEW.status = 'RELEASED' AND OLD.status = 'PENDING'
      AND NEW.approved_by_id = NEW.prepared_by_id
      AND NOT (SELECT allow_self_approval FROM companies WHERE id = NEW.company_id) THEN
-    RAISE EXCEPTION 'Standard-cost version %: whoever prepared it cannot release it.', OLD.id USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'Standard-cost version %: whoever prepared it cannot release it.', OLD.id USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;

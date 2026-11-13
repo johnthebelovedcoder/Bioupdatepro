@@ -7,11 +7,14 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(packageDir, '..', '..');
+const require = createRequire(import.meta.url);
+const prismaCli = join(dirname(require.resolve('prisma/package.json')), 'build', 'index.js');
 
 if (!process.env.DATABASE_URL) {
   const envPath = join(repoRoot, '.env');
@@ -35,11 +38,11 @@ if (!process.env.DATABASE_URL) {
 }
 
 const run = (command, args) => {
-  const result = spawnSync(command, args, {
+  const commandArgs = command === 'prisma' ? [prismaCli, ...args] : args;
+  const result = spawnSync(process.execPath, commandArgs, {
     stdio: 'inherit',
     cwd: packageDir,
     env: process.env,
-    shell: process.platform === 'win32',
   });
   if (result.status !== 0) process.exit(result.status ?? 1);
 };

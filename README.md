@@ -72,8 +72,8 @@ there as an accidental hole.
 
 ## Getting started
 
-Requires Node 20+. No Docker: the development database is a real PostgreSQL
-started by a script.
+Requires Node 20.19 or newer. No Docker: the development database is a real
+PostgreSQL started by a script.
 
 The short way, on a fresh clone or after every `git pull`:
 
@@ -91,6 +91,9 @@ does, one at a time.
 npm install
 cp .env.example .env
 ```
+
+The template includes the local `DATABASE_URL`; keep it set because Prisma
+requires it when generating the database client and running migrations.
 
 Then set `JWT_SECRET` in `.env` — the API will not start without it:
 

@@ -24,8 +24,9 @@
  */
 
 import { PrismaClient, LivestockGroupStatus, HealthEventStatus, Prisma } from '../generated/client';
+import { createPrismaClient } from './prisma-client';
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 /** Days of history to generate. Enough for the 30-day period filter. */
 const WINDOW = 30;

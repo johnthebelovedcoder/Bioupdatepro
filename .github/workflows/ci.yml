@@ -50,6 +50,8 @@ jobs:
 
       - name: Generate the database client
         run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
 
       - name: Database package and schema
         run: |

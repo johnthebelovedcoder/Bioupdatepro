@@ -22,10 +22,10 @@
  * Run from the repo root:  npm run db:seed:users
  */
 
-import { PrismaClient } from '@bioassetpro/database';
+import { createPrismaClient } from '../prisma/prisma-client';
 import { hashPassword } from './password';
 
-const prisma = new PrismaClient();
+const prisma = createPrismaClient();
 
 const ROLES = {
   supervisor: 'PRODUCTION_SUPERVISOR',

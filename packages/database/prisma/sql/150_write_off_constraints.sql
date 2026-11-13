@@ -13,13 +13,13 @@ RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     IF OLD.status <> 'PENDING' THEN
-      RAISE EXCEPTION 'Write-off % is %; it cannot be deleted.', OLD.id, OLD.status USING ERRCODE = 'restrict_violation';
+      RAISE EXCEPTION 'Write-off % is %; it cannot be deleted.', OLD.id, OLD.status USING ERRCODE = 'P0001';
     END IF;
     RETURN OLD;
   END IF;
 
   IF OLD.status <> 'PENDING' THEN
-    RAISE EXCEPTION 'Write-off % is %; it cannot change.', OLD.id, OLD.status USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'Write-off % is %; it cannot change.', OLD.id, OLD.status USING ERRCODE = 'P0001';
   END IF;
 
   IF NEW.company_id IS DISTINCT FROM OLD.company_id
@@ -29,13 +29,13 @@ BEGIN
      OR NEW.reason IS DISTINCT FROM OLD.reason
      OR NEW.created_by_id IS DISTINCT FROM OLD.created_by_id THEN
     RAISE EXCEPTION 'Write-off %: what was requested cannot be changed. Reject it and request again.', OLD.id
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF NEW.status = 'POSTED'
      AND NEW.approved_by_id = NEW.created_by_id
      AND NOT (SELECT allow_self_approval FROM companies WHERE id = NEW.company_id) THEN
-    RAISE EXCEPTION 'Write-off %: whoever requested it cannot approve it.', OLD.id USING ERRCODE = 'restrict_violation';
+    RAISE EXCEPTION 'Write-off %: whoever requested it cannot approve it.', OLD.id USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;

@@ -14,7 +14,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'Weighing % is history and cannot be deleted. Reject it instead.', OLD.id
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   IF NEW.company_id IS DISTINCT FROM OLD.company_id
@@ -30,13 +30,13 @@ BEGIN
      OR NEW.recorded_by_id IS DISTINCT FROM OLD.recorded_by_id
      OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
     RAISE EXCEPTION 'Weighing % is history: its measurement cannot be changed. Reject it and record a new one.', OLD.id
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   -- A decision is made once.
   IF OLD.status <> 'PENDING' AND NEW.status IS DISTINCT FROM OLD.status THEN
     RAISE EXCEPTION 'Weighing % was already %.', OLD.id, OLD.status
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   -- Whoever recorded it does not approve it (maker-checker), unless the
@@ -45,7 +45,7 @@ BEGIN
      AND NEW.approved_by_id = NEW.recorded_by_id
      AND NOT (SELECT allow_self_approval FROM companies WHERE id = NEW.company_id) THEN
     RAISE EXCEPTION 'Weighing %: whoever recorded it cannot approve it.', OLD.id
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
 
   RETURN NEW;
@@ -63,7 +63,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   IF (SELECT company_id FROM livestock_groups WHERE id = NEW.group_id) IS DISTINCT FROM NEW.company_id THEN
     RAISE EXCEPTION 'Tenant isolation: weighing % names a batch of another company.', NEW.id
-      USING ERRCODE = 'restrict_violation';
+      USING ERRCODE = 'P0001';
   END IF;
   RETURN NEW;
 END;
