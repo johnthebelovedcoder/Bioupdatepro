@@ -3,7 +3,7 @@ import { getStockItems } from '@/lib/masters';
 import { formatNaira } from '@/lib/money';
 import { Card, PageHeader } from '@/components/ui';
 import { Tabs } from '@/components/tabs';
-import { JointCostControls, ProposePriceForm } from '@/components/joint-cost-forms';
+import { JointCostControls, ProposePriceForm, ProposeStandardAllocationForm } from '@/components/joint-cost-forms';
 import { HelpTerm } from '@/components/help';
 
 export const metadata = { title: 'Joint-cost prices — BioAssetPro' };
@@ -23,6 +23,18 @@ interface JointCost {
     approvedBy: string | null;
     rejectionReason: string | null;
   }>;
+  standardAllocations: Array<{
+    id: string;
+    itemCode: string;
+    itemDescription: string;
+    allocationPercentage: string;
+    effectiveFrom: string;
+    evidenceReference: string;
+    status: string;
+    proposedBy: string;
+    approvedBy: string | null;
+    rejectionReason: string | null;
+  }>;
 }
 
 const METHOD_LABEL: Record<string, string> = {
@@ -30,12 +42,14 @@ const METHOD_LABEL: Record<string, string> = {
   WEIGHT: 'Relative weight',
   SALES_VALUE: 'Relative sales value',
   STANDARD_PERCENTAGE: 'Standard percentages',
+  MANUAL: 'Manual per-order percentages',
 };
 
 /**
  * Joint-cost controls (JOINT_COST_ALLOCATION, handbook §62): the one method
  * every processing order is costed by, and the approved, dated selling prices
- * that method reads. An order never takes a price typed onto it.
+ * that method reads. Standard percentages are effective-dated approvals;
+ * manual percentages are captured on each order's output record.
  */
 export default async function JointCostPage() {
   const [data, items] = await Promise.all([api<JointCost>('/production-orders/joint-cost'), getStockItems()]);
@@ -94,6 +108,38 @@ export default async function JointCostPage() {
 
         <Card title="Propose a price">
           <ProposePriceForm items={items.map((i) => ({ id: i.id, label: `${i.code} — ${i.name}` }))} />
+        </Card>
+
+        <Card title="Standard output percentages" subtitle="Each main output's percentage is proposed and approved separately. The effective set for an order must total exactly 100%.">
+          <div className="table-wrap">
+            <table className="data wide">
+              <thead>
+                <tr>
+                  <th>Output</th>
+                  <th className="right">Share</th>
+                  <th>From</th>
+                  <th>Evidence</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.standardAllocations.length === 0 ? (
+                  <tr><td colSpan={5} className="faint">No standard percentages proposed yet.</td></tr>
+                ) : data.standardAllocations.map((allocation) => (
+                  <tr key={allocation.id}>
+                    <td style={{ textAlign: 'left' }}>{allocation.itemCode} <span className="faint">{allocation.itemDescription}</span></td>
+                    <td className="num right">{allocation.allocationPercentage}%</td>
+                    <td>{allocation.effectiveFrom}</td>
+                    <td className="faint" style={{ textAlign: 'left' }}>{allocation.evidenceReference} · by {allocation.proposedBy}</td>
+                    <td><JointCostControls allocationId={allocation.id} status={allocation.status} approvedBy={allocation.approvedBy} rejectionReason={allocation.rejectionReason} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop: 'var(--sp-4)' }}>
+            <ProposeStandardAllocationForm items={items.map((item) => ({ id: item.id, label: `${item.code} — ${item.name}` }))} />
+          </div>
         </Card>
       </div>
     </>

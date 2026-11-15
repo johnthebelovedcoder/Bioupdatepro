@@ -74,6 +74,15 @@ function materialIssue(f: TestFixture, amount: bigint, key = 'mi-1') {
 }
 
 describe('PostingService — the balance invariant', () => {
+  it('blocks unbound business postings once the approved chart is active', async () => {
+    await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
+
+    await expect(posting.post(materialIssue(fixture, 195_500_00n))).rejects.toThrow(
+      /has no approved workbook event contract/,
+    );
+    expect(await prisma.journalEntry.count()).toBe(0);
+  });
+
   it('posts a balanced journal and returns both totals', async () => {
     const result = await posting.post(materialIssue(fixture, 195_500_00n));
 

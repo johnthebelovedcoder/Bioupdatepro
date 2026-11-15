@@ -56,6 +56,42 @@ export async function decidePrice(priceId: string, approve: boolean, reason?: st
   }
 }
 
+export async function proposeStandardAllocation(_previous: PriceState, formData: FormData): Promise<PriceState> {
+  const itemId = String(formData.get('itemId') ?? '');
+  const allocationPercentage = String(formData.get('allocationPercentage') ?? '').trim();
+  const effectiveFrom = String(formData.get('effectiveFrom') ?? '').trim();
+  const evidenceReference = String(formData.get('evidenceReference') ?? '').trim();
+  if (!itemId) return { error: 'Choose the output.', message: null };
+  if (!/^(?:100(?:\.0{1,4})?|[0-9]{1,2}(?:\.[0-9]{1,4})?)$/.test(allocationPercentage)) {
+    return { error: 'Enter a percentage from 0 to 100 with at most four decimal places.', message: null };
+  }
+  if (!effectiveFrom) return { error: 'Choose the date the percentage applies from.', message: null };
+  if (!evidenceReference) return { error: 'Name the approved basis or other evidence.', message: null };
+  try {
+    await api('/production-orders/joint-cost/standard-percentages', {
+      method: 'POST',
+      body: { itemId, allocationPercentage, effectiveFrom, evidenceReference },
+    });
+    revalidatePath('/production/joint-cost');
+    return { error: null, message: 'Proposed. A different finance approver must approve it.' };
+  } catch (caught) {
+    return failed(caught, 'Could not propose that standard allocation.');
+  }
+}
+
+export async function decideStandardAllocation(allocationId: string, approve: boolean, reason?: string): Promise<PriceState> {
+  try {
+    await api(`/production-orders/joint-cost/standard-percentages/${encodeURIComponent(allocationId)}/decide`, {
+      method: 'POST',
+      body: { approve, ...(reason ? { reason } : {}) },
+    });
+    revalidatePath('/production/joint-cost');
+    return { error: null, message: approve ? 'Approved. Orders completed from its date use it.' : 'Rejected.' };
+  } catch (caught) {
+    return failed(caught, 'Could not record the allocation decision.');
+  }
+}
+
 export async function releaseMethod(method: string): Promise<PriceState> {
   try {
     await api('/production-orders/joint-cost/method', { method: 'POST', body: { method } });

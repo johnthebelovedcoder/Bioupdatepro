@@ -58,7 +58,7 @@ beforeEach(async () => {
   actor = { userId: fixture.makerId, roles: ['FARM_MANAGER'] };
   counter = { userId: fixture.makerId, roles: ['STOREKEEPER'] };
   approver = { userId: fixture.financeUserId, roles: ['FINANCE_MANAGER'] };
-  await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
+  await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'SPEC' } });
   await new PostingControlProvisioningService(prisma, new AuditService(prisma)).provision(fixture.companyId, null);
 
   const uom = await prisma.unitOfMeasure.create({ data: { companyId: fixture.companyId, code: 'KG', name: 'Kilogram' } });
@@ -90,6 +90,7 @@ beforeEach(async () => {
       }),
     );
   }
+  await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
 });
 
 async function balance(accountNumber: string) {

@@ -28,6 +28,7 @@ beforeAll(() => {
   // The ledger side of placement and transfer is not under test here.
   const assets = {
     postAcquisition: async () => ({ posted: false }),
+    assertValuedOn: async () => undefined,
     assertStageAgeEligible: async () => undefined,
     postStageTransfer: async () => ({ posted: false }),
     postMortality: async () => ({ posted: false }),

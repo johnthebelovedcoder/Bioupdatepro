@@ -81,8 +81,59 @@ beforeEach(async () => {
 const round = (date: string, entry: Record<string, unknown>, key = `round-${date}`) =>
   operations.recordRound({ companyId: fixture.companyId, actor: clerk, idempotencyKey: key, payload: { module: 'poultry', date, entries: [{ groupCode: 'FLK-1', ...entry }] } });
 
+async function postValuationOn(groupId: string, date: string) {
+  const { id } = await assets.requestValuation({
+    companyId: fixture.companyId,
+    groupId,
+    valuationDate: new Date(`${date}T00:00:00.000Z`),
+    marketPricePerUnitKobo: 100_000n,
+    costsToSellPerUnitKobo: 0n,
+    evidenceReference: `Market survey ${date}`,
+    actor: { userId: fixture.financeUserId, roles: ['CFO'] },
+  });
+  await prisma.$transaction((tx) => assets.postApprovedValuation({
+    valuationId: id,
+    actor: { userId: fixture.financeUserId, roles: ['CFO'] },
+    tx,
+  }));
+}
+
 describe('Stage by age (UAT-012)', () => {
+  it('allows the attributable-cost exception only with a dated Finance reliability review', async () => {
+    await prisma.livestockGroup.updateMany({
+      where: { companyId: fixture.companyId, code: 'FLK-1' },
+      data: { measurementBasis: 'ATTRIBUTABLE_COST', currentFvlctsPerUnitKobo: null },
+    });
+    const group = await prisma.livestockGroup.findFirstOrThrow({ where: { code: 'FLK-1' } });
+    const eventDate = new Date('2026-01-20T00:00:00.000Z');
+    const valuationCheck = (on: Date) => assets.assertValuedOn({
+      companyId: fixture.companyId,
+      groupId: group.id,
+      startedOn: group.startedOn,
+      currentFvlctsPerUnitKobo: group.currentFvlctsPerUnitKobo,
+      on,
+    });
+
+    await expect(valuationCheck(eventDate)).rejects.toThrow(/Finance must document that fair value remains clearly unreliable/);
+    await assets.reviewFairValueReliability({
+      companyId: fixture.companyId,
+      groupId: group.id,
+      reviewedOn: eventDate,
+      stillUnreliable: true,
+      reason: 'No observable market exists for this newly established population.',
+      evidenceReference: 'Finance valuation review FV-2026-01',
+      actor: { userId: fixture.financeUserId, roles: ['CFO'] },
+    });
+
+    await expect(valuationCheck(eventDate)).resolves.toBeUndefined();
+    await expect(valuationCheck(new Date('2026-01-21T00:00:00.000Z'))).rejects.toThrow(
+      /Finance must document that fair value remains clearly unreliable/,
+    );
+  });
+
   it('moves a batch to a stage its age has reached', async () => {
+    const group = await prisma.livestockGroup.findFirstOrThrow({ where: { code: 'FLK-1' } });
+    await postValuationOn(group.id, '2026-01-20');
     await operations.recordStageChange({
       companyId: fixture.companyId, actor: clerk, idempotencyKey: 'move-ok',
       payload: { groupCode: 'FLK-1', date: '2026-01-20', fromStage: 'Chick', toStage: 'Grower', fromHouse: 'H1', toHouse: 'H2' },
@@ -91,12 +142,24 @@ describe('Stage by age (UAT-012)', () => {
   });
 
   it('refuses a stage the batch is too young for, saying its age and what the stage needs', async () => {
+    const group = await prisma.livestockGroup.findFirstOrThrow({ where: { code: 'FLK-1' } });
+    await postValuationOn(group.id, '2026-01-20');
     await expect(
       operations.recordStageChange({
         companyId: fixture.companyId, actor: clerk, idempotencyKey: 'move-early',
         payload: { groupCode: 'FLK-1', date: '2026-01-20', fromStage: 'Chick', toStage: 'Market-ready', fromHouse: 'H1', toHouse: 'H2' },
       }),
     ).rejects.toThrow(/19 day\(s\) old — "Market-ready" needs at least 42/);
+  });
+
+  it('refuses a transfer without a posted valuation on that date and leaves the stage unchanged', async () => {
+    await expect(
+      operations.recordStageChange({
+        companyId: fixture.companyId, actor: clerk, idempotencyKey: 'move-no-valuation',
+        payload: { groupCode: 'FLK-1', date: '2026-01-20', fromStage: 'Chick', toStage: 'Grower', fromHouse: 'H1', toHouse: 'H2' },
+      }),
+    ).rejects.toThrow(/FVLCTS valuation for this population on the stage-transfer, harvest or sale date/);
+    expect((await prisma.livestockGroup.findFirstOrThrow({ where: { code: 'FLK-1' } })).stage).toBe('Chick');
   });
 });
 

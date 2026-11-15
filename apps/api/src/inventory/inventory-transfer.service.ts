@@ -446,7 +446,15 @@ export class InventoryTransferService {
         perStore: true,
       });
       const approvedChart = await chartVersionOf(tx, params.companyId) === 'APPROVED';
-      const writeOffAccountId = this.requireSide(rule.debit, 'PCR-014', 'debit').glAccountId;
+      const writeOffAccountId = approvedChart
+        ? (await resolveApprovedMappedAccount(tx, {
+            companyId: params.companyId,
+            application: 'YifrehCore',
+            postingGroup: 'COR-RM',
+            postingKey: 'INVENTORY_LOSS_VARIANCE',
+            on: new Date(),
+          })).glAccountId
+        : this.requireSide(rule.debit, 'PCR-014', 'debit').glAccountId;
       const inventoryAccountId = await this.stockAccount(params.companyId, writeOff.itemId, this.requireSide(rule.credit, 'PCR-014', 'credit').glAccountId, new Date());
 
       const result = await this.posting.post(

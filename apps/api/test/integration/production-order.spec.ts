@@ -22,7 +22,7 @@ import { ControlAccountReconciliationService } from '../../src/reporting/control
 import { JointCostService } from '../../src/production/joint-cost.service';
 import { RoutingService } from '../../src/routing/routing.service';
 import { kobo } from '../../src/common/money';
-import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
+import { dims, resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
 
 /**
  * Snail processing and production-order close (UAT-015, UAT-024; the same
@@ -34,7 +34,9 @@ import { resetDatabase, seedFixture, TestFixture } from '../helpers/test-db';
  */
 
 let prisma: PrismaService;
+let posting: PostingService;
 let orders: ProductionOrderService;
+let jointCosts: JointCostService;
 let workflow: WorkflowService;
 let stock: StockMovementService;
 let fixture: TestFixture;
@@ -48,7 +50,8 @@ let fgStore: string;
 beforeAll(() => {
   prisma = new PrismaService();
   const audit = new AuditService(prisma);
-  const posting = new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma));
+  jointCosts = new JointCostService(prisma, audit);
+  posting = new PostingService(prisma, audit, new IdempotencyService(prisma), new PeriodService(prisma), new DimensionValidatorService(prisma));
   workflow = new WorkflowService(prisma, new WorkflowRoutingService(prisma), new DelegationService(prisma, audit), new NotificationService(prisma), audit);
   stock = new StockMovementService(prisma);
   orders = new ProductionOrderService(
@@ -201,6 +204,44 @@ describe('Processing and production-order close (UAT-015 / UAT-024)', () => {
     await expect(orders.settle({ productionOrderId: id, actor: maker })).rejects.toThrow(/IN_PRODUCTION; only a completed order can settle/);
   });
 
+  it('rejects an approved-chart settlement when a source-journal link points at the wrong production event', async () => {
+    const id = await throughConversion();
+    await orders.recordOutputs({
+      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38',
+      outputs: [
+        { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
+        { itemId: item.SHELL!, outputType: 'BY_PRODUCT', quantity: '16', weight: '16' },
+      ],
+    });
+    const order = await prisma.productionOrder.findUniqueOrThrow({ where: { id } });
+    await prisma.productionOrder.update({
+      where: { id },
+      data: { issueJournalEntryId: order.completionJournalEntryId },
+    });
+    await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
+
+    await expect(posting.post({
+      sourceModule: 'production',
+      sourceDocumentType: 'ProductionOrder',
+      sourceDocumentId: id,
+      journalNumber: `${order.orderNumber}-SETTLE`,
+      journalDate: new Date(),
+      narration: 'Forged production settlement',
+      companyId: fixture.companyId,
+      branchId: fixture.branchId,
+      financialYearId: fixture.financialYearId,
+      financialPeriodId: fixture.periodIds[0]!,
+      currencyId: fixture.currencyId,
+      exchangeRate: '1.00000000',
+      idempotencyKey: `forged-settlement:${id}`,
+      actor: maker,
+      lines: [
+        { glAccountId: fixture.accounts['1501']!, description: 'Debit', debit: kobo(100n), dimensions: dims(fixture) },
+        { glAccountId: fixture.accounts['1501']!, description: 'Credit', credit: kobo(100n), dimensions: dims(fixture) },
+      ],
+    })).rejects.toThrow(/issue, conversion and completion links to reference the matching posted production-order journals/);
+  });
+
   it('costs by the one released method, from approved prices, and only when the quantities balance (JOINT_COST_ALLOCATION)', async () => {
     const id = await throughConversion();
     const outputs = [
@@ -225,6 +266,61 @@ describe('Processing and production-order close (UAT-015 / UAT-024)', () => {
     expect(meat + out.find((o) => o.item.code === 'SHELL')!.allocatedCostKobo).toBe(pool);
     const shellNrv = 4_000_000n; // 16 kg × ₦2,500
     expect(Number(meat) / Number(pool)).toBeCloseTo(Number(pool - shellNrv) / Number(pool), 6);
+  });
+
+  it('uses approved effective-dated standard percentages and persists the allocation snapshot', async () => {
+    const approverActor = { userId: fixture.financeUserId, roles: ['FINANCE_MANAGER'] };
+    await jointCosts.releaseMethod({ companyId: fixture.companyId, method: 'STANDARD_PERCENTAGE', actor: maker });
+    const approvals = await Promise.all([
+      jointCosts.proposeStandardAllocation({
+        companyId: fixture.companyId, itemId: item.MEAT!, allocationPercentage: '25', effectiveFrom: new Date('2020-01-01'),
+        evidenceReference: 'Approved joint-cost study 2020', actor: maker,
+      }),
+      jointCosts.proposeStandardAllocation({
+        companyId: fixture.companyId, itemId: item.SHELL!, allocationPercentage: '75', effectiveFrom: new Date('2020-01-01'),
+        evidenceReference: 'Approved joint-cost study 2020', actor: maker,
+      }),
+    ]);
+    for (const allocation of approvals) {
+      await jointCosts.decideStandardAllocation({
+        companyId: fixture.companyId, allocationId: allocation.id, approve: true, actor: approverActor,
+      });
+    }
+
+    const id = await throughConversion();
+    await orders.recordOutputs({
+      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38',
+      outputs: [
+        { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36' },
+        { itemId: item.SHELL!, outputType: 'MAIN', quantity: '16', weight: '16' },
+      ],
+    });
+
+    const outputs = await prisma.productionOrderOutput.findMany({ where: { productionOrderId: id }, include: { item: { select: { code: true } } } });
+    expect(Object.fromEntries(outputs.map((output) => [output.item.code, output.allocationPercentage?.toFixed(4)]))).toEqual({
+      MEAT: '25.0000',
+      SHELL: '75.0000',
+    });
+    expect(outputs.reduce((sum, output) => sum + output.allocatedCostKobo, 0n)).toBe(2_905_000_00n);
+  });
+
+  it('accepts and persists per-order manual percentages only under the released MANUAL method', async () => {
+    await jointCosts.releaseMethod({ companyId: fixture.companyId, method: 'MANUAL', actor: maker });
+    const id = await throughConversion();
+    await orders.recordOutputs({
+      productionOrderId: id, warehouseId: fgStore, actor: maker, normalLossQuantity: '38',
+      outputs: [
+        { itemId: item.MEAT!, outputType: 'MAIN', quantity: '36', weight: '36', allocationPercentage: '25' },
+        { itemId: item.SHELL!, outputType: 'MAIN', quantity: '16', weight: '16', allocationPercentage: '75' },
+      ],
+    });
+
+    const outputs = await prisma.productionOrderOutput.findMany({ where: { productionOrderId: id }, include: { item: { select: { code: true } } } });
+    expect(Object.fromEntries(outputs.map((output) => [output.item.code, output.allocationPercentage?.toFixed(4)]))).toEqual({
+      MEAT: '25.0000',
+      SHELL: '75.0000',
+    });
+    expect(outputs.reduce((sum, output) => sum + output.allocatedCostKobo, 0n)).toBe(2_905_000_00n);
   });
 
   it('keeps normal loss within the recipe’s approved yield; the rest is abnormal (POL-005/006)', async () => {

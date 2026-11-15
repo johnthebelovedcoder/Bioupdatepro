@@ -4,11 +4,72 @@ Prepared after reading: Consolidated Data Model Reference, Addendum (Stages 1–
 SnailPro & PoultryPro Enhanced Processing workbooks, Nigeria PAYE 2026 workbook,
 Nigeria Statutory Payroll workbook.
 
+## Current code status (14 November 2026)
+
+The findings below are the original source-document audit, not a description
+of current code. The owner has since approved these implementation policies:
+
+- Biological assets use FVLCTS at reporting dates and stage transfers; the
+  attributable-cost exception is permitted only with a dated Finance review
+  and evidence that fair value is demonstrably unreliable. When that exception
+  applies, a positive FVLCTS balance is not required; the event date must match
+  the review date and both reason and evidence must be present. Integration
+  coverage verifies that valid dated reviews pass and missing or stale reviews
+  fail. The code includes
+  the biological register, valuations, approvals, mortality, transfers and
+  roll-forward controls. The original Stage 7 authority is still absent, so
+  this policy is owner-approved implementation direction, not a certification
+  against the missing PRD/FRS/SOP/TDD.
+- Joint-cost allocation supports NRV, sales value, weight, standard percentage
+  and manual. Standard percentages are effective-dated and maker-checker
+  approved per output; manual shares are recorded per order. Both percentage
+  methods require main-output shares to sum to exactly 100%; material
+  by-products continue to be valued at NRV.
+- With the approved chart active, a journal without a workbook event contract
+  is rejected unless it uses a specifically governed standard, manual-journal,
+  closing or chart-transition path. Workbook-bound journal lines are checked
+  centrally for account/side, supplied amount basis, source identity and
+  required cost-centre rules. Free-text workbook requirements (source status,
+  business fields, blocking controls and correction procedures) still require
+  explicit domain-level mapping and evidence; the central gate does not infer
+  those controls from prose.
+- The approved-chart production settlement path verifies that the linked issue,
+  conversion and completion journals are posted and match the order's company,
+  source identity, module and expected journal references. The 14 November
+  follow-up also rejects a deliberately mismatched link in integration
+  coverage. Settlement line arithmetic and account selection remain computed
+  by the sole `ProductionOrderService.settle` flow, rather than independently
+  reconstructed by the central gate.
+- Production-order settlement for SnailPro/PoultryPro has no single matching
+  workbook event row; its system path is allowed only for a source-linked,
+  output-completed order with posted issue and conversion journals, and an
+  unsettled status. Abnormal processing-loss postings remain blocked on the
+  approved chart until Finance supplies a matching event contract. The
+  workbook's similarly numbered abnormal-loss rows describe other events and
+  must not be reused as a guessed mapping.
+- Verification on 14 November 2026: API and web typechecks and production
+  builds passed; Prisma schema validation passed; API unit tests passed
+  (124/124 across 20 files). The full API integration suite passed after the
+  final IAS 41 exception fix (61/61 files, 628/628 tests) and exited normally
+  using Vitest's serial reusable-thread worker options. Migration 0066 is
+  present but has not been applied to a database. API lint was not run because
+  ESLint is unavailable in the workspace.
+- The fresh UAT run regenerated both JSON result files on 14 November:
+  unit 124/124 and integration 628/628. The scorer reports 25 PASS and one
+  PASS + MANUAL of 26; UAT-026 still requires manual UX acceptance. The earlier
+  `run-uat.mjs --score` invocation only used cached 12 November results and
+  was not treated as fresh evidence. The UAT runner now uses the verified
+  worker options for its full integration run.
+- After that full run, the production-settlement source-link guard was tightened;
+  API typechecking and the affected production-order integration file passed
+  (11/11 tests). The full integration suite has not been rerun after this
+  follow-up change.
+
 ---
 
 ## Part A — Findings that change the build
 
-### A1. Stage 7 (Biological Asset Register / IAS 41) is confirmed absent — hard blocker
+### A1. Stage 7 authority is absent; the original audit's build recommendation is historical
 
 The addendum promises it and then never delivers it. Line 2735 of the extracted
 addendum reads: *"This completes Stage 6. The next stage should be Stage 7 –
@@ -211,7 +272,7 @@ calculation is immutable and recalculation creates a new version.
 | Decision | Choice |
 |---|---|
 | Enterprise Dimensions modelling | **Embedded FK columns** — shared Prisma fragment, mandatory six enforced `NOT NULL` at DB level, conditional ones via config-driven `DimensionValidator` |
-| Stage 7 / IAS 41 gap | **Build the source interface only** — `BiologicalBatch` (identity + dimensions), `HarvestTransfer`, `LiveBirdTransfer`, the two specified postings. No valuation, costing, or mortality logic until Stage 7 documentation arrives |
+| Stage 7 / IAS 41 gap | **Owner-approved implementation policy:** FVLCTS by default at reporting dates and stage transfers; attributable cost only under a dated, evidenced fair-value-unreliable exception. Original Stage 7 source documentation remains outstanding |
 | Repo location | **`C:\Users\Toyosi\Downloads\bioassetpro`** — new sibling directory, fresh Turborepo, own git repository |
 
 ### B1. Enterprise Dimensions modelling — options considered
@@ -293,8 +354,8 @@ written record of assumptions made. Sign-off before the next phase starts.
 | 2 | **Workflow & Approval Engine** | 10 workflow tables, status machine, N-level approval, routing by type/branch/farm/dept/cost-centre/currency/amount/role, approval limits, delegation, escalation (BullMQ), notifications, immutable history | Maker cannot approve own txn (service layer); escalation fires; every event audited; a module can register a new transaction type with zero engine changes |
 | 3 | **Tax Engine** | TaxCode/VATCode/WHTCode, registers, TaxPeriod, TaxConfiguration, TaxGLMapping, effective-dated rates | VAT/WHT computed once, shared; 7.5% is config not constant |
 | 4 | **Master data** | Supplier, Customer, Item/Product, UoM (with scale), Warehouse, Employee, BOM/Recipe with **versioning + effective dating** | Recipes are data; a new species needs no schema change |
-| 5 | **⚠ Biological Batch Source Interface** | `BiologicalBatch` (identity + dimensions only), `HarvestTransfer`, `LiveBirdTransfer`, the two specified postings, traceability link | Processing can source batches. **No IAS 41 valuation logic — awaiting Stage 7** |
-| 6 | **Processing engine** | Generic engine (§9) → SnailPro (§10) → **CostAllocation engine** (5 methods) → PoultryPro (§11) as one order → many joint outputs | **Rule 7 WIP identity, exactly, in integer kobo.** Material issue blocked unless order Approved/Released/In-Production/Completed. Completion gate: all 9 checks. Allocation percentages total 100% |
+| 5 | **Biological Asset Register (IAS 41)** | Biological populations, FVLCTS valuations and approval, cost-exception reliability reviews, mortality, stage transfers, reporting-date scheduling and roll-forward | Reporting-date and stage-transfer measurement is evidenced; cost exception requires dated Finance evidence. Original Stage 7 authority still needed for final source traceability |
+| 6 | **Processing engine** | Generic engine (§9) → SnailPro (§10) → **CostAllocation engine** (weight, sales value, NRV, effective-dated approved standard percentage, per-order manual) → PoultryPro (§11) as one order → many joint outputs | **Rule 7 WIP identity, exactly, in integer kobo.** Material issue blocked unless order Approved/Released/In-Production/Completed. Completion gate: all 9 checks. Percentage shares total 100% across main outputs |
 | 7 | **Procure-to-Pay** | PR → RFQ → PO → GRN → Invoice → 3-way match → Payment | GRNI clears; 3-way match exceptions route to workflow |
 | 8 | **Order-to-Cash** | Quote → SO → Credit check → Delivery → Invoice → Receipt → Statement | Credit check blocks and routes; COGS posts with delivery |
 | 9 | **HR & Payroll** | Employee lifecycle, leave, appraisal, payroll run, **PAYE engine**, **Statutory engine**, payslips, bank schedule | Every workbook sample row reproduced to the kobo; PAYE grouped by tax state; no CRA |
@@ -322,15 +383,19 @@ asserts the resulting GL matches `TB_WIP_Control` line for line.
 
 ## Part D — Open questions
 
-**Blocking (need answers before the phase they gate):**
+**Resolved by owner direction (implementation is in code; source-document traceability remains):**
 
-1. **Stage 7 / IAS 41** — Phase 5–6 gate. Fair value vs cost model? Valuation
-   triggers? Mortality treatment? Is the documentation coming?
-2. **PoultryPro joint costing** — Phase 6 gate. Confirm the workbook's
-   one-order-per-cut model is wrong and the addendum's joint-cost engine is
-   authoritative. Which allocation method is the default?
-3. **By-product valuation policy** — Phase 6. The ₦200/unit is hard-coded.
-   NRV? Standard cost? Zero-value with proceeds to other income?
+1. **Stage 7 / IAS 41** — FVLCTS is the default at reporting dates and stage
+   transfers; attributable cost requires the documented fair-value-unreliable
+   exception. The original Stage 7 PRD/FRS/SOP/TDD is still needed for
+   authoritative traceability.
+2. **PoultryPro joint costing** — the one-order/many-joint-outputs model is
+   authoritative over the workbook's one-order-per-cut example. Standard
+   percentages are effective-dated and separately approved; manual allocation
+   is per order.
+3. **By-product valuation policy** — material by-products are valued at NRV
+   and deducted from the joint-cost pool; immaterial by-products carry zero
+   inventory cost and proceeds are recognized as other operating income.
 
 **Non-blocking, need confirmation:**
 
@@ -353,7 +418,12 @@ Per Part 5 of the brief and Rule 10:
 - No MRP, capacity planning, shop-floor control, or machine maintenance.
 - No Mobile Money.
 - No Consolidated Relief Allowance.
-- **No invented biological-asset accounting.** Phase 5 is an interface, not a model.
+- **No invented biological-asset accounting beyond approved direction.** This
+  original scope note preceded the owner's FVLCTS direction recorded above;
+  implementation follows that direction only. The missing Stage 7 source
+  authority is still required for final traceability. The earlier recommendation
+  to make Phase 5 an interface rather than a model is superseded by that
+  subsequent approval.
 - No guessed tax rates, statutory rates, or approval limits — every one is
   configuration seeded from the workbooks with its source URL and effective date
   recorded.

@@ -31,7 +31,7 @@ The role-by-role findings are in [target-coa-role-crosswalk.md](target-coa-role-
 - The crosswalk has 68 proposed rows and zero Finance-approved targets. Split rows require transaction/item/asset/cohort evidence.
 - The read-only ledger workpaper dated 2 October 2026 identifies material open inventory, biological-asset, production/recovery, fixed-asset, payroll/AP, and bank reconciliations.
 - The new-company integration test now asserts that a company remains on its provisioned chart and records the mixed legacy/six-digit compatibility configuration. This corrects the stale expectation; it does not prove five-digit posting readiness.
-- The current working tree has not been run through CI; the latest full API integration run had one confirmed chart-source failure.
+- The current working tree has not been run through CI. The latest full API integration run passed (61 files, 628 tests); CI and release rehearsal remain outstanding.
 
 ## Implemented transition safeguards
 
@@ -39,7 +39,7 @@ The role-by-role findings are in [target-coa-role-crosswalk.md](target-coa-role-
 - New-company registration provisions posting controls but no longer automatically moves a farm into the superseded six-digit chart.
 - The CFO route for the old six-digit balance cutover now returns a conflict, and the old six-digit cutover form has been replaced with the live five-digit chart readiness page.
 - Posting-control status now checks target-account presence, workbook metadata, active mapping links, and active accounts outside the approved target.
-- The chart-unification integration test now asserts the current guarded onboarding behavior and explicitly exposes the six-digit GRNI compatibility account. The test has passed TypeScript checking but has not yet been run against the integration database.
+- The chart-unification integration test asserts the current guarded onboarding behavior and explicitly exposes the six-digit GRNI compatibility account; it is included in the passing 61-file API integration run. This does not prove five-digit posting readiness.
 - `chart.ts` has a third chart version, `APPROVED`, with the five-digit number for every role the crosswalk resolves directly (bank, receivables, feed and packaging inventory, VAT/WHT, payroll and PAYE control, GRNI, trade payables, retained earnings, depreciation expense, and per-species mortality loss, live cost of sales and live revenue). Each number is taken from the workbook's own account maps for the company-wide application (YifrehCore) and checked against them by test. Raw materials, fixed assets (cost 15200, accumulated depreciation 15600), employer NSITF/ITF (accrued expenses control 20200) and payroll and operating expense follow those maps. Impairment loss and the two POL-009 capitalised variances use owner-approved accounts 52800, 12490 and 13190, recorded as policy additions outside the original workbook and still requiring client Finance sign-off before production. Posting-control status now lists those roles, and any role whose account is missing from the company's chart, under Books → Controls. `test/unit/chart-approved.spec.ts` checks every mapped number against the workbook's account master. No company is on `APPROVED`; the cutover is still disabled.
 
 - Poultry rearing cost on the approved chart is held by the flock's stage on the day each feed, treatment or labour share is posted: 16032 immature, 16042 mature. The workbook names those accounts but assigns maturity to the breed-stage master. `SpeciesBreedStage.maturityClass` now stores Finance's explicit `IMMATURE`/`MATURE` decision; blank or conflicting values block approved-chart posting and cutover. Each posting records its account; a death, sale, transfer or harvest takes its share from every account in proportion to what each holds (largest remainder, never over-drawing one), and a valuation moves cost held in the other stage's account into the account fair value sits in, so no stage account is stranded. Snail feed, treatment and farm labour are expensed to 52610, 52510 and 52010. Migrations `0046` and `0058` add per-posting account relief rows and the governed maturity field.
@@ -115,6 +115,38 @@ So what step 2 was meant to buy — the client's own document deciding which acc
 - credit proceeds from fixed-asset disposals are posted to AR, shown in ageing/reconciliation, and can be settled through customer receipts against the originating journal line (migration 0059 adds this allocation target; it must be applied before release);
 - workbook posting groups now have a governed effective-dated assignment registry and Finance entry screen, validated against the declared master type. Fixed-asset disposal, customer receivables on invoices/credit notes/receipts, vendor payables on invoices/payments/returns, bank accounts on receipts/payments/VAT payment/refund, tax codes on VAT account resolution, VAT settlement accounts on VAT clearing/payment/refund, sales classes on categorized item revenue, service categories on service receipts, lifecycle stages on biological asset/hatch/operations/cost-allocation postings, work-centre groups on farm material issues, Snail/Poultry routing and Feed-Mill labour recovery, and item inventory groups on feed issues, goods receipts, stock counts, inventory transfers/write-offs and Feed-Mill WIP/overhead consume their assignment. VAT clearing and refund claims use independent workflow approval; approvers can open the VAT return and reconciliation from their queue. Refund receipts are limited to both the filed return's recoverable balance and the settlement control debit balance. Snail egg initial recognition on the approved chart now waits for maker-checker approval; its cohort is created with the posting, and hatch is unavailable while approval is pending. Attributable-cost snail egg recognition now uses a distinct approved-chart event and persists the selected source expense account for maker-checker posting. Fixed-asset impairment, income-tax provision, and capitalized variance proration now use distinct owner-approved event/account mappings; COR-YFR-028 remains WHT utilization. Payroll runs still post statutory accruals separately. Approved farm-cost allocation is now bound to COR-APP-FARM-COST-ALLOC-001; its HOURS basis accepts only mapped LABOUR_EXPENSE sources, uses approved timesheet hours × payroll rate, and credits the expense pool instead of creating a second payroll payable. Treatment consumption is bound to the applicable SNP/PLP/COR-YFR-045A farm-material event. Year-end close and opening journals now validate every account-side amount against dynamic source-account controls before posting. Feed-Mill grinding now records measured input/output kg, requires actual FM-GRN machine hours and checks the received output weight against the grinding record. Configure an approved FM-GRN machine work centre/routing before using that event. Feed-Mill recovery settlement now follows the COR-YFR-062A/B directions and is bound to its event controls; source-pool clearing is deliberately outside that user-approved variance/recovery entry. Some declared master types also lack a dedicated governed table and are currently represented by category text or related records.
 
+## Current implementation delta (13 November 2026)
+
+The 17 October snapshot above is historical. The posting service now rejects
+approved-chart business journals that have neither an approved workbook event
+contract nor an explicitly governed standard/manual/closing/chart-transition
+path. For bound events, account/side, expected amounts where supplied, dynamic
+source-account mappings, source-document identity and required cost-centre
+presence are checked centrally. This is fail-closed: an unmapped event is
+blocked rather than posted through an unverified path.
+
+The workbook's `Required Status`, `Required Fields Before Posting`, `Blocking
+Controls` and `Reversal / Correction` cells are free-text instructions, not
+machine-readable field mappings. They are not certified as universally
+enforced by the central posting gate; their checks must be mapped to each
+domain's source record and verified in that domain's posting tests. The
+original Stage 7 authority is also absent. Owner-approved code direction now
+requires FVLCTS at reporting dates and stage transfers, with attributable cost
+only under a dated, evidenced fair-value-unreliable exception.
+
+Joint-cost allocation now supports all five methods. Effective-dated standard
+percentages have independent proposal/approval history; manual percentages are
+snapshotted to each order output. Main-output shares must total exactly 100%,
+while material by-products continue to use NRV.
+
+SnailPro/PoultryPro production settlement has no single matching workbook event
+row. Its system-owned path is permitted only for an unsettled, output-completed
+order with posted issue and conversion journals, and its journal number and
+module must match that order. Abnormal processing-loss postings remain blocked
+on the approved chart pending a Finance-approved event contract; similarly
+numbered abnormal-loss rows in the workbook describe different events and are
+not substituted.
+
 ## The cost-centre rule, measured and enforced (17 October 2026)
 
 The earlier note said 447 control lines carry a cost-centre requirement and none was enforced. Both halves were loose. The precise counts are **306 Required, 222 Inherited, 141 Not required**, and the per-line columns hold no per-rule nuance at all — one value each, repeated:
@@ -128,7 +160,7 @@ The third clause — **application matches** — was not enforced, and that was 
 
 It is enforced now. The workbook's centres carry their application (SNP-* YifrehSnail, PLP-* YifrehPoultry, COR-* and FDM-* YifrehCore), and a line that carries both a `speciesKey` and a cost centre must use that business's own centre or a shared YifrehCore one. Centres with no application — every centre on the four- and six-digit charts — are left alone: this is the approved chart's rule, and inventing a classification for a centre nobody classified would refuse postings a farm has always made.
 
-The full integration suite passes unchanged (61 files, 620 tests), so no flow the suite covers was charging across businesses.
+The full integration suite passes (61 files, 628 tests), so no flow the suite covers was charging across businesses.
 
 ## Decisions implemented from the current review (10 November 2026)
 

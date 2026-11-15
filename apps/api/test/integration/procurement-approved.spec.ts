@@ -327,7 +327,7 @@ describe('Procure-to-pay on the approved chart', () => {
     expect(movements.map((m) => m.warehouseId)).toEqual([feedStore.id]);
   });
 
-  it('charges a service invoice to the expense account its item names', async () => {
+  it('blocks a service invoice without the posted receipt required by the approved event', async () => {
     const order = await approvedOrder(expenseItemId);
     const invoice = await invoices.create({
       companyId: fixture.companyId, invoiceNumber: 'SI-SVC', supplierInvoiceNumber: 'SUP-SVC-1', supplierId, invoiceDate: JAN, currencyId: fixture.currencyId,
@@ -335,11 +335,12 @@ describe('Procure-to-pay on the approved chart', () => {
       lines: [{ itemId: expenseItemId, quantity: 1, unitPriceKobo: 1_000_00n, costGlAccountId: await acct('56000') }], actor: maker,
     });
     const submitted = await invoices.submit({ invoiceId: invoice.id, actor: maker });
-    await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
+    await expect(workflow.approve({ transactionId: submitted.transactionId, actor: approver })).rejects.toThrow(
+      /needs a posted goods or service receipt/,
+    );
     expect(order.id).toBeTruthy();
-    expect(await balance('56000')).toBe(100_000n);
-    expect(await balance('11300')).toBe(7_500n); // 7.5% input VAT
-    expect(await balance('20100')).toBe(-107_500n);
+    expect(await balance('56000')).toBe(0n);
+    expect(await prisma.journalEntry.count({ where: { sourceDocumentType: 'SupplierInvoice' } })).toBe(0);
   });
   it('withholds tax on a payment to withholding payable (20500) and still balances', async () => {
     const order = await approvedOrder();
@@ -370,7 +371,7 @@ describe('Procure-to-pay on the approved chart', () => {
     expect(await balance('12000')).toBe(90n * UNIT_PRICE); // 10 units out of raw materials control
     expect((await trialBalance.build({ companyId: fixture.companyId })).balanced).toBe(true);
   });
-  it('capitalises a capital item bought through purchasing into plant and machinery cost (15200) against GRNI', async () => {
+  it('blocks a capital-asset receipt without an approved fixed-asset receipt event', async () => {
     const uom = await prisma.unitOfMeasure.findFirstOrThrow({ where: { companyId: fixture.companyId, code: 'Unit' } });
     const mixer = await prisma.item.create({
       data: { companyId: fixture.companyId, code: 'CAPEX-MIXER', description: 'Feed mixer', unitOfMeasureId: uom.id, itemType: ItemType.INVENTORY, fixedAssetClass: 'Machinery', usefulLifeMonths: 60 },
@@ -382,9 +383,9 @@ describe('Procure-to-pay on the approved chart', () => {
     const submitted = await orders.submitOrder({ purchaseOrderId: order.id, actor: maker });
     await workflow.approve({ transactionId: submitted.transactionId, actor: approver });
     await orders.syncStatus(order.id);
-    await receiveAll(order.id);
-    expect(await balance('15200')).toBe(5_000_000_00n);
-    expect(await balance('20300')).toBe(-5_000_000_00n);
-    expect(await prisma.fixedAsset.count({ where: { companyId: fixture.companyId, assetClass: 'Machinery', costKobo: 5_000_000_00n } })).toBe(1);
+    await expect(receiveAll(order.id)).rejects.toThrow(/has no approved workbook event contract/);
+    expect(await balance('15200')).toBe(0n);
+    expect(await balance('20300')).toBe(0n);
+    expect(await prisma.fixedAsset.count({ where: { companyId: fixture.companyId, assetClass: 'Machinery' } })).toBe(0);
   });
 });

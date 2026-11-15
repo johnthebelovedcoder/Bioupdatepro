@@ -1642,6 +1642,9 @@ export class ProductionOrderService {
     // --- Handbook §62: one released method, approved prices, mass balance --
     const joint = new JointCostService(this.prisma, this.audit);
     const method = await joint.releasedMethod(order.companyId);
+    if (new Set(params.outputs.map((output) => output.itemId)).size !== params.outputs.length) {
+      throw new BadRequestException('Each output item must appear once on a processing order.');
+    }
     if (!feedAtStandard && params.method && params.method !== method) {
       throw new AccountingRuleViolation(
         'JOINT_COST_ALLOCATION — one released method',
@@ -1650,6 +1653,11 @@ export class ProductionOrderService {
       );
     }
     let outputs = params.outputs;
+    if ((feedAtStandard || method !== 'MANUAL') && outputs.some((output) => output.allocationPercentage !== undefined)) {
+      throw new BadRequestException(method === 'STANDARD_PERCENTAGE' && !feedAtStandard
+        ? 'Standard percentages are loaded from approved effective-dated records; do not enter them on the order.'
+        : 'Per-order allocation percentages are accepted only for non-feed joint-cost orders using the released MANUAL method.');
+    }
     if (!feedAtStandard) {
       const needsAllocationPrices = method === 'NRV' || method === 'SALES_VALUE';
       const pricedIds = [...new Set(outputs
@@ -1662,6 +1670,17 @@ export class ProductionOrderService {
           salePricePerUnitKobo: prices.get(o.itemId)!.sellingPricePerUnitKobo,
           costsToSellPerUnitKobo: prices.get(o.itemId)!.furtherCostPerUnitKobo,
         }));
+      }
+      if (method === 'STANDARD_PERCENTAGE') {
+        const mainItemIds = [...new Set(outputs.filter((output) => output.outputType === 'MAIN').map((output) => output.itemId))];
+        const percentages = await joint.standardAllocationsOn(order.companyId, mainItemIds, new Date());
+        outputs = outputs.map((output) => output.outputType !== 'MAIN' ? output : ({
+          ...output,
+          allocationPercentage: percentages.get(output.itemId),
+        }));
+      }
+      if (method === 'MANUAL' && outputs.some((output) => output.outputType === 'BY_PRODUCT' && output.allocationPercentage !== undefined)) {
+        throw new BadRequestException('Manual percentages apply to main joint outputs; by-products continue to use NRV.');
       }
     }
     if (order.harvestRecordId) {
@@ -1745,6 +1764,7 @@ export class ProductionOrderService {
           quantity: new Decimal(output.quantity).toFixed(6),
           allocationWeightKobo: version.unitCostKobo.toString(),
           allocatedCostKobo: value.toString(),
+          allocationPercentage: null,
           isImmaterialByProduct: output.isImmaterialByProduct === true,
         });
       }
@@ -1847,6 +1867,7 @@ export class ProductionOrderService {
             quantity: new Prisma.Decimal(output.quantity),
             allocationWeightKobo: BigInt(output.allocationWeightKobo),
             allocatedCostKobo: BigInt(output.allocatedCostKobo),
+            allocationPercentage: output.allocationPercentage === null ? null : new Prisma.Decimal(output.allocationPercentage),
             stockMovementId: stockMovement.stockMovementId,
             grade: detail.grade?.trim() || null,
             expiryDate: expiry,
@@ -1948,6 +1969,17 @@ export class ProductionOrderService {
           comments: feedAtStandard
             ? `Completed ${order.orderNumber}: ${allocated.length} outputs, ${finishedGoods} kobo at standard, yield variance ${yieldVariance}.`
             : `Completed ${order.orderNumber}: ${allocated.length} outputs, ${totalToAllocate} kobo allocated by ${method}.`,
+          newValue: {
+            method: feedAtStandard ? 'STANDARD_COST' : method,
+            outputs: allocated.map((output) => ({
+              itemId: output.itemId,
+              outputType: output.outputType,
+              quantity: output.quantity,
+              allocationPercentage: output.allocationPercentage,
+              allocationWeight: output.allocationWeightKobo,
+              allocatedCostKobo: output.allocatedCostKobo,
+            })),
+          },
         },
         tx,
       );

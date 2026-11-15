@@ -595,7 +595,25 @@ export class SupplierInvoiceService {
     });
 
     const approvedChart = await chartVersionOf(params.tx, invoice.companyId) === 'APPROVED';
-    const matchedGrni = invoice.lines.length > 0 && invoice.lines.every((line) => line.clearsGrni && !variances.get(line.id));
+    const matchedGrni = invoice.lines.length > 0 && invoice.lines.every((line) => line.clearsGrni);
+    if (approvedChart && !matchedGrni) {
+      throw new AccountingRuleViolation(
+        'COR-YFR-011A / COR-YFR-017A — supplier invoice receipt match',
+        'A supplier invoice needs a posted goods or service receipt before posting on the approved chart; no approved no-receipt exception is configured.',
+        { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber },
+      );
+    }
+    const grniAmountKobo = invoice.lines.reduce(
+      (sum, line) => sum + (variances.get(line.id)?.receivedValueKobo ?? line.netAmountKobo),
+      0n,
+    );
+    const varianceLines = lines.filter((line) => line.description.startsWith('Price difference'));
+    const varianceAmounts = new Map<string, bigint>();
+    for (const line of varianceLines) {
+      const side = line.debit !== undefined ? 'Debit' : 'Credit';
+      const key = `${side}:${line.glAccountId}`;
+      varianceAmounts.set(key, (varianceAmounts.get(key) ?? 0n) + (line.debit ?? line.credit ?? 0n));
+    }
     const result = await this.posting.post(
       {
         sourceModule: 'procurement',
@@ -613,13 +631,17 @@ export class SupplierInvoiceService {
           ...(invoice.vatAmountKobo > 0n ? { additionalApplicationRuleIds: ['COR-YFR-011B'] } : {}),
           dynamicAccountIds: { 'COR-YFR-011A:AP_CONTROL': [settings.payablesGlAccountId] },
           expectedLineAmountsKobo: {
-            'COR-YFR-011A:1': invoice.netAmountKobo.toString(),
+            'COR-YFR-011A:1': grniAmountKobo.toString(),
             'COR-YFR-011A:2': invoice.netAmountKobo.toString(),
             ...(invoice.vatAmountKobo > 0n ? {
               'COR-YFR-011B:1': invoice.vatAmountKobo.toString(),
               'COR-YFR-011B:2': invoice.vatAmountKobo.toString(),
             } : {}),
           },
+          ...(varianceAmounts.size > 0 ? {
+            additionalMappedAccountSidePairs: [...varianceAmounts.keys()],
+            expectedAccountSideAmountsKobo: Object.fromEntries([...varianceAmounts].map(([pair, amount]) => [pair, amount.toString()])),
+          } : {}),
         } } : {}),
         actor: params.actor,
         lines: lines.map((line) => ({

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { api } from '@/lib/api';
 import { getFeedQuality, getProductionOrder, getProductionRouting, getProductionVariance, type ProductionVariance } from '@/lib/production';
 import { getWarehouses, getStockItems } from '@/lib/masters';
 import { formatDate, formatNaira, formatQuantity } from '@/lib/money';
@@ -472,7 +473,11 @@ async function RecordOutputsFormLoader({
 }: {
   order: NonNullable<Awaited<ReturnType<typeof getProductionOrder>>>;
 }) {
-  const [warehouses, stockItems] = await Promise.all([getWarehouses(), getStockItems()]);
+  const [warehouses, stockItems, jointCost] = await Promise.all([
+    getWarehouses(),
+    getStockItems(),
+    api<{ method: string }>('/production-orders/joint-cost'),
+  ]);
   const mainItemId = order.recipeVersion.recipe.outputItemId;
   const byProductItems = stockItems
     .filter((i) => i.id !== mainItemId)
@@ -486,6 +491,7 @@ async function RecordOutputsFormLoader({
       warehouses={warehouses}
       byProductItems={byProductItems}
       coldStore={order.processingCycle === 'POULTRYPRO' && !!order.harvestRecord}
+      method={order.processingCycle === 'FEED_MILL' ? 'STANDARD_COST' : jointCost.method}
     />
   );
 }

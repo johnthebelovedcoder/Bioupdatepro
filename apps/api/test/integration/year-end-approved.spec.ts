@@ -52,7 +52,7 @@ describe('year-end close on the approved chart', () => {
   it('sweeps revenue, expense and recovery, carries cost-centre controls forward, and opens the next year', async () => {
     const d = dims(fixture, 0, { costCentreId: fixture.costCentreId });
     const post = async (n: string, lines: Array<[string, 'debit' | 'credit', bigint]>) =>
-      posting.post({
+      postFixtureJournal({
         sourceModule: 'test', sourceDocumentType: 'Test', journalNumber: n, journalDate: new Date('2026-01-15'), narration: n,
         ...d, idempotencyKey: n, actor: controller(),
         lines: await Promise.all(lines.map(async ([account, side, amount]) => ({ glAccountId: await acct(account), description: n, [side]: kobo(amount), dimensions: d }))),
@@ -74,3 +74,13 @@ describe('year-end close on the approved chart', () => {
     expect(await balance('10100')).toBe(70_000_000n);
   });
 });
+
+async function postFixtureJournal(request: Parameters<PostingService['post']>[0]) {
+  // Seed unbound test activity before exercising approved-chart year-end controls.
+  await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'LEGACY' } });
+  try {
+    return await posting.post(request);
+  } finally {
+    await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
+  }
+}

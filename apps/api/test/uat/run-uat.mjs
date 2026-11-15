@@ -34,7 +34,8 @@ if (!process.argv.includes('--score')) {
     // mistaken for evidence from this run.
     rmSync(results[kind], { force: true });
     try {
-      execSync(`npx vitest run --config ${config} --reporter=json --outputFile=${results[kind]}`, { cwd: api, stdio: 'inherit' });
+      const workerArgs = kind === 'integration' ? ' --pool=threads --no-isolate --maxWorkers=1' : '';
+      execSync(`npx vitest run --config ${config} --reporter=json --outputFile=${results[kind]}${workerArgs}`, { cwd: api, stdio: 'inherit' });
     } catch {
       // A failing suite still writes its results; the scoring below says which UAT tests it breaks.
     }

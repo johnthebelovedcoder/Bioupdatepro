@@ -1,12 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditAction } from '@bioassetpro/database';
+import Decimal from 'decimal.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { WorkflowActor } from '../workflow/workflow.types';
 import { AccountingRuleViolation } from '../common/errors';
 import type { CostAllocationMethod } from './cost-allocation.service';
 
-export const JOINT_COST_METHODS: CostAllocationMethod[] = ['SALES_VALUE', 'NRV', 'WEIGHT'];
+export const JOINT_COST_METHODS: CostAllocationMethod[] = ['SALES_VALUE', 'NRV', 'WEIGHT', 'STANDARD_PERCENTAGE', 'MANUAL'];
 
 /** Who may approve a joint-cost price: those who answer for costing. */
 const PRICE_APPROVERS = ['FINANCE_CONTROLLER', 'FINANCE_MANAGER', 'CFO', 'ADMINISTRATOR'];
@@ -31,7 +32,7 @@ export class JointCostService {
     if (!JOINT_COST_METHODS.includes(company.jointCostMethod as CostAllocationMethod)) {
       throw new AccountingRuleViolation(
         'JOINT_COST_ALLOCATION — supported released method',
-        `The stored method ${company.jointCostMethod} is not implemented. Finance must release SALES_VALUE, NRV or WEIGHT before processing outputs.`,
+        `The stored method ${company.jointCostMethod} is not supported. Finance must release a supported joint-cost method before processing outputs.`,
         { method: company.jointCostMethod },
       );
     }
@@ -83,6 +84,108 @@ export class JointCostService {
       approvedBy: r.approvedBy?.fullName ?? null,
       rejectionReason: r.rejectionReason,
     }));
+  }
+
+  async listStandardAllocations(companyId: string) {
+    const rows = await this.prisma.jointOutputStandardAllocation.findMany({
+      where: { companyId },
+      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+      include: {
+        item: { select: { code: true, description: true } },
+        proposedBy: { select: { fullName: true } },
+        approvedBy: { select: { fullName: true } },
+      },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      itemId: row.itemId,
+      itemCode: row.item.code,
+      itemDescription: row.item.description,
+      allocationPercentage: row.allocationPercentage.toString(),
+      effectiveFrom: row.effectiveFrom.toISOString().slice(0, 10),
+      evidenceReference: row.evidenceReference,
+      status: row.status,
+      proposedBy: row.proposedBy.fullName,
+      approvedBy: row.approvedBy?.fullName ?? null,
+      rejectionReason: row.rejectionReason,
+    }));
+  }
+
+  async proposeStandardAllocation(params: {
+    companyId: string;
+    itemId: string;
+    allocationPercentage: string;
+    effectiveFrom: Date;
+    evidenceReference: string;
+    actor: WorkflowActor;
+  }) {
+    const item = await this.prisma.item.findFirst({ where: { id: params.itemId, companyId: params.companyId, active: true } });
+    if (!item) throw new NotFoundException('No active item with that output code.');
+    const percentage = new Decimal(params.allocationPercentage);
+    if (!percentage.isFinite() || percentage.isNegative() || percentage.greaterThan(100) || percentage.decimalPlaces() > 4) {
+      throw new BadRequestException('Allocation percentage must be from 0 to 100 with at most four decimal places.');
+    }
+    if (!params.evidenceReference?.trim()) throw new BadRequestException('Name the evidence or approved basis for this standard allocation.');
+    const allocation = await this.prisma.jointOutputStandardAllocation.create({
+      data: {
+        companyId: params.companyId,
+        itemId: item.id,
+        allocationPercentage: percentage.toFixed(4),
+        effectiveFrom: params.effectiveFrom,
+        evidenceReference: params.evidenceReference.trim(),
+        proposedById: params.actor.userId,
+      },
+    });
+    await this.audit.write({
+      transactionId: allocation.id,
+      module: 'production',
+      entityType: 'JointOutputStandardAllocation',
+      entityId: allocation.id,
+      status: 'PENDING',
+      action: AuditAction.CREATE,
+      userId: params.actor.userId,
+      comments: `Proposed ${percentage.toFixed(4)}% for ${item.code} from ${params.effectiveFrom.toISOString().slice(0, 10)}.`,
+    });
+    return allocation;
+  }
+
+  async decideStandardAllocation(params: {
+    companyId: string;
+    allocationId: string;
+    approve: boolean;
+    reason?: string;
+    actor: WorkflowActor;
+  }) {
+    if (!params.actor.roles.some((role) => PRICE_APPROVERS.includes(role))) {
+      throw new ForbiddenException('Only the finance controller, finance manager or CFO approves standard joint-cost allocations.');
+    }
+    const allocation = await this.prisma.jointOutputStandardAllocation.findFirst({
+      where: { id: params.allocationId, companyId: params.companyId },
+    });
+    if (!allocation) throw new NotFoundException('No such standard allocation.');
+    if (allocation.status !== 'PENDING') throw new BadRequestException(`That allocation was already ${allocation.status.toLowerCase()}.`);
+    if (params.approve && allocation.proposedById === params.actor.userId) {
+      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: params.companyId }, select: { allowSelfApproval: true } });
+      if (!company.allowSelfApproval) throw new ForbiddenException('You proposed this allocation, so someone else must approve it.');
+    }
+    if (!params.approve && !params.reason?.trim()) throw new BadRequestException('Say why the allocation is rejected.');
+    const decided = await this.prisma.jointOutputStandardAllocation.update({
+      where: { id: allocation.id },
+      data: params.approve
+        ? { status: 'APPROVED', approvedById: params.actor.userId, approvedAt: new Date() }
+        : { status: 'REJECTED', approvedById: params.actor.userId, approvedAt: new Date(), rejectionReason: params.reason!.trim() },
+    });
+    await this.audit.write({
+      transactionId: allocation.id,
+      module: 'production',
+      entityType: 'JointOutputStandardAllocation',
+      entityId: allocation.id,
+      status: decided.status,
+      action: params.approve ? AuditAction.APPROVE : AuditAction.REJECT,
+      userId: params.actor.userId,
+      comments: params.approve ? 'Approved.' : params.reason!.trim(),
+    });
+    return decided;
   }
 
   async proposePrice(params: {
@@ -179,5 +282,36 @@ export class JointCostService {
       );
     }
     return byItem;
+  }
+
+  async standardAllocationsOn(companyId: string, itemIds: string[], on: Date) {
+    const rows = await this.prisma.jointOutputStandardAllocation.findMany({
+      where: { companyId, itemId: { in: itemIds }, status: 'APPROVED', effectiveFrom: { lte: on } },
+      orderBy: [{ effectiveFrom: 'desc' }, { approvedAt: 'desc' }],
+      include: { item: { select: { code: true } } },
+    });
+    const byItem = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) if (!byItem.has(row.itemId)) byItem.set(row.itemId, row);
+    const missing = itemIds.filter((id) => !byItem.has(id));
+    if (missing.length) {
+      const items = await this.prisma.item.findMany({ where: { companyId, id: { in: missing } }, select: { code: true } });
+      throw new AccountingRuleViolation(
+        'JOINT_COST_ALLOCATION — approved standard percentages',
+        `No approved standard percentage is effective for ${items.map((item) => item.code).join(', ')} on ${on.toISOString().slice(0, 10)}.`,
+        { missing: items.map((item) => item.code) },
+      );
+    }
+    const total = [...byItem.values()].reduce(
+      (sum, row) => sum.plus(row.allocationPercentage.toString()),
+      new Decimal(0),
+    );
+    if (!total.equals(100)) {
+      throw new AccountingRuleViolation(
+        'JOINT_COST_ALLOCATION — approved standard percentages',
+        `The effective approved standard percentages for this order total ${total.toString()}%, not 100%. Update and approve the effective-dated percentages before completing the order.`,
+        { itemIds, totalPercentage: total.toString(), on: on.toISOString().slice(0, 10) },
+      );
+    }
+    return new Map([...byItem].map(([itemId, row]) => [itemId, row.allocationPercentage.toString()]));
   }
 }

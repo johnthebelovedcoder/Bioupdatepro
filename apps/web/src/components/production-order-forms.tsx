@@ -193,6 +193,7 @@ export function RecordOutputsForm({
   warehouses,
   byProductItems,
   coldStore = false,
+  method,
 }: {
   orderId: string;
   mainItemId: string;
@@ -201,12 +202,15 @@ export function RecordOutputsForm({
   byProductItems: Array<{ id: string; code: string; name: string }>;
   /** Poultry processing: grade, expiry and cold-store temperature are required (handbook §29). */
   coldStore?: boolean;
+  method: string;
 }) {
   const [state, formAction] = useActionState<FlowState, FormData>(recordOutputs, {
     error: null,
     message: null,
   });
   const [byProductCount, setByProductCount] = useState(0);
+  const [outputTypes, setOutputTypes] = useState<Record<number, 'MAIN' | 'BY_PRODUCT'>>({});
+  const manual = method === 'MANUAL';
 
   return (
     <form action={formAction} className="stack" style={{ gap: 'var(--sp-3)' }}>
@@ -216,10 +220,14 @@ export function RecordOutputsForm({
       {state.message ? <div className="notice notice-success">{state.message}</div> : null}
 
       <p className="faint" style={{ fontSize: 13 }}>
-        The order&rsquo;s cost is shared between its outputs by the company&rsquo;s one released method — relative
-        sales value at split-off — using the approved selling prices under{' '}
-        <a href="/production/joint-cost">Joint-cost prices</a>. Weigh everything in kilograms: what came out, and what was
-        lost along the way, must add up to what went in.
+        {method === 'STANDARD_COST'
+          ? 'Feed Mill output is received at its approved standard cost; joint-cost percentages do not apply.'
+          : method === 'MANUAL'
+          ? 'Enter the per-order percentage for each main output. Main-output shares must total exactly 100%; by-products remain valued at NRV.'
+          : method === 'STANDARD_PERCENTAGE'
+            ? 'Approved effective-dated percentages allocate main outputs; by-products remain valued at NRV.'
+            : 'The released method allocates joint cost using approved prices or measured weights. By-products remain valued at NRV.'}{' '}
+        Manage the method and supporting evidence under <a href="/production/joint-cost">Joint-cost prices</a>. Weigh everything in kilograms: what came out, and what was lost along the way, must add up to what went in.
       </p>
 
       <label className="field">
@@ -240,6 +248,12 @@ export function RecordOutputsForm({
         {mainItemLabel} (kg)
         <input name="mainQuantity" type="number" step="0.001" min="0.001" required />
       </label>
+      {manual ? (
+        <label className="field">
+          Main output allocation (%)
+          <input name="mainAllocationPercentage" type="number" step="0.0001" min="0" max="100" required />
+        </label>
+      ) : null}
       <ColdStoreFields prefix="main" required={coldStore} />
 
       {[...Array(byProductCount)].map((_, index) => {
@@ -247,7 +261,7 @@ export function RecordOutputsForm({
         return (
           <div key={n} className="grid-auto">
             <label className="field">
-              By-product {n}
+              Output {n}
               <select name={`byProductItemId${n}`} defaultValue="">
                 <option value="">— none —</option>
                 {byProductItems.map((i) => (
@@ -258,14 +272,36 @@ export function RecordOutputsForm({
               </select>
             </label>
             <label className="field">
+              Output type
+              <select
+                name={`outputType${n}`}
+                value={outputTypes[n] ?? 'BY_PRODUCT'}
+                onChange={(event) => setOutputTypes((current) => ({
+                  ...current,
+                  [n]: event.target.value === 'MAIN' ? 'MAIN' : 'BY_PRODUCT',
+                }))}
+              >
+                <option value="MAIN">Main joint output</option>
+                <option value="BY_PRODUCT">By-product (NRV)</option>
+              </select>
+            </label>
+            <label className="field">
               Kilograms
               <input name={`byProductQuantity${n}`} type="number" step="0.001" min="0" />
             </label>
-            <label className="field">
-              <span>Cost treatment</span>
-              <span><input name={`byProductImmaterial${n}`} type="checkbox" /> Immaterial: zero inventory value</span>
-              <span className="faint">Map this item to an other-operating-income account before receiving it.</span>
-            </label>
+            {manual && outputTypes[n] === 'MAIN' ? (
+              <label className="field">
+                Output allocation (%)
+                <input name={`allocationPercentage${n}`} type="number" step="0.0001" min="0" max="100" required />
+              </label>
+            ) : null}
+            {outputTypes[n] !== 'MAIN' ? (
+              <label className="field">
+                <span>Cost treatment</span>
+                <span><input name={`byProductImmaterial${n}`} type="checkbox" /> Immaterial: zero inventory value</span>
+                <span className="faint">Map this item to an other-operating-income account before receiving it.</span>
+              </label>
+            ) : null}
             <ColdStoreFields prefix={`byProduct${n}`} required={false} />
           </div>
         );

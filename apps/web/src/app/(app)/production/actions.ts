@@ -186,6 +186,7 @@ interface OutputLine {
   outputType: 'MAIN' | 'BY_PRODUCT';
   isImmaterialByProduct?: boolean;
   quantity: string;
+  allocationPercentage?: string;
   grade?: string;
   expiryDate?: string;
   storageTemperatureC?: string;
@@ -287,13 +288,25 @@ export async function recordOutputs(_previous: FlowState, formData: FormData): P
   if (!warehouseId) return { error: 'Choose which store receives the output.', message: null };
   if (!mainQuantity || Number(mainQuantity) <= 0) return { error: 'Enter how many kilograms of the main output came out.', message: null };
 
-  const outputs: OutputLine[] = [{ itemId: mainItemId, outputType: 'MAIN', quantity: mainQuantity, ...coldStore(formData, 'main') }];
+  const mainAllocationPercentage = String(formData.get('mainAllocationPercentage') ?? '').trim();
+  const outputs: OutputLine[] = [{
+    itemId: mainItemId,
+    outputType: 'MAIN',
+    quantity: mainQuantity,
+    ...(mainAllocationPercentage ? { allocationPercentage: mainAllocationPercentage } : {}),
+    ...coldStore(formData, 'main'),
+  }];
   for (let i = 1; i <= 2; i++) {
     const itemId = String(formData.get(`byProductItemId${i}`) ?? '');
     const quantity = String(formData.get(`byProductQuantity${i}`) ?? '').trim();
+    const outputType = String(formData.get(`outputType${i}`) ?? 'BY_PRODUCT') === 'MAIN' ? 'MAIN' : 'BY_PRODUCT';
+    const allocationPercentage = String(formData.get(`allocationPercentage${i}`) ?? '').trim();
     if (itemId && quantity && Number(quantity) > 0) outputs.push({
-      itemId, outputType: 'BY_PRODUCT', quantity,
-      isImmaterialByProduct: formData.get(`byProductImmaterial${i}`) === 'on',
+      itemId,
+      outputType,
+      quantity,
+      ...(outputType === 'BY_PRODUCT' ? { isImmaterialByProduct: formData.get(`byProductImmaterial${i}`) === 'on' } : {}),
+      ...(allocationPercentage ? { allocationPercentage } : {}),
       ...coldStore(formData, `byProduct${i}`),
     });
   }

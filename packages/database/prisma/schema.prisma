@@ -218,6 +218,8 @@ model User {
   weighingsApproved LivestockWeighing[] @relation("WeighingApprover")
   jointPricesProposed JointOutputPrice[] @relation("JointPriceProposer")
   jointPricesApproved JointOutputPrice[] @relation("JointPriceApprover")
+  jointAllocationsProposed JointOutputStandardAllocation[] @relation("JointAllocationProposer")
+  jointAllocationsApproved JointOutputStandardAllocation[] @relation("JointAllocationApprover")
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +359,7 @@ model Company {
   livestockWeighings LivestockWeighing[]
   documentSequences DocumentSequence[]
   jointOutputPrices JointOutputPrice[]
+  jointOutputStandardAllocations JointOutputStandardAllocation[]
 }
 
 /// The atomic counter behind controlled references (Numbering_Parameters):
@@ -2340,6 +2343,7 @@ model Item {
   @@index([companyId, itemType, active])
   @@map("items")
   jointOutputPrices JointOutputPrice[]
+  jointOutputStandardAllocations JointOutputStandardAllocation[]
   standardCostVersions StandardCostVersion[]
 }
 
@@ -3263,10 +3267,12 @@ model ProductionOrderOutput {
 
   quantity Decimal @db.Decimal(18, 6)
 
-  /// MONEY. The NRV (or other method's) weight this output was allocated
-  /// against, kept for audit — "why did meat get 70% and shell 5%".
+  /// Integer allocation basis kept for audit: value in kobo, quantity/weight
+  /// for those methods, or percentage basis points for percentage methods.
   allocationWeightKobo BigInt @map("allocation_weight_kobo")
   allocatedCostKobo    BigInt @map("allocated_cost_kobo")
+  /// Present for STANDARD_PERCENTAGE and MANUAL allocations; snapshots the exact per-order share.
+  allocationPercentage Decimal? @map("allocation_percentage") @db.Decimal(7, 4)
 
   /// Cold store (handbook §29): grade, expiry and storage temperature of the
   /// output lot. Required for poultry processing, optional elsewhere.
@@ -7518,6 +7524,33 @@ model JointOutputPrice {
 
   @@index([companyId, itemId, effectiveFrom])
   @@map("joint_output_prices")
+}
+
+/// Effective-dated, separately proposed and approved share for one joint output.
+/// A completed order snapshots the approved percentage on its output row.
+model JointOutputStandardAllocation {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  itemId    String @map("item_id") @db.Uuid
+
+  allocationPercentage Decimal @map("allocation_percentage") @db.Decimal(7, 4)
+  effectiveFrom        DateTime @map("effective_from") @db.Date
+  evidenceReference    String @map("evidence_reference")
+
+  status          String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  proposedById    String    @map("proposed_by_id") @db.Uuid
+  approvedById    String?   @map("approved_by_id") @db.Uuid
+  approvedAt      DateTime? @map("approved_at")
+  rejectionReason String?   @map("rejection_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  company    Company @relation(fields: [companyId], references: [id])
+  item       Item    @relation(fields: [itemId], references: [id])
+  proposedBy User    @relation("JointAllocationProposer", fields: [proposedById], references: [id])
+  approvedBy User?   @relation("JointAllocationApprover", fields: [approvedById], references: [id])
+
+  @@index([companyId, itemId, effectiveFrom])
+  @@map("joint_output_standard_allocations")
 }
 
 // ---------------------------------------------------------------------------

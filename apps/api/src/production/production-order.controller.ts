@@ -120,7 +120,12 @@ export class ProductionOrderController {
   @AnyRole('The joint-cost method and prices are how an order will be costed; everyone costing one needs them.')
   @Get('joint-cost')
   async jointCost(@CurrentCompany() companyId: string) {
-    return { method: await this.joint.releasedMethod(companyId), prices: await this.joint.listPrices(companyId) };
+    const [method, prices, standardAllocations] = await Promise.all([
+      this.joint.releasedMethod(companyId),
+      this.joint.listPrices(companyId),
+      this.joint.listStandardAllocations(companyId),
+    ]);
+    return { method, prices, standardAllocations };
   }
 
   @Roles('CFO')
@@ -161,6 +166,48 @@ export class ProductionOrderController {
     @Body() body: { approve: boolean; reason?: string },
   ) {
     const decided = await this.joint.decide({ companyId, priceId, approve: body?.approve === true, reason: body?.reason, actor });
+    return { id: decided.id, status: decided.status };
+  }
+
+  @Roles('PRODUCTION_LEAD', 'FARM_ACCOUNTANT', 'FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('joint-cost/standard-percentages')
+  async proposeStandardJointAllocation(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Body() body: { itemId: string; allocationPercentage: string; effectiveFrom: string; evidenceReference: string },
+  ) {
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(body?.effectiveFrom ?? '')) {
+      throw new BadRequestException('effectiveFrom must be a date, YYYY-MM-DD.');
+    }
+    if (!/^(?:100(?:\.0{1,4})?|[0-9]{1,2}(?:\.[0-9]{1,4})?)$/.test(body?.allocationPercentage ?? '')) {
+      throw new BadRequestException('allocationPercentage must be from 0 to 100 with at most four decimal places.');
+    }
+    const allocation = await this.joint.proposeStandardAllocation({
+      companyId,
+      itemId: String(body.itemId ?? ''),
+      allocationPercentage: body.allocationPercentage,
+      effectiveFrom: new Date(`${body.effectiveFrom}T00:00:00.000Z`),
+      evidenceReference: String(body.evidenceReference ?? ''),
+      actor,
+    });
+    return { id: allocation.id, status: allocation.status };
+  }
+
+  @Roles('FINANCE_MANAGER', 'FINANCE_CONTROLLER', 'CFO')
+  @Post('joint-cost/standard-percentages/:allocationId/decide')
+  async decideStandardJointAllocation(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() actor: WorkflowActor,
+    @Param('allocationId') allocationId: string,
+    @Body() body: { approve: boolean; reason?: string },
+  ) {
+    const decided = await this.joint.decideStandardAllocation({
+      companyId,
+      allocationId,
+      approve: body?.approve === true,
+      reason: body?.reason,
+      actor,
+    });
     return { id: decided.id, status: decided.status };
   }
 
@@ -438,6 +485,7 @@ export class ProductionOrderController {
         salePricePerUnitKobo?: string;
         costsToSellPerUnitKobo?: string;
         weight?: string;
+        allocationPercentage?: string;
         grade?: string;
         /** YYYY-MM-DD. */
         expiryDate?: string;
@@ -446,8 +494,14 @@ export class ProductionOrderController {
     },
   ) {
     for (const o of body.outputs) {
+      if (o.outputType !== 'MAIN' && o.outputType !== 'BY_PRODUCT') {
+        throw new BadRequestException('outputType must be MAIN or BY_PRODUCT.');
+      }
       if (o.expiryDate && !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(o.expiryDate)) {
         throw new BadRequestException('expiryDate must be a date, YYYY-MM-DD.');
+      }
+      if (o.allocationPercentage !== undefined && !/^(?:100(?:\.0{1,4})?|[0-9]{1,2}(?:\.[0-9]{1,4})?)$/.test(o.allocationPercentage)) {
+        throw new BadRequestException('allocationPercentage must be from 0 to 100 with at most four decimal places.');
       }
     }
     const outputs: AllocationOutput[] = body.outputs.map((o) => ({
@@ -458,6 +512,7 @@ export class ProductionOrderController {
       salePricePerUnitKobo: o.salePricePerUnitKobo !== undefined ? BigInt(o.salePricePerUnitKobo) : undefined,
       costsToSellPerUnitKobo: o.costsToSellPerUnitKobo !== undefined ? BigInt(o.costsToSellPerUnitKobo) : undefined,
       weight: o.weight,
+      allocationPercentage: o.allocationPercentage,
     }));
 
     return this.orders.recordOutputs({

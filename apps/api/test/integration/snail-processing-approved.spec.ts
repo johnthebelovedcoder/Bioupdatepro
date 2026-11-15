@@ -247,12 +247,14 @@ describe('Snail processing on the approved chart', () => {
       orders.confirmConversion({ productionOrderId: id, standardConversionCostKobo: 1_300_000_00n, actualLabourCostKobo: 600_000_00n, actualOverheadCostKobo: 800_000_00n, actor: maker }),
     ).rejects.toThrow(/no routing, so its standard conversion cannot be credited to labour, machine or utility recovery/);
   });
-  it('writes an approved abnormal processing loss out of WIP to inventory write-down expense (51200)', async () => {
+  it('blocks abnormal processing loss until the approved chart has a matching event contract', async () => {
     const id = await throughConversion();
     const claim = await orders.recordAbnormalLoss({ productionOrderId: id, quantity: '4', costKobo: 50_000_00n, reason: 'Contamination at the chiller', actor: maker });
     expect(claim).toMatchObject({ classification: 'ABNORMAL', posted: false });
-    await prisma.$transaction((tx) => orders.postApprovedAbnormalLoss({ lossEventId: claim.lossEventId!, actor: approver, tx }));
-    expect(await balanceOf('51200')).toBe(50_000_00n);
-    expect(await wip()).toBe(1_500_000_00n + 5_000_00n + 1_300_000_00n - 50_000_00n);
+    await expect(
+      prisma.$transaction((tx) => orders.postApprovedAbnormalLoss({ lossEventId: claim.lossEventId!, actor: approver, tx })),
+    ).rejects.toThrow(/has no approved workbook event contract/);
+    expect((await prisma.productionOrderLossEvent.findUniqueOrThrow({ where: { id: claim.lossEventId! } })).journalEntryId).toBeNull();
+    expect(await balanceOf('51200')).toBe(0n);
   });
 });

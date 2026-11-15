@@ -153,14 +153,6 @@ export class BiologicalAssetService {
   }): Promise<void> {
     const start = new Date(Date.UTC(params.on.getUTCFullYear(), params.on.getUTCMonth(), params.on.getUTCDate()));
     const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-    if (params.currentFvlctsPerUnitKobo === null || params.currentFvlctsPerUnitKobo <= 0n) {
-      throw new AccountingRuleViolation('IAS 41 — Biological asset valuation', 'This population has no carrying value. Record attributable cost or an evidenced FVLCTS valuation before harvest or sale.', { groupId: params.groupId });
-    }
-    // Initial recognition is valid on the placement date. Later FVLCTS exits
-    // need that day's posted valuation; populations on the narrow cost
-    // exception need a dated Finance review that fair value remains unreliable.
-    const placedThatDay = params.startedOn >= start && params.startedOn < end;
-    if (placedThatDay) return;
     const db = params.tx ?? this.prisma;
     const group = await db.livestockGroup.findFirst({
       where: { id: params.groupId, companyId: params.companyId },
@@ -171,16 +163,23 @@ export class BiologicalAssetService {
       if (reviewedToday && group.fairValueUnreliableReason?.trim() && group.fairValueReliabilityEvidence?.trim()) return;
       throw new AccountingRuleViolation(
         'IAS 41 — Cost exception reliability review',
-        `Finance must document that fair value remains clearly unreliable on ${start.toISOString().slice(0, 10)}, or post an FVLCTS valuation before harvest or sale.`,
+        `Finance must document that fair value remains clearly unreliable on ${start.toISOString().slice(0, 10)}, or post an FVLCTS valuation before stage transfer, harvest or sale.`,
         { groupId: params.groupId, on: start.toISOString().slice(0, 10) },
       );
     }
+    if (params.currentFvlctsPerUnitKobo === null || params.currentFvlctsPerUnitKobo <= 0n) {
+      throw new AccountingRuleViolation('IAS 41 — Biological asset valuation', 'This population has no carrying value. Record an evidenced FVLCTS valuation before stage transfer, harvest or sale; attributable cost requires the documented fair-value exception.', { groupId: params.groupId });
+    }
+    const placedThatDay = params.startedOn >= start && params.startedOn < end;
+    // At initial recognition the recorded FVLCTS carrying value is the day's
+    // measurement; later transfers require that day's posted revaluation.
+    if (placedThatDay) return;
     const valuation = await db.biologicalAssetValuation.findFirst({
       where: { companyId: params.companyId, groupId: params.groupId, status: WorkflowStatus.POSTED, valuationDate: { gte: start, lt: end } },
       select: { id: true },
     });
     if (!valuation) {
-      throw new AccountingRuleViolation('IAS 41 — Pre-harvest/pre-sale valuation', 'Record and post an evidenced FVLCTS valuation for this population on the harvest or sale date before removing animals.', { groupId: params.groupId, on: start.toISOString().slice(0, 10) });
+      throw new AccountingRuleViolation('IAS 41 — Event-date FVLCTS valuation', 'Record and post an evidenced FVLCTS valuation for this population on the stage-transfer, harvest or sale date before the event.', { groupId: params.groupId, on: start.toISOString().slice(0, 10) });
     }
   }
 

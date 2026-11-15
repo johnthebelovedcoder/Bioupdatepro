@@ -329,8 +329,29 @@ describe('The 500-snail case, through the application (UAT-022)', () => {
       const transaction = await prisma.workflowTransaction.findFirstOrThrow({ where: { companyId: fixture.companyId, transactionType: 'BIOLOGICAL_ASSET_ABNORMAL_MORTALITY', documentId: mortality.id } });
       await workflow.approve({ transactionId: transaction.id, actor: approver() });
     };
-    const move = (from: string, to: string, date: string) =>
-      operations.recordStageChange({ companyId: fixture.companyId, actor: actor(), idempotencyKey: `case-move-${to}`, payload: { groupCode: 'HAT-1', date, fromStage: from, toStage: to, fromHouse: 'SNL-1', toHouse: 'SNL-1' } });
+    const move = async (from: string, to: string, date: string) => {
+      const current = await prisma.livestockGroup.findFirstOrThrow({ where: { code: 'HAT-1' } });
+      if (current.currentFvlctsPerUnitKobo === null || current.currentFvlctsPerUnitKobo <= 0n) {
+        throw new Error(`The case replay needs a positive carrying value before moving ${current.code}.`);
+      }
+      const { id: valuationId } = await assets.requestValuation({
+        companyId: fixture.companyId,
+        groupId: current.id,
+        valuationDate: new Date(`${date}T00:00:00.000Z`),
+        marketPricePerUnitKobo: current.currentFvlctsPerUnitKobo,
+        costsToSellPerUnitKobo: 0n,
+        evidenceReference: `500_Assumptions IAS 41 — stage transfer ${date}`,
+        actor: actor(),
+      });
+      const valuation = await prisma.biologicalAssetValuation.findUniqueOrThrow({ where: { id: valuationId } });
+      await workflow.approve({ transactionId: valuation.workflowTransactionId!, actor: approver() });
+      return operations.recordStageChange({
+        companyId: fixture.companyId,
+        actor: actor(),
+        idempotencyKey: `case-move-${to}`,
+        payload: { groupCode: 'HAT-1', date, fromStage: from, toStage: to, fromHouse: 'SNL-1', toHouse: 'SNL-1' },
+      });
+    };
     await round('HAT-1', '2026-03-10', 6_000); // 80% of hatchlings reach juvenile
     await move('Hatchling', 'Juvenile', '2026-03-15');
     await round('HAT-1', '2026-04-10', 3_600); // 85% of juveniles reach market

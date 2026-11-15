@@ -58,7 +58,7 @@ async function trade(n: string, period: number, amount: bigint) {
   const d = dims(fixture, period, { costCentreId: fixture.costCentreId });
   const [dr, cr] = amount > 0n ? ['10100', '40000'] : ['52400', '10100'];
   const abs = amount > 0n ? amount : -amount;
-  await posting.post({
+  await postFixtureJournal({
     sourceModule: 'test', sourceDocumentType: 'Test', journalNumber: n, journalDate: new Date(Date.UTC(2026, period, 15)), narration: n,
     ...d, idempotencyKey: n, actor: cfo(),
     lines: [
@@ -66,6 +66,16 @@ async function trade(n: string, period: number, amount: bigint) {
       { glAccountId: await acct(cr), description: n, credit: kobo(abs), dimensions: d },
     ],
   });
+}
+
+async function postFixtureJournal(request: Parameters<PostingService['post']>[0]) {
+  // Seed unbound test trading activity before exercising the approved-chart tax posting.
+  await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'LEGACY' } });
+  try {
+    return await posting.post(request);
+  } finally {
+    await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
+  }
 }
 
 async function balance(accountNumber: string) {

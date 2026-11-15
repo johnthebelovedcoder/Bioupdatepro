@@ -958,6 +958,14 @@ export class OperationsService {
 
       const group = await this.resolveGroup(tx, companyId, payload.groupCode);
       const toPen = await this.resolvePenHouse(tx, companyId, payload.toHouse);
+      await this.biologicalAssets.assertValuedOn({
+        companyId,
+        groupId: group.id,
+        startedOn: group.startedOn,
+        currentFvlctsPerUnitKobo: group.currentFvlctsPerUnitKobo,
+        on: asDate(payload.date),
+        tx,
+      });
 
       if (mortalityCount > group.population) {
         throw new BadRequestException(

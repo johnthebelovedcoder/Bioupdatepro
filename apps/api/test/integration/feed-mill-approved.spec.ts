@@ -208,6 +208,7 @@ async function allocateActualCosts(orderIds: string[]) {
 
   const dimensions = dims(fixture, periodIndex, { costCentreId: fixture.costCentreId });
   const period = await prisma.financialPeriod.findUniqueOrThrow({ where: { id: periodId } });
+  await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'SPEC' } });
   await posting.post({
     sourceModule: 'test-payroll-fixed-assets', sourceDocumentType: 'ActualCostSources', journalNumber: `TEST-FM-ACT-${period.periodNumber}`,
     journalDate: period.startDate, narration: 'Feed mill actual labour and overhead from source ledgers', companyId: fixture.companyId,
@@ -219,6 +220,7 @@ async function allocateActualCosts(orderIds: string[]) {
       { glAccountId: bankAccount.id, description: 'Settlement of feed mill actual costs', credit: kobo(sourceTotals.labour + sourceTotals.overhead), dimensions },
     ],
   });
+  await prisma.company.update({ where: { id: fixture.companyId }, data: { chartVersion: 'APPROVED' } });
   const audit = new AuditService(prisma);
   const close = new PeriodCloseService(prisma, audit, new TrialBalanceService(prisma), workflow);
   await close.softClose({ financialPeriodId: periodId, actor: finance, reason: 'Freeze actual cost source ledgers for UAT allocation.' });

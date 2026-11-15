@@ -81,11 +81,31 @@ export class PostingService {
       select: { baseCurrencyId: true, baseCurrency: { select: { code: true } } },
     });
     this.assertStructure(request);
-    if (
-      ['PayrollRun', 'PayrollPayment', 'REARING_COST_RELIEF'].includes(request.sourceDocumentType) &&
-      await chartVersionOf(externalTx ?? this.prisma, request.companyId) === 'APPROVED'
-    ) {
-      this.assertStandardApprovedEventContract(request);
+    if (await chartVersionOf(externalTx ?? this.prisma, request.companyId) === 'APPROVED') {
+      if (['PayrollRun', 'PayrollPayment', 'REARING_COST_RELIEF'].includes(request.sourceDocumentType)) {
+        this.assertStandardApprovedEventContract(request);
+      }
+      const standardProductionSettlement =
+        !request.approvedControl &&
+        request.sourceDocumentType === 'ProductionOrder' &&
+        await this.assertApprovedProductionSettlementContract(request, externalTx ?? this.prisma);
+      if (!request.approvedControl && !hasIndependentApprovedEventContract(request) && !standardProductionSettlement) {
+        throw new AccountingRuleViolation(
+          'Approved Posting Control — event contract required',
+          `${request.sourceDocumentType} has no approved workbook event contract. This journal is blocked on the approved chart until it is bound to an approved control or uses an explicitly governed standard event path.`,
+          { sourceModule: request.sourceModule, sourceDocumentType: request.sourceDocumentType, sourceDocumentId: request.sourceDocumentId ?? null },
+        );
+      }
+    }
+
+    function hasIndependentApprovedEventContract(request: PostingRequest): boolean {
+      if (request.sourceModule === 'journals' && request.sourceDocumentType === 'ManualJournal') return true;
+      return [
+        'YearEndClose',
+        'YearEndRollForward',
+        'ApprovedChartCutover',
+        'ChartUnification',
+      ].includes(request.sourceDocumentType);
     }
     if (request.approvedControl) await this.assertApprovedControlContract(request, externalTx ?? this.prisma);
     if (company.baseCurrency.code !== 'NGN' || request.currencyId !== company.baseCurrencyId || !new Prisma.Decimal(request.exchangeRate).equals(1)) {
@@ -95,6 +115,7 @@ export class PostingService {
         { baseCurrency: company.baseCurrency.code, transactionCurrencyId: request.currencyId },
       );
     }
+
     const { totalDebit, totalCredit } = this.assertBalanced(request);
 
     await this.periods.assertPostingAllowed(
@@ -458,6 +479,112 @@ export class PostingService {
    * event contract for these standard events prevented their established
    * accounting flows from posting on the approved chart.
    */
+  private async assertApprovedProductionSettlementContract(
+    request: PostingRequest,
+    client: Pick<Prisma.TransactionClient, 'productionOrder'>,
+  ): Promise<boolean> {
+    const fail = (message: string): never => {
+      throw new AccountingRuleViolation(
+        'Approved Posting Control — production settlement event',
+        message,
+        { sourceDocumentType: request.sourceDocumentType, sourceDocumentId: request.sourceDocumentId ?? null },
+      );
+    };
+    if (!request.sourceDocumentId || !request.journalNumber.endsWith('-SETTLE')) {
+      return false;
+    }
+
+    const order = await client.productionOrder.findFirst({
+      where: { id: request.sourceDocumentId, companyId: request.companyId },
+      select: {
+        orderNumber: true,
+        status: true,
+        processingCycle: true,
+        issueJournalEntryId: true,
+        conversionJournalEntryId: true,
+        completionJournalEntryId: true,
+        finishedGoodsCostKobo: true,
+        settlementJournalEntryId: true,
+        issueJournalEntry: {
+          select: {
+            companyId: true,
+            journalNumber: true,
+            status: true,
+            sourceModule: true,
+            sourceDocumentType: true,
+            sourceDocumentId: true,
+          },
+        },
+        conversionJournalEntry: {
+          select: {
+            companyId: true,
+            journalNumber: true,
+            status: true,
+            sourceModule: true,
+            sourceDocumentType: true,
+            sourceDocumentId: true,
+          },
+        },
+        completionJournalEntry: {
+          select: {
+            companyId: true,
+            journalNumber: true,
+            status: true,
+            sourceModule: true,
+            sourceDocumentType: true,
+            sourceDocumentId: true,
+          },
+        },
+      },
+    });
+    if (!order) {
+      throw new AccountingRuleViolation(
+        'Approved Posting Control — production settlement event',
+        'A settlement must reference an output-completed, unsettled production order with its source journals.',
+        { sourceDocumentType: request.sourceDocumentType, sourceDocumentId: request.sourceDocumentId },
+      );
+    }
+    if (
+      order.status !== 'COMPLETED' ||
+      !order.issueJournalEntryId ||
+      !order.conversionJournalEntryId ||
+      !order.completionJournalEntryId ||
+      order.finishedGoodsCostKobo <= 0n ||
+      order.settlementJournalEntryId
+    ) {
+      fail('A settlement must reference an output-completed, unsettled production order with its source journals.');
+    }
+    const linkedJournals = [
+      [order.issueJournalEntry, 'ISSUE'],
+      [order.conversionJournalEntry, 'CONV'],
+      [order.completionJournalEntry, 'COMPLETE'],
+    ] as const;
+    if (linkedJournals.some(([journal, suffix]) =>
+      !journal ||
+      journal.companyId !== request.companyId ||
+      journal.status !== JournalStatus.POSTED ||
+      journal.sourceModule !== 'production' ||
+      journal.sourceDocumentType !== 'ProductionOrder' ||
+      journal.sourceDocumentId !== request.sourceDocumentId ||
+      journal.journalNumber !== `${order.orderNumber}-${suffix}`
+    )) {
+      fail('A settlement requires its issue, conversion and completion links to reference the matching posted production-order journals.');
+    }
+    if (request.journalNumber !== `${order.orderNumber}-SETTLE`) {
+      fail('The settlement journal number must match the source production order.');
+    }
+    if (
+      (order.processingCycle === 'FEED_MILL' && request.sourceModule !== 'feed-mill-costing') ||
+      (order.processingCycle !== 'FEED_MILL' && request.sourceModule !== 'production')
+    ) {
+      fail('The settlement module must match the source order processing cycle.');
+    }
+    if (request.lines.length < 2) {
+      fail('A production settlement must clear recovery and variance/pool balances with at least two journal lines.');
+    }
+    return true;
+  }
+
   private assertStandardApprovedEventContract(request: PostingRequest): void {
     const fail = (message: string): never => {
       throw new AccountingRuleViolation(

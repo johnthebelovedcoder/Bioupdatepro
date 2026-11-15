@@ -20,6 +20,8 @@ export interface AllocationOutput {
   costsToSellPerUnitKobo?: bigint;
   /** Required for WEIGHT. */
   weight?: Decimal.Value;
+  /** Required for STANDARD_PERCENTAGE and MANUAL; main outputs must total 100%. */
+  allocationPercentage?: Decimal.Value;
   /** Immaterial by-products carry zero cost and are excluded from the joint-cost pool. */
   isImmaterialByProduct?: boolean;
 }
@@ -30,6 +32,7 @@ export interface AllocatedOutput {
   quantity: string;
   allocationWeightKobo: string;
   allocatedCostKobo: string;
+  allocationPercentage: string | null;
   isImmaterialByProduct: boolean;
 }
 
@@ -82,16 +85,17 @@ export class CostAllocationService {
         const value = byProductNrv[index] ?? 0n;
         const allocated = value > remaining ? remaining : value;
         remaining -= allocated;
-        return { itemId: output.itemId, outputType: output.outputType, quantity: new Decimal(output.quantity).toFixed(6), allocationWeightKobo: value.toString(), allocatedCostKobo: allocated.toString(), isImmaterialByProduct: false };
+        return { itemId: output.itemId, outputType: output.outputType, quantity: new Decimal(output.quantity).toFixed(6), allocationWeightKobo: value.toString(), allocatedCostKobo: allocated.toString(), allocationPercentage: null, isImmaterialByProduct: false };
       });
       return [...mainAllocations, ...byProductAllocations, ...immaterial.map((output) => ({
         itemId: output.itemId, outputType: output.outputType,
         quantity: new Decimal(output.quantity).toFixed(6), allocationWeightKobo: '0',
-        allocatedCostKobo: '0', isImmaterialByProduct: true,
+        allocatedCostKobo: '0', allocationPercentage: null, isImmaterialByProduct: true,
       }))];
     }
 
     const allocatable = params.outputs.filter((o) => !o.isImmaterialByProduct);
+    if (usesPercentage(params.method)) this.assertPercentagesTotal(allocatable, params.method);
     const weights = allocatable.map((output, index) => this.weightOf(params.method, output, index));
 
     if (weights.every((w) => w.isZero())) {
@@ -113,17 +117,39 @@ export class CostAllocationService {
         (weights[index] ?? new Decimal(0)).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0),
       ).toString(),
       allocatedCostKobo: (allocated[index] ?? 0n).toString(),
+      allocationPercentage: usesPercentage(params.method)
+        ? new Decimal(output.allocationPercentage!).toFixed(4)
+        : null,
       isImmaterialByProduct: false,
     }));
     return [...allocatedOutputs, ...params.outputs.filter((o) => o.isImmaterialByProduct).map((output) => ({
       itemId: output.itemId, outputType: output.outputType,
       quantity: new Decimal(output.quantity).toFixed(6), allocationWeightKobo: '0',
-      allocatedCostKobo: '0', isImmaterialByProduct: true,
+      allocatedCostKobo: '0', allocationPercentage: null, isImmaterialByProduct: true,
     }))];
   }
 
   private weightOf(method: CostAllocationMethod, output: AllocationOutput, index: number): Decimal {
     const quantity = new Decimal(output.quantity);
+
+    if (usesPercentage(method)) {
+      if (output.allocationPercentage === undefined) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §9 — Joint-cost allocation',
+          `Output ${index + 1} needs an allocation percentage for the ${method} method.`,
+          { method },
+        );
+      }
+      const percentage = new Decimal(output.allocationPercentage);
+      if (!percentage.isFinite() || percentage.isNegative() || percentage.greaterThan(100)) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §9 — Joint-cost allocation',
+          `Output ${index + 1} must have an allocation percentage from 0 to 100.`,
+          { method },
+        );
+      }
+      return percentage.mul(10_000);
+    }
 
     if (method === 'WEIGHT') {
       if (output.weight === undefined) {
@@ -165,9 +191,32 @@ export class CostAllocationService {
 
     throw new AccountingRuleViolation(
       'Consolidated Reference §9 — Joint-cost allocation',
-      `The ${method} allocation method is named in the addendum but not yet implemented — ` +
-        'only NRV (the method the client\'s own approved posting rules actually name) and WEIGHT exist so far.',
+      `The ${method} allocation method is not supported by this allocation engine.`,
       { method },
     );
   }
+
+  private assertPercentagesTotal(outputs: AllocationOutput[], method: CostAllocationMethod): void {
+    const total = outputs.reduce((sum, output, index) => {
+      if (output.allocationPercentage === undefined) {
+        throw new AccountingRuleViolation(
+          'Consolidated Reference §9 — Joint-cost allocation',
+          `Output ${index + 1} needs an allocation percentage for the ${method} method.`,
+          { method },
+        );
+      }
+      return sum.plus(new Decimal(output.allocationPercentage));
+    }, new Decimal(0));
+    if (!total.equals(100)) {
+      throw new AccountingRuleViolation(
+        'Consolidated Reference §9 — Joint-cost allocation',
+        `Main-output percentages must total exactly 100%; the supplied percentages total ${total.toString()}%.`,
+        { method, totalPercentage: total.toString() },
+      );
+    }
+  }
+}
+
+function usesPercentage(method: CostAllocationMethod): boolean {
+  return method === 'STANDARD_PERCENTAGE' || method === 'MANUAL';
 }

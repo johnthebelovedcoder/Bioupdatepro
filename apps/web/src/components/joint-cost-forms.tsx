@@ -3,13 +3,21 @@
 import { useActionState, useState, useTransition } from 'react';
 import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import { decidePrice, proposePrice, releaseMethod, type PriceState } from '@/app/(app)/production/joint-cost/actions';
+import {
+  decidePrice,
+  decideStandardAllocation,
+  proposePrice,
+  proposeStandardAllocation,
+  releaseMethod,
+  type PriceState,
+} from '@/app/(app)/production/joint-cost/actions';
 
 const METHODS = [
   ['NRV', 'Relative sales value (NRV) at split-off — the workbook’s method'],
   ['WEIGHT', 'Relative weight'],
   ['SALES_VALUE', 'Relative sales value'],
-  ['STANDARD_PERCENTAGE', 'Standard percentages'],
+  ['STANDARD_PERCENTAGE', 'Approved standard percentages'],
+  ['MANUAL', 'Manual per-order percentages'],
 ] as const;
 
 /**
@@ -19,7 +27,8 @@ const METHODS = [
 export function JointCostControls(
   props:
     | { method: string; label: string; priceId?: undefined }
-    | { priceId: string; status: string; approvedBy: string | null; rejectionReason: string | null; method?: undefined },
+    | { priceId: string; status: string; approvedBy: string | null; rejectionReason: string | null; method?: undefined; allocationId?: undefined }
+    | { allocationId: string; status: string; approvedBy: string | null; rejectionReason: string | null; method?: undefined; priceId?: undefined },
 ) {
   const [pending, startTransition] = useTransition();
   const [outcome, setOutcome] = useState<PriceState>({ error: null, message: null });
@@ -31,7 +40,7 @@ export function JointCostControls(
       if (!result.error) router.refresh();
     });
 
-  if (props.priceId === undefined) {
+  if (props.method !== undefined) {
     return (
       <div className="stack" style={{ gap: 'var(--sp-2)' }}>
         <strong>{props.label}</strong>
@@ -59,6 +68,8 @@ export function JointCostControls(
     );
   }
 
+  const isPrice = props.priceId !== undefined;
+  const id = isPrice ? props.priceId ?? '' : props.allocationId ?? '';
   if (props.status !== 'PENDING') {
     return (
       <span
@@ -72,7 +83,7 @@ export function JointCostControls(
   }
   return (
     <span className="row" style={{ gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-      <button type="button" className="btn btn-sm btn-primary" disabled={pending} onClick={() => run(() => decidePrice(props.priceId, true))}>
+      <button type="button" className="btn btn-sm btn-primary" disabled={pending} onClick={() => run(() => isPrice ? decidePrice(id, true) : decideStandardAllocation(id, true))}>
         Approve
       </button>
       <button
@@ -81,7 +92,7 @@ export function JointCostControls(
         disabled={pending}
         onClick={() => {
           const reason = window.prompt('Why is this price rejected?') ?? '';
-          if (reason.trim()) run(() => decidePrice(props.priceId, false, reason));
+          if (reason.trim()) run(() => isPrice ? decidePrice(id, false, reason) : decideStandardAllocation(id, false, reason));
         }}
       >
         Reject
@@ -127,6 +138,38 @@ export function ProposePriceForm({ items }: { items: Array<{ id: string; label: 
       <label className="field">
         Evidence
         <input name="evidenceReference" placeholder="e.g. Price list March 2026, or recent sale INV-…" required />
+      </label>
+      <Submit />
+    </form>
+  );
+}
+
+export function ProposeStandardAllocationForm({ items }: { items: Array<{ id: string; label: string }> }) {
+  const [state, action] = useActionState<PriceState, FormData>(proposeStandardAllocation, { error: null, message: null });
+  return (
+    <form action={action} className="stack" style={{ gap: 'var(--sp-3)' }}>
+      {state.error ? <div className="notice notice-error">{state.error}</div> : null}
+      {state.message ? <div className="notice notice-success">{state.message}</div> : null}
+      <div className="grid-auto">
+        <label className="field">
+          Main output
+          <select name="itemId" defaultValue="" required>
+            <option value="" disabled>Choose an output</option>
+            {items.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          Allocation percentage
+          <input name="allocationPercentage" type="number" step="0.0001" min="0" max="100" required />
+        </label>
+        <label className="field">
+          Applies from
+          <input name="effectiveFrom" type="date" required />
+        </label>
+      </div>
+      <label className="field">
+        Evidence / approved basis
+        <input name="evidenceReference" placeholder="Policy reference or approved costing basis" required />
       </label>
       <Submit />
     </form>
