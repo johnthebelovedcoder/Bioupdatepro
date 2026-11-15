@@ -48,6 +48,8 @@ export interface NavEntry {
   hint?: string;
   /** Extra words that should find this entry in search but do not belong on screen. */
   keywords?: string[];
+  /** Roles that may see this destination; omitted means section permission applies. */
+  roles?: string[];
   /** Marks a page that exists but is openly labelled unfinished. */
   partial?: boolean;
   /**
@@ -403,6 +405,7 @@ export const SECTIONS: NavSection[] = [
         label: 'Staff',
         hint: 'Who works here, and what they may do',
         keywords: ['employee', 'worker', 'staff', 'user', 'role', 'invite'],
+        roles: ['ADMINISTRATOR', 'CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN'],
       },
       {
         href: '/staff/employees',
@@ -847,6 +850,10 @@ export function allEntries(): Array<NavEntry & { section: NavSection }> {
   return [HOME, CORE, ...SECTIONS].flatMap((section) =>
     section.children.map((child) => ({ ...child, section })),
   );
+}
+
+export function navEntryAllowed(entry: NavEntry, roles: readonly string[]): boolean {
+  return !entry.roles || entry.roles.some((role) => roles.includes(role));
 }
 
 /**

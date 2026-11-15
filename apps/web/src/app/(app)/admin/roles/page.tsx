@@ -8,7 +8,7 @@ import type { SessionUser } from '@/lib/session';
 
 export const metadata = { title: 'Role access — BioAssetPro' };
 
-const WRITE_ROLES = ['CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN'];
+const WRITE_ROLES = ['ADMINISTRATOR', 'CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN'];
 
 /**
  * Which sections of the sidebar each role reaches, with the ability to

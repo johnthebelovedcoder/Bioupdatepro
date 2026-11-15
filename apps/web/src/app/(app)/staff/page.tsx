@@ -1,4 +1,4 @@
-import { ROLE_CATALOGUE } from '@/lib/role-catalogue';
+import { redirect } from 'next/navigation';
 import { getApprovalLadder } from '@/lib/workflow';
 import { formatNaira } from '@/lib/money';
 import { listInvitations, listPeople } from './actions';
@@ -9,19 +9,25 @@ import { IconUsers } from '@/components/icons';
 import { Tabs } from '@/components/tabs';
 import { api } from '@/lib/api';
 import type { SessionUser } from '@/lib/session';
+import type { RoleCatalogueResponse } from '@/lib/role-catalogue';
 
 export const metadata = { title: 'Staff & roles — BioAssetPro' };
 
 export default async function StaffPage() {
-  const [staff, ladder, invitations, me] = await Promise.all([
+  const me = await api<SessionUser>('/auth/me');
+  if (!me.roles.some((role) => ['ADMINISTRATOR', 'CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN'].includes(role))) {
+    redirect('/staff/employees');
+  }
+
+  const [staff, ladder, invitations, access] = await Promise.all([
     listPeople(),
     getApprovalLadder(),
     listInvitations(),
-    api<SessionUser>('/auth/me'),
+    api<RoleCatalogueResponse>('/auth/role-catalogue'),
   ]);
 
   const limitByRole = new Map(ladder.map((entry) => [entry.roleCode, entry.maxAmountKobo]));
-  const roles = ROLE_CATALOGUE.map((role) => ({
+  const roles = access.roles.map((role) => ({
     ...role,
     // Present in the ladder with a null amount means unlimited; absent
     // means this role has no approval step configured at all.
@@ -31,6 +37,7 @@ export default async function StaffPage() {
 
   const active = staff.filter((person) => person.status === 'ACTIVE');
   const approvers = roles.filter((role) => role.hasApprovalStep);
+  const assignableRoleCodes = new Set(access.assignableRoleCodes);
 
   return (
     <>
@@ -42,17 +49,17 @@ export default async function StaffPage() {
       <Tabs />
 
       <div className="stack">
-        <InviteWorker invitations={invitations} />
-        {/*
-          Kept honest rather than confident-sounding: says plainly what is
-          and is not yet enforced, where someone administering permissions
-          would actually look for it.
-        */}
+        <InviteWorker
+          invitations={invitations}
+          assignableRoles={roles.filter((role) => assignableRoleCodes.has(role.code))}
+        />
         <div className="notice notice-warning">
-          Each person can only see and change records that belong to their own farm. What
-          they can open and do is controlled by their role, shown below. A few actions —
-          approving certain documents, running payroll, closing a period — are still
-          limited to the senior roles only; finer control for those is coming.
+          User administration is limited to authorized administrators, CFOs, farm managers,
+          and system administrators. Administrators may grant any listed role; CFOs may
+          grant any role except Administrator; farm managers may grant farm-operation roles;
+          system administrators may grant non-finance, non-approval roles. The sidebar
+          access matrix controls navigation visibility only; each API action independently
+          enforces its required role.
         </div>
 
         <div className="stat-grid">
@@ -63,7 +70,12 @@ export default async function StaffPage() {
         </div>
 
         <Card title="People" padded={false}>
-          <PeopleTable people={staff} currentUserId={me.userId} />
+          <PeopleTable
+            people={staff}
+            currentUserId={me.userId}
+            roleOptions={roles}
+            assignableRoleCodes={access.assignableRoleCodes}
+          />
         </Card>
 
         <Card title="Roles" subtitle="The intended permission model" padded={false}>
@@ -95,18 +107,9 @@ export default async function StaffPage() {
           ))}
           <div className="card-footer">
             <span className="faint">
-              Nobody can approve their own document — that is enforced everywhere. Screen
-              access is enforced for these six roles; the other fourteen roles in your
-              organisation&apos;s structure are not fully wired up to screen permissions yet.
-              {/*
-                Worth keeping honest rather than letting a Naira figure on screen read as
-                settled: this is what is actually configured today, not a number taken
-                from a confirmed policy. See how far to go with that disclosure without
-                lapsing back into build-status language a farm user has no reason to parse.
-              */}{' '}
-              The amounts shown are what is configured today — starting figures, not yet
-              confirmed against your organisation&apos;s real approval policy. There is no
-              screen to change them yet; for now, treat them as provisional.
+              Approval limits shown here are the current configured values, not yet
+              confirmed against your organisation&apos;s approved policy. There is no screen
+              to change them yet; treat them as provisional.
             </span>
           </div>
         </Card>

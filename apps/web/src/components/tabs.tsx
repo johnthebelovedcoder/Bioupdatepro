@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { sectionFor } from '@/lib/navigation';
+import { navEntryAllowed, sectionFor } from '@/lib/navigation';
 import { applyOverrides, sectionsFor } from '@/lib/permissions';
 import { useRoles, useRoleSectionOverrides } from './roles-context';
 
@@ -39,7 +39,9 @@ export function Tabs() {
   const allowed = applyOverrides(sectionsFor(roles), roles, roleSectionOverrides);
   if (!section || !allowed.has(section.section)) return null;
 
-  const tabs = section.children.filter((child) => !child.hidden);
+  const tabs = section.children.filter(
+    (child) => !child.hidden && navEntryAllowed(child, roles),
+  );
   if (tabs.length < 2) return null;
 
   /*

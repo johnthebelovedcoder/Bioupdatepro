@@ -11,6 +11,11 @@ import { AuditService } from '../audit/audit.service';
 import { hashPassword } from './password';
 import { AuthService, type AuthLoginResponse } from './auth.service';
 import { passwordProblem } from './registration.service';
+import {
+  assertCanGrantRoles,
+  assignableRoleCodes,
+  ROLE_CATALOGUE,
+} from './role-assignment.policy';
 import { AuditAction } from '@bioassetpro/database';
 import type { WorkflowActor } from '../workflow/workflow.types';
 
@@ -73,7 +78,7 @@ export class InvitationService {
       throw new BadRequestException('Choose what this person will be allowed to do.');
     }
 
-    this.assertCanGrant(params.actor.roles ?? [], roles);
+    assertCanGrantRoles(params.actor.roles ?? [], roles);
 
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -237,47 +242,58 @@ export class InvitationService {
     }));
   }
 
+  roleCatalogue(actorRoles: readonly string[]) {
+    return {
+      roles: ROLE_CATALOGUE,
+      assignableRoleCodes: assignableRoleCodes(actorRoles),
+    };
+  }
+
   async revoke(params: { companyId: string; id: string; actor: WorkflowActor }) {
+    const invitation = await this.prisma.invitation.findFirst({
+      where: {
+        id: params.id,
+        companyId: params.companyId,
+        acceptedAt: null,
+        revokedAt: null,
+      },
+      select: { id: true, email: true, roles: true },
+    });
+    if (!invitation) throw new NotFoundException('No invitation to withdraw.');
+
     const done = await this.prisma.invitation.updateMany({
       // Scoped to the company: an id from another farm must not be revocable.
-      where: { id: params.id, companyId: params.companyId, acceptedAt: null, revokedAt: null },
+      where: { id: invitation.id, companyId: params.companyId, acceptedAt: null, revokedAt: null },
       data: { revokedAt: new Date() },
     });
     if (done.count === 0) {
       throw new NotFoundException('No invitation to withdraw.');
     }
-    return { revoked: true };
-  }
 
-  /**
-   * Nobody may hand out authority they do not themselves have. An
-   * administrator is exempt because they already have every role there is
-   * to give. Used for the roles being GRANTED — never for "does this actor
-   * outrank the target", which is a different question (`assertCanAct`
-   * below): this system has no role hierarchy, roles are flat capability
-   * grants, so a Farm Manager holding exactly `['FARM_MANAGER']` and a Farm
-   * Attendant holding exactly `['FARM_ATTENDANT']` are siblings, not nested
-   * — requiring the actor to already hold every one of the target's roles
-   * would refuse the Farm Manager acting on the Farm Attendant at all,
-   * which is the ordinary case this exists to allow.
-   */
-  private assertCanGrant(actorRoles: readonly string[], roles: readonly string[]): void {
-    if (actorRoles.includes('ADMINISTRATOR')) return;
-    const beyond = roles.filter((role) => !actorRoles.includes(role));
-    if (beyond.length > 0) {
-      throw new ForbiddenException(
-        `You cannot give someone a role you do not have yourself: ${beyond.join(', ')}.`,
-      );
-    }
+    await this.audit.write({
+      transactionId: invitation.id,
+      module: 'AUTH',
+      entityType: 'Invitation',
+      entityId: invitation.id,
+      status: 'REVOKED',
+      action: AuditAction.UPDATE,
+      userId: params.actor.userId,
+      ipAddress: params.actor.ipAddress ?? null,
+      device: params.actor.device ?? null,
+      comments: `Invitation withdrawn for ${invitation.email}.`,
+      oldValue: { status: 'PENDING', roles: invitation.roles },
+      newValue: { status: 'REVOKED', roles: invitation.roles },
+    });
+
+    return { revoked: true };
   }
 
   /**
    * Roles with effectively unlimited authority — the only ones worth
    * protecting a target FROM being acted on by a lesser-privileged caller.
-   * Everything else is a flat, sibling-level capability grant (see
-   * `assertCanGrant`'s comment), so ordinary role differences (a Farm
-   * Manager acting on a Farm Attendant, a CFO acting on a Farm Manager) are
-   * exactly what this is meant to allow through unexamined.
+   * Other role grants follow the explicit grant policy in
+   * `role-assignment.policy.ts`; this check prevents a lesser administrator
+   * from editing or deactivating an account with authority above theirs.
    */
   private static readonly TOP_TIER = ['ADMINISTRATOR', 'CFO'];
 
@@ -375,8 +391,6 @@ export class InvitationService {
     if (roles.length === 0) {
       throw new BadRequestException('Choose what this person is allowed to do.');
     }
-    this.assertCanGrant(params.actor.roles ?? [], roles);
-
     const user = await this.prisma.user.findFirst({
       where: { id: params.userId, companyId: params.companyId },
     });
@@ -386,6 +400,7 @@ export class InvitationService {
     // (see assertCanAct) — an ordinary Farm Manager editing an ordinary Farm
     // Attendant is exactly the common case, not something to refuse.
     this.assertCanAct(params.actor.roles ?? [], user.roles);
+    assertCanGrantRoles(params.actor.roles ?? [], roles, user.roles);
 
     const updated = await this.prisma.user.update({
       where: { id: user.id },
@@ -403,6 +418,8 @@ export class InvitationService {
       ipAddress: params.actor.ipAddress ?? null,
       device: params.actor.device ?? null,
       comments: `Roles changed: ${user.roles.join(', ')} -> ${roles.join(', ')}`,
+      oldValue: { roles: user.roles },
+      newValue: { roles },
     });
 
     return { id: updated.id, roles: updated.roles };
@@ -450,6 +467,8 @@ export class InvitationService {
       ipAddress: params.actor.ipAddress ?? null,
       device: params.actor.device ?? null,
       comments: params.active ? 'Reactivated' : 'Deactivated',
+      oldValue: { active: user.active },
+      newValue: { active: updated.active },
     });
 
     return { id: updated.id, active: updated.active };

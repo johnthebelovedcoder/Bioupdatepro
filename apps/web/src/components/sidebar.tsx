@@ -4,7 +4,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getModule, type ModuleKey } from '@/lib/modules';
 import { applyOverrides, sectionsFor, type Section, type RoleSectionOverride } from '@/lib/permissions';
-import { CORE, HOME, SECTIONS, duplicateRoutes, type NavSection } from '@/lib/navigation';
+import {
+  CORE,
+  HOME,
+  SECTIONS,
+  duplicateRoutes,
+  navEntryAllowed,
+  type NavSection,
+} from '@/lib/navigation';
 import { IconChart, type IconProps } from './icons';
 
 /**
@@ -58,7 +65,20 @@ export function SidebarNav({
           (child) => pathname === child.href || pathname.startsWith(`${child.href}/`),
         );
 
-  const visible = SECTIONS.filter((section) => canSeeSection(section.section));
+  const visible = SECTIONS
+    .filter((section) => canSeeSection(section.section))
+    .map((section) => {
+      const visibleChildren = section.children.filter((child) =>
+        navEntryAllowed(child, roles),
+      );
+      const openingChild =
+        visibleChildren.find((child) => child.href === section.href) ??
+        visibleChildren.find((child) => !child.hidden);
+      return openingChild ? { ...section, href: openingChild.href } : section;
+    })
+    .filter((section) =>
+      section.children.some((child) => navEntryAllowed(child, roles)),
+    );
 
   return (
     <div className="sidebar-scroll">

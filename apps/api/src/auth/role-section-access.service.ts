@@ -1,8 +1,22 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { AuditAction } from '@bioassetpro/database';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { WorkflowActor } from '../workflow/workflow.types';
+import { isSupportedRoleCode } from './role-assignment.policy';
+
+const SECTIONS = new Set([
+  'dashboard',
+  'livestock',
+  'recording',
+  'trade',
+  'inventory',
+  'money',
+  'ledger',
+  'approvals',
+  'staff',
+  'settings',
+]);
 
 /**
  * Per-company overrides on top of the sidebar's hardcoded role→section map
@@ -44,6 +58,13 @@ export class RoleSectionAccessService {
     section: string;
     enabled: boolean;
   }) {
+    if (!isSupportedRoleCode(params.role)) {
+      throw new BadRequestException('Choose a supported role.');
+    }
+    if (!SECTIONS.has(params.section)) {
+      throw new BadRequestException('Choose a supported application section.');
+    }
+
     const existing = await this.prisma.roleSectionAccess.findUnique({
       where: {
         companyId_role_section: {

@@ -10,14 +10,11 @@
  * human cannot raise and approve, so a ladder with nobody on it cannot be
  * exercised at all.
  *
- * The RACI-only roles below (Storekeeper onward) do NOT sit on that ladder —
- * they exist so a walkthrough can actually sign in as the titles the client's
- * own document names and see a sidebar, not so a new approval chain can be
- * tested. Signing in as one of them proves the NAV fix; it does not prove any
- * write action works, because the API's own `@Roles(...)` guards were
- * deliberately left untouched (see the comment in `permissions.ts`) — most of
- * these accounts can read what `@AnyRole` already allows and will get a normal
- * permission error on anything gated to a role they do not hold.
+ * The RACI-only roles below (Storekeeper onward) do NOT sit on the approval
+ * ladder. They are separate operational/administrative roles, with API access
+ * limited to routes whose `@Roles(...)` guard names them. A seeded sign-in
+ * proves the account can reach the application; route-level tests are still
+ * needed to prove each allowed and denied action.
  *
  * Run from the repo root:  npm run db:seed:users
  */
@@ -33,6 +30,7 @@ const ROLES = {
   financeManager: 'FINANCE_MANAGER',
   controller: 'FINANCE_CONTROLLER',
   cfo: 'CFO',
+  mdCeo: 'MD_CEO',
   administrator: 'ADMINISTRATOR',
   // RACI roles with no rung on the approval ladder — see the file header.
   farmAttendant: 'FARM_ATTENDANT',
@@ -49,6 +47,8 @@ const ROLES = {
   treasuryOfficer: 'TREASURY_OFFICER',
   systemAdmin: 'SYSTEM_ADMIN',
   internalAuditor: 'INTERNAL_AUDITOR',
+  hrManager: 'HR_MANAGER',
+  hrOfficer: 'HR_OFFICER',
 } as const;
 
 const PEOPLE = [
@@ -58,6 +58,7 @@ const PEOPLE = [
   { email: 'finance.manager@bioassetpro.ng', fullName: 'Funmilayo Adeyemi', roles: [ROLES.financeManager] },
   { email: 'controller@bioassetpro.ng', fullName: 'Ibrahim Danjuma', roles: [ROLES.controller] },
   { email: 'cfo@bioassetpro.ng', fullName: 'Ngozi Balogun', roles: [ROLES.cfo] },
+  { email: 'md.ceo@bioassetpro.ng', fullName: 'Amina Bello', roles: [ROLES.mdCeo] },
 
   // RACI-named roles — see the file header on what signing in as these does
   // and does not prove.
@@ -75,6 +76,8 @@ const PEOPLE = [
   { email: 'treasury@bioassetpro.ng', fullName: 'Amaka Nnamdi', roles: [ROLES.treasuryOfficer] },
   { email: 'sysadmin@bioassetpro.ng', fullName: 'David Okafor', roles: [ROLES.systemAdmin] },
   { email: 'auditor@bioassetpro.ng', fullName: 'Fatima Yusuf', roles: [ROLES.internalAuditor] },
+  { email: 'hr.manager@bioassetpro.ng', fullName: 'Nneka Obi', roles: [ROLES.hrManager] },
+  { email: 'hr.officer@bioassetpro.ng', fullName: 'Samuel James', roles: [ROLES.hrOfficer] },
 ];
 
 async function main(): Promise<void> {

@@ -58,12 +58,18 @@ async function refusalsFor(userId: string) {
 }
 
 describe('Role access (UAT-001)', () => {
-  it('lets a role through to what it is assigned', () => {
-    expect(guard.canActivate(contextFor({ userId: fixture.makerId, roles: ['CFO'] }, ['CFO']))).toBe(true);
+  it('lets a role through to what it is assigned', async () => {
+    await expect(
+      guard.canActivate(contextFor({ userId: fixture.makerId, roles: ['CFO'] }, ['CFO'])),
+    ).resolves.toBe(true);
   });
 
   it('blocks a restricted action and logs the attempt: who, what, and the roles it needed', async () => {
-    expect(() => guard.canActivate(contextFor({ userId: fixture.makerId, roles: ['FARM_ATTENDANT'] }, ['CFO']))).toThrow(ForbiddenException);
+    await expect(
+      guard.canActivate(
+        contextFor({ userId: fixture.makerId, roles: ['FARM_ATTENDANT'] }, ['CFO']),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
 
     const [attempt] = await refusalsFor(fixture.makerId);
     expect(attempt).toBeDefined();
@@ -71,7 +77,17 @@ describe('Role access (UAT-001)', () => {
     expect(attempt!.metadata).toMatchObject({ needed: ['CFO'], held: ['FARM_ATTENDANT'] });
   });
 
-  it('refuses a route nobody has said who may use (deny by default)', () => {
-    expect(() => guard.canActivate(contextFor({ userId: fixture.makerId, roles: ['CFO'] }, null))).toThrow(/no access rule/);
+  it('refuses and logs a route nobody has said who may use (deny by default)', async () => {
+    await expect(
+      guard.canActivate(contextFor({ userId: fixture.makerId, roles: ['CFO'] }, null)),
+    ).rejects.toThrow(/no access rule/);
+
+    const [attempt] = await refusalsFor(fixture.makerId);
+    expect(attempt).toBeDefined();
+    expect(attempt!.metadata).toMatchObject({
+      needed: [],
+      held: ['CFO'],
+      reason: 'The endpoint has no @Roles or @AnyRole access rule.',
+    });
   });
 });

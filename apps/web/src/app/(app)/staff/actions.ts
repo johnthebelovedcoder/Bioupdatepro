@@ -68,12 +68,7 @@ export interface PendingInvitation {
 }
 
 export async function listInvitations(): Promise<PendingInvitation[]> {
-  try {
-    return await api<PendingInvitation[]>('/auth/invitations');
-  } catch {
-    // A staff page that cannot list invitations is still worth showing.
-    return [];
-  }
+  return api<PendingInvitation[]>('/auth/invitations');
 }
 
 export interface Person {
@@ -93,11 +88,7 @@ export interface Person {
  * access would see people who do not exist and not see the ones who do.
  */
 export async function listPeople(): Promise<Person[]> {
-  try {
-    return await api<Person[]>('/auth/users');
-  } catch {
-    return [];
-  }
+  return api<Person[]>('/auth/users');
 }
 
 /**

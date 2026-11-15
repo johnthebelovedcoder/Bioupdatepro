@@ -11,7 +11,8 @@ import {
   type Person,
   type RoleEditResult,
 } from '@/app/(app)/staff/actions';
-import { ROLES, humanRole } from './invite-worker';
+import { humanRole } from '@/lib/roles';
+import type { RoleCatalogueEntry } from '@/lib/role-catalogue';
 import { Sheet } from './sheet';
 
 /**
@@ -24,9 +25,13 @@ import { Sheet } from './sheet';
 export function PeopleTable({
   people,
   currentUserId,
+  roleOptions,
+  assignableRoleCodes,
 }: {
   people: Person[];
   currentUserId: string;
+  roleOptions: RoleCatalogueEntry[];
+  assignableRoleCodes: string[];
 }) {
   const [editing, setEditing] = useState<Person | null>(null);
   const [resetting, setResetting] = useState<Person | null>(null);
@@ -101,7 +106,12 @@ export function PeopleTable({
       </div>
 
       {editing ? (
-        <EditRolesSheet person={editing} onClose={() => setEditing(null)} />
+        <EditRolesSheet
+          person={editing}
+          roleOptions={roleOptions}
+          assignableRoleCodes={assignableRoleCodes}
+          onClose={() => setEditing(null)}
+        />
       ) : null}
       {resetting ? (
         <ResetPasswordSheet person={resetting} onClose={() => setResetting(null)} />
@@ -110,7 +120,17 @@ export function PeopleTable({
   );
 }
 
-function EditRolesSheet({ person, onClose }: { person: Person; onClose: () => void }) {
+function EditRolesSheet({
+  person,
+  roleOptions,
+  assignableRoleCodes,
+  onClose,
+}: {
+  person: Person;
+  roleOptions: RoleCatalogueEntry[];
+  assignableRoleCodes: string[];
+  onClose: () => void;
+}) {
   const updateForPerson = updatePersonRoles.bind(null, person.id);
   const [state, action] = useActionState<RoleEditResult, FormData>(updateForPerson, {
     error: null,
@@ -127,7 +147,7 @@ function EditRolesSheet({ person, onClose }: { person: Person; onClose: () => vo
 
         <div className="field">
           <div className="stack" style={{ gap: 'var(--sp-3)' }}>
-            {ROLES.map((role) => (
+            {roleOptions.map((role) => (
               <label
                 key={role.code}
                 className="row"
@@ -138,19 +158,24 @@ function EditRolesSheet({ person, onClose }: { person: Person; onClose: () => vo
                   name="roles"
                   value={role.code}
                   defaultChecked={person.roles.includes(role.code)}
+                  disabled={
+                    !assignableRoleCodes.includes(role.code) &&
+                    !person.roles.includes(role.code)
+                  }
                   style={{ width: 'auto', minHeight: 0, marginTop: 3 }}
                 />
                 <span>
-                  <span style={{ fontWeight: 500 }}>{role.label}</span>
+                  <span style={{ fontWeight: 500 }}>{role.name}</span>
                   <span className="faint" style={{ display: 'block' }}>
-                    {role.what}
+                    {role.summary}
                   </span>
                 </span>
               </label>
             ))}
           </div>
           <span className="faint" style={{ marginTop: 6 }}>
-            You cannot give somebody a role you do not have yourself.
+            Disabled roles are outside your grant authority. You may remove a role
+            already assigned to this person, but cannot add it to another account.
           </span>
         </div>
 

@@ -4,59 +4,9 @@ import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createInvitation, revokeInvitation, type InviteResult, type PendingInvitation } from '@/app/(app)/staff/actions';
 import { humanRole } from '@/lib/roles';
+import type { RoleCatalogueEntry } from '@/lib/role-catalogue';
 import { Card } from './ui';
 import { Sheet } from './sheet';
-
-/**
- * The rungs of the approval ladder, in the order authority increases.
- *
- * Exported so `people-editor.tsx` offers the exact same set an existing
- * person's roles can be changed to — one list, so inviting and editing can
- * never disagree about what a role is called or what it does.
- */
-export const ROLES: Array<{ code: string; label: string; what: string }> = [
-  {
-    code: 'PRODUCTION_SUPERVISOR',
-    label: 'Production supervisor',
-    what: 'Walks the daily round, records feed, production, deaths and treatments.',
-  },
-  {
-    code: 'FARM_MANAGER',
-    label: 'Farm manager',
-    what: 'Everything a supervisor can do, plus starting new populations and ordering feed.',
-  },
-  {
-    code: 'FINANCE_MANAGER',
-    label: 'Finance manager',
-    what: 'Sales, purchases, customers and suppliers.',
-  },
-  {
-    code: 'FINANCE_CONTROLLER',
-    label: 'Finance controller',
-    what: 'Approves postings and closes periods.',
-  },
-  {
-    code: 'CFO',
-    label: 'CFO',
-    what: 'Sees everything and approves at the top of the ladder.',
-  },
-  {
-    code: 'FINANCIAL_ACCOUNTANT',
-    label: 'GL/Financial accountant',
-    what: 'Prepares manual and recurring journals for approval. The only role that can raise one.',
-  },
-  {
-    code: 'ADMINISTRATOR',
-    label: 'Administrator',
-    what: 'Full control, including inviting and removing people.',
-  },
-];
-
-// Re-exported so `people-table.tsx` and `role-section-matrix.tsx` do not
-// need to know the transform moved to `@/lib/roles` — see that file's own
-// comment for why it lives there now instead of a lookup against `ROLES`
-// above, which only ever covered six of this system's twenty real roles.
-export { humanRole };
 
 /**
  * Inviting somebody onto the farm.
@@ -65,7 +15,13 @@ export { humanRole };
  * token, so this is genuinely the only moment it can be read. The interface
  * says so rather than letting somebody close the sheet and go looking for it.
  */
-export function InviteWorker({ invitations }: { invitations: PendingInvitation[] }) {
+export function InviteWorker({
+  invitations,
+  assignableRoles,
+}: {
+  invitations: PendingInvitation[];
+  assignableRoles: RoleCatalogueEntry[];
+}) {
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState<InviteResult, FormData>(createInvitation, {
     error: null,
@@ -222,7 +178,7 @@ export function InviteWorker({ invitations }: { invitations: PendingInvitation[]
             <div className="field">
               What will they be allowed to do?
               <div className="stack" style={{ gap: 'var(--sp-3)', marginTop: 6 }}>
-                {ROLES.map((role) => (
+                {assignableRoles.map((role) => (
                   <label
                     key={role.code}
                     className="row"
@@ -235,16 +191,16 @@ export function InviteWorker({ invitations }: { invitations: PendingInvitation[]
                       style={{ width: 'auto', minHeight: 0, marginTop: 3 }}
                     />
                     <span>
-                      <span style={{ fontWeight: 500 }}>{role.label}</span>
+                      <span style={{ fontWeight: 500 }}>{role.name}</span>
                       <span className="faint" style={{ display: 'block' }}>
-                        {role.what}
+                        {role.summary}
                       </span>
                     </span>
                   </label>
                 ))}
               </div>
               <span className="faint" style={{ marginTop: 6 }}>
-                You cannot give somebody a role you do not have yourself.
+                You can assign only roles your access level is approved to grant.
               </span>
             </div>
 

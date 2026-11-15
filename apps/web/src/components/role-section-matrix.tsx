@@ -2,7 +2,7 @@
 
 import { setRoleSectionAccess } from '@/app/(app)/admin/roles/actions';
 import { sectionsFor, type Section, type RoleSectionOverride } from '@/lib/permissions';
-import { humanRole } from './invite-worker';
+import { humanRole } from '@/lib/roles';
 
 const SECTION_LABELS: Record<Section, string> = {
   dashboard: 'Dashboard',

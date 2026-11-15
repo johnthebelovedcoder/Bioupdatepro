@@ -7,7 +7,15 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsArray, IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
+  IsEmail,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 import { SkipThrottle, Throttle, minutes } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService, AuthenticatedUser } from './auth.service';
@@ -67,6 +75,34 @@ class MfaConfirmDto {
   @IsString()
   @MinLength(1)
   code!: string;
+}
+
+class InvitationDto {
+  @IsEmail({}, { message: 'Enter a valid email address.' })
+  email!: string;
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  roles!: string[];
+}
+
+class UserRolesDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  roles!: string[];
+}
+
+class RoleSectionAccessDto {
+  @IsString()
+  role!: string;
+
+  @IsString()
+  section!: string;
+
+  @IsBoolean()
+  enabled!: boolean;
 }
 
 @Controller('auth')
@@ -159,6 +195,12 @@ export class AuthController {
 
   /* --- Invitations ------------------------------------------------------ */
 
+  @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
+  @Get('role-catalogue')
+  roleCatalogue(@CurrentUser() actor: WorkflowActor) {
+    return this.invitations.roleCatalogue(actor.roles ?? []);
+  }
+
   // SYSTEM_ADMIN (ROL-015): "Manage configuration, interfaces and access" —
   // access is literally named in their RACI line.
   @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
@@ -166,7 +208,7 @@ export class AuthController {
   async invite(
     @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
-    @Body() body: { email: string; roles: string[] },
+    @Body() body: InvitationDto,
   ) {
     return this.invitations.invite({
       companyId,
@@ -228,9 +270,9 @@ export class AuthController {
     @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
     @Param('id') id: string,
-    @Body() body: { roles: string[] },
+    @Body() body: UserRolesDto,
   ) {
-    return this.invitations.updateRoles({ companyId, actor, userId: id, roles: body.roles ?? [] });
+    return this.invitations.updateRoles({ companyId, actor, userId: id, roles: body.roles });
   }
 
   @Roles('CFO', 'FARM_MANAGER', 'SYSTEM_ADMIN')
@@ -375,14 +417,14 @@ export class AuthController {
   async setRoleSection(
     @CurrentCompany() companyId: string,
     @CurrentUser() actor: WorkflowActor,
-    @Body() body: { role: string; section: string; enabled: boolean },
+    @Body() body: RoleSectionAccessDto,
   ) {
     return this.roleSections.set({
       companyId,
       actor,
       role: body.role,
       section: body.section,
-      enabled: Boolean(body.enabled),
+      enabled: body.enabled,
     });
   }
 }

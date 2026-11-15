@@ -39,26 +39,17 @@ const ALL: Section[] = [
 ];
 
 /*
- * The client's own `Role_RACI_KPI` sheet names sixteen roles. Only six had an
- * entry here — everyone else signing in with a title from the client's own
- * document got an empty sidebar, because an unrecognised role fails closed
- * (see `sectionsFor` below) with nothing on screen to say why. The other ten
- * roles below close that gap.
- *
- * This is still the cosmetic layer the file header describes: adding a role
- * here makes the RIGHT PAGES OFFER THEMSELVES and lets already-`@AnyRole`
- * reads through, exactly like every existing entry. It does NOT grant a
- * write action the API doesn't already permit — raising a PO, approving a
- * valuation and the rest stay behind the API's own `@Roles(...)` guards,
- * which are not extended here. Wiring those to match this table's shape is a
- * separate, larger pass: each of the RACI sheet's ~39 controlled endpoints
- * needs its own judgement call against that role's stated boundary ("cannot
- * approve own PO", "cannot alter posted invoice", and so on), not a
- * mechanical copy of this list.
+ * The sidebar defaults for every supported application role. This is a
+ * navigation convenience only: API endpoint guards remain the authority for
+ * every read and write action. A role missing here fails closed to no
+ * operational sections; add roles only with an intentional navigation map.
  */
 const BY_ROLE: Record<string, Section[]> = {
   ADMINISTRATOR: ALL,
   CFO: ALL,
+  // Executive approval is broad enough to inspect business records and reports,
+  // but does not include staff administration or system configuration.
+  MD_CEO: ['dashboard', 'livestock', 'trade', 'inventory', 'money', 'ledger', 'approvals'],
 
   // ROL-001. Captures the daily round only — not the full livestock section,
   // which also holds the register and cost figures a farm attendant has no
@@ -186,6 +177,8 @@ const BY_ROLE: Record<string, Section[]> = {
     'staff',
     'settings',
   ],
+  HR_MANAGER: ['dashboard', 'staff', 'money', 'approvals'],
+  HR_OFFICER: ['dashboard', 'staff'],
 
   /*
    * The narrowest role, and the one that matters most to get right.

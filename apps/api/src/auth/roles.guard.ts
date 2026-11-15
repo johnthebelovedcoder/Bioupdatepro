@@ -80,7 +80,7 @@ export class RolesGuard implements CanActivate {
     @Optional() private readonly audit?: AuditService,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -112,6 +112,14 @@ export class RolesGuard implements CanActivate {
        * does not work until its author says who may use it. Loud is the whole
        * point. A permission model that fails open is not a permission model.
        */
+      const request = context
+        .switchToHttp()
+        .getRequest<Request & { user?: AuthenticatedUser }>();
+      await this.recordRefusal(
+        request,
+        [],
+        'The endpoint has no @Roles or @AnyRole access rule.',
+      );
       throw new ForbiddenException(
         'This endpoint has no access rule and is refused. Annotate it with @Roles or @AnyRole.',
       );
@@ -131,7 +139,7 @@ export class RolesGuard implements CanActivate {
     if (held.some((role) => UNIVERSAL.has(role))) return true;
     if (held.some((role) => needed.includes(role))) return true;
 
-    this.recordRefusal(request, needed);
+    await this.recordRefusal(request, needed);
 
     /*
      * Says what is needed, not what the caller has.
@@ -151,24 +159,26 @@ export class RolesGuard implements CanActivate {
    * so an auditor can see attempts, not just successes. Written without
    * waiting: a refusal must never wait on, or fail because of, its own log.
    */
-  private recordRefusal(request: Request & { user?: AuthenticatedUser }, needed: string[]): void {
+  private async recordRefusal(
+    request: Request & { user?: AuthenticatedUser },
+    needed: string[],
+    reason?: string,
+  ): Promise<void> {
     const user = request.user;
     if (!this.audit || !user?.userId) return;
     const route = `${request.method} ${request.route?.path ?? request.path ?? request.url}`;
-    void this.audit
-      .write({
-        transactionId: `access:${route}`,
-        module: 'auth',
-        entityType: 'Route',
-        entityId: route,
-        status: 'ACCESS_DENIED',
-        action: AuditAction.REJECT,
-        userId: user.userId,
-        ipAddress: request.ip ?? null,
-        comments: `Refused ${route}: needs one of ${needed.join(', ')}.`,
-        metadata: { route, needed, held: user.roles },
-      })
-      .catch(() => undefined);
+    await this.audit.write({
+      transactionId: `access:${route}`,
+      module: 'auth',
+      entityType: 'Route',
+      entityId: route,
+      status: 'ACCESS_DENIED',
+      action: AuditAction.REJECT,
+      userId: user.userId,
+      ipAddress: request.ip ?? null,
+      comments: reason ?? `Refused ${route}: needs one of ${needed.join(', ')}.`,
+      metadata: { route, needed, held: user.roles, ...(reason ? { reason } : {}) },
+    });
   }
 }
 

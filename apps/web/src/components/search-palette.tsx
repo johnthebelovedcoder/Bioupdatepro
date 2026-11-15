@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { allEntries, entryFor } from '@/lib/navigation';
+import { allEntries, entryFor, navEntryAllowed } from '@/lib/navigation';
 import { applyOverrides, sectionsFor } from '@/lib/permissions';
 import { useRoleSectionOverrides } from './roles-context';
 import { IconSearch } from './icons';
@@ -79,8 +79,12 @@ export function SearchPalette({ roles = [] }: { roles?: readonly string[] }) {
     [roles, roleSectionOverrides],
   );
   const allowedEntries = useMemo(
-    () => allEntries().filter((entry) => allowed.has(entry.section.section)),
-    [allowed],
+    () =>
+      allEntries().filter(
+        (entry) =>
+          allowed.has(entry.section.section) && navEntryAllowed(entry, roles),
+      ),
+    [allowed, roles],
   );
   const currentEntry = entryFor(pathname);
 
