@@ -1,6 +1,7 @@
 'use server';
 
 import { finishAuthentication, type AuthenticationResult } from '@/lib/auth-result';
+import { userFacingErrorMessage } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
@@ -63,16 +64,15 @@ export async function signup(
       cache: 'no-store',
     });
   } catch {
-    return fail(`Cannot reach the BioAssetPro API at ${API_URL}. Is it running?`, null, kept);
+    return fail(
+      'BioAssetPro could not be reached. Check your connection and try again.',
+      null,
+      kept,
+    );
   }
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
-    const message = Array.isArray(body?.message)
-      ? body.message.join(' ')
-      : typeof body?.message === 'string'
-        ? body.message
-        : 'That did not work. Please try again.';
+    const message = await userFacingErrorMessage(response, 'That did not work. Please try again.');
     // A taken email is the one failure with an obvious next step, so it points
     // at the field rather than sitting at the top of the form.
     return fail(message, response.status === 409 ? 'email' : null, kept);

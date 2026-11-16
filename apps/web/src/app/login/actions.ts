@@ -58,6 +58,10 @@ export async function login(
     return { error: unreachableMessage() };
   }
 
+  if (response.status === 408) {
+    return { error: 'That took longer than expected. Please try again.' };
+  }
+
   if (response.status === 429) {
     // Account-specific lockout was removed. A 429 now means an upstream
     // platform is temporarily limiting traffic, so never claim the account is
@@ -67,11 +71,7 @@ export async function login(
       typeof body?.retryAfterSeconds === 'number' && Number.isFinite(body.retryAfterSeconds)
         ? body.retryAfterSeconds
         : retrySecondsFromHeader(response);
-    return {
-      error: retryAfterSeconds > 0
-        ? `The sign-in service is temporarily limiting requests. ${retryAdvice(retryAfterSeconds)}`
-        : 'The sign-in service is temporarily limiting requests. Please wait a moment and try again.',
-    };
+    return { error: signInBusyMessage(retryAfterSeconds) };
   }
 
   /*
@@ -86,6 +86,12 @@ export async function login(
       error:
         'BioAssetPro is starting up. This takes up to a minute after a quiet ' +
         'spell — wait for it to finish rather than signing in again.',
+    };
+  }
+
+  if (response.status >= 500) {
+    return {
+      error: 'BioAssetPro is temporarily unavailable. Please wait a moment and try again.',
     };
   }
 
@@ -127,27 +133,26 @@ function retrySecondsFromHeader(response: Response): number {
 }
 
 function retryAdvice(seconds: number): string {
-  if (seconds <= 0) return 'Wait a few minutes, then try again.';
   if (seconds < 90) return `Try again in ${seconds} seconds.`;
   const minutes = Math.ceil(seconds / 60);
   return `Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
 }
 
+function signInBusyMessage(retryAfterSeconds: number): string {
+  const retry =
+    retryAfterSeconds > 0
+      ? retryAdvice(retryAfterSeconds)
+      : 'Please wait a moment and try again.';
+  return `Sign-in is temporarily unavailable. ${retry}`;
+}
+
 /**
- * What to say when the API could not be reached at all.
- *
- * Away from production the address is the useful part of the message, because
- * the reader is the person who has to start it. In production it is noise at
- * best, so the message says what happened and what to do instead.
+ * What to say when the sign-in request could not reach the service.
  */
 function unreachableMessage(): string {
-  if (process.env.NODE_ENV !== 'production') {
-    return `Cannot reach the BioAssetPro API at ${API_URL}. Is it running?`;
-  }
   return (
-    'BioAssetPro did not answer in time. It may be starting up after a quiet ' +
-    'spell — wait a moment and try again. If this keeps happening, tell whoever ' +
-    'administers the server.'
+    'BioAssetPro could not be reached. Check your connection and try again. ' +
+    'If this keeps happening, contact your administrator.'
   );
 }
 

@@ -7,13 +7,13 @@ import { getToken } from './session';
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
 /**
- * An error the API returned, carrying the message it actually gave.
+ * A failed API request, carrying a safe message for the screen and its status.
  *
  * The API's refusals are the product's most important output — "invoiced
  * quantity exceeds accepted quantity", "period is closed", "you cannot approve
- * your own document". Flattening those into "Something went wrong" would throw
- * away the one thing the user needs. So the message is preserved verbatim and
- * shown.
+ * your own document". Those useful business messages are preserved. Platform
+ * failures and unknown responses are translated instead, so infrastructure
+ * details such as an HTTP status or internal API address never reach the UI.
  */
 export class ApiError extends Error {
   constructor(
@@ -68,10 +68,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
   } catch {
-    throw new ApiError(
-      `Cannot reach the BioAssetPro API at ${API_URL}. Is it running?`,
-      0,
-    );
+    throw new ApiError(serviceUnavailableMessage(), 0);
   }
 
   if (response.status === 401 && redirectOnUnauthorised) {
@@ -105,7 +102,11 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   }
 
   if (!response.ok) {
-    throw new ApiError(messageFrom(detail, response.status), response.status, detail);
+    throw new ApiError(
+      messageFrom(detail, response.status),
+      response.status,
+      response.status >= 500 ? undefined : detail,
+    );
   }
 
   if (response.status === 204) return undefined as T;
@@ -122,15 +123,37 @@ async function safeJson(response: Response): Promise<unknown> {
   }
 }
 
-function messageFrom(detail: unknown, status: number): string {
-  if (status === 429) return 'Too many attempts. Wait a few minutes, then try again.';
+/**
+ * Translate an auth/server-action response without exposing proxy HTML,
+ * infrastructure status codes, or server error details to the interface.
+ * API validation and business-rule messages remain useful for client errors.
+ */
+export async function userFacingErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  return messageFrom(await safeJson(response), response.status, fallback);
+}
+
+function messageFrom(
+  detail: unknown,
+  status: number,
+  fallback = 'We could not complete that request. Please check your information and try again.',
+): string {
+  if (status === 408) return 'That took longer than expected. Please try again.';
+  if (status === 429) return 'This service is temporarily busy. Please wait a moment and try again.';
+  if (status >= 500) return serviceUnavailableMessage();
   if (detail && typeof detail === 'object' && 'message' in detail) {
     const message = (detail as { message: unknown }).message;
     // class-validator returns an array of messages, one per failed rule.
     if (Array.isArray(message)) return message.join(' ');
     if (typeof message === 'string') return message;
   }
-  return `The API returned ${status}.`;
+  return fallback;
+}
+
+function serviceUnavailableMessage(): string {
+  return 'BioAssetPro is temporarily unavailable. Please wait a moment and try again. If this continues, contact your administrator.';
 }
 
 /** POST that returns the error message rather than throwing — for form actions. */

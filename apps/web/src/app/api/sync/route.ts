@@ -90,9 +90,18 @@ export async function POST(request: Request) {
       cache: 'no-store',
     });
   } catch {
-    // The API is unreachable from the server. Worth retrying, so say so with a
-    // status the queue treats as temporary.
-    return NextResponse.json({ message: 'Could not reach the API.' }, { status: 503 });
+    // Keep the response retryable without exposing internal service details.
+    return NextResponse.json(
+      { message: 'BioAssetPro is temporarily unavailable.' },
+      { status: 503 },
+    );
+  }
+
+  if (response.status === 408 || response.status === 429 || response.status >= 500) {
+    return NextResponse.json(
+      { message: 'BioAssetPro is temporarily unavailable.' },
+      { status: response.status },
+    );
   }
 
   const text = await response.text();

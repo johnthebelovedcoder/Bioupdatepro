@@ -66,10 +66,19 @@ export async function GET(
       cache: 'no-store',
     });
   } catch {
-    return NextResponse.json({ message: 'Cannot reach the API.' }, { status: 502 });
+    return NextResponse.json(
+      { message: 'BioAssetPro is temporarily unavailable. Please try again in a moment.' },
+      { status: 503 },
+    );
   }
 
   if (!response.ok) {
+    if (response.status === 408 || response.status === 429 || response.status >= 500) {
+      return NextResponse.json(
+        { message: 'BioAssetPro is temporarily unavailable. Please try again in a moment.' },
+        { status: response.status },
+      );
+    }
     const detail = await response.json().catch(() => null);
     return NextResponse.json(
       { message: (detail as { message?: string } | null)?.message ?? 'Export refused.' },

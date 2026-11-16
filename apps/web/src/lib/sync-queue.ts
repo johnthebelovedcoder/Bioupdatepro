@@ -310,20 +310,24 @@ async function send(item: QueueItem): Promise<SendResult> {
   }
 
   if (response.status === 408 || response.status === 429 || response.status >= 500) {
-    return { ok: false, retryable: true, message: `Server returned ${response.status}` };
+    return {
+      ok: false,
+      retryable: true,
+      message: 'BioAssetPro is temporarily unavailable. This will be retried automatically.',
+    };
   }
 
   /*
    * Any other 4xx is the submission's own fault; sending it again unchanged
    * cannot fix it. The API's refusals are the most useful thing it produces —
    * "B-2026-007 already has a round recorded for 2026-08-14" tells the worker
-   * what happened, where a bare "Rejected by the server (422)" leaves them
-   * staring at a stuck item with nothing to act on.
+   * what happened, where an unhelpful generic refusal leaves them staring at a
+   * stuck item with nothing to act on.
    */
   return {
     ok: false,
     retryable: false,
-    message: (await messageFrom(response)) ?? `Rejected by the server (${response.status})`,
+    message: (await messageFrom(response)) ?? 'We could not complete this submission. Please review it and try again.',
   };
 }
 

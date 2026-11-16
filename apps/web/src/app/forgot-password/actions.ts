@@ -1,5 +1,7 @@
 'use server';
 
+import { userFacingErrorMessage } from '@/lib/api';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
 export interface ForgotPasswordState {
@@ -22,15 +24,26 @@ export async function requestPasswordReset(
   const email = String(formData.get('email') ?? '').trim();
   if (!email) return { submitted: false, error: 'Enter your email address.' };
 
+  let response: Response;
   try {
-    await fetch(`${API_URL}/auth/forgot-password`, {
+    response = await fetch(`${API_URL}/auth/forgot-password`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email }),
       cache: 'no-store',
     });
   } catch {
-    return { submitted: false, error: `Cannot reach the API at ${API_URL}. Is it running?` };
+    return {
+      submitted: false,
+      error: 'BioAssetPro could not be reached. Check your connection and try again.',
+    };
+  }
+
+  if (response.status === 408 || response.status === 429 || response.status >= 500) {
+    return {
+      submitted: false,
+      error: await userFacingErrorMessage(response, 'Please wait a moment and try again.'),
+    };
   }
 
   // Reached even if the API call above 404s or errors — the point of the

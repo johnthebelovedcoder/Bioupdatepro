@@ -1,6 +1,7 @@
 'use server';
 
 import { finishAuthentication, type AuthenticationResult } from '@/lib/auth-result';
+import { userFacingErrorMessage } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
@@ -48,16 +49,14 @@ export async function acceptInvitation(
       },
     );
   } catch {
-    return { error: `Cannot reach the API at ${API_URL}. Is it running?`, values: kept };
+    return {
+      error: 'BioAssetPro could not be reached. Check your connection and try again.',
+      values: kept,
+    };
   }
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
-    const message = Array.isArray(body?.message)
-      ? body.message.join(' ')
-      : typeof body?.message === 'string'
-        ? body.message
-        : 'That did not work. Please try again.';
+    const message = await userFacingErrorMessage(response, 'That did not work. Please try again.');
     return { error: message, values: kept };
   }
 
@@ -78,8 +77,10 @@ export async function describeInvitation(token: string): Promise<
       { cache: 'no-store' },
     );
     if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as { message?: string } | null;
-      return { ok: false, reason: body?.message ?? 'This invitation is not valid.' };
+      return {
+        ok: false,
+        reason: await userFacingErrorMessage(response, 'This invitation is not valid.'),
+      };
     }
     const data = (await response.json()) as {
       email: string;
@@ -89,6 +90,9 @@ export async function describeInvitation(token: string): Promise<
     };
     return { ok: true, ...data };
   } catch {
-    return { ok: false, reason: 'Cannot reach the server. Try again in a moment.' };
+    return {
+      ok: false,
+      reason: 'BioAssetPro could not be reached. Check your connection and try again.',
+    };
   }
 }

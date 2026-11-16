@@ -1,7 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, userFacingErrorMessage } from '@/lib/api';
 import {
   clearMfaChallenge,
   clearToken,
@@ -34,13 +34,13 @@ export async function verifyMfaLogin(
       cache: 'no-store',
     });
   } catch {
-    return { error: `Cannot reach the BioAssetPro API at ${API_URL}. Is it running?` };
+    return { error: 'BioAssetPro could not be reached. Check your connection and try again.' };
   }
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { message?: unknown } | null;
-    const message = typeof body?.message === 'string'
-      ? body.message
-      : 'That code was not accepted. Check it and try again.';
+    const message = await userFacingErrorMessage(
+      response,
+      'That code was not accepted. Check it and try again.',
+    );
     return { error: message };
   }
   const result = await response.json() as { accessToken: string; user: SessionUser };
